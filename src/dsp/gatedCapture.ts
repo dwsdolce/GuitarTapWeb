@@ -12,7 +12,7 @@ import { interpolateToBins, applyCalibration, type Calibration } from './calibra
 const CHUNK = 1024
 const LEVEL_CROSSING_CONFIRMATION_CHUNKS = 2
 
-const GATED_CAPTURE_DURATION = 0.5
+export const GATED_CAPTURE_DURATION = 0.5
 const GATED_FFT_WINDOW_DURATION = 0.4
 const PRE_ONSET_DURATION = 0.1
 const PRE_ROLL_DURATION = 0.2
@@ -243,6 +243,28 @@ export function gatedPeakAtCrossing(
     : magnitudesDb
   return findDominantPeak(mags, frequencies, search.minHz, search.maxHz, search.preferLowestSignificant)
 }
+
+/** Live material capture: align a pre-sliced ~500 ms buffer, gated FFT, dominant peak.
+ *  The buffer should hold ~0.2 s pre-roll + the tap (as the engine accumulates it). */
+export function gatedCaptureResult(
+  buffer: Samples,
+  sampleRate: number,
+  search: PhaseSearch,
+): { magnitudesDb: number[]; frequencies: number[]; peak: MaterialPeak | null } {
+  const windowSize = Math.round(sampleRate * GATED_FFT_WINDOW_DURATION)
+  const preOnset = Math.round(sampleRate * PRE_ONSET_DURATION)
+  const aligned = alignCaptureToOnset(buffer, windowSize, preOnset)
+  const { magnitudesDb, frequencies } = computeGatedFFT(aligned, sampleRate)
+  if (magnitudesDb.length === 0) return { magnitudesDb: [], frequencies: [], peak: null }
+  const mags = search.calibration
+    ? applyCalibration(magnitudesDb, interpolateToBins(search.calibration, frequencies))
+    : magnitudesDb
+  const peak = findDominantPeak(mags, frequencies, search.minHz, search.maxHz, search.preferLowestSignificant)
+  return { magnitudesDb: mags, frequencies, peak }
+}
+
+// Brace: single longitudinal tap. Search 100–1200 Hz (fL ≈ 500 Hz), strongest peak.
+export const BRACE_PHASE = { name: 'longitudinal', minHz: 100, maxHz: 1200, preferLowestSignificant: false } as const
 
 export interface GatedPlaybackOptions extends PhaseSearch {
   tapDetectionThreshold: number

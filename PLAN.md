@@ -89,6 +89,27 @@ Risk concentration is here. Until this matches, do not start Phase 3.
 - Microphone permission UX.
 - Install-as-PWA polish.
 
+### Phase 5 — Export, Play-File & remaining parity
+
+Collects the native features deferred past persistence (see PHASE4-PERSISTENCE.md
+"Out of scope"):
+
+- **Export**: spectrum PNG (off-screen canvas render); PDF report (single /
+  comparison / multi-tap); JSON export beyond `.guitartap`.
+- **Play-File**: load a WAV (+ optional calibration) through the live analysis
+  pipeline with no mic, as the desktop apps do — also handy for parity checks.
+- **Settings → Audio Input**: input-device picker (enumerate + switch, re-acquire
+  the engine) and UMIK-1 calibration import (currently placeholders).
+- **Spectrum**: draggable peak annotations (mode-colored badges, per-peak offsets)
+  + the context menu's "Reset Labels".
+- **Tap controls**: Pause/Resume and Cancel buttons (Cancel aborts a multi-tap or
+  material sequence).
+
+### Beyond (optional / future)
+
+- Cloud sync; File System Access folder-based sharing (Chromium-only); additional
+  platform/responsive polish.
+
 ## Key Technical Risks
 
 1. **Sample rate is more abstracted than in Swift/Python.** In Swift and
