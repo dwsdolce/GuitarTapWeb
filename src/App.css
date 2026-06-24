@@ -776,6 +776,87 @@
   background: #3bbf63;
 }
 
+/* ── Save sheet + Measurements library ────────────────────── */
+.save-modal {
+  max-width: 460px;
+}
+.set-field.col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+}
+.set-field textarea,
+.meas-row textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  background: #11161d;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+}
+.measurements-modal {
+  max-width: 560px;
+}
+.meas-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.meas-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #11161d;
+}
+.meas-row.editing {
+  flex-direction: column;
+  align-items: stretch;
+}
+.meas-row.editing input,
+.meas-row.editing textarea {
+  width: 100%;
+  font: inherit;
+  background: #0e1116;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+}
+.meas-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.meas-name {
+  font-weight: 600;
+}
+.meas-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.meas-notes {
+  font-size: 0.82rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meas-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
 @media (max-width: 820px) {
   .main {
     flex-direction: column;

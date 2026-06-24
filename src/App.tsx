@@ -5,7 +5,12 @@ import { ThresholdMeter } from './components/ThresholdMeter'
 import { PeakCard } from './components/PeakCard'
 import { SettingsPanel } from './components/SettingsPanel'
 import { MetricsPanel, type Metrics } from './components/MetricsPanel'
+import { SaveSheet } from './components/SaveSheet'
+import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
+import { buildGuitarMeasurement, measurementToLive } from './measurement/fromLive'
+import { saveMeasurement } from './measurement/store'
+import type { TapToneMeasurementModel } from './measurement'
 import { MODE_COLOR, MODE_DISPLAY_NAME } from './components/modeColors'
 import { GUITAR_FFT_SIZE, type Spectrum } from './dsp/guitarFFT'
 import { findPeaks, type Peak } from './dsp/peaks'
@@ -96,6 +101,8 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [showSettings, setShowSettings] = useState(false)
   const [showMetrics, setShowMetrics] = useState(false)
+  const [showSave, setShowSave] = useState(false)
+  const [showMeasurements, setShowMeasurements] = useState(false)
   // Auto-dB is session-only (Swift keeps isAutoScaleEnabled as transient @State);
   // annotation visibility persists via settings.
   const [autoDb, setAutoDb] = useState(false)
@@ -125,12 +132,28 @@ export default function App() {
   const tapThresholdRef = useRef(settings.tapDetectionThreshold)
   tapThresholdRef.current = settings.tapDetectionThreshold
 
+  // Loading a saved measurement sets the type, spectrum, peaks, and selection together;
+  // these refs suppress the one-shot "reset on change" effects so the restore isn't clobbered.
+  const skipNextTypeResetRef = useRef(false)
+  const loadingRef = useRef(false)
+  // Peaks from a loaded measurement are authoritative: while set, Peak Min only FILTERS
+  // them by magnitude — findPeaks is never re-run on the loaded spectrum (matches Swift
+  // recalculateFrozenPeaksIfNeeded / Python recalculate_frozen_peaks_if_needed). Cleared
+  // on a fresh live capture / New Tap / measurement-type change, reverting to findPeaks.
+  const [loadedPeaks, setLoadedPeaks] = useState<Peak[] | null>(null)
+
   const updateSettings = useCallback((patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch })), [])
   useEffect(() => saveSettings(settings), [settings])
   // Switching measurement type resets the current result (mirrors the native
   // measurementChanged reset across the guitar↔material boundary) and arms/disarms
-  // the always-on guitar detector accordingly.
+  // the always-on guitar detector accordingly. Skipped while loading a measurement,
+  // which sets the type and the restored result in the same commit.
   useEffect(() => {
+    if (skipNextTypeResetRef.current) {
+      skipNextTypeResetRef.current = false
+      return
+    }
+    setLoadedPeaks(null)
     setCaptured(null)
     setMatPhase('notStarted')
     setMatPeaks({ longitudinal: null, cross: null, flc: null })
@@ -149,7 +172,10 @@ export default function App() {
     const engine = new AudioEngine({
       onLevel: setLevel,
       onSpectrum: setLiveSpectrum,
-      onCapture: setCaptured,
+      onCapture: (s) => {
+        setLoadedPeaks(null) // a fresh capture supersedes any loaded measurement
+        setCaptured(s)
+      },
       onState: setEngineState,
       onClipping: setClipping,
       onProgress: (collected, total) => setProgress({ collected, total }),
@@ -196,6 +222,7 @@ export default function App() {
   }, [start])
 
   const newTap = useCallback(() => {
+    setLoadedPeaks(null)
     setCaptured(null)
     engineRef.current?.arm()
   }, [])
@@ -257,17 +284,22 @@ export default function App() {
   // Lock the stepper while a tap is being captured or a multi-tap sequence is underway.
   const tapsLocked = engineState === 'capturing' || (engineState === 'listening' && progress.collected > 0)
 
-  // Re-analyze the frozen spectrum live as Peak Min / guitar type change
-  // (matching GuitarTap's guitar re-analysis on threshold change).
+  // Live-tap path: re-analyze the frozen spectrum as Peak Min / guitar type change.
+  // Loaded-measurement path: the saved peaks are authoritative — only filter them by
+  // magnitude, never re-run findPeaks on the loaded spectrum (the spectrum is stored
+  // for display only and may not reproduce the saved peaks). Mirrors Swift/Python
+  // recalculateFrozenPeaksIfNeeded.
   const peaks = useMemo(() => {
-    if (!captured || material) return []
+    if (material) return []
+    if (loadedPeaks) return loadedPeaks.filter((p) => p.magnitude >= peakMin)
+    if (!captured) return []
     return findPeaks(captured.magnitudesDb, captured.frequencies, {
       guitarType,
       minHz: analysisMinHz,
       maxHz: analysisMaxHz,
       peakMinThreshold: peakMin,
     })
-  }, [captured, material, guitarType, analysisMinHz, analysisMaxHz, peakMin])
+  }, [captured, material, loadedPeaks, guitarType, analysisMinHz, analysisMaxHz, peakMin])
 
   const sortedPeaks = useMemo(() => [...peaks].sort((a, b) => a.frequency - b.frequency), [peaks])
   const modeByPeak = useMemo(() => classifyAll(peaks, guitarType), [peaks, guitarType])
@@ -296,7 +328,13 @@ export default function App() {
   const [userModified, setUserModified] = useState(false)
   const [overrides, setOverrides] = useState<Map<string, string>>(new Map())
 
+  // A fresh capture clears the user's selection/overrides. Loading a measurement sets
+  // `loadingRef` so its restored selection/overrides survive this reset.
   useEffect(() => {
+    if (loadingRef.current) {
+      loadingRef.current = false
+      return
+    }
     setUserModified(false)
     setOverrides(new Map())
   }, [captured])
@@ -507,6 +545,52 @@ export default function App() {
     }
   }, [displaySpectrum, binHz, material, captured, sampleRate, engineMetrics, running])
 
+  // ── Library (Phase 4b): save the frozen guitar result, load one back in ───
+  const onSaveMeasurement = useCallback(
+    (name: string, notes: string) => {
+      if (!captured) return
+      void saveMeasurement(
+        buildGuitarMeasurement({
+          name,
+          notes,
+          spectrum: captured,
+          peaks,
+          modeByPeak,
+          selectedIds,
+          overridesByFreq: overrides,
+          view,
+          settings,
+          numberOfTaps,
+          sampleRate,
+          deviceLabel,
+        }),
+      )
+    },
+    [captured, peaks, modeByPeak, selectedIds, overrides, view, settings, numberOfTaps, sampleRate, deviceLabel],
+  )
+
+  const onLoadMeasurement = useCallback(
+    (m: TapToneMeasurementModel) => {
+      let live
+      try {
+        live = measurementToLive(m)
+      } catch {
+        return // not a guitar measurement (no snapshot) — material load is a follow-up
+      }
+      loadingRef.current = true
+      if (live.measurementType !== settings.measurementType) skipNextTypeResetRef.current = true
+      updateSettings(live.settingsPatch)
+      setLoadedPeaks(live.loadedPeaks) // authoritative saved peaks (Peak Min filters them)
+      setCaptured(live.captured)
+      setView(live.view)
+      setOverrides(live.overridesByFreq)
+      setSelectedIds(live.selectedIndices) // saved selection, 1:1 with the injected peaks
+      setUserModified(true)
+      setShowMeasurements(false)
+    },
+    [settings.measurementType, updateSettings],
+  )
+
   return (
     <div className="app">
       {/* Title bar = app title (left) + the view/app toolbar buttons packed right,
@@ -534,6 +618,17 @@ export default function App() {
             title={`Annotation visibility: ${ANNOTATION_LABEL[annotationMode]} (click to cycle)`}
           >
             {annotationMode === 'all' ? '👁' : annotationMode === 'selected' ? '★' : '🚫'} Annotations
+          </button>
+          <button
+            className="btn"
+            onClick={() => setShowSave(true)}
+            disabled={!captured || material}
+            title={material ? 'Saving material measurements is coming soon' : 'Save measurement to the library'}
+          >
+            ⤓ Save
+          </button>
+          <button className="btn" onClick={() => setShowMeasurements(true)} title="Measurements library">
+            Measurements
           </button>
           <button className="btn" onClick={() => setShowMetrics(true)} disabled={!running} title="Analysis metrics">
             Metrics
@@ -759,6 +854,18 @@ export default function App() {
       )}
 
       {showMetrics && <MetricsPanel metrics={metrics} onClose={() => setShowMetrics(false)} />}
+
+      {showSave && (
+        <SaveSheet
+          defaultName={MEASUREMENT_SHORT_NAME[settings.measurementType]}
+          onSave={onSaveMeasurement}
+          onClose={() => setShowSave(false)}
+        />
+      )}
+
+      {showMeasurements && (
+        <MeasurementsPanel onClose={() => setShowMeasurements(false)} onLoad={onLoadMeasurement} />
+      )}
     </div>
   )
 }

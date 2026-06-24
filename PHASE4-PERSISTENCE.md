@@ -51,18 +51,73 @@ matching the **canonical Swift `JSONEncoder` output** (Python already mirrors it
 
 ## Sub-phases (each independently shippable)
 
-### 4a — `.guitartap` model + serialization parity
+### 4a — `.guitartap` model + serialization parity ✅ DONE
 TS model + encode/decode; round-trip test vs the vendored fixture. No UI yet. The model
 covers all measurement kinds — including `comparisonEntries` (comparison measurements)
 and `tapEntries` (multi-tap components) — so 4d needs no new serialization.
 
-### 4b — Library: save, list, load
+Landed in `src/measurement/` (`types`, `floatJson`, `base64`, `decode`, `encode`, barrel
+`index`). Test `test/g5-measurement-codable.test.ts` (12 tests) mirrors the Swift
+`MeasurementCodableTests` / Python `test_measurement_codable`.
+
+**Design (agreed with the user):** the **reader/writer code is the definition**, not any
+accumulated file. **Writer = minimal canonical** (current Swift `encode(to:)` field set —
+`peakMinThreshold` never `peakThreshold`, `sampleRate` only when known, convenience
+`measurementType`/`guitarType` + per-peak `modeLabel`); **reader = tolerant** of every
+legacy shape. The luthier-facing spec lives in the Swift user manual **Appendix B**
+(`app-b-file-formats.md`), expanded with: float32-shortest number precision + the
+double-precision exceptions, `modeLabel`, and a comprehensive "Legacy compatibility
+(reader-only)" table. The vendored Contreras file is an OLD save (legacy `peakThreshold`,
+extra `hysteresisMargin`/`maxPeaks`, no `sampleRate`) → it's the legacy-decode regression,
+not a spec.
+
+**Bar = semantic round-trip, not byte-identity** (PLAN.md). Both shipping writers (Swift
+`JSONEncoder [.prettyPrinted,.sortedKeys]` + `.iso8601`; Python `json.dump(sort_keys=True,
+indent=2)`) agree on keys+values but differ in whitespace — so even Swift↔Python aren't
+byte-identical. The two encoding subtleties reproduce exactly in JS: float32-shortest text
+via `Math.fround` + shortest-precision search (integers without `.0`), and base64 LE
+float32 blobs round-trip byte-for-byte.
+
+### 4b — Library: save, list, load ✅ DONE (guitar)
 - **Save sheet** (name + notes) → build a measurement from the current frozen result
   (peaks, snapshot, settings provenance incl. sampleRate) → IndexedDB.
 - **Measurements list** (panel/route): rows from IndexedDB; **Load into view** (restores
   frozen spectrum + peaks + ranges), **Rename / edit notes**, **Delete** (confirm).
 - Loading restores the frozen state (mirrors Swift `loadMeasurement`), including the
   spectrum-blank-safe path we fixed.
+
+Landed: `src/measurement/store.ts` (IndexedDB CRUD, one store keyed by `id`),
+`src/measurement/fromLive.ts` (`buildGuitarMeasurement` live→model + `measurementToLive`
+model→live), `components/SaveSheet.tsx`, `components/MeasurementsPanel.tsx`; App. B toolbar
+gained **Save** + **Measurements**. Test `test/g6-measurement-bridge.test.ts` (3 tests)
+pins the bridge (build → serialize → parse → restore). 59 web tests green.
+
+**Bridge design (same algorithm as Swift/Python — verified against the source):** live
+peaks have numeric ids and overrides keyed by `frequency.toFixed(1)`; the model uses UUID
+peaks and UUID-keyed maps. Save mints a UUID per peak.
+
+**Load injects the saved peaks; it does NOT re-derive.** This matches Swift
+`loadMeasurement` (`currentPeaks = measurement.peaks`, guarded by `isLoadingMeasurement`)
+and `recalculateFrozenPeaksIfNeeded` / Python `recalculate_frozen_peaks_if_needed`: for a
+loaded measurement the saved peaks are authoritative, and **Peak Min only filters them by
+magnitude** — `findPeaks` is never re-run on the loaded spectrum (the spectrum is stored
+for display and may not reproduce the saved peaks; the analysis range isn't even stored).
+The web holds `loadedPeaks` (saved peaks as `Peak[]` with stable index ids); `peaks =
+loadedPeaks ? loadedPeaks.filter(m ≥ peakMin) : findPeaks(...)`. Selection restores 1:1
+from `selectedPeakIDs` (→ indices) and survives filtering because ids are stable;
+overrides restore by frequency. `loadedPeaks` clears on a fresh capture / New Tap /
+type change, reverting to the live `findPeaks` path. Two one-shot guards
+(`skipNextTypeResetRef`, `loadingRef`) stop the type-change and fresh-capture reset
+effects from clobbering a restore.
+
+> Earlier this re-derived peaks via `findPeaks` on load — a divergence from native that
+> could show a different peak set than was saved (different analysis range / FFT session).
+> Corrected to the inject-and-filter algorithm above.
+
+**Scope:** guitar measurements only. Save is disabled in material mode (tooltip), and
+`measurementToLive` throws on a snapshot-less record — **material save/load is the 4b
+follow-up** (needs the 3 per-phase snapshots + phase-machine restore). Comparison +
+multi-tap views are 4d.
 
 ### 4c — Import / Export + load-time warning
 - **Export**: download the measurement(s) as `.guitartap` (and copy-JSON).
