@@ -70,8 +70,10 @@ tablet **and** phone (desktop > tablet > phone), so every rule below must work o
   picks the region exactly as the pointer does (and exactly as iPad/iPhone already do):
   **plot = both axes, x-axis gutter = frequency, y-axis gutter = magnitude.** (Touch *is*
   region-aware — a touch has a location like a pointer.)
-- **Chart options: a "⋯" button in the chart's upper-right** opens a **"Chart Options"**
-  popover, mirroring iPhone/iPad exactly:
+- **Chart upper-right = two icons: "?" (help, kept) and "⋯" (Chart Options).** Keep the
+  existing "?" help, add the "⋯" menu next to it, and on desktop **also keep the
+  right-click (RMB) menu** as a shortcut to the same options. The "⋯" opens a **"Chart
+  Options"** popover, mirroring iPhone/iPad exactly:
   - *Reset to Saved* → Reset Both Axes · Reset Frequency Axis · Reset Magnitude Axis
   - *Reset to Defaults* → Reset Both Axes · Reset Frequency Axis · Reset Magnitude Axis
   - *Reset Labels* (only when there are dragged labels to reset — Phase-5 draggable
@@ -80,8 +82,13 @@ tablet **and** phone (desktop > tablet > phone), so every rule below must work o
   Right-click on the plot opens the same menu on desktop as a shortcut. There is **no**
   separate "controls help" dialog — mobile has none, and the gestures/wheel just work.
 
-## Implementation debt
+## Implementation status
 
-- The current `SpectrumChart` predates these guidelines: wheel-zoom + a **right-click-only**
-  reset menu, no visible "⋯" affordance, no touch gestures. Bring it to the design above
-  (add the "⋯" Chart Options menu + touch pinch/drag; keep the wheel) when scheduled.
+- `SpectrumChart` (web) now matches the design above: wheel-zoom + **touch pinch-to-zoom
+  and drag-pan** (region-aware by location), the **"⋯" Chart Options** menu and **"?"**
+  help as the two upper-right icons, and right-click still opens the same reset menu.
+- The **Python** (`FftCanvas`) and **Swift** (`SpectrumView`) charts were updated to add
+  the same upper-right **"⋯"** button (opening their existing reset menu) so all three
+  apps present the identical two-icon layout. Swift made `showingChartOptions` /
+  `showingControlsHelp` unconditional and un-gated `ChartOptionsSheet` (both icons now on
+  macOS + iOS); it's a post-approval-queue change pending a user Xcode build.

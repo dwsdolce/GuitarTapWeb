@@ -71,7 +71,9 @@ const CONTROLS: [string, string][] = [
   ['Drag over plot', 'Pan both axes'],
   ['Drag over frequency axis', 'Pan frequency only'],
   ['Drag over magnitude axis', 'Pan magnitude only'],
-  ['Right-click', 'Reset axes'],
+  ['Pinch (touch)', 'Zoom — both axes, or by region'],
+  ['Drag (touch)', 'Pan — both axes, or by region'],
+  ['⋯ menu / right-click', 'Reset axes (Chart Options)'],
 ]
 
 export function SpectrumChart({
@@ -87,7 +89,9 @@ export function SpectrumChart({
 }: SpectrumChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [showHelp, setShowHelp] = useState(false)
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  // Reset menu: anchored at the cursor (right-click) via `left`, or under the ⋯ button
+  // (top-right) via `right`.
+  const [menu, setMenu] = useState<{ left?: number; right?: number; top: number } | null>(null)
 
   const viewRef = useRef<ChartView>({ minHz, maxHz, minDb, maxDb })
   viewRef.current = { minHz, maxHz, minDb, maxDb }
@@ -353,21 +357,55 @@ export function SpectrumChart({
       }
     }
 
+    // Single-pointer drag-pan (mouse or one finger), region-aware.
     let dragRegion: Region = 'outside'
     let sx = 0
     let sy = 0
     let start: ChartView | null = null
+    // Two-finger pinch-zoom (touch). The pinch midpoint picks the region, exactly like
+    // the wheel/pointer; zoom is applied from the start view by the cumulative scale.
+    const pointers = new Map<number, { x: number; y: number }>()
+    let pinch: { startDist: number; aHz: number; aDb: number; region: Region; view: ChartView } | null = null
+    const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
+
     const onDown = (e: PointerEvent) => {
       if (!onViewChangeRef.current || logFreq || e.button !== 0) return
       const rect = canvas.getBoundingClientRect()
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      canvas.setPointerCapture(e.pointerId)
+      if (pointers.size >= 2) {
+        // Begin pinch; cancel any single-finger drag.
+        start = null
+        const [p1, p2] = [...pointers.values()]
+        const mx = (p1!.x + p2!.x) / 2 - rect.left
+        const my = (p1!.y + p2!.y) / 2 - rect.top
+        const v = viewRef.current
+        const { aHz, aDb } = dataAt(mx, my, rect, v)
+        pinch = { startDist: dist(p1!, p2!), aHz, aDb, region: regionAt(mx, my, rect), view: { ...v } }
+        return
+      }
       dragRegion = regionAt(e.clientX - rect.left, e.clientY - rect.top, rect)
-      if (dragRegion === 'outside') return
+      if (dragRegion === 'outside') {
+        start = null
+        return
+      }
       sx = e.clientX
       sy = e.clientY
       start = { ...viewRef.current }
-      canvas.setPointerCapture(e.pointerId)
     }
     const onMove = (e: PointerEvent) => {
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (pinch && pointers.size >= 2 && pinch.startDist > 0) {
+        const [p1, p2] = [...pointers.values()]
+        const scale = Math.min(8, Math.max(0.125, dist(p1!, p2!) / pinch.startDist)) // fingers apart → zoom in
+        const v = pinch.view
+        let out: ChartView = { ...v }
+        if (pinch.region === 'xAxis') out = { ...out, ...zoomFreq(v, pinch.aHz, scale) }
+        else if (pinch.region === 'yAxis') out = { ...out, ...zoomDb(v, pinch.aDb, scale) }
+        else out = { ...out, ...zoomFreq(v, pinch.aHz, scale), ...zoomDb(v, pinch.aDb, scale) } // plot/outside → both
+        emit(out)
+        return
+      }
       if (!start) return
       const rect = canvas.getBoundingClientRect()
       const plotW = rect.width - LEFT_GUTTER
@@ -380,7 +418,9 @@ export function SpectrumChart({
       emit(out)
     }
     const onUp = (e: PointerEvent) => {
-      start = null
+      pointers.delete(e.pointerId)
+      if (pointers.size < 2) pinch = null
+      if (pointers.size === 0) start = null
       try {
         canvas.releasePointerCapture(e.pointerId)
       } catch {
@@ -420,10 +460,26 @@ export function SpectrumChart({
           if (!onReset) return
           e.preventDefault()
           const rect = e.currentTarget.getBoundingClientRect()
-          setMenu({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+          setMenu({ left: e.clientX - rect.left, top: e.clientY - rect.top })
           setShowHelp(false)
         }}
       />
+
+      {/* Two upper-right icons: ⋯ Chart Options and ? help (right-click still opens the
+          same reset menu). Mirrors the iPad chart. */}
+      {onReset && (
+        <button
+          className="chart-menu-btn"
+          title="Chart options"
+          aria-haspopup="menu"
+          onClick={() => {
+            setShowHelp(false)
+            setMenu((m) => (m ? null : { right: 8, top: 32 }))
+          }}
+        >
+          ⋯
+        </button>
+      )}
 
       <button className="chart-help" title="Zoom & pan controls" onClick={() => setShowHelp((s) => !s)}>
         ?
@@ -447,7 +503,8 @@ export function SpectrumChart({
       {menu && (
         <>
           <div className="chart-overlay-backdrop" onClick={closeOverlays} onContextMenu={(e) => { e.preventDefault(); closeOverlays() }} />
-          <div className="chart-ctx" style={{ left: menu.x, top: menu.y }}>
+          <div className="chart-ctx" style={{ left: menu.left, right: menu.right, top: menu.top }}>
+            <div className="ctx-title">Chart Options</div>
             <div className="ctx-header">Reset to Saved</div>
             <button onClick={() => doReset('saved', 'both')}>Both Axes</button>
             <button onClick={() => doReset('saved', 'freq')}>Frequency Axis</button>

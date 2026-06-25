@@ -54,3 +54,8 @@ export function getMeasurement(id: string): Promise<TapToneMeasurementModel | un
 export function deleteMeasurement(id: string): Promise<void> {
   return tx('readwrite', (s) => s.delete(id)).then(() => undefined)
 }
+
+/** Remove every saved measurement (the "Delete All" action). */
+export function clearMeasurements(): Promise<void> {
+  return tx('readwrite', (s) => s.clear()).then(() => undefined)
+}

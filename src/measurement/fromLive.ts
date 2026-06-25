@@ -5,7 +5,8 @@
 
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { Peak } from '../dsp/peaks'
-import type { ResolvedMode } from '../dsp/classify'
+import { classifyAll, type ResolvedMode } from '../dsp/classify'
+import type { GuitarTypeName } from '../dsp/guitarModes'
 import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME } from '../components/modeColors'
 import type { ChartView } from '../components/SpectrumChart'
@@ -22,6 +23,13 @@ const GUITAR_TYPE_RAW: Record<string, string> = {
   acoustic: 'Acoustic',
   classical: 'Classical',
   flamenco: 'Flamenco',
+}
+
+const GUITAR_TYPE_NAME_FROM_RAW: Record<string, GuitarTypeName> = {
+  Generic: 'generic',
+  Acoustic: 'acoustic',
+  Classical: 'classical',
+  Flamenco: 'flamenco',
 }
 
 const uuid = (): string => crypto.randomUUID().toUpperCase()
@@ -119,6 +127,34 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
 const MEASUREMENT_TYPE_FROM_RAW: Record<string, MeasurementType> = Object.fromEntries(
   Object.entries(MEASUREMENT_FULL_NAME).map(([k, v]) => [v, k as MeasurementType]),
 )
+
+/** Top-to-Air frequency ratio for a saved guitar measurement, mirroring Swift/Python
+ *  `tapToneRatio`: classify the selected peaks (all peaks if none recorded) and divide the
+ *  first Top frequency by the first Air frequency. Null when either mode is absent. */
+export function measurementTapToneRatio(m: TapToneMeasurementModel): number | null {
+  const snap = m.spectrumSnapshot
+  if (!snap) return null
+  const gt = GUITAR_TYPE_NAME_FROM_RAW[snap.guitarType ?? ''] ?? 'generic'
+  const selected = m.selectedPeakIDs?.length ? new Set(m.selectedPeakIDs) : null
+  const src = selected ? m.peaks.filter((p) => selected.has(p.id)) : m.peaks
+  if (!src.length) return null
+  const adapter: Peak[] = src.map((p, i) => ({
+    id: i,
+    frequency: p.frequency,
+    magnitude: p.magnitude,
+    quality: p.quality,
+    bandwidth: p.bandwidth,
+  }))
+  const modeMap = classifyAll(adapter, gt)
+  let air: number | null = null
+  let top: number | null = null
+  src.forEach((p, i) => {
+    const mode = modeMap.get(i)
+    if (mode === 'air' && air == null) air = p.frequency
+    if (mode === 'top' && top == null) top = p.frequency
+  })
+  return air != null && top != null && air > 0 ? top / air : null
+}
 
 export interface LiveRestore {
   measurementType: MeasurementType
