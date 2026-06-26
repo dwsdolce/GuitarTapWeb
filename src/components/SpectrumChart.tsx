@@ -33,9 +33,21 @@ export interface ChartView {
 export type ResetTarget = 'saved' | 'defaults'
 export type ResetAxis = 'both' | 'freq' | 'mag'
 
+/** A colored overlay curve (plate/brace per-phase spectra, later comparison curves). */
+export interface SpectrumOverlay {
+  magnitudesDb: number[]
+  frequencies: number[]
+  color: string
+  label: string
+}
+
 export interface SpectrumChartProps {
   spectrum: Spectrum | null
+  /** Title shown top-left, e.g. "FFT Peaks — New" (mirrors Swift/Python chartTitle). */
+  title?: string
   markers?: PeakMarker[]
+  /** Extra colored curves drawn over the plot, with a legend (material L/C/FLC). */
+  overlays?: SpectrumOverlay[]
   logFreq?: boolean
   minHz?: number
   maxHz?: number
@@ -78,7 +90,9 @@ const CONTROLS: [string, string][] = [
 
 export function SpectrumChart({
   spectrum,
+  title,
   markers = [],
+  overlays = [],
   logFreq = false,
   minHz = 30,
   maxHz = 2000,
@@ -186,6 +200,28 @@ export function SpectrumChart({
       ctx.stroke()
     }
 
+    // Colored overlay curves (material per-phase L/C/FLC; later comparison curves).
+    for (const ov of overlays) {
+      ctx.beginPath()
+      ctx.strokeStyle = ov.color
+      ctx.lineWidth = 1.5
+      let started = false
+      for (let i = 0; i < ov.frequencies.length; i++) {
+        const f = ov.frequencies[i]!
+        if (f < minHz) continue
+        if (f > maxHz) break
+        const x = xFor(f)
+        const y = yFor(ov.magnitudesDb[i]!)
+        if (!started) {
+          ctx.moveTo(x, y)
+          started = true
+        } else {
+          ctx.lineTo(x, y)
+        }
+      }
+      ctx.stroke()
+    }
+
     // Pass 1 — dots for every peak in range, always (independent of annotation mode).
     for (const m of markers) {
       if (m.frequency < minHz || m.frequency > maxHz) continue
@@ -262,7 +298,7 @@ export function SpectrumChart({
     }
     ctx.textBaseline = 'alphabetic'
     ctx.restore()
-  }, [spectrum, markers, logFreq, minHz, maxHz, minDb, maxDb])
+  }, [spectrum, markers, overlays, logFreq, minHz, maxHz, minDb, maxDb])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
   useEffect(() => {
@@ -453,6 +489,7 @@ export function SpectrumChart({
 
   return (
     <div className="chart-host">
+      {title && <div className="chart-title">{title}</div>}
       <canvas
         ref={canvasRef}
         className="spectrum-canvas"
@@ -464,6 +501,17 @@ export function SpectrumChart({
           setShowHelp(false)
         }}
       />
+
+      {overlays.length > 0 && (
+        <div className="chart-legend">
+          {overlays.map((ov) => (
+            <span key={ov.label} className="legend-item">
+              <span className="legend-swatch" style={{ background: ov.color }} />
+              {ov.label}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Two upper-right icons: ⋯ Chart Options and ? help (right-click still opens the
           same reset menu). Mirrors the iPad chart. */}

@@ -83,6 +83,25 @@ export function guitarModePeaks(
   }
 }
 
+/** Resolve Air/Top/Back mode peaks from an already-computed spectrum (no FFT).
+ *  Used for multi-tap comparison, where each tap's peaks are (re)found at the
+ *  current Peak Min — mirrors Swift TapEntry recomputing peaks on threshold change. */
+export function modePeaksFromSpectrum(spectrum: Spectrum, opts: GuitarOptions): GuitarModePeaks {
+  const guitarType = opts.guitarType ?? 'generic'
+  const peaks = findPeaks(spectrum.magnitudesDb, spectrum.frequencies, {
+    guitarType,
+    minHz: opts.minHz ?? 30,
+    maxHz: opts.maxHz ?? 2000,
+    peakMinThreshold: opts.peakMinThreshold,
+  })
+  return {
+    air: getPeak(peaks, 'air', guitarType),
+    top: getPeak(peaks, 'top', guitarType),
+    back: getPeak(peaks, 'back', guitarType),
+    peaks,
+  }
+}
+
 const PRE_ROLL_DURATION = 0.2
 
 /** Power-domain average of dB spectra: 10·log10(mean(10^(dB/10))). */

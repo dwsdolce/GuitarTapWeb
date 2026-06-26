@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, type EngineState, type EngineMetrics } from './audio/engine'
-import { SpectrumChart, type PeakMarker, type ChartView, type ResetTarget, type ResetAxis } from './components/SpectrumChart'
+import { SpectrumChart, type PeakMarker, type ChartView, type ResetTarget, type ResetAxis, type SpectrumOverlay } from './components/SpectrumChart'
 import { ThresholdMeter } from './components/ThresholdMeter'
 import { PeakCard } from './components/PeakCard'
 import { SettingsPanel } from './components/SettingsPanel'
@@ -8,11 +8,30 @@ import { MetricsPanel, type Metrics } from './components/MetricsPanel'
 import { SaveSheet } from './components/SaveSheet'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
-import { buildGuitarMeasurement, measurementToLive } from './measurement/fromLive'
+import {
+  buildGuitarMeasurement,
+  buildMaterialMeasurement,
+  buildComparisonEntries,
+  buildComparisonMeasurement,
+  comparisonEntryModeFreqs,
+  comparisonAxisRange,
+  colorComponentsToCss,
+  measurementToLive,
+  measurementToLiveMaterial,
+  measurementWarning,
+} from './measurement/fromLive'
+import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { saveMeasurement } from './measurement/store'
-import type { TapToneMeasurementModel } from './measurement'
+import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
 import { MODE_COLOR, MODE_DISPLAY_NAME } from './components/modeColors'
-import { GUITAR_FFT_SIZE, type Spectrum } from './dsp/guitarFFT'
+import { GUITAR_FFT_SIZE, modePeaksFromSpectrum, type Spectrum } from './dsp/guitarFFT'
+import {
+  MultiTapComparisonResultsView,
+  MULTITAP_PALETTE,
+  MULTITAP_AVG_COLOR,
+  type MultiTapRow,
+  type TapModeFreqs,
+} from './components/MultiTapComparisonResultsView'
 import { findPeaks, type Peak } from './dsp/peaks'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from './dsp/classify'
 import { PLATE_PHASES, BRACE_PHASE } from './dsp/gatedCapture'
@@ -32,6 +51,14 @@ import {
 import './App.css'
 
 const pitch = new Pitch(440)
+
+// Per-phase material spectra, overlaid on the chart (mirrors Swift's materialSpectra:
+// Longitudinal always; Cross + optional FLC for plate). Colors match the markers.
+type MatSpectra = { longitudinal: Spectrum | null; cross: Spectrum | null; flc: Spectrum | null }
+const EMPTY_MAT_SPECTRA: MatSpectra = { longitudinal: null, cross: null, flc: null }
+const MAT_L_COLOR = '#4ea1ff'
+const MAT_C_COLOR = '#f0a03a'
+const MAT_FLC_COLOR = '#b07ad8'
 
 const fmtProc = (b: unknown) => (b === undefined ? '?' : b ? 'ON' : 'off')
 
@@ -97,12 +124,21 @@ export default function App() {
   const [numberOfTaps, setNumberOfTaps] = useState(1)
   const [clipping, setClipping] = useState(false)
   const [progress, setProgress] = useState({ collected: 0, total: 1 })
+  // Per-tap spectra from a multi-tap capture (or loaded measurement) + the comparison toggle.
+  const [tapSpectra, setTapSpectra] = useState<Spectrum[]>([])
+  const [showMultiTap, setShowMultiTap] = useState(false)
+  // Active comparison overlay (created from a selection or loaded). Non-null = comparison mode.
+  const [comparison, setComparison] = useState<ComparisonEntryModel[] | null>(null)
 
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [showSettings, setShowSettings] = useState(false)
   const [showMetrics, setShowMetrics] = useState(false)
   const [showSave, setShowSave] = useState(false)
   const [showMeasurements, setShowMeasurements] = useState(false)
+  // Load-time provenance warning for a loaded measurement (mic/calibration/sample rate).
+  const [loadWarning, setLoadWarning] = useState<string | null>(null)
+  // Name of the currently loaded measurement → chart title ("FFT Peaks — {name}", else "New").
+  const [loadedName, setLoadedName] = useState<string | null>(null)
   // Auto-dB is session-only (Swift keeps isAutoScaleEnabled as transient @State);
   // annotation visibility persists via settings.
   const [autoDb, setAutoDb] = useState(false)
@@ -119,7 +155,7 @@ export default function App() {
   // and measurement type are mirrored into refs for the onMaterialCapture handler.
   const [matPhase, setMatPhaseState] = useState<MatPhase>('notStarted')
   const [matPeaks, setMatPeaks] = useState<MaterialPeaks>({ longitudinal: null, cross: null, flc: null })
-  const [matSpectrum, setMatSpectrum] = useState<Spectrum | null>(null)
+  const [matSpectra, setMatSpectra] = useState<MatSpectra>(EMPTY_MAT_SPECTRA)
   const matPhaseRef = useRef<MatPhase>('notStarted')
   const setMatPhase = useCallback((p: MatPhase) => {
     matPhaseRef.current = p
@@ -136,6 +172,9 @@ export default function App() {
   // these refs suppress the one-shot "reset on change" effects so the restore isn't clobbered.
   const skipNextTypeResetRef = useRef(false)
   const loadingRef = useRef(false)
+  // While a comparison is frozen, a tap-capture already in flight (started before Compare)
+  // must not clobber it — onCapture checks this ref. Kept in sync with `comparison` below.
+  const comparisonRef = useRef(false)
   // Peaks from a loaded measurement are authoritative: while set, Peak Min only FILTERS
   // them by magnitude — findPeaks is never re-run on the loaded spectrum (matches Swift
   // recalculateFrozenPeaksIfNeeded / Python recalculate_frozen_peaks_if_needed). Cleared
@@ -144,6 +183,9 @@ export default function App() {
 
   const updateSettings = useCallback((patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch })), [])
   useEffect(() => saveSettings(settings), [settings])
+  useEffect(() => {
+    comparisonRef.current = comparison != null
+  }, [comparison])
   // Switching measurement type resets the current result (mirrors the native
   // measurementChanged reset across the guitar↔material boundary) and arms/disarms
   // the always-on guitar detector accordingly. Skipped while loading a measurement,
@@ -155,9 +197,14 @@ export default function App() {
     }
     setLoadedPeaks(null)
     setCaptured(null)
+    setLoadedName(null)
+    setTapSpectra([])
+    setShowMultiTap(false)
+    setComparison(null)
+    comparisonRef.current = false
     setMatPhase('notStarted')
     setMatPeaks({ longitudinal: null, cross: null, flc: null })
-    setMatSpectrum(null)
+    setMatSpectra(EMPTY_MAT_SPECTRA)
     const e = engineRef.current
     if (!e?.running) return
     if (isMaterialType(settings.measurementType)) e.disarm()
@@ -172,24 +219,32 @@ export default function App() {
     const engine = new AudioEngine({
       onLevel: setLevel,
       onSpectrum: setLiveSpectrum,
-      onCapture: (s) => {
+      onCapture: (s, taps) => {
+        if (comparisonRef.current) return // a frozen comparison absorbs in-flight captures
         setLoadedPeaks(null) // a fresh capture supersedes any loaded measurement
+        setLoadWarning(null)
+        setLoadedName(null)
         setCaptured(s)
+        setTapSpectra(taps ?? []) // per-tap spectra for the multi-tap comparison view
+        setShowMultiTap(false)
+        setComparison(null)
       },
       onState: setEngineState,
       onClipping: setClipping,
       onProgress: (collected, total) => setProgress({ collected, total }),
       onMetrics: setEngineMetrics,
       onMaterialCapture: ({ spectrum, peak }) => {
-        setMatSpectrum(spectrum)
         const phase = matPhaseRef.current
         if (phase === 'capturingL') {
+          setMatSpectra((s) => ({ ...s, longitudinal: spectrum }))
           setMatPeaks((p) => ({ ...p, longitudinal: peak }))
           setMatPhase(measRef.current === 'brace' ? 'complete' : 'reviewingL')
         } else if (phase === 'capturingC') {
+          setMatSpectra((s) => ({ ...s, cross: spectrum }))
           setMatPeaks((p) => ({ ...p, cross: peak }))
           setMatPhase('reviewingC')
         } else if (phase === 'capturingFlc') {
+          setMatSpectra((s) => ({ ...s, flc: spectrum }))
           setMatPeaks((p) => ({ ...p, flc: peak }))
           setMatPhase('reviewingFlc')
         }
@@ -223,7 +278,13 @@ export default function App() {
 
   const newTap = useCallback(() => {
     setLoadedPeaks(null)
+    setLoadWarning(null)
+    setLoadedName(null)
     setCaptured(null)
+    setTapSpectra([])
+    setShowMultiTap(false)
+    setComparison(null)
+    comparisonRef.current = false // re-arm cleanly: don't absorb the next tap
     engineRef.current?.arm()
   }, [])
 
@@ -245,7 +306,7 @@ export default function App() {
 
   const startMaterial = useCallback(() => {
     setMatPeaks({ longitudinal: null, cross: null, flc: null })
-    setMatSpectrum(null)
+    setMatSpectra(EMPTY_MAT_SPECTRA)
     setMatPhase('capturingL')
     engineRef.current?.armMaterial(matSearch('longitudinal'))
   }, [matSearch, setMatPhase])
@@ -412,15 +473,57 @@ export default function App() {
   // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors).
   const materialMarkers = useMemo<PeakMarker[]>(() => {
     const out: PeakMarker[] = []
-    if (matPeaks.longitudinal) out.push({ ...matPeaks.longitudinal, color: '#4ea1ff', label: 'f_L', annotated: true })
-    if (matPeaks.cross) out.push({ ...matPeaks.cross, color: '#f0a03a', label: 'f_C', annotated: true })
-    if (matPeaks.flc) out.push({ ...matPeaks.flc, color: '#b07ad8', label: 'f_LC', annotated: true })
+    // Annotation labels match Swift/Python (PeakAnnotations): Longitudinal / Cross-grain / FLC.
+    if (matPeaks.longitudinal) out.push({ ...matPeaks.longitudinal, color: '#4ea1ff', label: 'Longitudinal', annotated: true })
+    if (matPeaks.cross) out.push({ ...matPeaks.cross, color: '#f0a03a', label: 'Cross-grain', annotated: true })
+    if (matPeaks.flc) out.push({ ...matPeaks.flc, color: '#b07ad8', label: 'FLC', annotated: true })
     return out
   }, [matPeaks])
 
+  // ── Multi-tap comparison (guitar, >1 tap) ───────────────────────────────────
+  // Per-tap mode peaks are (re)found from each tap spectrum at the current Peak Min,
+  // mirroring Swift TapEntry recomputing on threshold change.
+  const multiTapAvailable = !material && !!captured && tapSpectra.length > 1
+  const tapRows = useMemo<MultiTapRow[]>(
+    () =>
+      tapSpectra.map((sp, i) => {
+        const mp = modePeaksFromSpectrum(sp, { guitarType, peakMinThreshold: peakMin })
+        return { tapIndex: i + 1, air: mp.air?.frequency ?? null, top: mp.top?.frequency ?? null, back: mp.back?.frequency ?? null }
+      }),
+    [tapSpectra, guitarType, peakMin],
+  )
+  // Averaged row uses the displayed peaks (respects loaded-authoritative peaks).
+  const avgModes = useMemo<TapModeFreqs>(() => {
+    const m = resolvedModePeaks(peaks, guitarType)
+    return { air: m.get('air')?.frequency ?? null, top: m.get('top')?.frequency ?? null, back: m.get('back')?.frequency ?? null }
+  }, [peaks, guitarType])
+  const multiTapOverlays = useMemo<SpectrumOverlay[]>(() => {
+    const out: SpectrumOverlay[] = tapSpectra.map((sp, i) => ({
+      magnitudesDb: sp.magnitudesDb,
+      frequencies: sp.frequencies,
+      color: MULTITAP_PALETTE[i % MULTITAP_PALETTE.length]!,
+      label: `Tap ${i + 1}`,
+    }))
+    if (captured) out.push({ magnitudesDb: captured.magnitudesDb, frequencies: captured.frequencies, color: MULTITAP_AVG_COLOR, label: 'Averaged' })
+    return out
+  }, [tapSpectra, captured])
+
   const binHz = sampleRate ? sampleRate / GUITAR_FFT_SIZE : null
   const frameMs = sampleRate ? (GUITAR_FFT_SIZE / sampleRate) * 1000 : null
-  const displaySpectrum = material ? matSpectrum : (captured ?? liveSpectrum)
+  // For auto-dB / metrics, use the primary material spectrum; the chart itself draws all
+  // per-phase curves via `matOverlays`.
+  const displaySpectrum = material
+    ? (matSpectra.longitudinal ?? matSpectra.cross ?? matSpectra.flc)
+    : (captured ?? liveSpectrum)
+  const matOverlays = useMemo<SpectrumOverlay[]>(() => {
+    if (!material) return []
+    const out: SpectrumOverlay[] = []
+    if (matSpectra.longitudinal)
+      out.push({ ...matSpectra.longitudinal, color: MAT_L_COLOR, label: brace ? 'Longitudinal (fL)' : 'Longitudinal (L)' })
+    if (matSpectra.cross) out.push({ ...matSpectra.cross, color: MAT_C_COLOR, label: 'Cross-grain (C)' })
+    if (matSpectra.flc) out.push({ ...matSpectra.flc, color: MAT_FLC_COLOR, label: 'FLC' })
+    return out
+  }, [material, brace, matSpectra])
   const chartMarkers = material ? materialMarkers : markers
   const chartMinHz = material ? (brace ? 50 : 10) : displayMinHz
   const chartMaxHz = material ? (brace ? 1200 : 300) : displayMaxHz
@@ -548,6 +651,17 @@ export default function App() {
   // ── Library (Phase 4b): save the frozen guitar result, load one back in ───
   const onSaveMeasurement = useCallback(
     (name: string, notes: string) => {
+      if (comparison) {
+        void saveMeasurement(buildComparisonMeasurement({ name, notes, entries: comparison }))
+        return
+      }
+      if (material) {
+        if (!matSpectra.longitudinal) return
+        void saveMeasurement(
+          buildMaterialMeasurement({ name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, sampleRate, deviceLabel }),
+        )
+        return
+      }
       if (!captured) return
       void saveMeasurement(
         buildGuitarMeasurement({
@@ -561,34 +675,119 @@ export default function App() {
           view,
           settings,
           numberOfTaps,
+          tapSpectra,
           sampleRate,
           deviceLabel,
         }),
       )
     },
-    [captured, peaks, modeByPeak, selectedIds, overrides, view, settings, numberOfTaps, sampleRate, deviceLabel],
+    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel],
   )
 
   const onLoadMeasurement = useCallback(
     (m: TapToneMeasurementModel) => {
+      // Comparison record: restore the overlay spectra directly from the saved entries.
+      if (m.comparisonEntries) {
+        comparisonRef.current = true
+        const range = comparisonAxisRange(m.comparisonEntries)
+        if (range) setView(range)
+        setComparison(m.comparisonEntries)
+        setLoadedPeaks(null)
+        setCaptured(null)
+        setTapSpectra([])
+        setShowMultiTap(false)
+        setLoadWarning(null)
+        setLoadedName(m.measurementName ?? null)
+        setShowMeasurements(false)
+        engineRef.current?.disarm() // freeze the comparison (see onCompare)
+        return
+      }
+      // Material (plate/brace): has per-phase snapshots, no guitar spectrumSnapshot.
+      if (m.longitudinalSnapshot) {
+        const mat = measurementToLiveMaterial(m)
+        if (mat.measurementType !== settings.measurementType) skipNextTypeResetRef.current = true
+        updateSettings(mat.settingsPatch)
+        setLoadedPeaks(null)
+        setCaptured(null)
+        setComparison(null)
+        setMatSpectra(mat.matSpectra)
+        setMatPeaks(mat.matPeaks)
+        setMatPhase('complete')
+        setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
+        setLoadedName(m.measurementName ?? null)
+        setTapSpectra([]) // material has no per-tap entries
+        setShowMultiTap(false)
+        setShowMeasurements(false)
+        return
+      }
       let live
       try {
         live = measurementToLive(m)
       } catch {
-        return // not a guitar measurement (no snapshot) — material load is a follow-up
+        return // not a guitar measurement (no snapshot)
       }
       loadingRef.current = true
       if (live.measurementType !== settings.measurementType) skipNextTypeResetRef.current = true
       updateSettings(live.settingsPatch)
       setLoadedPeaks(live.loadedPeaks) // authoritative saved peaks (Peak Min filters them)
       setCaptured(live.captured)
+      setComparison(null)
       setView(live.view)
       setOverrides(live.overridesByFreq)
       setSelectedIds(live.selectedIndices) // saved selection, 1:1 with the injected peaks
       setUserModified(true)
+      // Load-time provenance check (mic / calibration / sample rate) — closes the web
+      // side of the sample-rate epic. Cleared on New Tap / fresh capture.
+      setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
+      setLoadedName(m.measurementName ?? null)
+      // Restore per-tap spectra so the multi-tap comparison view is available.
+      setTapSpectra((m.tapEntries ?? []).map((e) => ({ magnitudesDb: e.snapshot.magnitudes, frequencies: e.snapshot.frequencies })))
+      setShowMultiTap(false)
+      setComparison(null)
       setShowMeasurements(false)
     },
-    [settings.measurementType, updateSettings],
+    [settings.measurementType, updateSettings, deviceLabel, sampleRate],
+  )
+
+  // Create a comparison from ≥2 selected library measurements (mirrors Swift loadComparison).
+  const onCompare = useCallback((measurements: TapToneMeasurementModel[]) => {
+    const entries = buildComparisonEntries(measurements)
+    if (entries.length < 2) return
+    comparisonRef.current = true // guard immediately (before the sync effect) against in-flight captures
+    const range = comparisonAxisRange(entries)
+    if (range) setView(range)
+    setComparison(entries)
+    setLoadedPeaks(null)
+    setCaptured(null)
+    setTapSpectra([])
+    setShowMultiTap(false)
+    setLoadWarning(null)
+    setLoadedName(null)
+    setShowMeasurements(false)
+    // Freeze the comparison: stop the always-on listener so a stray tap can't clobber it
+    // (mirrors Swift displayMode == .comparison). New Tap re-arms.
+    engineRef.current?.disarm()
+  }, [])
+
+  // Comparison chart overlays + results rows (derived from the active comparison entries).
+  const comparisonOverlays = useMemo<SpectrumOverlay[]>(
+    () =>
+      (comparison ?? []).map((e) => ({
+        magnitudesDb: e.snapshot.magnitudes,
+        frequencies: e.snapshot.frequencies,
+        color: colorComponentsToCss(e.colorComponents),
+        label: e.label,
+      })),
+    [comparison],
+  )
+  const comparisonRows = useMemo<ComparisonRow[]>(
+    () =>
+      (comparison ?? []).map((e) => ({
+        label: e.label,
+        color: colorComponentsToCss(e.colorComponents),
+        ...comparisonEntryModeFreqs(e),
+      })),
+    [comparison],
   )
 
   return (
@@ -622,8 +821,8 @@ export default function App() {
           <button
             className="btn"
             onClick={() => setShowSave(true)}
-            disabled={!captured || material}
-            title={material ? 'Saving material measurements is coming soon' : 'Save measurement to the library'}
+            disabled={comparison ? false : material ? matPhase !== 'complete' : !captured}
+            title="Save measurement to the library"
           >
             ⤓ Save
           </button>
@@ -734,12 +933,23 @@ export default function App() {
 
       {error && <p className="error">⚠ {error}</p>}
 
+      {loadWarning && (
+        <div className="load-warning" role="status">
+          <span>⚠ {loadWarning}</span>
+          <button className="btn mini" onClick={() => setLoadWarning(null)} aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="main">
         <div className="chart-pane">
           <div className="chart-wrap">
             <SpectrumChart
-              spectrum={displaySpectrum}
-              markers={chartMarkers}
+              spectrum={comparison || material || showMultiTap ? null : displaySpectrum}
+              title={`FFT Peaks — ${loadedName ?? 'New'}`}
+              overlays={comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined}
+              markers={comparison || showMultiTap ? [] : chartMarkers}
               minHz={view.minHz}
               maxHz={view.maxHz}
               minDb={view.minDb}
@@ -751,19 +961,33 @@ export default function App() {
         </div>
 
         <aside className="results-pane">
+          <div className="results-inner">
           <div className="results-head">
             <h2>Analysis Results</h2>
-            <span className={`type-badge ${material ? 'material' : 'guitar'}`}>
-              {MEASUREMENT_SHORT_NAME[settings.measurementType]}
+            {multiTapAvailable && (
+              <button
+                className={`btn mini taps-toggle${showMultiTap ? ' active' : ''}`}
+                onClick={() => setShowMultiTap((v) => !v)}
+                title={showMultiTap ? 'Hide per-tap comparison' : 'Compare each tap vs the average'}
+              >
+                ∿ Taps
+              </button>
+            )}
+            <span className={`type-badge ${comparison ? 'comparison' : material ? 'material' : 'guitar'}`}>
+              {comparison ? 'Comparison' : MEASUREMENT_SHORT_NAME[settings.measurementType]}
             </span>
           </div>
 
-          {material ? (
+          {comparison ? (
+            <ComparisonResultsView rows={comparisonRows} />
+          ) : material ? (
             matPhase === 'notStarted' ? (
               <p className="empty">Press New Tap to begin the {brace ? 'brace' : 'plate'} measurement.</p>
             ) : (
               <MaterialResults type={brace ? 'brace' : 'plate'} settings={settings} peaks={matPeaks} />
             )
+          ) : showMultiTap && multiTapAvailable ? (
+            <MultiTapComparisonResultsView taps={tapRows} avg={avgModes} />
           ) : (
             <>
               {displayPeaks.length > 0 && (
@@ -813,6 +1037,7 @@ export default function App() {
               )}
             </>
           )}
+          </div>
         </aside>
       </div>
 
@@ -857,14 +1082,14 @@ export default function App() {
 
       {showSave && (
         <SaveSheet
-          defaultName={MEASUREMENT_SHORT_NAME[settings.measurementType]}
+          defaultName={comparison ? 'Comparison' : MEASUREMENT_SHORT_NAME[settings.measurementType]}
           onSave={onSaveMeasurement}
           onClose={() => setShowSave(false)}
         />
       )}
 
       {showMeasurements && (
-        <MeasurementsPanel onClose={() => setShowMeasurements(false)} onLoad={onLoadMeasurement} />
+        <MeasurementsPanel onClose={() => setShowMeasurements(false)} onLoad={onLoadMeasurement} onCompare={onCompare} />
       )}
     </div>
   )

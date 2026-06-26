@@ -112,6 +112,382 @@
   font-weight: 400;
   font-size: 0.82rem;
 }
+.mat-hint {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: 400;
+  font-size: 0.78rem;
+}
+
+/* Sorted peak list (mirrors Swift MaterialPeakRowView) */
+.mat-peaks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-bottom: 0.5rem;
+}
+.mat-peak-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.mat-peak-star {
+  color: #0a84ff;
+  font-size: 0.95rem;
+}
+.mat-peak-info {
+  display: flex;
+  flex-direction: column;
+}
+.mat-peak-freq {
+  font-weight: 600;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+.mat-peak-mag {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+.mat-badges {
+  margin-left: auto;
+  display: flex;
+  gap: 0.35rem;
+}
+.mat-badge {
+  min-width: 1.9rem;
+  text-align: center;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: var(--line);
+  color: var(--muted);
+}
+
+.mat-section {
+  margin-top: 0.6rem;
+}
+.mat-divider {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 0.45rem 0;
+}
+.mat-freqs {
+  color: var(--muted);
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+/* Two-column L / C property rows */
+.mat-prop,
+.mat-prop-block {
+  padding: 0.22rem 0;
+}
+.mat-prop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.88rem;
+}
+.mat-prop-title {
+  font-weight: 600;
+  font-size: 0.86rem;
+  margin-bottom: 0.15rem;
+}
+.mat-lc {
+  display: flex;
+  gap: 1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+.mat-lc-sub {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin-top: 0.15rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Highlighted Specific Modulus (E/ρ) box */
+.mat-specmod {
+  background: rgba(127, 127, 127, 0.1);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  margin: 0.5rem 0;
+}
+.mat-specmod-title {
+  font-weight: 600;
+  font-size: 0.86rem;
+  margin-bottom: 0.3rem;
+}
+.mat-specmod-cols {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.mat-specmod-right {
+  text-align: right;
+}
+.mat-specmod-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.mat-specmod-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.mat-specmod-value em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+.mat-specmod-quality {
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+/* Gore target thickness */
+.mat-gore-thickness {
+  font-size: 2.1rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.mat-gore-thickness em {
+  font-style: normal;
+  font-size: 1rem;
+  color: var(--muted);
+  font-weight: 400;
+}
+.mat-info,
+.mat-params {
+  color: var(--muted);
+  font-size: 0.76rem;
+  margin: 0.2rem 0 0;
+}
+.mat-overall .mat-value {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+/* Measurement Process section */
+.mat-process-head {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.mat-step {
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+.mat-step-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 0.3rem;
+}
+.mat-step-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.mat-step-body {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.mat-process-foot {
+  font-size: 0.76rem;
+  font-style: italic;
+  color: var(--muted);
+  margin: 0.3rem 0 0;
+}
+
+/* ── Multi-tap comparison table ───────────────────────────── */
+.taps-toggle {
+  margin-left: auto;
+}
+.taps-toggle.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.multitap-table {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.82rem;
+}
+.mt-row {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr 1fr 1fr;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.mt-head {
+  color: var(--muted);
+  font-weight: 600;
+}
+.mt-head .mt-cell {
+  text-align: center;
+}
+.mt-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+.mt-cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mt-empty {
+  color: var(--muted);
+}
+.mt-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.mt-square {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.mt-avg {
+  font-weight: 700;
+  border-bottom: none;
+}
+
+/* Comparison table: flexible label column with truncation. */
+.comparison-table .mt-row {
+  grid-template-columns: minmax(0, 1fr) 4.2rem 4.2rem 4.2rem;
+}
+.comparison-table .mt-label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Measurements compare mode */
+.meas-check {
+  align-self: center;
+  font-size: 1.1rem;
+  width: 1.4rem;
+  text-align: center;
+  color: var(--accent);
+}
+.meas-row.selected {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 8px;
+}
+.meas-row.disabled {
+  opacity: 0.4;
+}
+.meas-row.disabled .meas-info {
+  cursor: default;
+}
+.type-badge.comparison {
+  background: #b07ad8;
+  color: #fff;
+}
+
+/* ── Measurement detail (read-only inspector) ─────────────── */
+.detail-section {
+  margin-bottom: 1rem;
+}
+.detail-section h3 {
+  font-size: 0.85rem;
+  margin: 0 0 0.4rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.22rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.88rem;
+}
+.detail-label {
+  color: var(--muted);
+}
+.detail-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.detail-notes {
+  padding: 0.35rem 0;
+}
+.detail-notes p {
+  margin: 0.25rem 0 0;
+  font-size: 0.86rem;
+  white-space: pre-wrap;
+}
+.detail-peaks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.detail-peak {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.detail-peak.unselected {
+  opacity: 0.4;
+}
+.detail-peak-star {
+  color: #0a84ff;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+.detail-peak-body {
+  flex: 1;
+  min-width: 0;
+}
+.detail-peak-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.detail-peak-mode {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+.detail-peak-freq {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.detail-peak-pitch {
+  color: #b07ad8;
+  font-size: 0.8rem;
+}
+.detail-peak-line2 {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 
 .field {
   display: flex;
@@ -364,6 +740,21 @@
   color: #ff8a7a;
   margin: 0;
 }
+/* Load-time provenance notice (mic / calibration / sample-rate mismatch). */
+.load-warning {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #6b5a1e;
+  background: #2a2410;
+  color: #e6c558;
+  border-radius: 8px;
+  font-size: 0.88rem;
+}
+.load-warning span {
+  flex: 1 1 auto;
+}
 
 /* ── Main: spectrum + results pane ───────────────────────── */
 .main {
@@ -389,6 +780,16 @@
   position: relative;
   width: 100%;
   height: 100%;
+}
+.chart-title {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  z-index: 2;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  pointer-events: none;
 }
 .spectrum-canvas {
   position: absolute;
@@ -454,6 +855,29 @@
   position: fixed;
   inset: 0;
   z-index: 4;
+}
+/* Material per-phase overlay legend (top-left of the chart). */
+.chart-legend {
+  position: absolute;
+  top: 8px;
+  left: 46px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.75rem;
+  z-index: 2;
+  pointer-events: none;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.legend-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
 }
 .chart-help-pop {
   position: absolute;
@@ -534,7 +958,17 @@
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
+  /* Desktop: bound the pane height to the chart (via .main stretch) and scroll
+     the results internally, independent of the graph. The absolute inner removes
+     the content from flow so the pane height tracks the chart, not the content. */
+  position: relative;
+  overflow: hidden;
+}
+.results-inner {
+  position: absolute;
+  inset: 0;
   padding: 0.75rem 0.9rem;
+  overflow-y: auto;
 }
 .results-head {
   display: flex;
@@ -617,8 +1051,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
-  max-height: 60vh;
-  overflow-y: auto;
 }
 
 .peak-card {
@@ -995,6 +1427,13 @@
   }
   .results-pane {
     flex-basis: auto;
+    position: static;
+    overflow: visible;
+  }
+  /* Stacked layout: no chart to bound against, so let the results flow normally. */
+  .results-inner {
+    position: static;
+    overflow: visible;
   }
   .status-text {
     min-width: 0;

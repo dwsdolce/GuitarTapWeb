@@ -26,7 +26,9 @@ export type EngineState = 'idle' | 'listening' | 'capturing'
 export interface AudioEngineCallbacks {
   onSpectrum?: (spectrum: Spectrum) => void
   onLevel?: (db: number) => void
-  onCapture?: (spectrum: Spectrum) => void
+  /** Frozen result. For a multi-tap capture, `taps` holds each tap's individual
+   *  spectrum (in order) so the caller can build the multi-tap comparison view. */
+  onCapture?: (spectrum: Spectrum, taps?: Spectrum[]) => void
   onState?: (state: EngineState) => void
   /** Multi-tap progress: taps collected so far / total requested. */
   onProgress?: (collected: number, total: number) => void
@@ -366,10 +368,12 @@ export class AudioEngine {
     }
 
     const result = averageSpectra(this.collected)
+    // Retain each tap's spectrum for the multi-tap comparison view (>1 tap only).
+    const taps = total > 1 ? this.collected : undefined
     this.collected = []
     this.callbacks.onProgress?.(total, total)
     this.setState('idle')
-    this.callbacks.onCapture?.(result)
+    this.callbacks.onCapture?.(result, taps)
   }
 
   async stop(): Promise<void> {

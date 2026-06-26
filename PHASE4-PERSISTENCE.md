@@ -114,18 +114,39 @@ effects from clobbering a restore.
 > could show a different peak set than was saved (different analysis range / FFT session).
 > Corrected to the inject-and-filter algorithm above.
 
-**Scope:** guitar measurements only. Save is disabled in material mode (tooltip), and
-`measurementToLive` throws on a snapshot-less record — **material save/load is the 4b
-follow-up** (needs the 3 per-phase snapshots + phase-machine restore). Comparison +
-multi-tap views are 4d.
+**Scope:** guitar save+load done. **Material LOAD/display done** (this follow-up):
+`onLoadMeasurement` branches on `longitudinalSnapshot` → `measurementToLiveMaterial`
+rebuilds the per-phase spectra, the selected L/C/FLC peaks, and the dimensions, and sets
+phase=complete. The chart now **overlays** the per-phase spectra (L blue / C orange / FLC
+purple, with a legend) via a new `SpectrumChart` `overlays` prop — used for both loaded
+and live material (the old single `matSpectrum` became per-phase `matSpectra`). Test
+`test/g8-material-load.test.ts` (4). **Material SAVE is still pending** (Save disabled in
+material mode) — needs a `buildMaterialMeasurement`. Comparison + multi-tap views are 4d.
 
-### 4c — Import / Export + load-time warning
-- **Export**: download the measurement(s) as `.guitartap` (and copy-JSON).
-- **Import**: file-picker `.guitartap`; auto-load if exactly one; add to library.
-- **Load-time warning** (closes the web sample-rate epic): on load, compare the
-  measurement's **microphone / calibration / sample rate** against the current setup;
-  tiered message (mic mismatch → mic only; same mic → calibration and/or rate). Mirrors
-  the Swift/Python `microphone_warning` tiering.
+### 4c — Import / Export + load-time warning ✅ DONE
+- **Export**: row ⋯ menu → **Export Measurement** writes a `.guitartap` (1-element JSON
+  array via `serializeGuitarTapFile`, byte-compatible with Swift/Python). Filename =
+  `guitarTapFilename(m)` (Swift `baseFilename` slug + unix ts). Uses the File System Access
+  **`showSaveFilePicker`** save dialog so the user picks the location (Chromium); falls back
+  to a plain Downloads-folder download on Safari/Firefox (no API there).
+- **Import**: Measurements header **Import…** button → file-picker (`.guitartap`/json) →
+  `parseGuitarTapFile` → **assigns a fresh `id` per measurement** (`newMeasurementId`) →
+  `saveMeasurement` each → refresh; **auto-loads when the file holds exactly one**. Parse
+  errors shown inline. The fresh-id step mirrors Swift `importMeasurements` (which appends
+  copies): re-importing the same file adds a NEW library entry instead of overwriting by
+  id (the web store is id-keyed, unlike Swift's array).
+- **Load-time warning** (closes the web sample-rate epic): `measurementWarning(m, {micName,
+  sampleRate, calibrationName})` in `fromLive.ts`, mirroring Swift `loadMeasurement` /
+  Python `load_measurement`: recorded mic ≠ current input → name warning; same mic but
+  calibration and/or sample rate differ → "recorded with a different …" warning; else null.
+  Shown as a dismissible banner; cleared on New Tap / fresh capture. Web adapts: "current
+  mic" = live `track.label`, calibration is absent (so a recorded calibration always
+  differs). **Mic labels are normalised before comparing** (drop parenthetical suffixes /
+  case / whitespace) because `track.label` differs across browsers for the SAME device —
+  Chrome "MacBook Pro Microphone (Built-in)" vs Safari "MacBook Pro Microphone" — which
+  otherwise false-flagged a mic mismatch; the meaningful sample-rate/calibration signals
+  still fire. (Swift matches the stable CoreAudio UID; the web has only the label.)
+  Test `test/g7-measurement-4c.test.ts` (11 tests). 70 web tests green.
 
 ### 4d — Comparison measurement type + multi-tap view
 Two distinct things that share a chart overlay:

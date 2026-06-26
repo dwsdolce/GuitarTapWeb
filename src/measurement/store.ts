@@ -10,6 +10,23 @@ const DB_NAME = 'guitartap'
 const STORE = 'measurements'
 const VERSION = 1
 
+// Library records carry a `savedAt` insertion stamp (NOT part of the .guitartap format —
+// the encoder only writes known fields, so it never leaks into exported files). The list is
+// ordered by it so the last saved/imported measurement is always last, matching Swift/Python
+// which simply `append` to `savedMeasurements`. (The measurement's own `timestamp` can't be
+// used: an imported file keeps its original creation date, so it wouldn't sort to the end.)
+type StoredMeasurement = TapToneMeasurementModel & { savedAt?: number }
+
+// Strictly-monotonic insertion stamp. Seeded from wall-clock so it keeps increasing across
+// reloads; the `+1` fallback breaks ties within a batch import (same-millisecond saves).
+let lastSeq = 0
+function nextSeq(): number {
+  const now = Date.now()
+  lastSeq = now > lastSeq ? now : lastSeq + 1
+  return lastSeq
+}
+const orderOf = (m: StoredMeasurement): number => m.savedAt ?? (Date.parse(m.timestamp) || 0)
+
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, VERSION)
@@ -35,15 +52,18 @@ function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequ
   )
 }
 
-/** Insert or replace a measurement (keyed by `id`). */
+/** Insert or replace a measurement (keyed by `id`). A new record gets the next insertion
+ *  stamp; an existing one keeps its stamp (so an edit doesn't jump to the end of the list). */
 export function saveMeasurement(m: TapToneMeasurementModel): Promise<void> {
-  return tx('readwrite', (s) => s.put(m)).then(() => undefined)
+  const stored: StoredMeasurement = { ...m, savedAt: (m as StoredMeasurement).savedAt ?? nextSeq() }
+  return tx('readwrite', (s) => s.put(stored)).then(() => undefined)
 }
 
-/** All saved measurements, newest first (by ISO `timestamp`). */
+/** All saved measurements in insertion order (last saved/imported last), mirroring the
+ *  Swift/Python `savedMeasurements` array. */
 export function listMeasurements(): Promise<TapToneMeasurementModel[]> {
-  return tx<TapToneMeasurementModel[]>('readonly', (s) => s.getAll()).then((all) =>
-    all.sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0)),
+  return tx<StoredMeasurement[]>('readonly', (s) => s.getAll()).then((all) =>
+    all.sort((a, b) => orderOf(a) - orderOf(b)),
   )
 }
 
