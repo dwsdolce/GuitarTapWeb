@@ -49,6 +49,13 @@ const ICON_DETAILS = ['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20', 'M12 16v-4', 'M
 // comparison — mirrors Swift's `comparableMeasurements` filter.
 const isComparable = (m: TapToneMeasurementModel): boolean => m.spectrumSnapshot != null && !isComparison(m)
 
+// Running as an installed PWA? Installed apps are exempt from the browser's storage eviction
+// (notably iOS Safari's 7-day purge of script-writable storage), so the saved-measurements
+// library is far more durable. Used to nudge the user to install + keep a backup.
+const isInstalled = (): boolean =>
+  window.matchMedia?.('(display-mode: standalone)').matches ||
+  (window.navigator as unknown as { standalone?: boolean }).standalone === true
+
 export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPanelProps) {
   const [items, setItems] = useState<TapToneMeasurementModel[] | null>(null)
   const [comparing, setComparing] = useState(false)
@@ -156,14 +163,11 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
     onCompare(sel) // App builds the comparison, closes the panel
   }
 
-  // Export: write the measurement as a `.guitartap` file (a 1-element JSON array,
-  // byte-compatible with the Swift/Python apps). 4c. Uses the File System Access API's
-  // save dialog (Chromium) so the user picks the location; falls back to a plain download
-  // into the browser's Downloads folder on Safari/Firefox (no API there).
-  const exportOne = async (m: TapToneMeasurementModel) => {
-    setMenuId(null)
-    const data = serializeGuitarTapFile([m])
-    const name = guitarTapFilename(m)
+  // Write a `.guitartap` file (a JSON array of measurements, byte-compatible with the
+  // Swift/Python apps). Uses the File System Access save dialog (Chromium) so the user picks
+  // the location — including iCloud Drive / Dropbox folders; falls back to a plain download
+  // on Safari/Firefox (no API there), where the share sheet still offers "Save to Files".
+  const writeGuitarTapFile = async (data: string, name: string) => {
     const picker = (
       window as unknown as {
         showSaveFilePicker?: (opts: {
@@ -176,7 +180,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
       try {
         const handle = await picker({
           suggestedName: name,
-          types: [{ description: 'GuitarTap measurement', accept: { 'application/json': ['.guitartap'] } }],
+          types: [{ description: 'GuitarTap measurements', accept: { 'application/json': ['.guitartap'] } }],
         })
         const writable = await handle.createWritable()
         await writable.write(data)
@@ -195,8 +199,22 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
     URL.revokeObjectURL(url)
   }
 
-  // Import: parse a picked `.guitartap`, add every measurement to the library, and
-  // auto-load when the file holds exactly one. 4c.
+  /** Export one measurement → a 1-element `.guitartap` file (row ⋯ menu). */
+  const exportOne = async (m: TapToneMeasurementModel) => {
+    setMenuId(null)
+    await writeGuitarTapFile(serializeGuitarTapFile([m]), guitarTapFilename(m))
+  }
+
+  /** Export the whole library → one `.guitartap` file (group backup / migration). The
+   *  importer reads it back as a group; also interops with the native apps' library export. */
+  const exportAll = async () => {
+    if (!items || items.length === 0) return
+    const name = `guitartap-library-${Math.floor(Date.now() / 1000)}.guitartap`
+    await writeGuitarTapFile(serializeGuitarTapFile(items), name)
+  }
+
+  // Import: parse a picked `.guitartap`, add EVERY measurement to the library (group import),
+  // and auto-load only when the file holds exactly one.
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setImportError(null)
     const file = e.target.files?.[0]
@@ -205,7 +223,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
     try {
       const parsed = parseGuitarTapFile(await file.text())
       if (parsed.length === 0) throw new Error('No measurements found in the file.')
-      // Fresh id per import so re-importing the same file adds a NEW library entry
+      // Fresh id per import so re-importing the same file adds NEW library entries
       // rather than overwriting by id — mirrors Swift `importMeasurements` (append).
       const imported = parsed.map((m) => ({ ...m, id: newMeasurementId() }))
       for (const m of imported) await saveMeasurement(m)
@@ -246,7 +264,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                 >
                   Compare…
                 </button>
-                <button className="btn" onClick={() => fileInput.current?.click()} title="Import a .guitartap file">
+                <button className="btn" onClick={() => fileInput.current?.click()} title="Import measurements from a .guitartap file (one or many)">
                   Import…
                 </button>
                 <input
@@ -256,6 +274,15 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                   style={{ display: 'none' }}
                   onChange={(e) => void onImportFile(e)}
                 />
+                {items && items.length > 0 && (
+                  <button
+                    className="btn"
+                    onClick={() => void exportAll()}
+                    title="Export the whole library as one .guitartap file (backup / move to another browser or device)"
+                  >
+                    Export All
+                  </button>
+                )}
                 {items && items.length > 0 && (
                   <button className="btn" onClick={() => void removeAll()} title="Delete all saved measurements">
                     Delete All
@@ -271,6 +298,13 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
 
         <div className="settings-body">
           {importError && <p className="error">⚠ {importError}</p>}
+          {!isInstalled() && items != null && items.length > 0 && (
+            <p className="meas-hint">
+              ⓘ Your library is stored in this browser and can be cleared by the browser (on iOS,
+              after ~7 days unused). <b>Install the app</b> (Add to Home Screen / Add to Dock) for
+              durable storage, and use <b>Export All</b> to keep a backup.
+            </p>
+          )}
           {items == null ? (
             <p className="empty">Loading…</p>
           ) : items.length === 0 ? (

@@ -21,7 +21,7 @@ export interface MaterialCaptureResult {
 //     happen in the UI so Peak Min / guitar type re-analyze the frozen spectrum live.
 // Sample rate is read from the live AudioContext (PLAN.md risk #1).
 
-export type EngineState = 'idle' | 'listening' | 'capturing'
+export type EngineState = 'idle' | 'listening' | 'capturing' | 'paused'
 
 export interface AudioEngineCallbacks {
   onSpectrum?: (spectrum: Spectrum) => void
@@ -164,6 +164,36 @@ export class AudioEngine {
   /** Cancel an armed/listening sequence (no effect mid-capture). */
   disarm(): void {
     if (this.state === 'listening') this.setState('idle')
+  }
+
+  /** Pause an active tap sequence: stop detecting while the live spectrum keeps flowing and
+   *  the collected taps are preserved. Mirrors Swift `pauseTapDetection()`. Only acts while
+   *  listening — the capture window is sub-second and finishes on its own. */
+  pause(): void {
+    if (this.state === 'listening') this.setState('paused')
+  }
+
+  /** Resume after a pause, continuing the sequence from the current tap count. Resets the
+   *  level-crossing warm-up (so the first chunk after resume can't false-trigger), exactly
+   *  like Swift `resumeTapDetection()`. No-op unless paused. */
+  resume(): void {
+    if (this.state !== 'paused') return
+    this.prevAbove = true
+    this.consecutive = 0
+    this.setState('listening')
+  }
+
+  /** Abort the current sequence (guitar multi-tap or material), discarding any partial
+   *  captures, and return to idle so New Tap re-arms. Mirrors Swift `cancelTapSequence()`. */
+  cancel(): void {
+    this.collected = []
+    this.materialSearch = null
+    this.captureKind = 'guitar'
+    this.capture = this.guitarCapture
+    this.captureIdx = 0
+    this.prevAbove = true
+    this.consecutive = 0
+    this.setState('idle')
   }
 
   private setState(state: EngineState): void {

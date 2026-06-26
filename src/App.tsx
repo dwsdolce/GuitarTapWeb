@@ -71,6 +71,9 @@ function statusText(state: EngineState, progress: { collected: number; total: nu
       return multi ? `Listening — tap ${n}` : 'Listening — tap the guitar'
     case 'capturing':
       return multi ? `Capturing tap ${n}…` : 'Capturing tap…'
+    case 'paused':
+      // The exact string Swift/Python use — one message, no per-count variant.
+      return 'Detection paused – tap freely, then resume'
     case 'idle':
       return multi ? `Averaged ${total} taps — press New Tap to listen again` : 'Tap captured — press New Tap to listen again'
   }
@@ -110,6 +113,120 @@ function matInstruction(p: MatPhase, brace: boolean): string {
   }
 }
 
+// Tap-control button icons (Lucide-style, monochrome `currentColor` so they follow each button's
+// text colour and disabled opacity). Mirror the native glyphs: Swift SF Symbols / Python qtawesome —
+// New Tap = hand.tap/gesture-tap, Pause = pause.circle, Resume = play.circle, Cancel = xmark/times-
+// circle, Accept = checkmark.circle (review), Redo = arrow.counterclockwise/undo (review).
+const ICON_SVG = {
+  width: 14,
+  height: 14,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+} as const
+const TapIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M22 14a8 8 0 0 1-8 8" />
+    <path d="M18 11v-1a2 2 0 0 0-2-2 2 2 0 0 0-2 2" />
+    <path d="M14 10V9a2 2 0 0 0-2-2 2 2 0 0 0-2 2v1" />
+    <path d="M10 9.5V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v10" />
+    <path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
+  </svg>
+)
+const PauseIcon = () => (
+  <svg {...ICON_SVG}>
+    <rect x="6" y="4" width="4" height="16" rx="1" />
+    <rect x="14" y="4" width="4" height="16" rx="1" />
+  </svg>
+)
+const PlayIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M6 4 20 12 6 20 Z" />
+  </svg>
+)
+const CancelIcon = () => (
+  <svg {...ICON_SVG}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="m15 9-6 6" />
+    <path d="m9 9 6 6" />
+  </svg>
+)
+const CheckIcon = () => (
+  <svg {...ICON_SVG}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+)
+const UndoIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M3 7v6h6" />
+    <path d="M21 17a9 9 0 0 0-9-9 8.97 8.97 0 0 0-6.4 2.6L3 13" />
+  </svg>
+)
+// App control-bar icons (replace the colored emoji ⇅ 👁 ★ 🚫 ⤓ ⚙ with monochrome SVG that match
+// the native control-bar glyphs and the tap-control icons above).
+const AutoDbIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="m21 16-4 4-4-4" />
+    <path d="M17 20V4" />
+    <path d="m3 8 4-4 4 4" />
+    <path d="M7 4v16" />
+  </svg>
+)
+const EyeIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+)
+const StarIcon = () => (
+  <svg {...ICON_SVG}>
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26" />
+  </svg>
+)
+const EyeOffIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+    <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+    <line x1="2" x2="22" y1="2" y2="22" />
+  </svg>
+)
+const SaveIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+    <path d="M17 21v-8H7v8" />
+    <path d="M7 3v5h8" />
+  </svg>
+)
+const ClipboardIcon = () => (
+  <svg {...ICON_SVG}>
+    <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    <path d="M12 11h4" />
+    <path d="M12 16h4" />
+    <path d="M8 11h.01" />
+    <path d="M8 16h.01" />
+  </svg>
+)
+const BarChartIcon = () => (
+  <svg {...ICON_SVG}>
+    <line x1="6" x2="6" y1="20" y2="14" />
+    <line x1="12" x2="12" y1="20" y2="8" />
+    <line x1="18" x2="18" y1="20" y2="4" />
+  </svg>
+)
+const GearIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+)
+
 export default function App() {
   const [running, setRunning] = useState(false)
   const [engineState, setEngineState] = useState<EngineState>('idle')
@@ -124,6 +241,9 @@ export default function App() {
   const [numberOfTaps, setNumberOfTaps] = useState(1)
   const [clipping, setClipping] = useState(false)
   const [progress, setProgress] = useState({ collected: 0, total: 1 })
+  // True after a Cancel until the next New Tap — drives the "Cancelled" status (mirrors
+  // Swift's "Cancelled — press New Tap to start again").
+  const [cancelled, setCancelled] = useState(false)
   // Per-tap spectra from a multi-tap capture (or loaded measurement) + the comparison toggle.
   const [tapSpectra, setTapSpectra] = useState<Spectrum[]>([])
   const [showMultiTap, setShowMultiTap] = useState(false)
@@ -183,6 +303,12 @@ export default function App() {
 
   const updateSettings = useCallback((patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch })), [])
   useEffect(() => saveSettings(settings), [settings])
+  // Ask the browser to make storage persistent so the saved-measurements library (IndexedDB)
+  // isn't evicted under pressure. Best-effort: Chrome/Firefox honor it; Safari mostly ignores
+  // it (there, installing the app is what makes storage durable — see the Measurements hint).
+  useEffect(() => {
+    void navigator.storage?.persist?.()
+  }, [])
   useEffect(() => {
     comparisonRef.current = comparison != null
   }, [comparison])
@@ -284,9 +410,25 @@ export default function App() {
     setTapSpectra([])
     setShowMultiTap(false)
     setComparison(null)
+    setCancelled(false)
     comparisonRef.current = false // re-arm cleanly: don't absorb the next tap
     engineRef.current?.arm()
   }, [])
+
+  // ── Pause / Resume / Cancel (mirror Swift pauseTapDetection / resumeTapDetection /
+  //    cancelTapSequence; the engine owns the state transitions). ─────────────────
+  const pauseTap = useCallback(() => engineRef.current?.pause(), [])
+  const resumeTap = useCallback(() => engineRef.current?.resume(), [])
+  const cancelTap = useCallback(() => {
+    engineRef.current?.cancel()
+    setProgress({ collected: 0, total: numberOfTaps })
+    if (isMaterialType(measRef.current)) {
+      setMatPhase('notStarted')
+      setMatPeaks({ longitudinal: null, cross: null, flc: null })
+      setMatSpectra(EMPTY_MAT_SPECTRA)
+    }
+    setCancelled(true)
+  }, [numberOfTaps, setMatPhase])
 
   const changeTaps = useCallback((n: number) => {
     const v = Math.max(1, Math.min(10, n))
@@ -305,6 +447,7 @@ export default function App() {
   )
 
   const startMaterial = useCallback(() => {
+    setCancelled(false)
     setMatPeaks({ longitudinal: null, cross: null, flc: null })
     setMatSpectra(EMPTY_MAT_SPECTRA)
     setMatPhase('capturingL')
@@ -343,7 +486,9 @@ export default function App() {
   }, [matSearch, setMatPhase])
 
   // Lock the stepper while a tap is being captured or a multi-tap sequence is underway.
-  const tapsLocked = engineState === 'capturing' || (engineState === 'listening' && progress.collected > 0)
+  const tapsLocked =
+    engineState === 'capturing' ||
+    ((engineState === 'listening' || engineState === 'paused') && progress.collected > 0)
 
   // Live-tap path: re-analyze the frozen spectrum as Peak Min / guitar type change.
   // Loaded-measurement path: the saved peaks are authoritative — only filter them by
@@ -792,51 +937,56 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Title bar = app title (left) + the view/app toolbar buttons packed right,
-          mirroring the native macOS unified titlebar (Auto dB · Annotations · Metrics
-          · Settings; Save/Measurements are Phase 4, Play File Phase 5). The native UI
-          has no "Results" toggle, so there isn't one here. */}
-      <header className="app-header">
+      {/* Three stacked bars like the native apps: (1) slim title, (2) app control bar,
+          (3) tap-control bar — none of them wrap (the app gets a min-content floor and
+          scrolls horizontally instead, mirroring the native window's minimum width). */}
+      <header className="app-titlebar">
         <h1>Guitar Tap</h1>
         <span className="subtitle">Web · live tap analysis</span>
-        <span className="spacer" />
-        <div className="header-actions">
-          <button
-            className={`btn toggle ${autoDb ? 'on' : ''}`}
-            onClick={toggleAutoDb}
-            disabled={!running}
-            aria-pressed={autoDb}
-            title="Auto-scale the dB axis to the spectrum"
-          >
-            ⇅ Auto dB
-          </button>
-          <button
-            className={`btn toggle ${annotationMode !== 'none' ? 'on' : ''}`}
-            onClick={cycleAnnotations}
-            disabled={!running || material || displayPeaks.length === 0}
-            title={`Annotation visibility: ${ANNOTATION_LABEL[annotationMode]} (click to cycle)`}
-          >
-            {annotationMode === 'all' ? '👁' : annotationMode === 'selected' ? '★' : '🚫'} Annotations
-          </button>
-          <button
-            className="btn"
-            onClick={() => setShowSave(true)}
-            disabled={comparison ? false : material ? matPhase !== 'complete' : !captured}
-            title="Save measurement to the library"
-          >
-            ⤓ Save
-          </button>
-          <button className="btn" onClick={() => setShowMeasurements(true)} title="Measurements library">
-            Measurements
-          </button>
-          <button className="btn" onClick={() => setShowMetrics(true)} disabled={!running} title="Analysis metrics">
-            Metrics
-          </button>
-          <button className="btn" onClick={() => setShowSettings(true)} title="Settings">
-            ⚙ Settings
-          </button>
-        </div>
       </header>
+
+      <div className="toolbar toolbar-app">
+        <button
+          className={`btn toggle ${autoDb ? 'on' : ''}`}
+          onClick={toggleAutoDb}
+          disabled={!running}
+          aria-pressed={autoDb}
+          title="Auto-scale the dB axis to the spectrum"
+        >
+          <AutoDbIcon />
+          <span>Auto dB</span>
+        </button>
+        <button
+          className={`btn toggle ${annotationMode !== 'none' ? 'on' : ''}`}
+          onClick={cycleAnnotations}
+          disabled={!running || material || displayPeaks.length === 0}
+          title={`Annotation visibility: ${ANNOTATION_LABEL[annotationMode]} (click to cycle)`}
+        >
+          {annotationMode === 'all' ? <EyeIcon /> : annotationMode === 'selected' ? <StarIcon /> : <EyeOffIcon />}
+          <span>Annotations</span>
+        </button>
+        <button
+          className="btn"
+          onClick={() => setShowSave(true)}
+          disabled={comparison ? false : material ? matPhase !== 'complete' : !captured}
+          title="Save measurement to the library"
+        >
+          <SaveIcon />
+          <span>Save</span>
+        </button>
+        <button className="btn" onClick={() => setShowMeasurements(true)} title="Measurements library">
+          <ClipboardIcon />
+          <span>Measurements</span>
+        </button>
+        <button className="btn" onClick={() => setShowMetrics(true)} disabled={!running} title="Analysis metrics">
+          <BarChartIcon />
+          <span>Metrics</span>
+        </button>
+        <button className="btn" onClick={() => setShowSettings(true)} title="Settings">
+          <GearIcon />
+          <span>Settings</span>
+        </button>
+      </div>
 
       {/* Row 2 — Tap Controls (measurement controls). Native macOS order
           (regularTapControlsWide): Taps │ Threshold │ Peak Min, actions right-aligned. */}
@@ -904,26 +1054,61 @@ export default function App() {
           </>
         )}
 
-        <span className="spacer" />
+        {/* New Tap · Pause/Resume · Cancel — ALWAYS visible, in the same order as Swift
+            (vertical stack) and Python (horizontal), enabled/disabled by state rather than
+            shown/hidden. During a material (plate/brace) review phase the Pause and Cancel
+            slots relabel to Accept / Redo, exactly as the native apps' same buttons do. */}
+        {(() => {
+          // Mirrors the REAL Swift/Python runtime logic (verified against
+          // tap_tone_analysis_view.py button-update + Swift computed props, not comments):
+          //   isDetecting is FALSE while paused, so Cancel is disabled (greyed) while paused —
+          //   but every button stays VISIBLE; both apps enable/disable, never hide.
+          const reviewing = material && isReviewing(matPhase)
+          const paused = engineState === 'paused'
+          const detecting = engineState === 'listening' || engineState === 'capturing'
+          // New Tap: guitar → only when idle/complete; material → always while running (start over).
+          const newTapDisabled = material ? !running : !running || engineState !== 'idle'
+          // Pause/Resume: enabled while detecting OR paused (or Accept in review).
+          const pauseEnabled = running && (reviewing || detecting || paused)
+          // Cancel: only while detecting (NOT paused); material aborts the whole sequence,
+          // guitar only mid multi-tap. Orange when enabled, grey (default disabled) otherwise —
+          // matches Python's `color: orange/gray` and Swift's `.foregroundStyle(.orange/.gray)`.
+          const cancelEnabled =
+            running &&
+            (reviewing || (detecting && (material ? true : numberOfTaps > 1 && progress.collected < numberOfTaps)))
+          return (
+            // No-wrap group so the trio never splits across rows, and each button has a fixed
+            // min-width so relabeling (Pause→Resume, Cancel→Redo) can't change widths and reflow
+            // the row — a button's state change must not re-lay out the controls.
+            <div className="tap-actions">
+              <button
+                className="btn btn-primary tap-action"
+                onClick={material ? startMaterial : newTap}
+                disabled={newTapDisabled}
+              >
+                <TapIcon />
+                <span>New Tap</span>
+              </button>
+              <button
+                className={`btn tap-action${reviewing ? ' btn-accept' : ''}`}
+                onClick={reviewing ? acceptMaterial : paused ? resumeTap : pauseTap}
+                disabled={!pauseEnabled}
+              >
+                {reviewing ? <CheckIcon /> : paused ? <PlayIcon /> : <PauseIcon />}
+                <span>{reviewing ? 'Accept' : paused ? 'Resume' : 'Pause'}</span>
+              </button>
+              <button
+                className={`btn tap-action${cancelEnabled ? ' btn-cancel' : ''}`}
+                onClick={reviewing ? redoMaterial : cancelTap}
+                disabled={!cancelEnabled}
+              >
+                {reviewing ? <UndoIcon /> : <CancelIcon />}
+                <span>{reviewing ? 'Redo' : 'Cancel'}</span>
+              </button>
+            </div>
+          )
+        })()}
 
-        {running && material && isReviewing(matPhase) && (
-          <>
-            <button className="btn btn-accept" onClick={acceptMaterial}>
-              Accept
-            </button>
-            <button className="btn" onClick={redoMaterial}>
-              Redo
-            </button>
-          </>
-        )}
-
-        <button
-          className="btn btn-primary"
-          onClick={material ? startMaterial : newTap}
-          disabled={!running || (material ? engineState === 'capturing' : engineState !== 'idle')}
-        >
-          New Tap
-        </button>
         {error && (
           <button className="btn" onClick={() => void start()}>
             Retry microphone
@@ -1047,9 +1232,13 @@ export default function App() {
             ? 'Microphone unavailable'
             : !running
               ? 'Requesting microphone…'
-              : material
-                ? matInstruction(matPhase, brace)
-                : statusText(engineState, progress)}
+              : cancelled && engineState === 'idle'
+                ? 'Cancelled — press New Tap to start again'
+                : engineState === 'paused'
+                  ? 'Detection paused – tap freely, then resume'
+                  : material
+                    ? matInstruction(matPhase, brace)
+                    : statusText(engineState, progress)}
         </span>
         <span className="spacer" />
         <span className="level">{level.toFixed(1)} dBFS</span>
