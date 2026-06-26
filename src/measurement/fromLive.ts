@@ -10,10 +10,12 @@ import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classi
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME } from '../components/modeColors'
+import { formatDisplayDateCompact } from '../format/date'
 import type { ChartView } from '../components/SpectrumChart'
 import {
   DEFAULT_SETTINGS,
   MEASUREMENT_FULL_NAME,
+  MEASUREMENT_SHORT_NAME,
   type MeasurementType,
   type Settings,
   type StiffnessPreset,
@@ -179,6 +181,15 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
 const MEASUREMENT_TYPE_FROM_RAW: Record<string, MeasurementType> = Object.fromEntries(
   Object.entries(MEASUREMENT_FULL_NAME).map(([k, v]) => [v, k as MeasurementType]),
 )
+
+/** A measurement's type as the single Settings-vocabulary word shown in the Details pane:
+ *  Acoustic / Classical / Flamenco / Generic / Plate / Brace / Comparison. */
+export function measurementTypeName(m: TapToneMeasurementModel): string {
+  if (m.comparisonEntries != null) return 'Comparison'
+  const raw = (m.spectrumSnapshot ?? m.longitudinalSnapshot)?.measurementType
+  const t = raw != null ? MEASUREMENT_TYPE_FROM_RAW[raw] : undefined
+  return t != null ? MEASUREMENT_SHORT_NAME[t] : (raw ?? '—')
+}
 
 /** The current capture setup, for the load-time provenance check. */
 export interface CaptureSetup {
@@ -508,7 +519,7 @@ function hexToComponents(hex: string): number[] {
 }
 
 const comparisonLabel = (m: TapToneMeasurementModel): string =>
-  m.measurementName?.trim() || new Date(m.timestamp).toLocaleDateString()
+  m.measurementName?.trim() || formatDisplayDateCompact(m.timestamp)
 
 /** Build comparison entries from selected library measurements — mirrors Swift/Python
  *  loadComparison: filter to those with a spectrum, disambiguate duplicate labels with

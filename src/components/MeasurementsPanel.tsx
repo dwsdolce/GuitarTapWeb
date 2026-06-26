@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { listMeasurements, deleteMeasurement, saveMeasurement, clearMeasurements } from '../measurement/store'
 import { measurementTapToneRatio, guitarTapFilename, newMeasurementId } from '../measurement/fromLive'
+import { formatDisplayDate } from '../format/date'
 import { parseGuitarTapFile, serializeGuitarTapFile, type TapToneMeasurementModel } from '../measurement'
 import { MeasurementDetail } from './MeasurementDetail'
 
@@ -17,13 +18,6 @@ export interface MeasurementsPanelProps {
 // desktop) holds the per-row actions. Row content mirrors the native MeasurementRowView.
 // In-scope actions for 4b: Load into View · Edit Name & Notes · Delete. View Details (4d),
 // Export Measurement/Spectrum/PDF (4c / Phase 5) slot into the same menu later.
-
-const fmtDate = (iso: string): string => {
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-}
 
 /** "N peaks • Ratio: X.XX • Decay: X.XXs" — only the parts that apply. */
 function metaLine(m: TapToneMeasurementModel): string {
@@ -345,7 +339,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                               ∿
                             </span>
                           )}
-                          <span className="meas-date">{fmtDate(m.timestamp)}</span>
+                          <span className="meas-date">{formatDisplayDate(m.timestamp)}</span>
                         </div>
                         <div className="meas-meta">
                           {isComparison(m) ? `${m.comparisonEntries!.length} spectra compared` : metaLine(m)}

@@ -1,6 +1,6 @@
 # Measurement Details Pane — Cross-App Consistency Spec
 
-**Status:** analysis + proposal (decisions pending). 2026-06-25.
+**Status:** IMPLEMENTED 2026-06-25 in all three apps (§9). Decisions: D1 = full words; D2 = no dimensions; D3 = all three apps. §1–§6 are the original "before" analysis; §7 is the spec.
 **Apps:** Swift `GuitarTap` (canonical), Python `guitar_tap` (mirror), Web `GuitarTapWeb` (port).
 **Scope:** the read-only **Measurement Details** inspector, opened from the Measurements list.
 
@@ -108,77 +108,96 @@ All three: peaks **sorted by frequency ascending**, group title **"Detected Peak
 
 ---
 
-## 7. Proposed canonical spec
+## 7. Canonical spec — DECIDED 2026-06-25
 
-A single Details pane definition all three converge to. Each row shown only when present.
+**Purpose.** A lightweight read-only inspector: confirm *what a saved measurement is and how it
+was captured*, plus its *identified results*. NOT a full data dump. The page has existed since
+the early days but is rarely used; this trims it to what's actually worth inspecting (drop the
+all-peaks listing and the redundant analysis numbers).
+
+Each row/section shown only when it has a value.
 
 ### 7.1 Measurement Info (all types)
-1. Measurement Name
-2. Date — **decide one format** (proposal: locale medium date + short time)
-3. Ring-Out — `"%.2f s"` (guitar only)
-4. Tap Tone Ratio — `"%.2f : 1"` (guitar only)
-5. Measurement Type
-6. Guitar Type
-7. Number of Taps
-8. Microphone
-9. Calibration (where the platform has it; web omits)
-10. Notes
+1. **Measurement Name**
+2. **Date** — the app's single canonical format, **identical to the Saved-Measurements list row
+   and the PDF report** (per app; web = locale *medium date + short time*).
+3. **Measurement Type** — ONE field from the Settings vocabulary:
+   **Acoustic / Classical / Flamenco / Generic / Plate / Brace / Comparison**.
+   Replaces the old raw "… Guitar" / "Material (Plate)" string AND the separate "Guitar Type" row.
+4. **Number of Taps** — provenance.
+5. **Microphone** — provenance.
+6. **Calibration** — provenance; **add on all platforms**, shown when present (web populates it
+   once calibration support lands; omitted until then).
+7. **Notes**
 
-→ **Swift adds rows 5–8 (+9).** Python/Web already match. Standardize Ring-Out on `"%.2f s"`.
+**Removed:** Ring-Out, Tap Tone Ratio (not useful here), Guitar Type (folded into Type),
+Sample Rate. **No Dimensions section** — D2 resolved to *no* (part of the data trim).
 
-### 7.2 Dimensions — plate/brace only *(DECISION D2)*
-If adopted: Length / Width / Thickness / Mass (+ Density? + body L×W + stiffness preset for plate).
-→ New section in **all three**.
+### 7.2 Identified Peaks (guitar + plate + brace) — SELECTED peaks only
+- Show only the **selected / identified** peaks — NOT every detected peak (the "too much data").
+  - Guitar: the identified mode peaks (Air/Top/Back + any user-selected). Multi-tap → the
+    **averaged** result's selected peaks.
+  - Plate/brace: the selected fL/fC/fLC peaks.
+- Drop the unselected rows, the "(N selected, M unselected)" count, and the star/dimming
+  (everything shown is selected).
+- Per-peak row: mode label + `%.1f Hz` + pitch + `Q: %.1f` + `BW: %.1f Hz` + `%.1f dB`.
+- Material label resolved from `selectedLongitudinal/Cross/FlcPeakID` (correct regardless of any
+  stored `modeLabel` — fixes the web "Peak" bug). **Label text = D1 (open).**
+- Guitar unknown-mode filtering is now moot — only identified peaks are shown.
 
-### 7.3 Detected Peaks (guitar + material)
-- Sorted by frequency; title "Detected Peaks (N selected[, M unselected])".
-- Row: star + mode label + `%.1f Hz` + pitch + `Q: %.1f` + `BW: %.1f Hz` + `%.1f dB`; unselected dimmed.
-- **Material label = DECISION D1** (fL/fC/fLC vs full words), resolved from the selected
-  L/C/FLC IDs so it's correct regardless of stored `modeLabel`.
-  → **Web fix required** either way (label by selected IDs, not `modeLabel ?? 'Peak'`).
-- Guitar unknown-mode filtering: align all three (proposal: honor `showUnknownModes`).
-
-### 7.4 Compared Spectra (comparison only)
+### 7.3 Compared Spectra (comparison only)
 - Per entry: color dot + label + Air / Top / Back (`%.1f Hz` / "—"), resolved from the entry's
-  selected peaks + guitar type.
-- → **Swift & Python add this section**; web already has it.
+  selected peaks + guitar type. Keep; Swift & Python **add** it.
 
 ---
 
-## 8. Open decisions
+## 8. Decisions
 
-- **D1 — Material peak label:** `fL / fC / fLC` (Swift detail style, compact) **vs**
-  `Longitudinal / Cross-grain / FLC` (matches the chart annotations we standardized + Python).
-  *Recommendation:* full words, for one vocabulary across chart + detail (note: makes rows wider).
-- **D2 — Dimensions section** for plate/brace: add **vs** leave out.
-  *Recommendation:* add — material detail is otherwise sparse.
-- **D3 — Scope/order of changes:** which apps, in what order. Swift is mid App-Store review
-  (coordinate before touching the in-flight build).
+**Resolved 2026-06-25:**
+- Purpose = lightweight inspector; **no all-peaks dump**.
+- **Identified Peaks = selected-only** (guitar identified / plate-brace L-C-FLC / multi-tap averaged).
+- **Comparison** keeps the Air/Top/Back table everywhere.
+- **Info trimmed:** remove Ring-Out + Tap Tone Ratio; one **Measurement Type** field (Settings
+  vocabulary + Comparison); fold away Guitar Type; drop Sample Rate.
+- **Date** unified to the app's Saved-Measurements-list / PDF format.
+- **Calibration** added on all platforms (web fills it when available).
+- **D2 = NO** dimensions section.
+
+**Remaining:**
+- **D1 — plate/brace peak label:** `fL / fC / fLC` (compact; Swift's current detail) **vs**
+  `Longitudinal / Cross-grain / FLC` (matches the chart annotations + Python). *Recommendation:*
+  full words, for one vocabulary across chart + detail.
+- **D3 — scope/order:** which apps to change, in what order (Swift mid App-Store review).
 
 ---
 
-## 9. Per-app change list (once D1–D3 are set)
+## 9. Per-app change list — DONE 2026-06-25
 
-### Web (`GuitarTapWeb`) — `src/components/MeasurementDetail.tsx`
-- [ ] Fix material peak labels: resolve from `selectedLongitudinal/Cross/FlcPeakID` (D1), not `modeLabel ?? 'Peak'`.
-- [ ] (D2) Add Dimensions section for plate/brace (data from the snapshot / settings).
-- [ ] (Optional) Honor `showUnknownModes` for guitar peak filtering.
-- [ ] Comparison "Compared Spectra" already present — confirm it matches the agreed columns.
-- Note: `buildMaterialMeasurement` could also persist `modeLabel` for robustness, but
-  labeling by selected ID makes the detail correct without relying on it.
+### Web (`GuitarTapWeb`) — `src/components/MeasurementDetail.tsx` ✅
+- [x] Info trimmed: removed Ring-Out, Tap Tone Ratio, Guitar Type, Sample Rate.
+- [x] Single **Measurement Type** field via `measurementTypeName()` (Settings vocabulary + Comparison).
+- [x] Kept Name, Date, Number of Taps, Microphone, **Calibration** (shown when present), Notes.
+- [x] Peaks: **selected-only** "Identified Peaks"; no star/dimming/count.
+- [x] Material labels (full words) resolved from `selectedLongitudinal/Cross/FlcPeakID`.
+- [x] Comparison "Compared Spectra" kept. *(typecheck + build clean, 83 tests pass)*
 
-### Python (`guitar_tap`) — `views/measurements/measurement_detail_view.py`
-- [ ] (D1) Make material peak label match (currently full words from `mode_label`).
-- [ ] (D2) Add Dimensions section for plate/brace.
-- [ ] **Add Compared Spectra section** for comparison records (currently shows "No peaks detected").
-- [ ] Confirm Info field set matches §7.1.
+### Python (`guitar_tap`) — `views/measurements/measurement_detail_view.py` ✅
+- [x] Info: removed Ring-Out + Tap Tone Ratio; single **Measurement Type** field (`_type_name`); folded away Guitar Type.
+- [x] `_PeakRow`: dropped star/opacity; added `label_color` override for material.
+- [x] Peaks: **selected-only** "Identified Peaks"; material full-word labels + colours.
+- [x] **Added Compared Spectra section** (reuses `ComparisonResultsView` via `_comparison_data`).
+      *(ruff clean, 372 tests pass; dialog smoke-tested guitar/plate/comparison)*
 
-### Swift (`GuitarTap`) — `Views/Measurements/MeasurementDetailView.swift`  *(coordinate w/ review)*
-- [ ] **Add Info rows 5–8 (+9):** Measurement Type, Guitar Type, Number of Taps, Microphone, Calibration.
-- [ ] (D1) Material peak label (currently fL/fC/fLC).
-- [ ] (D2) Add Dimensions section for plate/brace.
-- [ ] **Add Compared Spectra section** for comparison records.
-- [ ] Standardize Ring-Out string to `"%.2f s"` (currently "seconds").
+### Swift (`GuitarTap`) — `Views/Measurements/MeasurementDetailView.swift` ✅ *(build/verify in Xcode; stash for release)*
+- [x] Info: added Measurement Type (single field via `measurementTypeName`) + Number of Taps + Microphone + Calibration; removed Ring-Out + Tap Tone Ratio.
+- [x] Peaks: **selected-only** "Identified Peaks"; material full-word labels; `isSelected: true` (no star/dimming).
+- [x] **Added Compared Spectra section** for comparison records (`ComparisonResultsView(spectra:)`).
+      *(parse-clean + braces balanced here; NOT compiled — verify in Xcode)*
+
+**Note — Date format:** the web already uses the Saved-Measurements-list format; Python/Swift kept their
+existing absolute date formats. If those differ from each app's list/PDF, align as a small follow-up.
+**Note — Calibration (web):** the row is wired but stays hidden until the web grows microphone-calibration
+storage in Settings (a Phase 5 feature, mirroring Python/Swift).
 
 ---
 
