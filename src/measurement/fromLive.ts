@@ -80,6 +80,9 @@ export interface BuildMeasurementArgs {
   tapSpectra?: Spectrum[]
   sampleRate: number | null
   deviceLabel: string
+  /** Active input deviceId + calibration name at capture time (provenance for the Details pane). */
+  microphoneUID?: string
+  calibrationName?: string
 }
 
 /** Construct a guitar TapToneMeasurementModel from the current frozen result. */
@@ -174,6 +177,8 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
     peakModeOverrides: Object.keys(peakModeOverrides).length ? peakModeOverrides : undefined,
     tapEntries,
     microphoneName: a.deviceLabel || undefined,
+    microphoneUID: a.microphoneUID || undefined,
+    calibrationName: a.calibrationName || undefined,
     sampleRate: a.sampleRate ?? undefined,
   }
 }
@@ -407,6 +412,8 @@ export interface BuildMaterialArgs {
   settings: Settings
   sampleRate: number | null
   deviceLabel: string
+  microphoneUID?: string
+  calibrationName?: string
 }
 
 /** Construct a plate/brace TapToneMeasurementModel from the current completed material
@@ -495,6 +502,8 @@ export function buildMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasureme
     numberOfTaps: 1,
     peakMinThreshold: a.settings.peakMinThreshold,
     microphoneName: a.deviceLabel || undefined,
+    microphoneUID: a.microphoneUID || undefined,
+    calibrationName: a.calibrationName || undefined,
     sampleRate: a.sampleRate ?? undefined,
   }
 }

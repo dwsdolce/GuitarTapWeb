@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AudioEngine, type EngineState, type EngineMetrics } from './audio/engine'
+import { AudioEngine, type EngineState, type EngineMetrics, type MaterialSearch } from './audio/engine'
 import { SpectrumChart, type PeakMarker, type ChartView, type ResetTarget, type ResetAxis, type SpectrumOverlay } from './components/SpectrumChart'
 import { ThresholdMeter } from './components/ThresholdMeter'
 import { PeakCard } from './components/PeakCard'
 import { SettingsPanel } from './components/SettingsPanel'
 import { MetricsPanel, type Metrics } from './components/MetricsPanel'
 import { SaveSheet } from './components/SaveSheet'
+import { PlayFileSheet } from './components/PlayFileSheet'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
 import {
@@ -22,6 +23,19 @@ import {
 } from './measurement/fromLive'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { saveMeasurement } from './measurement/store'
+import { parseCalibration, type Calibration } from './dsp/calibration'
+import { decodeWav } from './dsp/wav'
+import {
+  listCalibrations,
+  saveCalibration,
+  deleteCalibration as deleteStoredCalibration,
+  setActiveCalibrationId,
+  setCalibrationForDevice,
+  resolveActiveCalibration,
+  getSavedInputDeviceId,
+  setSavedInputDeviceId,
+  type StoredCalibration,
+} from './measurement/calibrationStore'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
 import { MODE_COLOR, MODE_DISPLAY_NAME } from './components/modeColors'
 import { GUITAR_FFT_SIZE, modePeaksFromSpectrum, type Spectrum } from './dsp/guitarFFT'
@@ -226,6 +240,12 @@ const GearIcon = () => (
     <circle cx="12" cy="12" r="3" />
   </svg>
 )
+const FilePlayIcon = () => (
+  <svg {...ICON_SVG}>
+    <circle cx="12" cy="12" r="10" />
+    <polygon points="10 8 16 12 10 16 10 8" />
+  </svg>
+)
 
 export default function App() {
   const [running, setRunning] = useState(false)
@@ -237,6 +257,15 @@ export default function App() {
   const [audioSettings, setAudioSettings] = useState<MediaTrackSettings | null>(null)
   const [deviceLabel, setDeviceLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  // Audio Input & Calibration (apply immediately; NOT part of the buffered Settings dialog).
+  const [inputDevices, setInputDevices] = useState<{ deviceId: string; label: string }[]>([])
+  const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null)
+  const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
+  // The calibration id currently *applied* for the active device (resolved: device map > global).
+  const [activeCalId, setActiveCalId] = useState<string | null>(null)
+  // Mirror of the applied calibration for matSearch + save provenance (read from stable refs).
+  const calibrationRef = useRef<Calibration | null>(null)
 
   const [numberOfTaps, setNumberOfTaps] = useState(1)
   const [clipping, setClipping] = useState(false)
@@ -252,6 +281,9 @@ export default function App() {
 
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [showSettings, setShowSettings] = useState(false)
+  const [showPlayFile, setShowPlayFile] = useState(false)
+  // Name of the file currently playing through the pipeline (drives the status bar), or null.
+  const [playingFileName, setPlayingFileName] = useState<string | null>(null)
   const [showMetrics, setShowMetrics] = useState(false)
   const [showSave, setShowSave] = useState(false)
   const [showMeasurements, setShowMeasurements] = useState(false)
@@ -339,6 +371,104 @@ export default function App() {
 
   const engineRef = useRef<AudioEngine | null>(null)
 
+  // Resolve the calibration for a device (device-specific → global → none) and apply it to the
+  // engine + UI + the refs read by matSearch/save. Mirrors RealtimeFFTAnalyzer's auto-apply.
+  const applyCalibrationForDevice = useCallback((deviceId: string | null) => {
+    const cal = resolveActiveCalibration(deviceId)
+    calibrationRef.current = cal
+    setActiveCalId(cal?.id ?? null)
+    engineRef.current?.setCalibration(cal)
+  }, [])
+
+  const refreshDevices = useCallback(async () => {
+    const list = await engineRef.current?.listInputs()
+    if (list) setInputDevices(list)
+  }, [])
+
+  const onSelectDevice = useCallback(
+    async (deviceId: string) => {
+      try {
+        await engineRef.current?.setInputDevice(deviceId)
+      } catch (e) {
+        setError(`Couldn't switch input: ${e instanceof Error ? e.message : String(e)}`)
+        return
+      }
+      const id = engineRef.current?.inputDeviceId ?? deviceId
+      setSavedInputDeviceId(id)
+      setCurrentDeviceId(id)
+      setDeviceLabel(engineRef.current?.deviceLabel ?? '')
+      setSampleRate(engineRef.current?.sampleRate ?? null)
+      setAudioSettings(engineRef.current?.audioSettings ?? null)
+      applyCalibrationForDevice(id)
+      void refreshDevices()
+    },
+    [applyCalibrationForDevice, refreshDevices],
+  )
+
+  const onImportCalibration = useCallback(
+    async (file: File) => {
+      try {
+        const cal = parseCalibration(await file.text(), file.name.replace(/\.[^.]+$/, ''))
+        if (cal.points.length === 0) throw new Error('No calibration data points found in the file.')
+        const stored = saveCalibration(cal)
+        setCalibrations(listCalibrations())
+        setActiveCalibrationId(stored.id) // global active
+        if (currentDeviceId) setCalibrationForDevice(currentDeviceId, stored.id) // remember for this mic
+        applyCalibrationForDevice(currentDeviceId)
+      } catch (e) {
+        setError(`Couldn't import calibration: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    },
+    [applyCalibrationForDevice, currentDeviceId],
+  )
+
+  const onSelectCalibration = useCallback(
+    (id: string | null) => {
+      setActiveCalibrationId(id)
+      if (currentDeviceId) setCalibrationForDevice(currentDeviceId, id)
+      applyCalibrationForDevice(currentDeviceId)
+    },
+    [applyCalibrationForDevice, currentDeviceId],
+  )
+
+  const onDeleteCalibration = useCallback(
+    (id: string) => {
+      deleteStoredCalibration(id)
+      setCalibrations(listCalibrations())
+      applyCalibrationForDevice(currentDeviceId)
+    },
+    [applyCalibrationForDevice, currentDeviceId],
+  )
+
+  // Play a recorded WAV through the live guitar pipeline (Swift openAudioFile/startFromFile).
+  // Resets the view like New Tap, applies an optional calibration for the playback, then pumps.
+  const onPlayFile = useCallback(async (audio: File, calFile: File | null) => {
+    if (!engineRef.current) return
+    try {
+      const { samples, sampleRate: fileRate } = decodeWav(new Uint8Array(await audio.arrayBuffer()))
+      let cal: Calibration | null = null
+      if (calFile) {
+        const parsed = parseCalibration(await calFile.text(), calFile.name.replace(/\.[^.]+$/, ''))
+        if (parsed.points.length) cal = parsed
+      }
+      setLoadedPeaks(null)
+      setLoadWarning(null)
+      setLoadedName(null)
+      setCaptured(null)
+      setTapSpectra([])
+      setShowMultiTap(false)
+      setComparison(null)
+      setCancelled(false)
+      comparisonRef.current = false
+      setPlayingFileName(audio.name)
+      await engineRef.current.playFile(samples, fileRate, { calibration: cal })
+    } catch (e) {
+      setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setPlayingFileName(null)
+    }
+  }, [])
+
   const start = useCallback(async () => {
     if (engineRef.current) return
     setError(null)
@@ -378,18 +508,21 @@ export default function App() {
     }, { tapDetectionThreshold: tapThresholdRef.current })
     engineRef.current = engine
     try {
-      await engine.start()
+      await engine.start(getSavedInputDeviceId())
       setSampleRate(engine.sampleRate)
       setAudioSettings(engine.audioSettings)
       setDeviceLabel(engine.deviceLabel)
+      setCurrentDeviceId(engine.inputDeviceId)
       setRunning(true)
+      applyCalibrationForDevice(engine.inputDeviceId) // auto-apply the device's calibration
+      void refreshDevices() // labels are available now that permission is granted
       // If we loaded straight into a material type, don't leave guitar detection armed.
       if (isMaterialType(measRef.current)) engine.disarm()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       engineRef.current = null
     }
-  }, [setMatPhase])
+  }, [setMatPhase, applyCalibrationForDevice, refreshDevices])
 
   // Start listening automatically — GuitarTap has no Start button; the only
   // browser-mandated gate is the mic permission prompt itself.
@@ -401,6 +534,12 @@ export default function App() {
       setRunning(false)
     }
   }, [start])
+
+  // Re-enumerate inputs whenever the Settings dialog opens, so a freshly-plugged
+  // microphone shows up in the device picker without a reload.
+  useEffect(() => {
+    if (showSettings && running) void refreshDevices()
+  }, [showSettings, running, refreshDevices])
 
   const newTap = useCallback(() => {
     setLoadedPeaks(null)
@@ -437,14 +576,18 @@ export default function App() {
   }, [])
 
   // ── Material measurement: phase machine drives gated captures ─────────────
-  const matSearch = useCallback(
-    (phase: 'longitudinal' | 'cross' | 'flc') => {
-      if (phase === 'cross') return PLATE_PHASES[1]
-      if (phase === 'flc') return PLATE_PHASES[2]
-      return measRef.current === 'brace' ? BRACE_PHASE : PLATE_PHASES[0]
-    },
-    [],
-  )
+  const matSearch = useCallback((phase: 'longitudinal' | 'cross' | 'flc'): MaterialSearch => {
+    const base =
+      phase === 'cross'
+        ? PLATE_PHASES[1]
+        : phase === 'flc'
+          ? PLATE_PHASES[2]
+          : measRef.current === 'brace'
+            ? BRACE_PHASE
+            : PLATE_PHASES[0]
+    // Apply the active mic calibration to the gated spectrum before its peak-find (gatedCapture).
+    return { ...base, calibration: calibrationRef.current }
+  }, [])
 
   const startMaterial = useCallback(() => {
     setCancelled(false)
@@ -803,7 +946,11 @@ export default function App() {
       if (material) {
         if (!matSpectra.longitudinal) return
         void saveMeasurement(
-          buildMaterialMeasurement({ name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, sampleRate, deviceLabel }),
+          buildMaterialMeasurement({
+            name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, sampleRate, deviceLabel,
+            microphoneUID: currentDeviceId ?? undefined,
+            calibrationName: calibrationRef.current?.name,
+          }),
         )
         return
       }
@@ -823,10 +970,12 @@ export default function App() {
           tapSpectra,
           sampleRate,
           deviceLabel,
+          microphoneUID: currentDeviceId ?? undefined,
+          calibrationName: calibrationRef.current?.name,
         }),
       )
     },
-    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel],
+    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel, currentDeviceId],
   )
 
   const onLoadMeasurement = useCallback(
@@ -946,6 +1095,19 @@ export default function App() {
       </header>
 
       <div className="toolbar toolbar-app">
+        <button
+          className="btn"
+          onClick={() => setShowPlayFile(true)}
+          disabled={!running || material || comparison != null}
+          title={
+            material
+              ? 'Play File supports guitar measurements'
+              : 'Play a recorded WAV through the analysis pipeline'
+          }
+        >
+          <FilePlayIcon />
+          <span>Play File</span>
+        </button>
         <button
           className={`btn toggle ${autoDb ? 'on' : ''}`}
           onClick={toggleAutoDb}
@@ -1232,7 +1394,9 @@ export default function App() {
             ? 'Microphone unavailable'
             : !running
               ? 'Requesting microphone…'
-              : cancelled && engineState === 'idle'
+              : playingFileName
+                ? `Playing ${playingFileName}…`
+                : cancelled && engineState === 'idle'
                 ? 'Cancelled — press New Tap to start again'
                 : engineState === 'paused'
                   ? 'Detection paused – tap freely, then resume'
@@ -1264,6 +1428,14 @@ export default function App() {
           onApply={setSettings}
           onSaveCurrentView={saveCurrentView}
           onClose={() => setShowSettings(false)}
+          inputDevices={inputDevices}
+          currentDeviceId={currentDeviceId}
+          onSelectDevice={(id) => void onSelectDevice(id)}
+          calibrations={calibrations}
+          activeCalibrationId={activeCalId}
+          onImportCalibration={(f) => void onImportCalibration(f)}
+          onSelectCalibration={onSelectCalibration}
+          onDeleteCalibration={onDeleteCalibration}
         />
       )}
 
@@ -1279,6 +1451,10 @@ export default function App() {
 
       {showMeasurements && (
         <MeasurementsPanel onClose={() => setShowMeasurements(false)} onLoad={onLoadMeasurement} onCompare={onCompare} />
+      )}
+
+      {showPlayFile && (
+        <PlayFileSheet onPlay={(audio, cal) => void onPlayFile(audio, cal)} onClose={() => setShowPlayFile(false)} />
       )}
     </div>
   )

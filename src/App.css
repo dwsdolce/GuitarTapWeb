@@ -669,6 +669,24 @@
   color: var(--muted);
   margin: 0.4rem 0 0;
 }
+.set-cal-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+.playfile-pick {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.playfile-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
 .set-disclosure {
   background: none;
   border: none;

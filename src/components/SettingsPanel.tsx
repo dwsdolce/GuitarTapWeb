@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import type { StoredCalibration } from '../measurement/calibrationStore'
 import { densityGPerCm3, type Dimensions } from '../dsp/material'
 import { modeBands } from '../dsp/guitarModes'
 import {
@@ -29,6 +30,23 @@ export interface SettingsPanelProps {
   onSaveCurrentView: () => void
   /** Close without applying (Cancel / backdrop). */
   onClose: () => void
+  // ── Audio Input & Calibration (apply IMMEDIATELY, independent of Done/Cancel) ──
+  /** Available audio input devices (enumerated once mic permission is granted). */
+  inputDevices: { deviceId: string; label: string }[]
+  /** deviceId of the active input, or null. */
+  currentDeviceId: string | null
+  /** Switch the live input device. */
+  onSelectDevice: (deviceId: string) => void
+  /** Imported calibration profiles. */
+  calibrations: StoredCalibration[]
+  /** id of the active calibration, or null for None. */
+  activeCalibrationId: string | null
+  /** Import a calibration file (UMIK-1 / REW .cal/.txt). */
+  onImportCalibration: (file: File) => void
+  /** Make a stored calibration active (or None when null). */
+  onSelectCalibration: (id: string | null) => void
+  /** Delete a stored calibration profile. */
+  onDeleteCalibration: (id: string) => void
 }
 
 const STIFFNESS_PRESETS: StiffnessPreset[] = [
@@ -108,7 +126,16 @@ export function SettingsPanel({
   onApply,
   onSaveCurrentView,
   onClose,
+  inputDevices,
+  currentDeviceId,
+  onSelectDevice,
+  calibrations,
+  activeCalibrationId,
+  onImportCalibration,
+  onSelectCalibration,
+  onDeleteCalibration,
 }: SettingsPanelProps) {
+  const calFileInput = useRef<HTMLInputElement>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
   // Buffered edits — applied on Done, discarded on Cancel (mirrors Swift's dialog).
   const [d, setD] = useState<Settings>(settings)
@@ -169,17 +196,64 @@ export function SettingsPanel({
           {/* ── Audio Input & Calibration (applies immediately — not buffered) ── */}
           <section>
             <h3>Audio Input &amp; Calibration</h3>
-            <div className="set-readout">
-              Device <b>{deviceLabel || 'Default input'}</b>
-            </div>
+            <label className="set-field">
+              <span>Device</span>
+              <select
+                className="set-input-select"
+                value={currentDeviceId ?? ''}
+                onChange={(e) => onSelectDevice(e.target.value)}
+                disabled={inputDevices.length === 0}
+              >
+                {inputDevices.length === 0 && <option value="">{deviceLabel || 'Default input'}</option>}
+                {inputDevices.map((dvc, i) => (
+                  <option key={dvc.deviceId} value={dvc.deviceId}>
+                    {dvc.label || `Microphone ${i + 1}`}
+                  </option>
+                ))}
+              </select>
+            </label>
             <div className="set-readout">
               Sample rate <b>{sampleRate ? `${(sampleRate / 1000).toFixed(1)} kHz` : '—'}</b>
             </div>
-            <div className="set-readout">
-              Calibration <b>None</b>
+            <label className="set-field">
+              <span>Calibration</span>
+              <select
+                className="set-input-select"
+                value={activeCalibrationId ?? ''}
+                onChange={(e) => onSelectCalibration(e.target.value || null)}
+              >
+                <option value="">None (flat)</option>
+                {calibrations.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="set-cal-actions">
+              <button className="btn mini" onClick={() => calFileInput.current?.click()}>
+                Import…
+              </button>
+              {activeCalibrationId && (
+                <button className="btn mini danger" onClick={() => onDeleteCalibration(activeCalibrationId)}>
+                  Delete
+                </button>
+              )}
+              <input
+                ref={calFileInput}
+                type="file"
+                accept=".cal,.txt,text/plain"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  e.target.value = ''
+                  if (f) onImportCalibration(f)
+                }}
+              />
             </div>
             <p className="set-note">
-              Device selection &amp; calibration import are coming soon (these apply immediately, not via Done).
+              Applied immediately (not via Done). Import a UMIK-1 / REW calibration file; corrections
+              are added to the spectrum and remembered for this microphone.
             </p>
           </section>
 

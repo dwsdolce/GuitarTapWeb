@@ -1,4 +1,5 @@
 import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
+import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { averageSpectra } from '../dsp/spectrumAverage'
 import { gatedCaptureResult, GATED_CAPTURE_DURATION, type MaterialPeak } from '../dsp/gatedCapture'
 
@@ -6,6 +7,8 @@ export interface MaterialSearch {
   minHz: number
   maxHz: number
   preferLowestSignificant: boolean
+  /** Active mic calibration applied to the gated spectrum before peak-finding (see gatedCapture). */
+  calibration?: Calibration | null
 }
 export interface MaterialCaptureResult {
   spectrum: Spectrum
@@ -87,10 +90,20 @@ export class AudioEngine {
 
   sampleRate = 48000
   state: EngineState = 'idle'
+  /** True while a file is playing through the pipeline (mic chunks are ignored meanwhile). */
+  playingFile = false
   /** Applied mic-track settings (AGC/EC/NS etc.) — for diagnosing capture gain. */
   audioSettings: MediaTrackSettings | null = null
   /** Label of the active input device (track.label), for the Settings panel. */
   deviceLabel = ''
+  /** deviceId of the active input (for the device picker + per-device calibration mapping). */
+  inputDeviceId: string | null = null
+
+  // Active mic calibration applied to the continuous + guitar-capture spectra (material/gated
+  // applies it via the MaterialSearch passed to armMaterial). guitarCorr caches the per-bin
+  // corrections for the fixed guitar FFT bins; null = recompute on next use.
+  private calibration: Calibration | null = null
+  private guitarCorr: number[] | null = null
 
   // Continuous live spectrum (0% overlap).
   private readonly accum = new Float32Array(GUITAR_FFT_SIZE)
@@ -136,6 +149,30 @@ export class AudioEngine {
 
   setConfig(config: Partial<AudioEngineConfig>): void {
     this.config = { ...this.config, ...config }
+  }
+
+  /** Set (or clear) the active mic calibration for the continuous + guitar-capture paths.
+   *  Adds interpolated per-bin dB corrections to the magnitude spectrum before it leaves the
+   *  engine, so the App finds peaks on calibrated data — mirroring Swift's vDSP_vadd in FFT
+   *  processing. The gated/material path receives the same calibration via armMaterial's search. */
+  setCalibration(cal: Calibration | null): void {
+    this.calibration = cal
+    this.guitarCorr = null
+  }
+
+  /** Add calibration corrections to a freshly-computed spectrum (no-op when no calibration).
+   *  The fixed guitar FFT bins are cached; any other bin layout (gated) is interpolated fresh. */
+  private applyCal(spec: Spectrum): Spectrum {
+    if (!this.calibration) return spec
+    const guitarBins = (GUITAR_FFT_SIZE >> 1) + 1
+    let corr: number[]
+    if (spec.magnitudesDb.length === guitarBins) {
+      if (!this.guitarCorr) this.guitarCorr = interpolateToBins(this.calibration, spec.frequencies)
+      corr = this.guitarCorr
+    } else {
+      corr = interpolateToBins(this.calibration, spec.frequencies)
+    }
+    return { magnitudesDb: applyCalibration(spec.magnitudesDb, corr), frequencies: spec.frequencies }
   }
 
   /** Arm guitar tap detection (New Tap). Starts a fresh tap sequence. */
@@ -218,25 +255,59 @@ export class AudioEngine {
     window.addEventListener('keydown', resume)
   }
 
-  async start(): Promise<void> {
-    if (this.context) return
-    // Processing-off constraints (AGC/EC/NS), shared across acquisitions.
-    const baseAudio = (): MediaTrackConstraints => ({
+  // Processing-off constraints (AGC/EC/NS), shared across acquisitions. Optionally pin a deviceId.
+  private baseAudio(deviceId?: string | null): MediaTrackConstraints {
+    return {
       channelCount: 1,
       echoCancellation: false,
       noiseSuppression: false,
       autoGainControl: false,
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
       // Chrome legacy goog flags — belt-and-suspenders to kill input processing.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ...({ googAutoGainControl: false, googNoiseSuppression: false, googEchoCancellation: false } as any),
-    })
+    }
+  }
 
+  /** Enumerate available audio input devices (labels are populated once permission is granted). */
+  async listInputs(): Promise<{ deviceId: string; label: string }[]> {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    return devices
+      .filter((d) => d.kind === 'audioinput')
+      .map((d) => ({ deviceId: d.deviceId, label: d.label }))
+  }
+
+  /** Switch the live input to `deviceId`, re-acquiring the stream and reconnecting the source
+   *  while keeping the same AudioContext/worklet (so the sample rate and DSP state are intact).
+   *  The web equivalent of RealtimeFFTAnalyzer.setInputDevice. */
+  async setInputDevice(deviceId: string): Promise<void> {
+    if (!this.context || !this.node) return
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) })
+    const track = stream.getAudioTracks()[0]!
+    try {
+      await track.applyConstraints({ echoCancellation: false, noiseSuppression: false, autoGainControl: false })
+    } catch {
+      /* not all browsers support applyConstraints on these */
+    }
+    // Swap the source node; stop the old stream's tracks.
+    this.source?.disconnect()
+    this.stream?.getTracks().forEach((t) => t.stop())
+    this.stream = stream
+    this.source = this.context.createMediaStreamSource(stream)
+    this.source.connect(this.node)
+    this.audioSettings = track.getSettings() ?? null
+    this.deviceLabel = track.label ?? ''
+    this.inputDeviceId = track.getSettings().deviceId ?? deviceId
+  }
+
+  async start(deviceId?: string | null): Promise<void> {
+    if (this.context) return
     // Don't force a rate: browsers expose no device "nominal" rate (no constraint →
     // system default; getCapabilities → device MAX), so we let the OS decide. The rate
     // is set in macOS Audio MIDI Setup (the AudioContext follows the default OUTPUT
     // device, so input AND output must be set to the same rate). The DSP reads the
     // actual ctx.sampleRate; the UI warns if it isn't EXPECTED_SAMPLE_RATE.
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudio() })
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) })
     const track = this.stream.getAudioTracks()[0]!
     // Re-assert processing-off; some UAs only honor applyConstraints.
     try {
@@ -246,6 +317,7 @@ export class AudioEngine {
     }
     this.audioSettings = track.getSettings() ?? null
     this.deviceLabel = track.label ?? ''
+    this.inputDeviceId = track.getSettings().deviceId ?? deviceId ?? null
     const ctx = new AudioContext()
     this.context = ctx
     this.sampleRate = ctx.sampleRate
@@ -268,8 +340,14 @@ export class AudioEngine {
   }
 
   private onChunk(data: ChunkMessage): void {
-    const s = data.samples
-    const db = 20 * Math.log10(Math.max(data.rms, 1e-10))
+    if (this.playingFile) return // mic chunks are ignored while a file plays through the pipeline
+    this.processChunk(data.samples, data.rms)
+  }
+
+  // The shared per-chunk core, fed by BOTH the live mic (onChunk) and file playback (playFile),
+  // so a played file runs the exact same level-crossing + FFT + capture path as the mic.
+  private processChunk(s: Float32Array, rms: number): void {
+    const db = 20 * Math.log10(Math.max(rms, 1e-10))
     this.callbacks.onLevel?.(db)
     this.detectClipping(s, db)
 
@@ -277,6 +355,66 @@ export class AudioEngine {
     this.feedPreroll(s)
     if (this.state === 'capturing') this.feedCapture(s)
     else if (this.state === 'listening') this.detectTap(db)
+  }
+
+  /** Play decoded mono samples through the live guitar pipeline (no mic), real-time paced —
+   *  the web equivalent of Swift startFromFile/processFileData. The file defines the analysis
+   *  sample rate; an optional calibration is applied for the playback then restored. Mic chunks
+   *  are ignored meanwhile (the worklet keeps running; clearing the flag resumes it). */
+  async playFile(
+    samples: Float32Array,
+    fileSampleRate: number,
+    opts?: { calibration?: Calibration | null },
+  ): Promise<void> {
+    if (!this.context || this.playingFile) return
+    this.playingFile = true
+    // Swap to the file's rate + rate-dependent buffers (Swift prepareForFilePlayback).
+    const saved = {
+      rate: this.sampleRate,
+      preroll: this.preroll,
+      prerollSamples: this.prerollSamples,
+      material: this.materialCapture,
+      cal: this.calibration,
+    }
+    this.sampleRate = fileSampleRate
+    this.prerollSamples = Math.round(fileSampleRate * 0.2)
+    this.preroll = new Float32Array(this.prerollSamples)
+    this.materialCapture = new Float32Array(Math.round(fileSampleRate * GATED_CAPTURE_DURATION))
+    if (opts && 'calibration' in opts) this.setCalibration(opts.calibration ?? null)
+    // Fresh guitar tap sequence (mirrors startTapSequence before startFromFile).
+    this.accumIdx = 0
+    this.prerollIdx = 0
+    this.prerollFilled = 0
+    this.captureKind = 'guitar'
+    this.capture = this.guitarCapture
+    this.captureIdx = 0
+    this.collected = []
+    this.prevAbove = true
+    this.consecutive = 0
+    this.setState('listening')
+    this.callbacks.onProgress?.(0, this.config.numberOfTaps)
+
+    const CHUNK = 1024
+    const chunkMs = (CHUNK / fileSampleRate) * 1000
+    for (let i = 0; i < samples.length && this.playingFile; i += CHUNK) {
+      const chunk = samples.subarray(i, Math.min(i + CHUNK, samples.length))
+      let sumSq = 0
+      for (let k = 0; k < chunk.length; k++) sumSq += chunk[k]! * chunk[k]!
+      this.processChunk(chunk, Math.sqrt(sumSq / Math.max(1, chunk.length)))
+      await new Promise((r) => setTimeout(r, chunkMs))
+    }
+    // Flush a partial in-flight capture so a tap near the end still emits a result.
+    if (this.playingFile && this.state === 'capturing' && this.captureIdx > 0) {
+      this.capture.fill(0, this.captureIdx)
+      this.finishCapture()
+    }
+    // Restore live state; the mic worklet kept running, so clearing the flag resumes it.
+    this.sampleRate = saved.rate
+    this.preroll = saved.preroll
+    this.prerollSamples = saved.prerollSamples
+    this.materialCapture = saved.material
+    this.setCalibration(saved.cal)
+    this.playingFile = false
   }
 
   // ── Input clipping (peak ≥ 0.99 or RMS ≥ 0 dBFS; 1.5 s hold) ──────────────
@@ -312,7 +450,7 @@ export class AudioEngine {
       i += n
       if (this.accumIdx >= this.accum.length) {
         const t0 = performance.now()
-        const spectrum = dftAnalRect(this.accum, this.sampleRate, GUITAR_FFT_SIZE)
+        const spectrum = this.applyCal(dftAnalRect(this.accum, this.sampleRate, GUITAR_FFT_SIZE))
         this.recordProcessing(performance.now() - t0)
         this.callbacks.onSpectrum?.(spectrum)
         this.callbacks.onMetrics?.({
@@ -383,7 +521,7 @@ export class AudioEngine {
       return
     }
 
-    const spectrum = dftAnalRect(this.capture, this.sampleRate, GUITAR_FFT_SIZE)
+    const spectrum = this.applyCal(dftAnalRect(this.capture, this.sampleRate, GUITAR_FFT_SIZE))
     this.captureIdx = 0
     this.collected.push(spectrum)
 
