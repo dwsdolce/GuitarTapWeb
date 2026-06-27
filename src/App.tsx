@@ -440,12 +440,17 @@ export default function App() {
     [applyCalibrationForDevice, currentDeviceId],
   )
 
-  // Play a recorded WAV through the live guitar pipeline (Swift openAudioFile/startFromFile).
-  // Resets the view like New Tap, applies an optional calibration for the playback, then pumps.
+  // Play a recorded WAV through the live pipeline (Swift openAudioFile/startFromFile). Resets the
+  // view like New Tap, applies an optional calibration for the playback, then pumps. Guitar arms a
+  // tap sequence; material (plate/brace) arms phase L and auto-advances L→C→FLC during playback.
   const onPlayFile = useCallback(async (audio: File, calFile: File | null) => {
     if (!engineRef.current) return
     try {
-      const { samples, sampleRate: fileRate } = decodeWav(new Uint8Array(await audio.arrayBuffer()))
+      // downmix:true → average channels to mono (matches Swift readAudioFileAsMonoFloat32 and the
+      // mono live-mic path); a no-op for already-mono files.
+      const { samples, sampleRate: fileRate } = decodeWav(new Uint8Array(await audio.arrayBuffer()), {
+        downmix: true,
+      })
       let cal: Calibration | null = null
       if (calFile) {
         const parsed = parseCalibration(await calFile.text(), calFile.name.replace(/\.[^.]+$/, ''))
@@ -461,13 +466,23 @@ export default function App() {
       setCancelled(false)
       comparisonRef.current = false
       setPlayingFileName(audio.name)
-      await engineRef.current.playFile(samples, fileRate, { calibration: cal })
+      if (isMaterialType(measRef.current)) {
+        // Material: fresh phase machine; the engine owns the L→C→(FLC) auto-advance session.
+        setMatPeaks({ longitudinal: null, cross: null, flc: null })
+        setMatSpectra(EMPTY_MAT_SPECTRA)
+        setMatPhase('capturingL')
+        await engineRef.current.playFile(samples, fileRate, {
+          material: { brace: measRef.current === 'brace', measureFlc: measureFlcRef.current, calibration: cal },
+        })
+      } else {
+        await engineRef.current.playFile(samples, fileRate, { calibration: cal })
+      }
     } catch (e) {
       setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setPlayingFileName(null)
     }
-  }, [])
+  }, [setMatPhase])
 
   const start = useCallback(async () => {
     if (engineRef.current) return
@@ -489,20 +504,34 @@ export default function App() {
       onClipping: setClipping,
       onProgress: (collected, total) => setProgress({ collected, total }),
       onMetrics: setEngineMetrics,
-      onMaterialCapture: ({ spectrum, peak }) => {
-        const phase = matPhaseRef.current
-        if (phase === 'capturingL') {
+      onMaterialCapture: ({ spectrum, peak, phase }) => {
+        // `phase` is set by the engine during a file-playback session (it owns the L→C→FLC
+        // auto-advance, mirroring Swift's isPlayingFile); for LIVE capture it's undefined and we
+        // derive it from the current UI phase. We update the captured slot + reflect progress in
+        // the UI phase. During playback the engine re-arms the next phase (we do NOT here); during
+        // live capture the user advances via Accept (acceptMaterial).
+        const playing = engineRef.current?.playingFile ?? false
+        const ph: 'longitudinal' | 'cross' | 'flc' =
+          phase ??
+          (matPhaseRef.current === 'capturingC'
+            ? 'cross'
+            : matPhaseRef.current === 'capturingFlc'
+              ? 'flc'
+              : 'longitudinal')
+        if (ph === 'longitudinal') {
           setMatSpectra((s) => ({ ...s, longitudinal: spectrum }))
           setMatPeaks((p) => ({ ...p, longitudinal: peak }))
-          setMatPhase(measRef.current === 'brace' ? 'complete' : 'reviewingL')
-        } else if (phase === 'capturingC') {
+          if (measRef.current === 'brace') setMatPhase('complete')
+          else setMatPhase(playing ? 'capturingC' : 'reviewingL')
+        } else if (ph === 'cross') {
           setMatSpectra((s) => ({ ...s, cross: spectrum }))
           setMatPeaks((p) => ({ ...p, cross: peak }))
-          setMatPhase('reviewingC')
-        } else if (phase === 'capturingFlc') {
+          if (playing) setMatPhase(measureFlcRef.current ? 'capturingFlc' : 'complete')
+          else setMatPhase('reviewingC')
+        } else {
           setMatSpectra((s) => ({ ...s, flc: spectrum }))
           setMatPeaks((p) => ({ ...p, flc: peak }))
-          setMatPhase('reviewingFlc')
+          setMatPhase(playing ? 'complete' : 'reviewingFlc')
         }
       },
     }, { tapDetectionThreshold: tapThresholdRef.current })
@@ -586,6 +615,7 @@ export default function App() {
             ? BRACE_PHASE
             : PLATE_PHASES[0]
     // Apply the active mic calibration to the gated spectrum before its peak-find (gatedCapture).
+    // (File-playback material uses the engine's own session with the file's calibration.)
     return { ...base, calibration: calibrationRef.current }
   }, [])
 
@@ -1098,12 +1128,8 @@ export default function App() {
         <button
           className="btn"
           onClick={() => setShowPlayFile(true)}
-          disabled={!running || material || comparison != null}
-          title={
-            material
-              ? 'Play File supports guitar measurements'
-              : 'Play a recorded WAV through the analysis pipeline'
-          }
+          disabled={!running || comparison != null}
+          title="Play a recorded WAV through the analysis pipeline"
         >
           <FilePlayIcon />
           <span>Play File</span>

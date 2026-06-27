@@ -1,7 +1,16 @@
 import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { averageSpectra } from '../dsp/spectrumAverage'
-import { gatedCaptureResult, GATED_CAPTURE_DURATION, type MaterialPeak } from '../dsp/gatedCapture'
+import {
+  gatedCaptureResult,
+  GATED_CAPTURE_DURATION,
+  PLATE_PHASES,
+  BRACE_PHASE,
+  type MaterialPeak,
+} from '../dsp/gatedCapture'
+
+/** Identity of a captured material phase (mirrors the plate/brace gated phase order). */
+export type MaterialPhaseName = 'longitudinal' | 'cross' | 'flc'
 
 export interface MaterialSearch {
   minHz: number
@@ -13,6 +22,9 @@ export interface MaterialSearch {
 export interface MaterialCaptureResult {
   spectrum: Spectrum
   peak: MaterialPeak | null
+  /** Which phase this capture is for. Set by the engine during a file-playback material session
+   *  (auto-advance); undefined during live capture, where the App derives it from its phase state. */
+  phase?: MaterialPhaseName
 }
 
 // Live audio engine. The mic feeds an AudioWorklet that posts 1024-sample chunks
@@ -92,6 +104,12 @@ export class AudioEngine {
   state: EngineState = 'idle'
   /** True while a file is playing through the pipeline (mic chunks are ignored meanwhile). */
   playingFile = false
+  /** Test seam: when true, the pure pipeline (playFile/arm/capture) runs without a browser
+   *  AudioContext (no mic). The web equivalent of Swift TapToneAnalyzer.forTesting(). */
+  private headless = false
+  /** Active material file-playback session: the engine auto-advances these phases (L→C→FLC),
+   *  mirroring Swift's isPlayingFile auto-advance. null during live capture (App drives phases). */
+  private materialSession: { phases: { name: MaterialPhaseName; search: MaterialSearch }[]; idx: number } | null = null
   /** Applied mic-track settings (AGC/EC/NS etc.) — for diagnosing capture gain. */
   audioSettings: MediaTrackSettings | null = null
   /** Label of the active input device (track.label), for the Settings panel. */
@@ -144,7 +162,13 @@ export class AudioEngine {
   }
 
   get running(): boolean {
-    return this.context !== null
+    return this.context !== null || this.headless
+  }
+
+  /** Enable the headless pipeline for regression tests: drive the SAME playFile path the app uses,
+   *  with no AudioContext/mic. Mirrors Swift TapToneAnalyzer.forTesting() + playFileForTesting. */
+  initForTesting(): void {
+    this.headless = true
   }
 
   setConfig(config: Partial<AudioEngineConfig>): void {
@@ -357,16 +381,22 @@ export class AudioEngine {
     else if (this.state === 'listening') this.detectTap(db)
   }
 
-  /** Play decoded mono samples through the live guitar pipeline (no mic), real-time paced —
-   *  the web equivalent of Swift startFromFile/processFileData. The file defines the analysis
-   *  sample rate; an optional calibration is applied for the playback then restored. Mic chunks
-   *  are ignored meanwhile (the worklet keeps running; clearing the flag resumes it). */
+  /** Play decoded mono samples through the live pipeline (no mic) — the web equivalent of Swift
+   *  startFromFile/processFileData. The file defines the analysis sample rate. Guitar: arms a tap
+   *  sequence (single- or multi-tap). Material: the ENGINE owns the session — it arms phase L and
+   *  AUTO-ADVANCES L→C→(FLC)→done as taps are detected (Swift isPlayingFile), so this same path is
+   *  exercised by both the app and the headless regression tests. `pace` (default true) real-time-
+   *  paces the chunks; tests pass `pace:false` to run synchronously. Mic chunks are ignored meanwhile. */
   async playFile(
     samples: Float32Array,
     fileSampleRate: number,
-    opts?: { calibration?: Calibration | null },
+    opts?: {
+      calibration?: Calibration | null
+      material?: { brace: boolean; measureFlc: boolean; calibration?: Calibration | null }
+      pace?: boolean
+    },
   ): Promise<void> {
-    if (!this.context || this.playingFile) return
+    if ((!this.context && !this.headless) || this.playingFile) return
     this.playingFile = true
     // Swap to the file's rate + rate-dependent buffers (Swift prepareForFilePlayback).
     const saved = {
@@ -381,19 +411,42 @@ export class AudioEngine {
     this.preroll = new Float32Array(this.prerollSamples)
     this.materialCapture = new Float32Array(Math.round(fileSampleRate * GATED_CAPTURE_DURATION))
     if (opts && 'calibration' in opts) this.setCalibration(opts.calibration ?? null)
-    // Fresh guitar tap sequence (mirrors startTapSequence before startFromFile).
+    // Fresh tap sequence (mirrors startTapSequence before startFromFile).
     this.accumIdx = 0
     this.prerollIdx = 0
     this.prerollFilled = 0
-    this.captureKind = 'guitar'
-    this.capture = this.guitarCapture
     this.captureIdx = 0
     this.collected = []
     this.prevAbove = true
     this.consecutive = 0
-    this.setState('listening')
-    this.callbacks.onProgress?.(0, this.config.numberOfTaps)
+    this.materialSession = null
+    if (opts?.material) {
+      // Material: build the phase plan (L, C, [FLC] for plate; L for brace) and arm phase L.
+      // finishCapture auto-advances through the plan as each tap is captured.
+      const cal = opts.material.calibration ?? null
+      const plate = [
+        { name: 'longitudinal' as const, search: { ...PLATE_PHASES[0], calibration: cal } },
+        { name: 'cross' as const, search: { ...PLATE_PHASES[1], calibration: cal } },
+        ...(opts.material.measureFlc
+          ? [{ name: 'flc' as const, search: { ...PLATE_PHASES[2], calibration: cal } }]
+          : []),
+      ]
+      const phases = opts.material.brace
+        ? [{ name: 'longitudinal' as const, search: { ...BRACE_PHASE, calibration: cal } }]
+        : plate
+      this.materialSession = { phases, idx: 0 }
+      this.captureKind = 'material'
+      this.materialSearch = phases[0]!.search
+      this.capture = this.materialCapture
+      this.setState('listening')
+    } else {
+      this.captureKind = 'guitar'
+      this.capture = this.guitarCapture
+      this.setState('listening')
+      this.callbacks.onProgress?.(0, this.config.numberOfTaps)
+    }
 
+    const pace = opts?.pace ?? true
     const CHUNK = 1024
     const chunkMs = (CHUNK / fileSampleRate) * 1000
     for (let i = 0; i < samples.length && this.playingFile; i += CHUNK) {
@@ -401,14 +454,16 @@ export class AudioEngine {
       let sumSq = 0
       for (let k = 0; k < chunk.length; k++) sumSq += chunk[k]! * chunk[k]!
       this.processChunk(chunk, Math.sqrt(sumSq / Math.max(1, chunk.length)))
-      await new Promise((r) => setTimeout(r, chunkMs))
+      if (pace) await new Promise((r) => setTimeout(r, chunkMs))
     }
-    // Flush a partial in-flight capture so a tap near the end still emits a result.
-    if (this.playingFile && this.state === 'capturing' && this.captureIdx > 0) {
+    // Flush a partial in-flight GUITAR capture so a tap near the end still emits a result.
+    // (Material gated capture needs a full window; a partial final phase is dropped.)
+    if (this.playingFile && this.captureKind === 'guitar' && this.state === 'capturing' && this.captureIdx > 0) {
       this.capture.fill(0, this.captureIdx)
       this.finishCapture()
     }
     // Restore live state; the mic worklet kept running, so clearing the flag resumes it.
+    this.materialSession = null
     this.sampleRate = saved.rate
     this.preroll = saved.preroll
     this.prerollSamples = saved.prerollSamples
@@ -517,7 +572,28 @@ export class AudioEngine {
       )
       this.captureIdx = 0
       this.setState('idle')
-      this.callbacks.onMaterialCapture?.({ spectrum: { magnitudesDb, frequencies }, peak })
+      const sess = this.materialSession
+      this.callbacks.onMaterialCapture?.({
+        spectrum: { magnitudesDb, frequencies },
+        peak,
+        phase: sess ? sess.phases[sess.idx]?.name : undefined,
+      })
+      // File-playback material session: auto-advance to the next phase (Swift isPlayingFile),
+      // re-arming so the next tap is captured. arm/prevAbove reset requires a falling edge first
+      // (Swift isAboveThreshold=true) so the prior tap's ring-out can't fire a bogus onset.
+      if (sess) {
+        sess.idx += 1
+        const next = sess.phases[sess.idx]
+        if (next) {
+          this.materialSearch = next.search
+          this.capture = this.materialCapture
+          this.prevAbove = true
+          this.consecutive = 0
+          this.setState('listening')
+        } else {
+          this.materialSession = null
+        }
+      }
       return
     }
 
