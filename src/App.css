@@ -1014,17 +1014,30 @@
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 10px;
-  /* Desktop: bound the pane height to the chart (via .main stretch) and scroll
-     the results internally, independent of the graph. The absolute inner removes
-     the content from flow so the pane height tracks the chart, not the content. */
+  /* Desktop: bound the pane height to the chart (via .main stretch) and scroll the results
+     internally, independent of the graph. The absolute inner removes the content from flow so
+     the pane height tracks the chart, NOT the content (else a tall peak list grows the row and
+     breaks the chart-wrap aspect-ratio sizing). The export footer is pinned over the bottom. */
   position: relative;
   overflow: hidden;
 }
 .results-inner {
   position: absolute;
   inset: 0;
-  padding: 0.75rem 0.9rem;
+  padding: 0.75rem 0.9rem 2.9rem; /* extra bottom so content clears the pinned footer */
   overflow-y: auto;
+}
+.results-foot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
 }
 .results-head {
   display: flex;

@@ -25,6 +25,7 @@ import { ComparisonResultsView, type ComparisonRow } from './components/Comparis
 import { saveMeasurement } from './measurement/store'
 import { parseCalibration, type Calibration } from './dsp/calibration'
 import { decodeWav } from './dsp/wav'
+import { exportSpectrumPng, type SpectrumImageOpts } from './components/spectrumExport'
 import {
   listCalibrations,
   saveCalibration,
@@ -1104,6 +1105,21 @@ export default function App() {
       })),
     [comparison],
   )
+  // Export the CURRENT chart (whatever's displayed) as a PNG — same props passed to SpectrumChart.
+  const canExportSpectrum = !!(displaySpectrum || comparison || showMultiTap || (material && matSpectra.longitudinal))
+  const exportSpectrumImage = useCallback(() => {
+    const opts: SpectrumImageOpts = {
+      spectrum: comparison || material || showMultiTap ? null : displaySpectrum,
+      overlays: comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined,
+      markers: comparison || showMultiTap ? [] : chartMarkers,
+      view,
+      title: `FFT Peaks — ${loadedName ?? 'New'}`,
+    }
+    const stem =
+      (loadedName ?? 'spectrum').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'spectrum'
+    void exportSpectrumPng(opts, `${stem}-spectrum-${Math.floor(Date.now() / 1000)}.png`)
+  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, loadedName])
+
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
       (comparison ?? []).map((e) => ({
@@ -1410,6 +1426,20 @@ export default function App() {
               )}
             </>
           )}
+          </div>
+          {/* Export footer — mirrors the native Analysis Results footer (Export Spectrum · Export PDF). */}
+          <div className="results-foot">
+            <button
+              className="btn mini"
+              onClick={exportSpectrumImage}
+              disabled={!canExportSpectrum}
+              title="Export the spectrum as a PNG image"
+            >
+              ∿ Export Spectrum
+            </button>
+            <button className="btn mini" disabled title="PDF report — coming next">
+              ▤ Export PDF
+            </button>
           </div>
         </aside>
       </div>
