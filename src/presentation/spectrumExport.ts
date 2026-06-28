@@ -5,7 +5,7 @@
 // renderSpectrumImageForMeasurement: "used by both ... so both outputs are always consistent").
 
 import type { Spectrum } from '../dsp/guitarFFT'
-import type { PeakMarker, SpectrumOverlay, ChartView } from './SpectrumChart'
+import type { PeakMarker, SpectrumOverlay, ChartView } from './chartTypes'
 import { renderSpectrum, LIGHT_CHART, hexA, type ChartTheme } from './spectrumRender'
 import { type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_COLOR, MODE_DISPLAY_NAME } from './modeColors'

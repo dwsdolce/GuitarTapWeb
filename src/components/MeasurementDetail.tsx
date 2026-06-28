@@ -1,6 +1,6 @@
 import { measurementTypeName, comparisonEntryModeFreqs, colorComponentsToCss } from '../measurement/fromLive'
 import { isComparison, type TapToneMeasurementModel, type ResonantPeakModel } from '../measurement'
-import { MODE_COLOR, MODE_DISPLAY_NAME, magnitudeColor } from './modeColors'
+import { MODE_COLOR, MODE_DISPLAY_NAME, magnitudeColor } from '../presentation/modeColors'
 import type { ResolvedMode } from '../dsp/classify'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
 import { formatDisplayDate } from '../format/date'

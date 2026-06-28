@@ -23,7 +23,7 @@ import type {
 import { classifyAll } from '../dsp/classify'
 import type { Peak } from '../dsp/peaks'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import { MODE_DISPLAY_NAME } from '../components/modeColors'
+import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 
 type JsonObj = Record<string, unknown>
 

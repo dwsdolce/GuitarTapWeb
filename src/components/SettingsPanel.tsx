@@ -14,8 +14,8 @@ import {
   type Settings,
   type StiffnessPreset,
 } from '../settings'
-import type { ChartView } from './SpectrumChart'
-import { MODE_DISPLAY_NAME } from './modeColors'
+import type { ChartView } from '../presentation/chartTypes'
+import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 
 export interface SettingsPanelProps {
   settings: Settings

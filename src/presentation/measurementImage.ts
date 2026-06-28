@@ -7,7 +7,7 @@ import type { Peak } from '../dsp/peaks'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
 import { MODE_COLOR, MODE_DISPLAY_NAME } from './modeColors'
-import type { PeakMarker, SpectrumOverlay } from './SpectrumChart'
+import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
 import {
   measurementToLive,

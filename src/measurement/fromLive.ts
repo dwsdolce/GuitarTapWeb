@@ -9,9 +9,9 @@ import type { MaterialPeak } from '../dsp/gatedCapture'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { Pitch } from '../dsp/pitch'
-import { MODE_DISPLAY_NAME } from '../components/modeColors'
+import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 import { formatDisplayDateCompact } from '../format/date'
-import type { ChartView } from '../components/SpectrumChart'
+import type { ChartView } from '../presentation/chartTypes'
 import {
   DEFAULT_SETTINGS,
   MEASUREMENT_FULL_NAME,

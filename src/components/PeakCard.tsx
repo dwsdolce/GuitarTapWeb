@@ -1,6 +1,6 @@
 import type { Peak } from '../dsp/peaks'
 import type { ResolvedMode } from '../dsp/classify'
-import { MODE_COLOR, MODE_DISPLAY_NAME, QUICK_PICK_MODES, magnitudeColor } from './modeColors'
+import { MODE_COLOR, MODE_DISPLAY_NAME, QUICK_PICK_MODES, magnitudeColor } from '../presentation/modeColors'
 
 // One resonant-peak card, mirroring Swift CombinedPeakModeRowView:
 //   [star] [mode dot + in-range check] [mode label · freq / pitch / Q · BW · mag]

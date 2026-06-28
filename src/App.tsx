@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, type EngineState, type EngineMetrics, type MaterialSearch } from './audio/engine'
-import { SpectrumChart, type PeakMarker, type ChartView, type ResetTarget, type ResetAxis, type SpectrumOverlay } from './components/SpectrumChart'
+import { SpectrumChart } from './components/SpectrumChart'
+import type { PeakMarker, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from './presentation/chartTypes'
 import { ThresholdMeter } from './components/ThresholdMeter'
 import { PeakCard } from './components/PeakCard'
 import { SettingsPanel } from './components/SettingsPanel'
@@ -25,9 +26,9 @@ import { ComparisonResultsView, type ComparisonRow } from './components/Comparis
 import { saveMeasurement } from './measurement/store'
 import { parseCalibration, type Calibration } from './dsp/calibration'
 import { decodeWav, encodeWavFloat32 } from './dsp/wav'
-import { exportSpectrumPng, type SpectrumImageOpts } from './components/spectrumExport'
-import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData } from './components/measurementImage'
-import { exportPdfReport } from './components/pdfReport'
+import { exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
+import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData } from './presentation/measurementImage'
+import { exportPdfReport } from './presentation/pdfReport'
 import {
   listCalibrations,
   saveCalibration,
@@ -40,7 +41,7 @@ import {
   type StoredCalibration,
 } from './measurement/calibrationStore'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
-import { MODE_COLOR, MODE_DISPLAY_NAME } from './components/modeColors'
+import { MODE_DISPLAY_NAME } from './presentation/modeColors'
 import { GUITAR_FFT_SIZE, modePeaksFromSpectrum, type Spectrum } from './dsp/guitarFFT'
 import {
   MultiTapComparisonResultsView,

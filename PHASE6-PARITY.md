@@ -103,12 +103,94 @@ Swift keys displayMinFreq/displayMaxFreq per `MeasurementType`; web `settings.ts
 **global** displayMinHz/displayMaxHz, so switching type doesn't restore a type-specific default
 range. Low priority.
 
+## Architecture & tooling (HIGH PRIORITY — do early)
+
+These are not feature parity, but the user has flagged them high priority. The model/view
+*separation* the Swift/Python apps get from `Models/Utilities/Views` already exists in the web tree
+under idiomatic names — `dsp/` + `measurement/` + `settings.ts` = the **model/domain layer** (pure,
+oracle-tested), `components/*.tsx` = **views**, `audio/engine.ts` = a **service**, `format/` =
+**utilities**. React expresses the ViewModel layer as **custom hooks**, not a folder. The real
+divergences are two:
+
+### 6-ARCH — ViewModel hooks + presentation layer
+- **`App.tsx` is ~1,570 lines** — it's the de-facto ViewModel (most state + handlers) inline in the
+  root view. Extract **custom hooks**, each owning a coherent slice of state + its handlers (the React
+  ViewModel): candidates `useAudioEngine` (engine lifecycle + capture/material callbacks + clip/level),
+  `useMeasurementLibrary` (save/list/load/import/export + loaded-state restore), `useAnnotations`
+  (offsets/overrides/selection), `usePlayFile`, `useChartView` (view range + reset). `App.tsx` becomes
+  thin wiring + layout. Do it **incrementally, one hook at a time**, re-running the 112 tests after each
+  (no behavior change). Pairs naturally with **6b** (both touch results-pane state).
+- **Move the non-component `.ts` files out of `components/`** — `pdfReport.ts`, `spectrumExport.ts`,
+  `spectrumRender.ts`, `measurementImage.ts`, `modeColors.ts` are presentation/transform logic, not
+  React components. Relocate to a `presentation/` (or `render/` + `export/`) layer so `components/` is
+  purely views. Mechanical (import-path churn only).
+- Result: a clean layer mapping to the desktop apps — `dsp`+`measurement` = Models, `hooks/` =
+  ViewModels, `components/` = Views, `audio/` = service, `presentation/` = view-side transforms,
+  `format/` = Utilities.
+
+### 6-MAP — Parity mapping: in-code anchors + generated map (retire the hand-maintained file)
+Problem (user): the central **`PARITY-MAP.md`** must be hand-maintained and will diverge; generic
+searches across THREE repos are error-prone. Today the mapping lives in three places — the central
+file (rots), ~38 files' **informal** "mirrors Swift X / Python Y" comments (co-located, good), and the
+**name-echoing convention** (`classify.ts` ↔ `GuitarMode.classify`). The behavioral contract is the
+**oracle** (`parity-oracle.json` + `sync-oracle.sh --check`), which already cannot silently diverge.
+
+**Decision/approach:** make the **co-located in-code anchors the single source of truth**, and
+**generate** the central map from them so the file becomes a build artifact that can't rot:
+1. **Standardize a greppable anchor tag** in each web module header, e.g.
+   `// @parity swift=GuitarTap/Models/GuitarMode.swift:classify python=src/guitar_tap/models/guitar_mode.py:classify`
+   (formalizes the 38 existing informal comments). It travels with the code and is reviewed in the same
+   diff → minimal divergence; finding a counterpart is one grep, not a guess.
+2. **`tooling/gen-parity-map.ts`** scans the `@parity` tags → regenerates the `PARITY-MAP.md` tables
+   (prose intro stays hand-written). `--check` in CI (mirroring `sync-oracle.sh --check`): regenerate &
+   diff (map provably current) **and** assert every referenced Swift/Python path still exists (catches
+   drift when the canonical side moves/renames — the one failure mode co-location can't catch).
+3. Keep the **oracle** (behavioral) and **name-echoing** (search aid) as the other two legs.
+Net: no hand-maintained map, no generic 3-repo searches, and staleness is caught by CI. (Open question
+for sign-off: exact tag syntax + whether to also emit a reverse index keyed by Swift symbol.)
+
+### 6-TEST — Cross-platform test review & normalization (MAJOR)
+A full audit of the test suites across all three repos to establish a **shared common core** that every
+platform runs, with **matching test names** for the same behavior, plus platform-specific extras where
+justified. Today the suites overlap but aren't normalized: Swift `GuitarTapTests/*.swift` (~22 files)
+and Python `tests/test_*.py` (~24 files) **already mirror each other by name** (e.g.
+`AnnotationStateTests` ↔ `test_annotation_state.py`, `DecayTrackingTests` ↔ `test_decay_tracking.py`,
+`ButtonEnablementTests` ↔ `test_button_enablement.py`, `StateInvariantTests`, `ScenarioStateTraceTests`,
+`MeasurementCodableTests`, `FilePlaybackRegressionTests`, …); the **web** (`test/*.test.ts`, ~20 files)
+uses a different scheme (G0–G11 + named) and is **missing several behavioral suites** the other two
+have (e.g. decay tracking — blocked on 6a — button enablement, state invariants, scenario traces,
+frozen-peak recalculation, import persistence as named suites). The web's strength is the oracle-driven
+DSP layer; its gap is the state-machine/UI-behavior suites.
+
+How to go about it:
+1. **Inventory → coverage matrix.** List every test in each repo; build a matrix of *behavior × platform*
+   (rows = a canonical behavior/suite name, cols = Swift/Python/Web → present? test name? oracle case?).
+   This surfaces what's shared, what's unique-and-justified, and what's missing on each side.
+2. **Adopt one canonical suite-naming scheme** (Swift/Python already agree → use theirs as the spine;
+   keep the web's `G#` oracle codes as a secondary tag). Rename web suites so the same behavior reads
+   the same across all three (ties into 6-MAP's `@parity` anchors — tag each test file with its
+   counterparts).
+3. **Backfill the common core both directions.** Port missing shared tests so all three run an
+   equivalent core (web gets the behavioral/state suites; Swift/Python get any web-only checks worth
+   sharing). Use the existing shared **oracle** (`parity-oracle.json`) as the fixture source so numeric
+   expectations stay identical; only the harness differs per language.
+4. **Document the contract.** A short coverage-matrix doc (generated or curated) + a rule: a change to
+   shared behavior updates the test on **all three** platforms (same as the "update all three + oracle"
+   rule for algorithms).
+Scope note: this is a **major** review — sequence it after 6-ARCH/6-MAP (so the web suites land in their
+final layout/naming) and alongside the feature sub-phases (e.g. the decay-tracking suite arrives with
+6a). Builds on the existing paired Swift/Python analyzer-state tests (the parity test suite).
+
 ## Out of scope / optional
 - **Cloud sync** and **File System Access folder sharing** — from the original PLAN.md
   "Optional:" line; **not** a Swift/Python parity gap (neither app has cloud sync). May be dropped.
 
 ## Sequencing
-**6a (decay compute) → 6b (live analysis boxes)** first — highest user value and feeds the PDF.
-Then **6c (log freq)**, **6d (material drag)**, **6e (multi-tap PDF)** in any order. **6f, 6g,
-6h** as polish. Verify each gap against current `main` before starting (Phase 5 already closed
-some items an earlier audit listed as missing — e.g. per-capture WAV, saved-comparison PDF).
+**6-ARCH first / alongside 6a-6b** (user: high priority) — extracting hooks de-risks every feature
+that touches `App.tsx` (6b especially), so do the `useAudioEngine`/`useMeasurementLibrary` extraction
+and the `presentation/` move early, incrementally, tests green after each step. **6-MAP** can land
+anytime (independent tooling) — recommend right after the `presentation/` move so the anchors are added
+as files settle. Then features: **6a (decay) → 6b (live analysis boxes)** (highest user value, feeds
+the PDF) → **6c (log freq)**, **6d (material drag)**, **6e (multi-tap PDF)** in any order → **6f, 6g,
+6h** polish. Verify each gap against current `main` before starting (Phase 5 already closed some items
+an earlier audit listed as missing — e.g. per-capture WAV, saved-comparison PDF).

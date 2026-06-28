@@ -5,9 +5,9 @@ import { measurementTapToneRatio, guitarTapFilename, newMeasurementId } from '..
 import { formatDisplayDate } from '../format/date'
 import { parseGuitarTapFile, serializeGuitarTapFile, type TapToneMeasurementModel } from '../measurement'
 import { MeasurementDetail } from './MeasurementDetail'
-import { exportSpectrumPng } from './spectrumExport'
-import { measurementToImageOpts, measurementToPdfData } from './measurementImage'
-import { exportPdfReport } from './pdfReport'
+import { exportSpectrumPng } from '../presentation/spectrumExport'
+import { measurementToImageOpts, measurementToPdfData } from '../presentation/measurementImage'
+import { exportPdfReport } from '../presentation/pdfReport'
 import { saveFile } from '../saveFile'
 
 export interface MeasurementsPanelProps {

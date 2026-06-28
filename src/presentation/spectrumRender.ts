@@ -7,7 +7,7 @@
 import type { Spectrum } from '../dsp/guitarFFT'
 import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_COLOR, MODE_LABEL } from './modeColors'
-import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect } from './SpectrumChart'
+import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect } from './chartTypes'
 
 const FREQ_TICKS_LOG_ARR = [30, 50, 100, 200, 300, 500, 1000, 2000]
 export const FREQ_TICKS_LOG = FREQ_TICKS_LOG_ARR
