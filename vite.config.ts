@@ -1,12 +1,31 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { execSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+
+// Version (marketing) + build number, mirroring Swift/Python: the short version is
+// package.json `version`, and the build number is the git commit count
+// (`git rev-list --count HEAD`) — the same source Swift's build-phase script and
+// Python's gen_version_build.sh use. Falls back to "0" outside a git checkout.
+const appVersion: string = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
+const appBuild: string = (() => {
+  try {
+    return execSync('git rev-list --count HEAD', { encoding: 'utf8' }).trim()
+  } catch {
+    return '0'
+  }
+})()
 
 // Deployed under dolcesfogato.com/guitar_tap/guitar_tap_web/ — production assets
 // (and the AudioWorklet, loaded via import.meta.env.BASE_URL) must be served from
 // that subpath. Dev server stays at root.
 export default defineConfig(({ mode }) => ({
   base: mode === 'production' ? '/guitar_tap/guitar_tap_web/' : '/',
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+    __APP_BUILD__: JSON.stringify(appBuild),
+  },
   plugins: [
     react(),
     // PWA: installable + offline. The app is already fully client-side (DSP in the

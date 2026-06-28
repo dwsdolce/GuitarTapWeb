@@ -24,8 +24,10 @@ import {
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { saveMeasurement } from './measurement/store'
 import { parseCalibration, type Calibration } from './dsp/calibration'
-import { decodeWav } from './dsp/wav'
+import { decodeWav, encodeWavFloat32 } from './dsp/wav'
 import { exportSpectrumPng, type SpectrumImageOpts } from './components/spectrumExport'
+import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData } from './components/measurementImage'
+import { exportPdfReport } from './components/pdfReport'
 import {
   listCalibrations,
   saveCalibration,
@@ -58,6 +60,7 @@ import {
   isGuitarType,
   isMaterialType,
   MEASUREMENT_SHORT_NAME,
+  MEASUREMENT_FULL_NAME,
   DEFAULT_SETTINGS,
   ANNOTATION_NEXT,
   ANNOTATION_LABEL,
@@ -248,6 +251,20 @@ const FilePlayIcon = () => (
   </svg>
 )
 
+// "Dump Capture Audio" diagnostic: encode a captured buffer to a 32-bit-float WAV and silently
+// download it (the browser equivalent of Swift's write to ~/Documents/GuitarTap — no save dialog,
+// since it fires per tap/phase). Filename mirrors Swift's `web_<label>_<ISO8601-dashes>.wav`.
+function dumpCaptureWav(samples: Float32Array, sampleRate: number, label: string): void {
+  const ts = new Date().toISOString().replace(/[:.]/g, '-')
+  const blob = new Blob([encodeWavFloat32(samples, sampleRate).buffer as ArrayBuffer], { type: 'audio/wav' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `web_${label}_${ts}.wav`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function App() {
   const [running, setRunning] = useState(false)
   const [engineState, setEngineState] = useState<EngineState>('idle')
@@ -320,6 +337,14 @@ export default function App() {
   measureFlcRef.current = settings.measureFlc
   const tapThresholdRef = useRef(settings.tapDetectionThreshold)
   tapThresholdRef.current = settings.tapDetectionThreshold
+  const dumpAudioRef = useRef(settings.dumpCaptureAudio)
+  dumpAudioRef.current = settings.dumpCaptureAudio
+
+  // Browser tab title carries the version+build, like the Swift/Python window titles
+  // ("Guitar Tap 1.0.1 (NNN)"). Set once at mount.
+  useEffect(() => {
+    document.title = `Guitar Tap ${__APP_VERSION__} (${__APP_BUILD__})`
+  }, [])
 
   // Loading a saved measurement sets the type, spectrum, peaks, and selection together;
   // these refs suppress the one-shot "reset on change" effects so the restore isn't clobbered.
@@ -535,6 +560,19 @@ export default function App() {
           setMatPhase(playing ? 'complete' : 'reviewingFlc')
         }
       },
+      onCaptureAudio: (samples, sr, kind) => {
+        if (!dumpAudioRef.current) return
+        // Material label = the phase just captured (longitudinal/cross/flc); guitar = "guitar".
+        const label =
+          kind === 'material'
+            ? matPhaseRef.current === 'capturingC' || matPhaseRef.current === 'reviewingC'
+              ? 'cross'
+              : matPhaseRef.current === 'capturingFlc' || matPhaseRef.current === 'reviewingFlc'
+                ? 'flc'
+                : 'longitudinal'
+            : 'guitar'
+        dumpCaptureWav(samples, sr, label)
+      },
     }, { tapDetectionThreshold: tapThresholdRef.current })
     engineRef.current = engine
     try {
@@ -707,9 +745,12 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [userModified, setUserModified] = useState(false)
   const [overrides, setOverrides] = useState<Map<string, string>>(new Map())
+  // Dragged annotation-label positions, keyed by `frequency.toFixed(1)` → [absFreqHz, absDB].
+  // Mirrors the override map's lifecycle (reset on fresh capture, restored on load, saved).
+  const [annotationOffsets, setAnnotationOffsets] = useState<Map<string, [number, number]>>(new Map())
 
-  // A fresh capture clears the user's selection/overrides. Loading a measurement sets
-  // `loadingRef` so its restored selection/overrides survive this reset.
+  // A fresh capture clears the user's selection/overrides/label positions. Loading a measurement
+  // sets `loadingRef` so its restored selection/overrides/labels survive this reset.
   useEffect(() => {
     if (loadingRef.current) {
       loadingRef.current = false
@@ -717,6 +758,7 @@ export default function App() {
     }
     setUserModified(false)
     setOverrides(new Map())
+    setAnnotationOffsets(new Map())
   }, [captured])
 
   useEffect(() => {
@@ -760,43 +802,28 @@ export default function App() {
     })
   }, [])
 
+  // Draggable annotation labels (mirrors Swift updateAnnotationOffset / resetAllAnnotationOffsets):
+  // a drag stores the badge's absolute [Hz, dB] position by peak-frequency key; Reset Labels clears all.
+  const onAnnotationDrag = useCallback((key: string, pos: [number, number]) => {
+    setAnnotationOffsets((prev) => new Map(prev).set(key, pos))
+  }, [])
+  const resetLabels = useCallback(() => setAnnotationOffsets(new Map()), [])
+
   // Two layers, mirroring Swift (SpectrumView+ChartContent):
   //   • dots — EVERY displayed peak always gets one (allPeaksInRange), mode-colored;
   //   • annotation badges — gated by AnnotationVisibilityMode (visiblePeaks):
   //     all = every displayed peak, selected = only chosen results, none = no badges.
   // displayPeaks already applies the showUnknownModes filter, matching allPeaksInRange.
+  // Styled markers via the SHARED builder (measurementImage.ts) so the live view and the exported
+  // image (incl. saved-measurement export) use identical peak styling.
   const markers = useMemo<PeakMarker[]>(
-    () =>
-      displayPeaks.map((p) => {
-        const mode = modeByPeak.get(p.id) ?? 'unknown'
-        const override = overrides.get(p.frequency.toFixed(1))
-        const annotated =
-          annotationMode === 'all' ? true : annotationMode === 'selected' ? selectedIds.has(p.id) : false
-        const note = pitch.note(p.frequency)
-        return {
-          frequency: p.frequency,
-          magnitude: p.magnitude,
-          color: mode !== 'unknown' ? MODE_COLOR[mode] : undefined,
-          // Badge first line uses the full display name (Air (Helmholtz) …), matching
-          // the native annotation; the dot color stays undefined (gray) for unknown.
-          label: override ?? MODE_DISPLAY_NAME[mode],
-          note: note ?? undefined,
-          cents: note ? pitch.cents(p.frequency) : undefined,
-          isOverride: override !== undefined,
-          annotated,
-        }
-      }),
-    [displayPeaks, selectedIds, modeByPeak, overrides, annotationMode],
+    () => buildGuitarMarkers(displayPeaks, modeByPeak, selectedIds, overrides, annotationMode, annotationOffsets),
+    [displayPeaks, selectedIds, modeByPeak, overrides, annotationMode, annotationOffsets],
   )
 
   // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors).
   const materialMarkers = useMemo<PeakMarker[]>(() => {
-    const out: PeakMarker[] = []
-    // Annotation labels match Swift/Python (PeakAnnotations): Longitudinal / Cross-grain / FLC.
-    if (matPeaks.longitudinal) out.push({ ...matPeaks.longitudinal, color: '#4ea1ff', label: 'Longitudinal', annotated: true })
-    if (matPeaks.cross) out.push({ ...matPeaks.cross, color: '#f0a03a', label: 'Cross-grain', annotated: true })
-    if (matPeaks.flc) out.push({ ...matPeaks.flc, color: '#b07ad8', label: 'FLC', annotated: true })
-    return out
+    return buildMaterialMarkers(matPeaks)
   }, [matPeaks])
 
   // ── Multi-tap comparison (guitar, >1 tap) ───────────────────────────────────
@@ -968,46 +995,61 @@ export default function App() {
   }, [displaySpectrum, binHz, material, captured, sampleRate, engineMetrics, running])
 
   // ── Library (Phase 4b): save the frozen guitar result, load one back in ───
-  const onSaveMeasurement = useCallback(
-    (name: string, notes: string) => {
-      if (comparison) {
-        void saveMeasurement(buildComparisonMeasurement({ name, notes, entries: comparison }))
-        return
-      }
+  // Build a TapToneMeasurementModel from the CURRENT frozen result — the one place that
+  // assembles a measurement from live state, shared by Save and the PDF/report exports so
+  // the saved record and the exported report are built identically. Returns null when
+  // there's nothing to capture (no spectrum yet).
+  const buildCurrentMeasurement = useCallback(
+    (name: string, notes: string): TapToneMeasurementModel | null => {
+      if (comparison) return buildComparisonMeasurement({ name, notes, entries: comparison })
       if (material) {
-        if (!matSpectra.longitudinal) return
-        void saveMeasurement(
-          buildMaterialMeasurement({
-            name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, sampleRate, deviceLabel,
-            microphoneUID: currentDeviceId ?? undefined,
-            calibrationName: calibrationRef.current?.name,
-          }),
-        )
-        return
-      }
-      if (!captured) return
-      void saveMeasurement(
-        buildGuitarMeasurement({
-          name,
-          notes,
-          spectrum: captured,
-          peaks,
-          modeByPeak,
-          selectedIds,
-          overridesByFreq: overrides,
-          view,
-          settings,
-          numberOfTaps,
-          tapSpectra,
-          sampleRate,
-          deviceLabel,
+        if (!matSpectra.longitudinal) return null
+        return buildMaterialMeasurement({
+          name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, sampleRate, deviceLabel,
           microphoneUID: currentDeviceId ?? undefined,
           calibrationName: calibrationRef.current?.name,
-        }),
-      )
+        })
+      }
+      if (!captured) return null
+      return buildGuitarMeasurement({
+        name,
+        notes,
+        spectrum: captured,
+        peaks,
+        modeByPeak,
+        selectedIds,
+        overridesByFreq: overrides,
+        annotationOffsetsByFreq: annotationOffsets,
+        view,
+        settings,
+        numberOfTaps,
+        tapSpectra,
+        sampleRate,
+        deviceLabel,
+        microphoneUID: currentDeviceId ?? undefined,
+        calibrationName: calibrationRef.current?.name,
+      })
     },
-    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel, currentDeviceId],
+    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel, currentDeviceId],
   )
+
+  const onSaveMeasurement = useCallback(
+    (name: string, notes: string) => {
+      const m = buildCurrentMeasurement(name, notes)
+      if (m) void saveMeasurement(m)
+    },
+    [buildCurrentMeasurement],
+  )
+
+  // Export the CURRENT view as a single-page PDF report (live mirror of the Saved-Measurements
+  // row menu's "Export PDF Report"), via the same measurement builder → measurementToPdfData.
+  const exportPdf = useCallback(() => {
+    const m = buildCurrentMeasurement(loadedName ?? '', '')
+    if (!m) return
+    const stem =
+      (loadedName ?? 'report').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'report'
+    void exportPdfReport(measurementToPdfData(m), `${stem}-report-${Math.floor(Date.now() / 1000)}.pdf`)
+  }, [buildCurrentMeasurement, loadedName])
 
   const onLoadMeasurement = useCallback(
     (m: TapToneMeasurementModel) => {
@@ -1059,6 +1101,7 @@ export default function App() {
       setComparison(null)
       setView(live.view)
       setOverrides(live.overridesByFreq)
+      setAnnotationOffsets(live.annotationOffsetsByFreq) // restore dragged label positions
       setSelectedIds(live.selectedIndices) // saved selection, 1:1 with the injected peaks
       setUserModified(true)
       // Load-time provenance check (mic / calibration / sample rate) — closes the web
@@ -1109,16 +1152,19 @@ export default function App() {
   const canExportSpectrum = !!(displaySpectrum || comparison || showMultiTap || (material && matSpectra.longitudinal))
   const exportSpectrumImage = useCallback(() => {
     const opts: SpectrumImageOpts = {
+      title: `FFT Peaks — ${loadedName ?? 'New'}`,
       spectrum: comparison || material || showMultiTap ? null : displaySpectrum,
       overlays: comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined,
       markers: comparison || showMultiTap ? [] : chartMarkers,
       view,
-      title: `FFT Peaks — ${loadedName ?? 'New'}`,
+      measurementTypeName: comparison ? 'Comparison' : MEASUREMENT_FULL_NAME[settings.measurementType],
+      guitarType: material || comparison ? undefined : guitarType,
+      date: new Date().toLocaleString(),
     }
     const stem =
       (loadedName ?? 'spectrum').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'spectrum'
     void exportSpectrumPng(opts, `${stem}-spectrum-${Math.floor(Date.now() / 1000)}.png`)
-  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, loadedName])
+  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, loadedName, settings.measurementType, guitarType])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
@@ -1136,8 +1182,9 @@ export default function App() {
           (3) tap-control bar — none of them wrap (the app gets a min-content floor and
           scrolls horizontally instead, mirroring the native window's minimum width). */}
       <header className="app-titlebar">
-        <h1>Guitar Tap</h1>
-        <span className="subtitle">Web · live tap analysis</span>
+        <h1>
+          Guitar Tap <span className="app-version">{__APP_VERSION__} ({__APP_BUILD__})</span>
+        </h1>
       </header>
 
       <div className="toolbar toolbar-app">
@@ -1338,6 +1385,7 @@ export default function App() {
               spectrum={comparison || material || showMultiTap ? null : displaySpectrum}
               title={`FFT Peaks — ${loadedName ?? 'New'}`}
               overlays={comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined}
+              guitarType={material || comparison || showMultiTap ? undefined : guitarType}
               markers={comparison || showMultiTap ? [] : chartMarkers}
               minHz={view.minHz}
               maxHz={view.maxHz}
@@ -1345,6 +1393,9 @@ export default function App() {
               maxDb={view.maxDb}
               onViewChange={setView}
               onReset={resetView}
+              onAnnotationDrag={material || comparison || showMultiTap ? undefined : onAnnotationDrag}
+              onResetLabels={material || comparison || showMultiTap ? undefined : resetLabels}
+              hasMovedLabels={annotationOffsets.size > 0}
             />
           </div>
         </div>
@@ -1437,7 +1488,12 @@ export default function App() {
             >
               ∿ Export Spectrum
             </button>
-            <button className="btn mini" disabled title="PDF report — coming next">
+            <button
+              className="btn mini"
+              onClick={exportPdf}
+              disabled={!canExportSpectrum}
+              title="Export a single-page PDF report"
+            >
               ▤ Export PDF
             </button>
           </div>

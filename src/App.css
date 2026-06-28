@@ -4,6 +4,7 @@
      narrower than the bars need, the page scrolls horizontally instead of the bars wrapping. */
   width: 100%;
   min-width: min-content;
+  height: 100%; /* fill the viewport so .main can flex to fill vertical space (native-like) */
   padding: 1rem 1rem 1.25rem;
   display: flex;
   flex-direction: column;
@@ -23,10 +24,10 @@
   margin: 0;
   white-space: nowrap;
 }
-.subtitle {
+.app-version {
   color: var(--muted);
   font-size: 0.82rem;
-  white-space: nowrap;
+  font-weight: 500;
 }
 
 /* ── Toolbar ─────────────────────────────────────────────── */
@@ -817,16 +818,19 @@
   display: flex;
   gap: 1rem;
   align-items: stretch;
+  flex: 1; /* fill the space between the toolbars and the status bar */
+  min-height: 0;
 }
 .chart-pane {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
 }
 .chart-wrap {
   width: 100%;
   height: 100%;
   min-height: 320px;
-  aspect-ratio: 16 / 8;
+  /* No fixed aspect ratio — the chart fills the available vertical space (matches native). */
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
@@ -912,14 +916,20 @@
   inset: 0;
   z-index: 4;
 }
-/* Material per-phase overlay legend (top-left of the chart). */
+/* Material/comparison overlay legend — upper-right INSIDE the plot (matches Swift/Python), below
+   the ⋯/? buttons. A subtle pill keeps it readable over the overlay curves. */
 .chart-legend {
   position: absolute;
-  top: 8px;
-  left: 46px;
+  top: 52px;
+  right: 22px;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem 0.75rem;
+  justify-content: flex-end;
+  gap: 0.25rem 0.7rem;
+  padding: 0.3rem 0.6rem;
+  background: rgba(14, 17, 22, 0.82);
+  border: 1px solid var(--line);
+  border-radius: 7px;
   z-index: 2;
   pointer-events: none;
 }

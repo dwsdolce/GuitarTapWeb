@@ -1,24 +1,22 @@
-// Canvas renderer for the spectrum plot — the single source of truth shared by the on-screen
-// SpectrumChart and the PNG/PDF export. Draws background, axes + gridlines, the spectrum curve,
-// colored overlay curves, peak dots, and annotation badges into a (W × H) region using local
-// coordinates (the caller sets up dpr/translate). Mirrors Swift's ExportableSpectrumChart so a
-// saved/exported image looks like the live chart.
+// Canvas renderer for the spectrum chart — the single source of truth shared by the on-screen
+// SpectrumChart (dark theme) and the PNG/PDF export (light theme), so the two CANNOT drift. Draws a
+// centered title, gridlines + tick labels OUTSIDE a bordered plot, axis titles, mode-boundary dashed
+// lines + top labels (guitar), the spectrum curve(s), peak dots and annotation badges. Mirrors
+// Swift's ExportableSpectrumChart / live SpectrumView layout.
 
 import type { Spectrum } from '../dsp/guitarFFT'
-import type { PeakMarker, SpectrumOverlay, ChartView } from './SpectrumChart'
+import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
+import { MODE_COLOR, MODE_LABEL } from './modeColors'
+import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect } from './SpectrumChart'
 
-// Axis gutters (label strips) = the x-axis / y-axis hit-zones.
-export const LEFT_GUTTER = 38 // px — magnitude (y) axis
-export const BOTTOM_GUTTER = 16 // px — frequency (x) axis
+const FREQ_TICKS_LOG_ARR = [30, 50, 100, 200, 300, 500, 1000, 2000]
+export const FREQ_TICKS_LOG = FREQ_TICKS_LOG_ARR
 
-const FREQ_TICKS_LOG = [30, 50, 100, 200, 300, 500, 1000, 2000]
-
-/** Frequency label like Swift's formattedAsFrequency (Hz under 1 kHz, else kHz). */
 export function fmtFreq(hz: number): string {
   return hz >= 1000 ? `${(hz / 1000).toFixed(2)} kHz` : `${hz.toFixed(1)} Hz`
 }
 
-function niceLinearTicks(minHz: number, maxHz: number): number[] {
+export function niceLinearTicks(minHz: number, maxHz: number): number[] {
   const span = Math.max(1, maxHz - minHz)
   const raw = span / 8
   const mag = Math.pow(10, Math.floor(Math.log10(raw)))
@@ -28,28 +26,87 @@ function niceLinearTicks(minHz: number, maxHz: number): number[] {
   return out
 }
 
+export interface ChartTheme {
+  bg: string
+  grid: string
+  border: string
+  axis: string // tick labels + axis titles
+  title: string
+  curve: string // spectrum curve
+  badgeBg: string
+}
+export const DARK_CHART: ChartTheme = {
+  bg: '#0e1116',
+  grid: '#1c242e',
+  border: '#2a3543',
+  axis: '#8a97a6',
+  title: '#dfe4ea',
+  curve: '#4ea1ff',
+  badgeBg: 'rgba(20, 25, 33, 0.92)',
+}
+export const LIGHT_CHART: ChartTheme = {
+  bg: '#ffffff',
+  grid: '#e3e8ee',
+  border: '#c2cad4',
+  axis: '#6b7785',
+  title: '#1a2330',
+  curve: '#e0584a',
+  badgeBg: 'rgba(255, 255, 255, 0.96)',
+}
+
+// Margins around the plot: room for the title + mode labels (top), the y-axis title + labels (left),
+// and the x-axis title + labels (bottom). Used by BOTH the renderer and the interaction hit-testing.
+export const PLOT_TOP = 46
+export const PLOT_LEFT = 56
+export const PLOT_BOTTOM = 42
+export const PLOT_RIGHT = 14
+
+export interface PlotRect {
+  l: number
+  t: number
+  r: number
+  b: number
+}
+export function chartGeometry(W: number, H: number): PlotRect {
+  return { l: PLOT_LEFT, t: PLOT_TOP, r: W - PLOT_RIGHT, b: H - PLOT_BOTTOM }
+}
+
 export interface RenderOpts {
   spectrum: Spectrum | null
   markers?: PeakMarker[]
   overlays?: SpectrumOverlay[]
   view: ChartView
   logFreq?: boolean
+  /** Centered title above the plot. */
+  title?: string
+  /** Guitar type → mode-boundary lines + top labels (omit for material/comparison). */
+  guitarType?: GuitarTypeName
+  theme?: ChartTheme
+  /** When provided, the renderer pushes each drawn (keyed) badge's screen rect here for hit-testing. */
+  badgeRectsOut?: AnnotationRect[]
 }
 
-/** Draw the spectrum plot into ctx over a W×H region (origin at 0,0). */
+/** Draw the spectrum chart into ctx over a W×H region (origin at 0,0). */
 export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: number, opts: RenderOpts): void {
-  const { spectrum, markers = [], overlays = [], logFreq = false } = opts
+  const { spectrum, markers = [], overlays = [], logFreq = false, title, guitarType } = opts
+  const th = opts.theme ?? DARK_CHART
   const { minHz, maxHz, minDb, maxDb } = opts.view
-
-  const plotL = LEFT_GUTTER
-  const plotR = W
-  const plotT = 0
-  const plotB = H - BOTTOM_GUTTER
+  const { l: plotL, t: plotT, r: plotR, b: plotB } = chartGeometry(W, H)
   const plotW = plotR - plotL
   const plotH = plotB - plotT
+  const bands = guitarType && overlays.length === 0 ? modeBands(guitarType) : []
 
-  ctx.fillStyle = '#0e1116'
+  ctx.fillStyle = th.bg
   ctx.fillRect(0, 0, W, H)
+
+  // Centered title.
+  if (title) {
+    ctx.fillStyle = th.title
+    ctx.font = '600 15px system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    ctx.fillText(title, (plotL + plotR) / 2, 20)
+    ctx.textAlign = 'left'
+  }
 
   const lo = Math.max(1, minHz)
   const logLo = Math.log10(lo)
@@ -61,80 +118,114 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
       : ((hz - minHz) / (maxHz - minHz)) * plotW)
   const yFor = (db: number) => plotB - ((db - minDb) / (maxDb - minDb)) * plotH
 
-  ctx.strokeStyle = '#1c242e'
-  ctx.fillStyle = '#5b6673'
+  // Gridlines + tick labels OUTSIDE the plot.
+  ctx.strokeStyle = th.grid
+  ctx.fillStyle = th.axis
   ctx.lineWidth = 1
-  ctx.font = '10px system-ui, sans-serif'
+  ctx.font = '11px system-ui, sans-serif'
   const dbStep = maxDb - minDb > 60 ? 20 : 10
+  ctx.textAlign = 'right'
   for (let db = Math.ceil(minDb / dbStep) * dbStep; db <= maxDb; db += dbStep) {
     const y = yFor(db)
     ctx.beginPath()
     ctx.moveTo(plotL, y)
     ctx.lineTo(plotR, y)
     ctx.stroke()
-    ctx.fillText(`${db}`, 2, Math.min(plotB - 1, y + 3))
+    ctx.fillText(`${db}`, plotL - 7, y + 4)
   }
-  const ticks = logFreq ? FREQ_TICKS_LOG.filter((t) => t >= minHz && t <= maxHz) : niceLinearTicks(minHz, maxHz)
+  ctx.textAlign = 'center'
+  const ticks = logFreq ? FREQ_TICKS_LOG_ARR.filter((t) => t >= minHz && t <= maxHz) : niceLinearTicks(minHz, maxHz)
   for (const hz of ticks) {
     const x = xFor(hz)
-    if (x < plotL) continue
+    if (x < plotL || x > plotR) continue
+    ctx.strokeStyle = th.grid
     ctx.beginPath()
     ctx.moveTo(x, plotT)
     ctx.lineTo(x, plotB)
     ctx.stroke()
-    ctx.fillText(`${Math.round(hz)}`, x + 2, plotB + 12)
+    ctx.fillStyle = th.axis
+    ctx.fillText(`${Math.round(hz)}`, x, plotB + 16)
+  }
+  ctx.textAlign = 'left'
+
+  // Mode-boundary dashed lines + top labels (guitar). TWO lines per mode — the lower (lo) and upper
+  // (hi) bound of its frequency range — with the abbreviation label at the lower bound (range start).
+  for (const b of bands) {
+    const color = MODE_COLOR[b.name]
+    for (const edge of [b.lo, b.hi]) {
+      if (edge < minHz || edge > maxHz) continue
+      const ex = xFor(edge)
+      ctx.save()
+      ctx.strokeStyle = color
+      ctx.globalAlpha = 0.5
+      ctx.setLineDash([7, 7])
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.moveTo(ex, plotT)
+      ctx.lineTo(ex, plotB)
+      ctx.stroke()
+      ctx.restore()
+    }
+    if (b.lo < minHz || b.lo > maxHz) continue
+    const bx = xFor(b.lo)
+    const label = MODE_LABEL[b.name]
+    ctx.font = '600 12px system-ui, sans-serif'
+    const lw = ctx.measureText(label).width + 10
+    const lx = Math.max(plotL, Math.min(bx - lw / 2, plotR - lw))
+    ctx.fillStyle = hexA(color, 0.16)
+    ctx.beginPath()
+    ctx.roundRect(lx, plotT - 20, lw, 16, 4)
+    ctx.fill()
+    ctx.fillStyle = color
+    ctx.textAlign = 'center'
+    ctx.fillText(label, lx + lw / 2, plotT - 8)
+    ctx.textAlign = 'left'
   }
 
+  // Plot border.
+  ctx.strokeStyle = th.border
+  ctx.lineWidth = 1
+  ctx.strokeRect(plotL, plotT, plotW, plotH)
+
+  // Axis titles.
+  ctx.fillStyle = th.axis
+  ctx.font = '500 13px system-ui, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText('Frequency (Hz)', (plotL + plotR) / 2, plotB + 34)
+  ctx.save()
+  ctx.translate(14, (plotT + plotB) / 2)
+  ctx.rotate(-Math.PI / 2)
+  ctx.fillText('FFT Magnitude (dB)', 0, 0)
+  ctx.restore()
+  ctx.textAlign = 'left'
+
+  // Curves (clipped to the plot).
   ctx.save()
   ctx.beginPath()
   ctx.rect(plotL, plotT, plotW, plotH)
   ctx.clip()
-
-  if (spectrum) {
-    const { magnitudesDb, frequencies } = spectrum
+  const drawCurve = (freqs: number[], mags: number[], color: string) => {
     ctx.beginPath()
-    ctx.strokeStyle = '#4ea1ff'
+    ctx.strokeStyle = color
     ctx.lineWidth = 1.5
     let started = false
-    for (let i = 0; i < frequencies.length; i++) {
-      const f = frequencies[i]!
+    for (let i = 0; i < freqs.length; i++) {
+      const f = freqs[i]!
       if (f < minHz) continue
       if (f > maxHz) break
       const x = xFor(f)
-      const y = yFor(magnitudesDb[i]!)
+      const y = yFor(mags[i]!)
       if (!started) {
         ctx.moveTo(x, y)
         started = true
-      } else {
-        ctx.lineTo(x, y)
-      }
+      } else ctx.lineTo(x, y)
     }
     ctx.stroke()
   }
+  if (overlays.length) for (const ov of overlays) drawCurve(ov.frequencies, ov.magnitudesDb, ov.color)
+  else if (spectrum) drawCurve(spectrum.frequencies, spectrum.magnitudesDb, th.curve)
 
-  // Colored overlay curves (material per-phase L/C/FLC; comparison curves).
-  for (const ov of overlays) {
-    ctx.beginPath()
-    ctx.strokeStyle = ov.color
-    ctx.lineWidth = 1.5
-    let started = false
-    for (let i = 0; i < ov.frequencies.length; i++) {
-      const f = ov.frequencies[i]!
-      if (f < minHz) continue
-      if (f > maxHz) break
-      const x = xFor(f)
-      const y = yFor(ov.magnitudesDb[i]!)
-      if (!started) {
-        ctx.moveTo(x, y)
-        started = true
-      } else {
-        ctx.lineTo(x, y)
-      }
-    }
-    ctx.stroke()
-  }
-
-  // Pass 1 — dots for every peak in range, always (independent of annotation mode).
+  // Peak dots.
   for (const m of markers) {
     if (m.frequency < minHz || m.frequency > maxHz) continue
     ctx.beginPath()
@@ -142,71 +233,90 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.fillStyle = m.color ?? '#8a96a5'
     ctx.fill()
   }
+  ctx.restore()
 
-  // Pass 2 — annotation badges (mode · ♪ pitch · freq · dB), only when annotated.
-  const PITCH = '#c389e8'
+  // Annotation badges (drawn after restore so they may overflow the plot slightly).
+  for (const m of markers) {
+    if (!m.annotated || m.frequency < minHz || m.frequency > maxHz) continue
+    // Anchor = badge bottom-center. Default: just above the peak dot. Dragged: the stored
+    // data-space position (so the label stays put under the peak through zoom/pan).
+    const anchorX = m.annoOffset ? xFor(m.annoOffset[0]) : xFor(m.frequency)
+    const anchorBottom = m.annoOffset ? yFor(m.annoOffset[1]) : yFor(m.magnitude) - 10
+    const rect = drawBadge(ctx, m, xFor(m.frequency), yFor(m.magnitude), anchorX, anchorBottom, plotL, plotR, plotT, th, !!m.annoOffset)
+    if (opts.badgeRectsOut && m.annoKey) opts.badgeRectsOut.push({ key: m.annoKey, ...rect })
+  }
+}
+
+function drawBadge(
+  ctx: CanvasRenderingContext2D,
+  m: PeakMarker,
+  peakX: number,
+  peakY: number,
+  anchorX: number,
+  anchorBottom: number,
+  plotL: number,
+  plotR: number,
+  plotT: number,
+  th: ChartTheme,
+  dragged: boolean,
+): { x: number; y: number; w: number; h: number } {
+  const color = m.color ?? '#8a96a5'
+  const PITCH = th === LIGHT_CHART ? '#9b51c2' : '#c389e8'
+  const fg = th === LIGHT_CHART ? '#1a2330' : '#dfe4ea'
+  const sub = th === LIGHT_CHART ? '#6b7785' : '#9aa6b3'
   const padX = 7
   const padY = 5
   const lineH = 14
-  for (const m of markers) {
-    if (!m.annotated || m.frequency < minHz || m.frequency > maxHz) continue
-    const x = xFor(m.frequency)
-    const y = yFor(m.magnitude)
-    const color = m.color ?? '#8a96a5'
+  const lines: { text: string; color: string; font: string }[] = [
+    { text: (m.label ?? '') + (m.isOverride ? ' ✎' : ''), color, font: `${m.isOverride ? 'italic ' : ''}bold 11px system-ui, sans-serif` },
+  ]
+  if (m.note) {
+    const c = Math.round(m.cents ?? 0)
+    lines.push({ text: `♪ ${m.note} ${c >= 0 ? '+' : ''}${c} ¢`, color: PITCH, font: '600 11px system-ui, sans-serif' })
+  }
+  lines.push({ text: fmtFreq(m.frequency), color: fg, font: '500 11px system-ui, sans-serif' })
+  lines.push({ text: `${m.magnitude.toFixed(1)} dB`, color: sub, font: '11px system-ui, sans-serif' })
 
-    const lines: { text: string; color: string; font: string }[] = [
-      {
-        text: (m.label ?? '') + (m.isOverride ? ' ✎' : ''),
-        color,
-        font: `${m.isOverride ? 'italic ' : ''}bold 11px system-ui, sans-serif`,
-      },
-    ]
-    if (m.note) {
-      const c = Math.round(m.cents ?? 0)
-      lines.push({ text: `♪ ${m.note} ${c >= 0 ? '+' : ''}${c} ¢`, color: PITCH, font: '600 11px system-ui, sans-serif' })
-    }
-    lines.push({ text: fmtFreq(m.frequency), color: '#dfe4ea', font: '500 11px system-ui, sans-serif' })
-    lines.push({ text: `${m.magnitude.toFixed(1)} dB`, color: '#9aa6b3', font: '11px system-ui, sans-serif' })
-
-    let boxW = 0
-    for (const ln of lines) {
-      ctx.font = ln.font
-      boxW = Math.max(boxW, ctx.measureText(ln.text).width)
-    }
-    boxW += padX * 2
-    const boxH = lines.length * lineH + padY * 2
-    const boxX = Math.max(plotL + 2, Math.min(x - boxW / 2, plotR - boxW - 2))
-    let boxBottom = y - 10
-    let boxTop = boxBottom - boxH
-    if (boxTop < plotT + 2) {
-      boxTop = plotT + 2
-      boxBottom = boxTop + boxH
-    }
-
-    // Leader line from the peak dot up to the badge.
-    ctx.strokeStyle = color
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(x, y)
-    ctx.lineTo(Math.max(boxX, Math.min(x, boxX + boxW)), boxBottom)
-    ctx.stroke()
-
-    // Badge: dark rounded rect with a mode-colored border.
-    ctx.beginPath()
-    ctx.roundRect(boxX, boxTop, boxW, boxH, 6)
-    ctx.fillStyle = 'rgba(20, 25, 33, 0.92)'
-    ctx.fill()
-    ctx.strokeStyle = color
-    ctx.lineWidth = 1.5
-    ctx.stroke()
-
-    ctx.textBaseline = 'top'
-    for (let i = 0; i < lines.length; i++) {
-      ctx.font = lines[i]!.font
-      ctx.fillStyle = lines[i]!.color
-      ctx.fillText(lines[i]!.text, boxX + padX, boxTop + padY + i * lineH)
-    }
+  let boxW = 0
+  for (const ln of lines) {
+    ctx.font = ln.font
+    boxW = Math.max(boxW, ctx.measureText(ln.text).width)
+  }
+  boxW += padX * 2
+  const boxH = lines.length * lineH + padY * 2
+  const boxX = Math.max(plotL + 2, Math.min(anchorX - boxW / 2, plotR - boxW - 2))
+  let boxBottom = anchorBottom
+  let boxTop = boxBottom - boxH
+  // Auto-placed badges nudge down if they'd clip the plot top; dragged badges keep the
+  // user's exact position (the drag already constrains the anchor to the plot).
+  if (!dragged && boxTop < plotT + 2) {
+    boxTop = plotT + 2
+    boxBottom = boxTop + boxH
+  }
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(peakX, peakY)
+  ctx.lineTo(Math.max(boxX, Math.min(peakX, boxX + boxW)), boxBottom)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.roundRect(boxX, boxTop, boxW, boxH, 6)
+  ctx.fillStyle = th.badgeBg
+  ctx.fill()
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+  ctx.textBaseline = 'top'
+  for (let i = 0; i < lines.length; i++) {
+    ctx.font = lines[i]!.font
+    ctx.fillStyle = lines[i]!.color
+    ctx.fillText(lines[i]!.text, boxX + padX, boxTop + padY + i * lineH)
   }
   ctx.textBaseline = 'alphabetic'
-  ctx.restore()
+  return { x: boxX, y: boxTop, w: boxW, h: boxH }
+}
+
+export function hexA(hex: string, a: number): string {
+  const h = hex.replace('#', '')
+  return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`
 }

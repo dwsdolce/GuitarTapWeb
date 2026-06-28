@@ -416,7 +416,7 @@ export function SettingsPanel({
                   <input type="checkbox" checked={d.dumpCaptureAudio} onChange={(e) => patch({ dumpCaptureAudio: e.target.checked })} />
                   <span>
                     Dump capture audio
-                    <em className="set-inline-desc"> — download each captured tap as a WAV (not yet wired)</em>
+                    <em className="set-inline-desc"> — download each captured tap/phase as a 32-bit-float WAV (diagnostic)</em>
                   </span>
                 </label>
                 <button className="btn mini" onClick={() => resetKeys(ANALYSIS_KEYS)}>
@@ -430,9 +430,13 @@ export function SettingsPanel({
           <section>
             <h3>About &amp; Help</h3>
             <div className="set-readout">
-              Version <b>Web (Phase 3)</b>
+              Version <b>{__APP_VERSION__} ({__APP_BUILD__})</b>
             </div>
-            <p className="set-note">Parity port of the Swift / Python GuitarTap apps.</p>
+            <p className="set-note">
+              An acoustic analysis tool for guitar makers. Tap-tone analysis using real-time FFT to identify resonant
+              frequencies of guitar top and back plates.
+            </p>
+            <p className="set-note">Copyright © 2026 David W. Smith dba Dolce Sfogato</p>
           </section>
         </div>
       </div>

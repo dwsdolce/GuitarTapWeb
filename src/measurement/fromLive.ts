@@ -20,7 +20,7 @@ import {
   type Settings,
   type StiffnessPreset,
 } from '../settings'
-import type { ComparisonEntryModel, ResonantPeakModel, SpectrumSnapshotModel, TapEntryModel, TapToneMeasurementModel } from './types'
+import type { AnnotationOffsets, ComparisonEntryModel, ResonantPeakModel, SpectrumSnapshotModel, TapEntryModel, TapToneMeasurementModel } from './types'
 
 const GUITAR_TYPE_RAW: Record<string, string> = {
   generic: 'Generic',
@@ -83,6 +83,8 @@ export interface BuildMeasurementArgs {
   /** Active input deviceId + calibration name at capture time (provenance for the Details pane). */
   microphoneUID?: string
   calibrationName?: string
+  /** Dragged annotation-label positions, keyed by `frequency.toFixed(1)` → [absFreqHz, absDB]. */
+  annotationOffsetsByFreq?: Map<string, [number, number]>
 }
 
 /** Construct a guitar TapToneMeasurementModel from the current frozen result. */
@@ -130,9 +132,12 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
 
   const selected = a.peaks.filter((p) => a.selectedIds.has(p.id))
   const peakModeOverrides: Record<string, string> = {}
+  const peakAnnotationOffsets: AnnotationOffsets = {}
   for (const p of a.peaks) {
     const override = a.overridesByFreq.get(key(p.frequency))
     if (override != null) peakModeOverrides[idForNumeric.get(p.id)!] = override
+    const offset = a.annotationOffsetsByFreq?.get(key(p.frequency))
+    if (offset != null) peakAnnotationOffsets[idForNumeric.get(p.id)!] = offset
   }
 
   // Per-tap entries for the multi-tap comparison view (mirrors Swift tapEntries):
@@ -175,6 +180,7 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
     numberOfTaps: a.numberOfTaps,
     peakMinThreshold: a.settings.peakMinThreshold,
     peakModeOverrides: Object.keys(peakModeOverrides).length ? peakModeOverrides : undefined,
+    peakAnnotationOffsets: Object.keys(peakAnnotationOffsets).length ? peakAnnotationOffsets : undefined,
     tapEntries,
     microphoneName: a.deviceLabel || undefined,
     microphoneUID: a.microphoneUID || undefined,
@@ -288,6 +294,8 @@ export interface LiveRestore {
   selectedIndices: Set<number>
   /** Per-frequency overrides to restore (keyed by `frequency.toFixed(1)`). */
   overridesByFreq: Map<string, string>
+  /** Dragged annotation-label positions to restore (keyed by `frequency.toFixed(1)`). */
+  annotationOffsetsByFreq: Map<string, [number, number]>
 }
 
 /** Decompose a saved guitar measurement into the pieces the App restores into the view.
@@ -308,10 +316,15 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
   }))
 
   const overridesByFreq = new Map<string, string>()
+  const annotationOffsetsByFreq = new Map<string, [number, number]>()
   const indexByUuid = new Map(m.peaks.map((p, i) => [p.id, i]))
   for (const [id, label] of Object.entries(m.peakModeOverrides ?? {})) {
     const i = indexByUuid.get(id)
     if (i != null) overridesByFreq.set(key(m.peaks[i]!.frequency), label)
+  }
+  for (const [id, pos] of Object.entries(m.peakAnnotationOffsets ?? {})) {
+    const i = indexByUuid.get(id)
+    if (i != null) annotationOffsetsByFreq.set(key(m.peaks[i]!.frequency), pos)
   }
 
   // Selection restores from the saved ids (1:1 with the injected peaks); if none were
@@ -342,6 +355,7 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
     loadedPeaks,
     selectedIndices,
     overridesByFreq,
+    annotationOffsetsByFreq,
   }
 }
 

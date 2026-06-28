@@ -5,6 +5,10 @@ import { measurementTapToneRatio, guitarTapFilename, newMeasurementId } from '..
 import { formatDisplayDate } from '../format/date'
 import { parseGuitarTapFile, serializeGuitarTapFile, type TapToneMeasurementModel } from '../measurement'
 import { MeasurementDetail } from './MeasurementDetail'
+import { exportSpectrumPng } from './spectrumExport'
+import { measurementToImageOpts, measurementToPdfData } from './measurementImage'
+import { exportPdfReport } from './pdfReport'
+import { saveFile } from '../saveFile'
 
 export interface MeasurementsPanelProps {
   onClose: () => void
@@ -44,6 +48,8 @@ const ICON_EDIT = ['M12 20h9', 'M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'] /
 const ICON_DELETE = ['M3 6h18', 'M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2', 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6', 'M10 11v6', 'M14 11v6'] // trash
 const ICON_EXPORT = ['M12 15V3', 'm7 8 5-5 5 5', 'M5 21h14'] // arrow-up-out (≈ export)
 const ICON_DETAILS = ['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20', 'M12 16v-4', 'M12 8h.01'] // info-circle (≈ info.circle)
+const ICON_SPECTRUM = ['M3 3v18h18', 'm7 14 4-4 3 3 5-6'] // axes + line (≈ chart.line.uptrend)
+const ICON_PDF = ['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', 'M14 2v6h6', 'M9 13h6', 'M9 17h6'] // doc.text
 
 // A measurement is comparable when it has a single-spectrum snapshot and isn't itself a
 // comparison — mirrors Swift's `comparableMeasurements` filter.
@@ -167,42 +173,38 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
   // Swift/Python apps). Uses the File System Access save dialog (Chromium) so the user picks
   // the location — including iCloud Drive / Dropbox folders; falls back to a plain download
   // on Safari/Firefox (no API there), where the share sheet still offers "Save to Files".
-  const writeGuitarTapFile = async (data: string, name: string) => {
-    const picker = (
-      window as unknown as {
-        showSaveFilePicker?: (opts: {
-          suggestedName?: string
-          types?: { description?: string; accept: Record<string, string[]> }[]
-        }) => Promise<{ createWritable: () => Promise<{ write: (d: string) => Promise<void>; close: () => Promise<void> }> }>
-      }
-    ).showSaveFilePicker
-    if (picker) {
-      try {
-        const handle = await picker({
-          suggestedName: name,
-          types: [{ description: 'GuitarTap measurements', accept: { 'application/json': ['.guitartap'] } }],
-        })
-        const writable = await handle.createWritable()
-        await writable.write(data)
-        await writable.close()
-        return
-      } catch (err) {
-        if ((err as DOMException)?.name === 'AbortError') return // user cancelled the dialog
-        // any other failure → fall through to the download fallback
-      }
-    }
-    const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+  const writeGuitarTapFile = (data: string, name: string) =>
+    saveFile(data, name, { description: 'GuitarTap measurements', mime: 'application/json', ext: '.guitartap' })
 
   /** Export one measurement → a 1-element `.guitartap` file (row ⋯ menu). */
   const exportOne = async (m: TapToneMeasurementModel) => {
     setMenuId(null)
     await writeGuitarTapFile(serializeGuitarTapFile([m]), guitarTapFilename(m))
+  }
+
+  /** Export a saved measurement's spectrum as a PNG report image (row ⋯ menu). */
+  const exportSpectrum = async (m: TapToneMeasurementModel) => {
+    setMenuId(null)
+    try {
+      const stem =
+        (m.measurementName?.trim() || 'spectrum').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() ||
+        'spectrum'
+      await exportSpectrumPng(measurementToImageOpts(m), `${stem}-spectrum-${Math.floor(Date.now() / 1000)}.png`)
+    } catch (err) {
+      setImportError(`Couldn't export spectrum: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  const exportPdf = async (m: TapToneMeasurementModel) => {
+    setMenuId(null)
+    try {
+      const stem =
+        (m.measurementName?.trim() || 'report').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() ||
+        'report'
+      await exportPdfReport(measurementToPdfData(m), `${stem}-report-${Math.floor(Date.now() / 1000)}.pdf`)
+    } catch (err) {
+      setImportError(`Couldn't export PDF: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   /** Export the whole library → one `.guitartap` file (group backup / migration). The
@@ -440,6 +442,14 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
               <button role="menuitem" onClick={() => void exportOne(m)}>
                 <Icon paths={ICON_EXPORT} />
                 Export Measurement
+              </button>
+              <button role="menuitem" onClick={() => void exportSpectrum(m)}>
+                <Icon paths={ICON_SPECTRUM} />
+                Export Spectrum
+              </button>
+              <button role="menuitem" onClick={() => void exportPdf(m)}>
+                <Icon paths={ICON_PDF} />
+                Export PDF Report
               </button>
               <div className="meas-menu-sep" />
               <button role="menuitem" className="danger" onClick={() => void remove(m)}>

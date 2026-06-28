@@ -27,6 +27,7 @@ const args = {
   modeByPeak,
   selectedIds: new Set<number>([2]),
   overridesByFreq: new Map<string, string>([['100.0', 'Custom']]),
+  annotationOffsetsByFreq: new Map<string, [number, number]>([['200.0', [215.5, -32.0]]]),
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'classical' as const, showUnknownModes: true, peakMinThreshold: -55 },
   numberOfTaps: 3,
@@ -47,6 +48,9 @@ describe('buildGuitarMeasurement — live state → model', () => {
     expect(m.peakModeOverrides?.[air.id]).toBe('Custom') // override wins as the label
     expect(air.modeLabel).toBe('Custom')
     expect(top.modeLabel).toBe('Top')
+    // Dragged annotation-label position maps onto the peak's UUID, by frequency key.
+    expect(m.peakAnnotationOffsets?.[top.id]).toEqual([215.5, -32.0])
+    expect(m.peakAnnotationOffsets?.[air.id]).toBeUndefined()
   })
 
   it('captures snapshot type/provenance from the live settings', () => {
@@ -79,5 +83,8 @@ describe('round-trip through file → restore into the view', () => {
     expect([...live.selectedIndices]).toEqual([1]) // the 200 Hz peak
     expect(live.loadedPeaks[1]!.frequency).toBe(200)
     expect(live.overridesByFreq.get('100.0')).toBe('Custom')
+    // Dragged label position restores keyed by frequency (UUIDs are regenerated on re-derivation).
+    expect(live.annotationOffsetsByFreq.get('200.0')).toEqual([215.5, -32.0])
+    expect(live.annotationOffsetsByFreq.has('100.0')).toBe(false)
   })
 })

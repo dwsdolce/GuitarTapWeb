@@ -51,6 +51,10 @@ export interface AudioEngineCallbacks {
   onClipping?: (clipping: boolean) => void
   /** A gated material tap was captured (one phase of a plate/brace measurement). */
   onMaterialCapture?: (result: MaterialCaptureResult) => void
+  /** Raw captured buffer for the "Dump Capture Audio" diagnostic — fired per guitar tap and
+   *  per material phase with the exact samples that were analyzed. `kind` is the capture kind;
+   *  the caller adds context (phase/tap) + decides whether to write the WAV (setting-gated). */
+  onCaptureAudio?: (samples: Float32Array, sampleRate: number, kind: 'guitar' | 'material') => void
   /** Live-FFT performance, emitted once per continuous spectrum (FFTAnalysisMetricsView). */
   onMetrics?: (m: EngineMetrics) => void
 }
@@ -570,6 +574,7 @@ export class AudioEngine {
         this.sampleRate,
         this.materialSearch!,
       )
+      this.callbacks.onCaptureAudio?.(this.capture.slice(), this.sampleRate, 'material')
       this.captureIdx = 0
       this.setState('idle')
       const sess = this.materialSession
@@ -597,6 +602,7 @@ export class AudioEngine {
       return
     }
 
+    this.callbacks.onCaptureAudio?.(this.capture.slice(0, GUITAR_FFT_SIZE), this.sampleRate, 'guitar')
     const spectrum = this.applyCal(dftAnalRect(this.capture, this.sampleRate, GUITAR_FFT_SIZE))
     this.captureIdx = 0
     this.collected.push(spectrum)

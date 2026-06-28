@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Spectrum } from '../dsp/guitarFFT'
-import { renderSpectrum, LEFT_GUTTER, BOTTOM_GUTTER } from './spectrumRender'
+import { renderSpectrum, chartGeometry, DARK_CHART } from './spectrumRender'
+import type { GuitarTypeName } from '../dsp/guitarModes'
 
 export interface PeakMarker {
   frequency: number
@@ -17,6 +18,20 @@ export interface PeakMarker {
   /** Draw the annotation badge. The dot is ALWAYS drawn regardless of this flag —
    *  mirrors Swift's two layers: allPeaksInRange dots vs visiblePeaks annotations. */
   annotated?: boolean
+  /** Stable key (peak frequency, `toFixed(1)`) identifying this badge for drag/offset edits.
+   *  Present → the badge is draggable; the leader line tracks the peak. */
+  annoKey?: string
+  /** User-dragged badge position in data-space [absFreqHz, absDB]; omit → default placement. */
+  annoOffset?: [number, number]
+}
+
+/** A drawn annotation badge's screen rectangle (CSS px), emitted by the renderer for hit-testing. */
+export interface AnnotationRect {
+  key: string
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
 export interface ChartView {
@@ -44,6 +59,8 @@ export interface SpectrumChartProps {
   markers?: PeakMarker[]
   /** Extra colored curves drawn over the plot, with a legend (material L/C/FLC). */
   overlays?: SpectrumOverlay[]
+  /** Guitar type → mode-boundary lines + top labels on the plot (omit for material/comparison). */
+  guitarType?: GuitarTypeName
   logFreq?: boolean
   minHz?: number
   maxHz?: number
@@ -53,6 +70,13 @@ export interface SpectrumChartProps {
   onViewChange?: (v: ChartView) => void
   /** Right-click menu reset (target = saved range vs factory defaults; axis scope). */
   onReset?: (target: ResetTarget, axis: ResetAxis) => void
+  /** A draggable annotation badge was moved → its new data-space position [absFreqHz, absDB].
+   *  Omit to make labels non-draggable. */
+  onAnnotationDrag?: (key: string, pos: [number, number]) => void
+  /** "Reset Labels" menu action → clear all dragged label positions. */
+  onResetLabels?: () => void
+  /** Enables the "Reset Labels" menu item (true when any label has been moved). */
+  hasMovedLabels?: boolean
 }
 
 // Limits mirror SpectrumView+GestureHandlers.swift.
@@ -85,6 +109,7 @@ export function SpectrumChart({
   title,
   markers = [],
   overlays = [],
+  guitarType,
   logFreq = false,
   minHz = 30,
   maxHz = 2000,
@@ -92,6 +117,9 @@ export function SpectrumChart({
   maxDb = 0,
   onViewChange,
   onReset,
+  onAnnotationDrag,
+  onResetLabels,
+  hasMovedLabels = false,
 }: SpectrumChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [showHelp, setShowHelp] = useState(false)
@@ -103,6 +131,11 @@ export function SpectrumChart({
   viewRef.current = { minHz, maxHz, minDb, maxDb }
   const onViewChangeRef = useRef(onViewChange)
   onViewChangeRef.current = onViewChange
+  const onAnnotationDragRef = useRef(onAnnotationDrag)
+  onAnnotationDragRef.current = onAnnotationDrag
+  // Badge screen rects from the most recent render — refreshed every draw, read by the
+  // pointer handler for hit-testing (CSS px, matching pointer coords).
+  const badgeRectsRef = useRef<AnnotationRect[]>([])
 
   // ── Draw ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -119,8 +152,19 @@ export function SpectrumChart({
     canvas.height = H * dpr
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    renderSpectrum(ctx, W, H, { spectrum, markers, overlays, logFreq, view: { minHz, maxHz, minDb, maxDb } })
-  }, [spectrum, markers, overlays, logFreq, minHz, maxHz, minDb, maxDb])
+    badgeRectsRef.current = []
+    renderSpectrum(ctx, W, H, {
+      spectrum,
+      markers,
+      overlays,
+      logFreq,
+      title,
+      guitarType,
+      theme: DARK_CHART,
+      view: { minHz, maxHz, minDb, maxDb },
+      badgeRectsOut: badgeRectsRef.current,
+    })
+  }, [spectrum, markers, overlays, logFreq, title, guitarType, minHz, maxHz, minDb, maxDb])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
   useEffect(() => {
@@ -128,18 +172,20 @@ export function SpectrumChart({
     if (!canvas) return
     const emit = (v: ChartView) => onViewChangeRef.current?.(v)
 
+    // Plot rectangle (matches the renderer's geometry) for hit-testing + cursor→data mapping.
     const regionAt = (px: number, py: number, rect: DOMRect): Region => {
-      const pb = rect.height - BOTTOM_GUTTER
-      if (px >= LEFT_GUTTER && px <= rect.width && py >= 0 && py <= pb) return 'plot'
-      if (px < LEFT_GUTTER && py >= 0 && py <= pb) return 'yAxis'
-      if (py > pb && px >= LEFT_GUTTER && px <= rect.width) return 'xAxis'
+      const g = chartGeometry(rect.width, rect.height)
+      if (px >= g.l && px <= g.r && py >= g.t && py <= g.b) return 'plot'
+      if (px < g.l && py >= g.t && py <= g.b) return 'yAxis'
+      if (py > g.b && px >= g.l && px <= g.r) return 'xAxis'
       return 'outside'
     }
     const dataAt = (px: number, py: number, rect: DOMRect, v: ChartView) => {
-      const plotW = rect.width - LEFT_GUTTER
-      const plotH = rect.height - BOTTOM_GUTTER
-      const fx = Math.min(1, Math.max(0, (px - LEFT_GUTTER) / plotW))
-      const fy = Math.min(1, Math.max(0, (plotH - py) / plotH))
+      const g = chartGeometry(rect.width, rect.height)
+      const plotW = g.r - g.l
+      const plotH = g.b - g.t
+      const fx = Math.min(1, Math.max(0, (px - g.l) / plotW))
+      const fy = Math.min(1, Math.max(0, (g.b - py) / plotH))
       return { aHz: v.minHz + fx * (v.maxHz - v.minHz), aDb: v.minDb + fy * (v.maxDb - v.minDb) }
     }
     const zoomFreq = (v: ChartView, aHz: number, scale: number): Partial<ChartView> => {
@@ -215,11 +261,24 @@ export function SpectrumChart({
       }
     }
 
+    // Topmost annotation badge under a point (CSS px), or null. Reverse order = last drawn wins.
+    const hitBadge = (px: number, py: number) => {
+      for (let i = badgeRectsRef.current.length - 1; i >= 0; i--) {
+        const r = badgeRectsRef.current[i]!
+        if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return r
+      }
+      return null
+    }
+
     // Single-pointer drag-pan (mouse or one finger), region-aware.
     let dragRegion: Region = 'outside'
     let sx = 0
     let sy = 0
     let start: ChartView | null = null
+    // Dragging an annotation badge: freeze the grab point + the badge's bottom-center anchor
+    // at drag start; every move re-derives the anchor's data-space position (mirrors Swift's
+    // frozenChartPosition so the label tracks the cursor through re-renders).
+    let annoDrag: { key: string; pStartX: number; pStartY: number; anchorSX: number; anchorSY: number } | null = null
     // Two-finger pinch-zoom (touch). The pinch midpoint picks the region, exactly like
     // the wheel/pointer; zoom is applied from the start view by the cumulative scale.
     const pointers = new Map<number, { x: number; y: number }>()
@@ -231,6 +290,16 @@ export function SpectrumChart({
       const rect = canvas.getBoundingClientRect()
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       canvas.setPointerCapture(e.pointerId)
+      // Grab an annotation badge before any pan begins (single pointer only).
+      if (pointers.size === 1 && onAnnotationDragRef.current) {
+        const hit = hitBadge(e.clientX - rect.left, e.clientY - rect.top)
+        if (hit) {
+          annoDrag = { key: hit.key, pStartX: e.clientX, pStartY: e.clientY, anchorSX: hit.x + hit.w / 2, anchorSY: hit.y + hit.h }
+          start = null
+          canvas.style.cursor = 'grabbing'
+          return
+        }
+      }
       if (pointers.size >= 2) {
         // Begin pinch; cancel any single-finger drag.
         start = null
@@ -252,7 +321,21 @@ export function SpectrumChart({
       start = { ...viewRef.current }
     }
     const onMove = (e: PointerEvent) => {
+      // Hover feedback over draggable badges (no buttons pressed).
+      if (!annoDrag && !start && !pinch && pointers.size === 0 && onAnnotationDragRef.current) {
+        const rect = canvas.getBoundingClientRect()
+        canvas.style.cursor = hitBadge(e.clientX - rect.left, e.clientY - rect.top) ? 'grab' : ''
+      }
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      // Annotation badge drag takes priority over pan/pinch.
+      if (annoDrag && onAnnotationDragRef.current) {
+        const rect = canvas.getBoundingClientRect()
+        const newSX = annoDrag.anchorSX + (e.clientX - annoDrag.pStartX)
+        const newSY = annoDrag.anchorSY + (e.clientY - annoDrag.pStartY)
+        const { aHz, aDb } = dataAt(newSX, newSY, rect, viewRef.current)
+        onAnnotationDragRef.current(annoDrag.key, [aHz, aDb])
+        return
+      }
       if (pinch && pointers.size >= 2 && pinch.startDist > 0) {
         const [p1, p2] = [...pointers.values()]
         const scale = Math.min(8, Math.max(0.125, dist(p1!, p2!) / pinch.startDist)) // fingers apart → zoom in
@@ -266,8 +349,9 @@ export function SpectrumChart({
       }
       if (!start) return
       const rect = canvas.getBoundingClientRect()
-      const plotW = rect.width - LEFT_GUTTER
-      const plotH = rect.height - BOTTOM_GUTTER
+      const g = chartGeometry(rect.width, rect.height)
+      const plotW = g.r - g.l
+      const plotH = g.b - g.t
       const dHz = ((e.clientX - sx) / plotW) * (start.maxHz - start.minHz)
       const dDb = ((e.clientY - sy) / plotH) * (start.maxDb - start.minDb)
       let out: ChartView = { ...start }
@@ -277,6 +361,10 @@ export function SpectrumChart({
     }
     const onUp = (e: PointerEvent) => {
       pointers.delete(e.pointerId)
+      if (annoDrag) {
+        annoDrag = null
+        canvas.style.cursor = ''
+      }
       if (pointers.size < 2) pinch = null
       if (pointers.size === 0) start = null
       try {
@@ -311,7 +399,6 @@ export function SpectrumChart({
 
   return (
     <div className="chart-host">
-      {title && <div className="chart-title">{title}</div>}
       <canvas
         ref={canvasRef}
         className="spectrum-canvas"
@@ -384,6 +471,20 @@ export function SpectrumChart({
             <button onClick={() => doReset('defaults', 'both')}>Both Axes</button>
             <button onClick={() => doReset('defaults', 'freq')}>Frequency Axis</button>
             <button onClick={() => doReset('defaults', 'mag')}>Magnitude Axis</button>
+            {onResetLabels && (
+              <>
+                <div className="ctx-sep" />
+                <button
+                  disabled={!hasMovedLabels}
+                  onClick={() => {
+                    onResetLabels()
+                    setMenu(null)
+                  }}
+                >
+                  Reset Labels
+                </button>
+              </>
+            )}
           </div>
         </>
       )}

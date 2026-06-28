@@ -100,3 +100,33 @@ export function decodeWav(bytes: Uint8Array, options: DecodeOptions = {}): Decod
 
   return { samples, sampleRate, channels, bitsPerSample: bits, format }
 }
+
+/**
+ * Encode mono float samples as a 32-bit IEEE-float RIFF/WAVE file (fmt 3, little-endian),
+ * matching Swift's `dumpCaptureWAV` / Python's capture dump. Decodable by `decodeWav` above.
+ * Used by the "Dump Capture Audio" diagnostic to save each captured buffer as a WAV.
+ */
+export function encodeWavFloat32(samples: Float32Array, sampleRate: number): Uint8Array {
+  const bytesPerSample = 4
+  const dataSize = samples.length * bytesPerSample
+  const buffer = new ArrayBuffer(44 + dataSize)
+  const dv = new DataView(buffer)
+  const writeTag = (offset: number, tag: string) => {
+    for (let i = 0; i < tag.length; i++) dv.setUint8(offset + i, tag.charCodeAt(i))
+  }
+  writeTag(0, 'RIFF')
+  dv.setUint32(4, 36 + dataSize, true)
+  writeTag(8, 'WAVE')
+  writeTag(12, 'fmt ')
+  dv.setUint32(16, 16, true) // fmt chunk size
+  dv.setUint16(20, 3, true) // audioFormat = 3 (IEEE float)
+  dv.setUint16(22, 1, true) // channels = 1 (mono)
+  dv.setUint32(24, sampleRate, true)
+  dv.setUint32(28, sampleRate * bytesPerSample, true) // byteRate
+  dv.setUint16(32, bytesPerSample, true) // blockAlign
+  dv.setUint16(34, 32, true) // bitsPerSample
+  writeTag(36, 'data')
+  dv.setUint32(40, dataSize, true)
+  for (let i = 0; i < samples.length; i++) dv.setFloat32(44 + i * bytesPerSample, samples[i]!, true)
+  return new Uint8Array(buffer)
+}
