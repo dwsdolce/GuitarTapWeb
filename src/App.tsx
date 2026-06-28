@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AudioEngine, type EngineState, type EngineMetrics, type MaterialSearch } from './audio/engine'
+import { AudioEngine, type EngineState, type EngineMetrics } from './audio/engine'
 import { SpectrumChart } from './components/SpectrumChart'
-import type { PeakMarker, ChartView, SpectrumOverlay } from './presentation/chartTypes'
+import type { PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
+import { useAnnotations } from './hooks/useAnnotations'
+import { useMaterialSession, type MatPhase } from './hooks/useMaterialSession'
 import { ThresholdMeter } from './components/ThresholdMeter'
 import { PeakCard } from './components/PeakCard'
 import { SettingsPanel } from './components/SettingsPanel'
@@ -10,7 +12,7 @@ import { MetricsPanel, type Metrics } from './components/MetricsPanel'
 import { SaveSheet } from './components/SaveSheet'
 import { PlayFileSheet } from './components/PlayFileSheet'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
-import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
+import { MaterialResults } from './components/MaterialResults'
 import {
   buildGuitarMeasurement,
   buildMaterialMeasurement,
@@ -53,7 +55,6 @@ import {
 } from './components/MultiTapComparisonResultsView'
 import { findPeaks, type Peak } from './dsp/peaks'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from './dsp/classify'
-import { PLATE_PHASES, BRACE_PHASE } from './dsp/gatedCapture'
 import { modeBands, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
 import {
@@ -73,8 +74,6 @@ const pitch = new Pitch(440)
 
 // Per-phase material spectra, overlaid on the chart (mirrors Swift's materialSpectra:
 // Longitudinal always; Cross + optional FLC for plate). Colors match the markers.
-type MatSpectra = { longitudinal: Spectrum | null; cross: Spectrum | null; flc: Spectrum | null }
-const EMPTY_MAT_SPECTRA: MatSpectra = { longitudinal: null, cross: null, flc: null }
 const MAT_L_COLOR = '#4ea1ff'
 const MAT_C_COLOR = '#f0a03a'
 const MAT_FLC_COLOR = '#b07ad8'
@@ -97,17 +96,6 @@ function statusText(state: EngineState, progress: { collected: number; total: nu
       return multi ? `Averaged ${total} taps — press New Tap to listen again` : 'Tap captured — press New Tap to listen again'
   }
 }
-
-// Material measurement phases (MaterialTapPhase.swift). Brace: capturingL → complete.
-type MatPhase =
-  | 'notStarted'
-  | 'capturingL'
-  | 'reviewingL'
-  | 'capturingC'
-  | 'reviewingC'
-  | 'capturingFlc'
-  | 'reviewingFlc'
-  | 'complete'
 
 const isReviewing = (p: MatPhase) => p === 'reviewingL' || p === 'reviewingC' || p === 'reviewingFlc'
 
@@ -321,14 +309,6 @@ export default function App() {
 
   // Material measurement state. Engine callbacks are registered once, so the phase
   // and measurement type are mirrored into refs for the onMaterialCapture handler.
-  const [matPhase, setMatPhaseState] = useState<MatPhase>('notStarted')
-  const [matPeaks, setMatPeaks] = useState<MaterialPeaks>({ longitudinal: null, cross: null, flc: null })
-  const [matSpectra, setMatSpectra] = useState<MatSpectra>(EMPTY_MAT_SPECTRA)
-  const matPhaseRef = useRef<MatPhase>('notStarted')
-  const setMatPhase = useCallback((p: MatPhase) => {
-    matPhaseRef.current = p
-    setMatPhaseState(p)
-  }, [])
   const measRef = useRef(settings.measurementType)
   measRef.current = settings.measurementType
   const measureFlcRef = useRef(settings.measureFlc)
@@ -337,6 +317,22 @@ export default function App() {
   tapThresholdRef.current = settings.tapDetectionThreshold
   const dumpAudioRef = useRef(settings.dumpCaptureAudio)
   dumpAudioRef.current = settings.dumpCaptureAudio
+
+  // The audio engine handle (constructed in `start`) — declared early so the material session
+  // can arm it. Material measurement (plate/brace phase machine) — see hooks/useMaterialSession.
+  const engineRef = useRef<AudioEngine | null>(null)
+  const {
+    matPhase,
+    matPhaseRef,
+    matPeaks,
+    matSpectra,
+    startMaterial,
+    acceptMaterial,
+    redoMaterial,
+    recordCapture,
+    resetMaterial,
+    restoreMaterial,
+  } = useMaterialSession({ engineRef, measRef, measureFlcRef, calibrationRef })
 
   // Browser tab title carries the version+build, like the Swift/Python window titles
   // ("Guitar Tap 1.0.1 (NNN)"). Set once at mount.
@@ -347,7 +343,6 @@ export default function App() {
   // Loading a saved measurement sets the type, spectrum, peaks, and selection together;
   // these refs suppress the one-shot "reset on change" effects so the restore isn't clobbered.
   const skipNextTypeResetRef = useRef(false)
-  const loadingRef = useRef(false)
   // While a comparison is frozen, a tap-capture already in flight (started before Compare)
   // must not clobber it — onCapture checks this ref. Kept in sync with `comparison` below.
   const comparisonRef = useRef(false)
@@ -384,16 +379,12 @@ export default function App() {
     setShowMultiTap(false)
     setComparison(null)
     comparisonRef.current = false
-    setMatPhase('notStarted')
-    setMatPeaks({ longitudinal: null, cross: null, flc: null })
-    setMatSpectra(EMPTY_MAT_SPECTRA)
+    resetMaterial()
     const e = engineRef.current
     if (!e?.running) return
     if (isMaterialType(settings.measurementType)) e.disarm()
     else e.arm()
-  }, [settings.measurementType, setMatPhase])
-
-  const engineRef = useRef<AudioEngine | null>(null)
+  }, [settings.measurementType, resetMaterial])
 
   // Resolve the calibration for a device (device-specific → global → none) and apply it to the
   // engine + UI + the refs read by matSearch/save. Mirrors RealtimeFFTAnalyzer's auto-apply.
@@ -491,10 +482,8 @@ export default function App() {
       comparisonRef.current = false
       setPlayingFileName(audio.name)
       if (isMaterialType(measRef.current)) {
-        // Material: fresh phase machine; the engine owns the L→C→(FLC) auto-advance session.
-        setMatPeaks({ longitudinal: null, cross: null, flc: null })
-        setMatSpectra(EMPTY_MAT_SPECTRA)
-        setMatPhase('capturingL')
+        // Material: fresh phase machine (no arm — the engine owns the L→C→(FLC) auto-advance session).
+        startMaterial(false)
         await engineRef.current.playFile(samples, fileRate, {
           material: { brace: measRef.current === 'brace', measureFlc: measureFlcRef.current, calibration: cal },
         })
@@ -506,7 +495,7 @@ export default function App() {
     } finally {
       setPlayingFileName(null)
     }
-  }, [setMatPhase])
+  }, [startMaterial])
 
   const start = useCallback(async () => {
     if (engineRef.current) return
@@ -528,36 +517,7 @@ export default function App() {
       onClipping: setClipping,
       onProgress: (collected, total) => setProgress({ collected, total }),
       onMetrics: setEngineMetrics,
-      onMaterialCapture: ({ spectrum, peak, phase }) => {
-        // `phase` is set by the engine during a file-playback session (it owns the L→C→FLC
-        // auto-advance, mirroring Swift's isPlayingFile); for LIVE capture it's undefined and we
-        // derive it from the current UI phase. We update the captured slot + reflect progress in
-        // the UI phase. During playback the engine re-arms the next phase (we do NOT here); during
-        // live capture the user advances via Accept (acceptMaterial).
-        const playing = engineRef.current?.playingFile ?? false
-        const ph: 'longitudinal' | 'cross' | 'flc' =
-          phase ??
-          (matPhaseRef.current === 'capturingC'
-            ? 'cross'
-            : matPhaseRef.current === 'capturingFlc'
-              ? 'flc'
-              : 'longitudinal')
-        if (ph === 'longitudinal') {
-          setMatSpectra((s) => ({ ...s, longitudinal: spectrum }))
-          setMatPeaks((p) => ({ ...p, longitudinal: peak }))
-          if (measRef.current === 'brace') setMatPhase('complete')
-          else setMatPhase(playing ? 'capturingC' : 'reviewingL')
-        } else if (ph === 'cross') {
-          setMatSpectra((s) => ({ ...s, cross: spectrum }))
-          setMatPeaks((p) => ({ ...p, cross: peak }))
-          if (playing) setMatPhase(measureFlcRef.current ? 'capturingFlc' : 'complete')
-          else setMatPhase('reviewingC')
-        } else {
-          setMatSpectra((s) => ({ ...s, flc: spectrum }))
-          setMatPeaks((p) => ({ ...p, flc: peak }))
-          setMatPhase(playing ? 'complete' : 'reviewingFlc')
-        }
-      },
+      onMaterialCapture: recordCapture,
       onCaptureAudio: (samples, sr, kind) => {
         if (!dumpAudioRef.current) return
         // Material label = the phase just captured (longitudinal/cross/flc); guitar = "guitar".
@@ -588,7 +548,7 @@ export default function App() {
       setError(e instanceof Error ? e.message : String(e))
       engineRef.current = null
     }
-  }, [setMatPhase, applyCalibrationForDevice, refreshDevices])
+  }, [recordCapture, applyCalibrationForDevice, refreshDevices])
 
   // Start listening automatically — GuitarTap has no Start button; the only
   // browser-mandated gate is the mic permission prompt itself.
@@ -627,13 +587,9 @@ export default function App() {
   const cancelTap = useCallback(() => {
     engineRef.current?.cancel()
     setProgress({ collected: 0, total: numberOfTaps })
-    if (isMaterialType(measRef.current)) {
-      setMatPhase('notStarted')
-      setMatPeaks({ longitudinal: null, cross: null, flc: null })
-      setMatSpectra(EMPTY_MAT_SPECTRA)
-    }
+    if (isMaterialType(measRef.current)) resetMaterial()
     setCancelled(true)
-  }, [numberOfTaps, setMatPhase])
+  }, [numberOfTaps, resetMaterial])
 
   const changeTaps = useCallback((n: number) => {
     const v = Math.max(1, Math.min(10, n))
@@ -641,59 +597,11 @@ export default function App() {
     engineRef.current?.setConfig({ numberOfTaps: v })
   }, [])
 
-  // ── Material measurement: phase machine drives gated captures ─────────────
-  const matSearch = useCallback((phase: 'longitudinal' | 'cross' | 'flc'): MaterialSearch => {
-    const base =
-      phase === 'cross'
-        ? PLATE_PHASES[1]
-        : phase === 'flc'
-          ? PLATE_PHASES[2]
-          : measRef.current === 'brace'
-            ? BRACE_PHASE
-            : PLATE_PHASES[0]
-    // Apply the active mic calibration to the gated spectrum before its peak-find (gatedCapture).
-    // (File-playback material uses the engine's own session with the file's calibration.)
-    return { ...base, calibration: calibrationRef.current }
-  }, [])
-
-  const startMaterial = useCallback(() => {
+  // New Tap in material mode: clear the cancelled flag, then start the phase machine (hooks/useMaterialSession).
+  const onMaterialNewTap = useCallback(() => {
     setCancelled(false)
-    setMatPeaks({ longitudinal: null, cross: null, flc: null })
-    setMatSpectra(EMPTY_MAT_SPECTRA)
-    setMatPhase('capturingL')
-    engineRef.current?.armMaterial(matSearch('longitudinal'))
-  }, [matSearch, setMatPhase])
-
-  const acceptMaterial = useCallback(() => {
-    const phase = matPhaseRef.current
-    if (phase === 'reviewingL') {
-      setMatPhase('capturingC')
-      engineRef.current?.armMaterial(matSearch('cross'))
-    } else if (phase === 'reviewingC') {
-      if (measureFlcRef.current) {
-        setMatPhase('capturingFlc')
-        engineRef.current?.armMaterial(matSearch('flc'))
-      } else {
-        setMatPhase('complete')
-      }
-    } else if (phase === 'reviewingFlc') {
-      setMatPhase('complete')
-    }
-  }, [matSearch, setMatPhase])
-
-  const redoMaterial = useCallback(() => {
-    const phase = matPhaseRef.current
-    if (phase === 'reviewingL') {
-      setMatPhase('capturingL')
-      engineRef.current?.armMaterial(matSearch('longitudinal'))
-    } else if (phase === 'reviewingC') {
-      setMatPhase('capturingC')
-      engineRef.current?.armMaterial(matSearch('cross'))
-    } else if (phase === 'reviewingFlc') {
-      setMatPhase('capturingFlc')
-      engineRef.current?.armMaterial(matSearch('flc'))
-    }
-  }, [matSearch, setMatPhase])
+    startMaterial()
+  }, [startMaterial])
 
   // Lock the stepper while a tap is being captured or a multi-tap sequence is underway.
   const tapsLocked =
@@ -732,36 +640,22 @@ export default function App() {
     return m
   }, [guitarType])
 
-  // Auto-selected peaks = the strongest in each identified mode.
-  const autoIds = useMemo(
-    () => new Set([...resolvedModePeaks(peaks, guitarType).values()].map((p) => p.id)),
-    [peaks, guitarType],
-  )
-
-  // Per-peak selection + mode-label overrides. A new capture resets both;
-  // changing Peak Min recomputes peaks but keeps the user's selection/overrides.
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [userModified, setUserModified] = useState(false)
-  const [overrides, setOverrides] = useState<Map<string, string>>(new Map())
-  // Dragged annotation-label positions, keyed by `frequency.toFixed(1)` → [absFreqHz, absDB].
-  // Mirrors the override map's lifecycle (reset on fresh capture, restored on load, saved).
-  const [annotationOffsets, setAnnotationOffsets] = useState<Map<string, [number, number]>>(new Map())
-
-  // A fresh capture clears the user's selection/overrides/label positions. Loading a measurement
-  // sets `loadingRef` so its restored selection/overrides/labels survive this reset.
-  useEffect(() => {
-    if (loadingRef.current) {
-      loadingRef.current = false
-      return
-    }
-    setUserModified(false)
-    setOverrides(new Map())
-    setAnnotationOffsets(new Map())
-  }, [captured])
-
-  useEffect(() => {
-    if (!userModified) setSelectedIds(autoIds)
-  }, [autoIds, userModified])
+  // Per-peak selection + mode-label overrides + dragged label positions — see hooks/useAnnotations.
+  const {
+    selectedIds,
+    overrides,
+    annotationOffsets,
+    userModified,
+    toggleSelect,
+    selectAll,
+    selectNone,
+    resetSelection,
+    setLabel,
+    resetLabel,
+    onAnnotationDrag,
+    resetLabels,
+    restore: restoreAnnotations,
+  } = useAnnotations({ peaks, guitarType, captured })
 
   const keyOf = (p: Peak) => p.frequency.toFixed(1)
   const labelFor = (p: Peak, mode: ResolvedMode) => overrides.get(keyOf(p)) ?? MODE_DISPLAY_NAME[mode]
@@ -770,42 +664,6 @@ export default function App() {
     const band = bandByMode.get(mode)
     return band ? p.frequency >= band.lo && p.frequency <= band.hi : null
   }
-
-  const toggleSelect = useCallback((id: number) => {
-    setUserModified(true)
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-  const selectAll = useCallback(() => {
-    setUserModified(true)
-    setSelectedIds(new Set(peaks.map((p) => p.id)))
-  }, [peaks])
-  const selectNone = useCallback(() => {
-    setUserModified(true)
-    setSelectedIds(new Set())
-  }, [])
-  const resetSelection = useCallback(() => setUserModified(false), [])
-  const setLabel = useCallback((p: Peak, label: string) => {
-    setOverrides((prev) => new Map(prev).set(p.frequency.toFixed(1), label))
-  }, [])
-  const resetLabel = useCallback((p: Peak) => {
-    setOverrides((prev) => {
-      const next = new Map(prev)
-      next.delete(p.frequency.toFixed(1))
-      return next
-    })
-  }, [])
-
-  // Draggable annotation labels (mirrors Swift updateAnnotationOffset / resetAllAnnotationOffsets):
-  // a drag stores the badge's absolute [Hz, dB] position by peak-frequency key; Reset Labels clears all.
-  const onAnnotationDrag = useCallback((key: string, pos: [number, number]) => {
-    setAnnotationOffsets((prev) => new Map(prev).set(key, pos))
-  }, [])
-  const resetLabels = useCallback(() => setAnnotationOffsets(new Map()), [])
 
   // Two layers, mirroring Swift (SpectrumView+ChartContent):
   //   • dots — EVERY displayed peak always gets one (allPeaksInRange), mode-colored;
@@ -1004,9 +862,7 @@ export default function App() {
         setLoadedPeaks(null)
         setCaptured(null)
         setComparison(null)
-        setMatSpectra(mat.matSpectra)
-        setMatPeaks(mat.matPeaks)
-        setMatPhase('complete')
+        restoreMaterial({ matSpectra: mat.matSpectra, matPeaks: mat.matPeaks })
         setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
         setLoadedName(m.measurementName ?? null)
         setTapSpectra([]) // material has no per-tap entries
@@ -1020,17 +876,19 @@ export default function App() {
       } catch {
         return // not a guitar measurement (no snapshot)
       }
-      loadingRef.current = true
       if (live.measurementType !== settings.measurementType) skipNextTypeResetRef.current = true
       updateSettings(live.settingsPatch)
       setLoadedPeaks(live.loadedPeaks) // authoritative saved peaks (Peak Min filters them)
       setCaptured(live.captured)
       setComparison(null)
       setView(live.view)
-      setOverrides(live.overridesByFreq)
-      setAnnotationOffsets(live.annotationOffsetsByFreq) // restore dragged label positions
-      setSelectedIds(live.selectedIndices) // saved selection, 1:1 with the injected peaks
-      setUserModified(true)
+      // Restore selection + overrides + dragged label positions (sets the loading guard so this
+      // survives the fresh-capture reset that setCaptured triggers).
+      restoreAnnotations({
+        overridesByFreq: live.overridesByFreq,
+        annotationOffsetsByFreq: live.annotationOffsetsByFreq,
+        selectedIndices: live.selectedIndices,
+      })
       // Load-time provenance check (mic / calibration / sample rate) — closes the web
       // side of the sample-rate epic. Cleared on New Tap / fresh capture.
       setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
@@ -1261,7 +1119,7 @@ export default function App() {
             <div className="tap-actions">
               <button
                 className="btn btn-primary tap-action"
-                onClick={material ? startMaterial : newTap}
+                onClick={material ? onMaterialNewTap : newTap}
                 disabled={newTapDisabled}
               >
                 <TapIcon />
