@@ -1,11 +1,13 @@
 // Persistent storage for imported microphone calibrations — the web equivalent of Swift's
 // CalibrationStorage (UserDefaults) / Python's calibration_storage. Mirrors its model exactly:
 //   • a list of saved calibration profiles (each = a parsed `Calibration` + id + import date),
-//   • a global "active" calibration id (fallback), and
-//   • a per-device map (deviceId → calibrationId) that takes priority for that input.
-// Resolution order when picking the calibration for the live input (RealtimeFFTAnalyzer's rule):
-//   1. device-specific mapping  2. global active  3. none (flat 0 dB).
-// Browser-local (localStorage), per-origin — like every other web-side store here.
+//   • a global "active" calibration id (last imported/selected; persisted for restart), and
+//   • a per-device map (deviceId → calibrationId) — the source of truth for a given input.
+// Resolution for the LIVE INPUT is device-specific: a mic's calibration must never be applied to a
+// different mic. Switching to a device with no mapping clears to flat (no correction) — mirroring
+// Swift RealtimeFFTAnalyzer.selectedInputDevice.didSet, which sets activeCalibration = nil for an
+// unmapped device rather than falling back to the global active. The global id is only used when no
+// input device is known yet (pre-start). Browser-local (localStorage), per-origin.
 
 import type { Calibration } from '../dsp/calibration'
 
@@ -95,12 +97,14 @@ export function calibrationIdForDevice(deviceId: string): string | null {
   return loadDeviceMap()[deviceId] ?? null
 }
 
-/** The calibration to apply for the given input device: device-specific → global → none. */
+/**
+ * The calibration to apply for the given input device. Device-specific only: a device with no
+ * mapping resolves to NONE (flat) — we must not apply one mic's calibration to another (mirrors
+ * Swift's clear-to-nil on switching to an unmapped device). The global active id is consulted only
+ * when no device is known yet (pre-start).
+ */
 export function resolveActiveCalibration(deviceId?: string | null): StoredCalibration | null {
-  if (deviceId) {
-    const byDevice = getCalibration(calibrationIdForDevice(deviceId))
-    if (byDevice) return byDevice
-  }
+  if (deviceId) return getCalibration(calibrationIdForDevice(deviceId))
   return getCalibration(getActiveCalibrationId())
 }
 

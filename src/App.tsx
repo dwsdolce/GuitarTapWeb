@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AudioEngine, type EngineState, type EngineMetrics } from './audio/engine'
+import { AudioEngine, type EngineState } from './audio/engine'
 import { SpectrumChart } from './components/SpectrumChart'
 import type { PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
 import { useAnnotations } from './hooks/useAnnotations'
 import { useMaterialSession, type MatPhase } from './hooks/useMaterialSession'
+import { useAudioEngine } from './hooks/useAudioEngine'
 import { ThresholdMeter } from './components/ThresholdMeter'
 import { PeakCard } from './components/PeakCard'
 import { SettingsPanel } from './components/SettingsPanel'
@@ -32,17 +33,6 @@ import { decodeWav, encodeWavFloat32 } from './dsp/wav'
 import { exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
 import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData } from './presentation/measurementImage'
 import { exportPdfReport } from './presentation/pdfReport'
-import {
-  listCalibrations,
-  saveCalibration,
-  deleteCalibration as deleteStoredCalibration,
-  setActiveCalibrationId,
-  setCalibrationForDevice,
-  resolveActiveCalibration,
-  getSavedInputDeviceId,
-  setSavedInputDeviceId,
-  type StoredCalibration,
-} from './measurement/calibrationStore'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
 import { MODE_DISPLAY_NAME } from './presentation/modeColors'
 import { GUITAR_FFT_SIZE, modePeaksFromSpectrum, type Spectrum } from './dsp/guitarFFT'
@@ -255,28 +245,13 @@ function dumpCaptureWav(samples: Float32Array, sampleRate: number, label: string
 }
 
 export default function App() {
-  const [running, setRunning] = useState(false)
-  const [engineState, setEngineState] = useState<EngineState>('idle')
-  const [level, setLevel] = useState(-100)
-  const [liveSpectrum, setLiveSpectrum] = useState<Spectrum | null>(null)
   const [captured, setCaptured] = useState<Spectrum | null>(null)
-  const [sampleRate, setSampleRate] = useState<number | null>(null)
-  const [audioSettings, setAudioSettings] = useState<MediaTrackSettings | null>(null)
-  const [deviceLabel, setDeviceLabel] = useState('')
-  const [error, setError] = useState<string | null>(null)
 
-  // Audio Input & Calibration (apply immediately; NOT part of the buffered Settings dialog).
-  const [inputDevices, setInputDevices] = useState<{ deviceId: string; label: string }[]>([])
-  const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null)
-  const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
-  // The calibration id currently *applied* for the active device (resolved: device map > global).
-  const [activeCalId, setActiveCalId] = useState<string | null>(null)
   // Mirror of the applied calibration for matSearch + save provenance (read from stable refs).
+  // Owned here (shared handle); the audio engine hook resolves + writes it.
   const calibrationRef = useRef<Calibration | null>(null)
 
   const [numberOfTaps, setNumberOfTaps] = useState(1)
-  const [clipping, setClipping] = useState(false)
-  const [progress, setProgress] = useState({ collected: 0, total: 1 })
   // True after a Cancel until the next New Tap — drives the "Cancelled" status (mirrors
   // Swift's "Cancelled — press New Tap to start again").
   const [cancelled, setCancelled] = useState(false)
@@ -298,7 +273,6 @@ export default function App() {
   const [loadWarning, setLoadWarning] = useState<string | null>(null)
   // Name of the currently loaded measurement → chart title ("FFT Peaks — {name}", else "New").
   const [loadedName, setLoadedName] = useState<string | null>(null)
-  const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
   const annotationMode = settings.annotationVisibilityMode
   const guitarType: GuitarTypeName = isGuitarType(settings.measurementType) ? settings.measurementType : 'generic'
   const material = isMaterialType(settings.measurementType)
@@ -386,74 +360,60 @@ export default function App() {
     else e.arm()
   }, [settings.measurementType, resetMaterial])
 
-  // Resolve the calibration for a device (device-specific → global → none) and apply it to the
-  // engine + UI + the refs read by matSearch/save. Mirrors RealtimeFFTAnalyzer's auto-apply.
-  const applyCalibrationForDevice = useCallback((deviceId: string | null) => {
-    const cal = resolveActiveCalibration(deviceId)
-    calibrationRef.current = cal
-    setActiveCalId(cal?.id ?? null)
-    engineRef.current?.setCalibration(cal)
+  // Stable capture-result callbacks the engine's once-registered handlers delegate to.
+  // Guitar tap (or averaged multi-tap): store the frozen result, superseding any loaded measurement.
+  const onGuitarCapture = useCallback((s: Spectrum, taps?: Spectrum[]) => {
+    if (comparisonRef.current) return // a frozen comparison absorbs in-flight captures
+    setLoadedPeaks(null)
+    setLoadWarning(null)
+    setLoadedName(null)
+    setCaptured(s)
+    setTapSpectra(taps ?? []) // per-tap spectra for the multi-tap comparison view
+    setShowMultiTap(false)
+    setComparison(null)
   }, [])
+  // Dump-Capture-Audio diagnostic: label the WAV by the material phase just captured (else "guitar").
+  const onCaptureAudio = useCallback((samples: Float32Array, sr: number, kind: 'guitar' | 'material') => {
+    if (!dumpAudioRef.current) return
+    const label =
+      kind === 'material'
+        ? matPhaseRef.current === 'capturingC' || matPhaseRef.current === 'reviewingC'
+          ? 'cross'
+          : matPhaseRef.current === 'capturingFlc' || matPhaseRef.current === 'reviewingFlc'
+            ? 'flc'
+            : 'longitudinal'
+        : 'guitar'
+    dumpCaptureWav(samples, sr, label)
+  }, [matPhaseRef])
 
-  const refreshDevices = useCallback(async () => {
-    const list = await engineRef.current?.listInputs()
-    if (list) setInputDevices(list)
-  }, [])
-
-  const onSelectDevice = useCallback(
-    async (deviceId: string) => {
-      try {
-        await engineRef.current?.setInputDevice(deviceId)
-      } catch (e) {
-        setError(`Couldn't switch input: ${e instanceof Error ? e.message : String(e)}`)
-        return
-      }
-      const id = engineRef.current?.inputDeviceId ?? deviceId
-      setSavedInputDeviceId(id)
-      setCurrentDeviceId(id)
-      setDeviceLabel(engineRef.current?.deviceLabel ?? '')
-      setSampleRate(engineRef.current?.sampleRate ?? null)
-      setAudioSettings(engineRef.current?.audioSettings ?? null)
-      applyCalibrationForDevice(id)
-      void refreshDevices()
-    },
-    [applyCalibrationForDevice, refreshDevices],
-  )
-
-  const onImportCalibration = useCallback(
-    async (file: File) => {
-      try {
-        const cal = parseCalibration(await file.text(), file.name.replace(/\.[^.]+$/, ''))
-        if (cal.points.length === 0) throw new Error('No calibration data points found in the file.')
-        const stored = saveCalibration(cal)
-        setCalibrations(listCalibrations())
-        setActiveCalibrationId(stored.id) // global active
-        if (currentDeviceId) setCalibrationForDevice(currentDeviceId, stored.id) // remember for this mic
-        applyCalibrationForDevice(currentDeviceId)
-      } catch (e) {
-        setError(`Couldn't import calibration: ${e instanceof Error ? e.message : String(e)}`)
-      }
-    },
-    [applyCalibrationForDevice, currentDeviceId],
-  )
-
-  const onSelectCalibration = useCallback(
-    (id: string | null) => {
-      setActiveCalibrationId(id)
-      if (currentDeviceId) setCalibrationForDevice(currentDeviceId, id)
-      applyCalibrationForDevice(currentDeviceId)
-    },
-    [applyCalibrationForDevice, currentDeviceId],
-  )
-
-  const onDeleteCalibration = useCallback(
-    (id: string) => {
-      deleteStoredCalibration(id)
-      setCalibrations(listCalibrations())
-      applyCalibrationForDevice(currentDeviceId)
-    },
-    [applyCalibrationForDevice, currentDeviceId],
-  )
+  // Audio engine: lifecycle + telemetry + audio-input/calibration — see hooks/useAudioEngine.
+  const {
+    running,
+    engineState,
+    level,
+    liveSpectrum,
+    sampleRate,
+    audioSettings,
+    deviceLabel,
+    error,
+    setError,
+    inputDevices,
+    currentDeviceId,
+    calibrations,
+    activeCalId,
+    clipping,
+    progress,
+    setProgress,
+    engineMetrics,
+    pauseTap,
+    resumeTap,
+    refreshDevices,
+    onSelectDevice,
+    onImportCalibration,
+    onSelectCalibration,
+    onDeleteCalibration,
+    retry,
+  } = useAudioEngine({ engineRef, calibrationRef, measRef, tapThresholdRef, onGuitarCapture, onMaterialCapture: recordCapture, onCaptureAudio })
 
   // Play a recorded WAV through the live pipeline (Swift openAudioFile/startFromFile). Resets the
   // view like New Tap, applies an optional calibration for the playback, then pumps. Guitar arms a
@@ -497,70 +457,6 @@ export default function App() {
     }
   }, [startMaterial])
 
-  const start = useCallback(async () => {
-    if (engineRef.current) return
-    setError(null)
-    const engine = new AudioEngine({
-      onLevel: setLevel,
-      onSpectrum: setLiveSpectrum,
-      onCapture: (s, taps) => {
-        if (comparisonRef.current) return // a frozen comparison absorbs in-flight captures
-        setLoadedPeaks(null) // a fresh capture supersedes any loaded measurement
-        setLoadWarning(null)
-        setLoadedName(null)
-        setCaptured(s)
-        setTapSpectra(taps ?? []) // per-tap spectra for the multi-tap comparison view
-        setShowMultiTap(false)
-        setComparison(null)
-      },
-      onState: setEngineState,
-      onClipping: setClipping,
-      onProgress: (collected, total) => setProgress({ collected, total }),
-      onMetrics: setEngineMetrics,
-      onMaterialCapture: recordCapture,
-      onCaptureAudio: (samples, sr, kind) => {
-        if (!dumpAudioRef.current) return
-        // Material label = the phase just captured (longitudinal/cross/flc); guitar = "guitar".
-        const label =
-          kind === 'material'
-            ? matPhaseRef.current === 'capturingC' || matPhaseRef.current === 'reviewingC'
-              ? 'cross'
-              : matPhaseRef.current === 'capturingFlc' || matPhaseRef.current === 'reviewingFlc'
-                ? 'flc'
-                : 'longitudinal'
-            : 'guitar'
-        dumpCaptureWav(samples, sr, label)
-      },
-    }, { tapDetectionThreshold: tapThresholdRef.current })
-    engineRef.current = engine
-    try {
-      await engine.start(getSavedInputDeviceId())
-      setSampleRate(engine.sampleRate)
-      setAudioSettings(engine.audioSettings)
-      setDeviceLabel(engine.deviceLabel)
-      setCurrentDeviceId(engine.inputDeviceId)
-      setRunning(true)
-      applyCalibrationForDevice(engine.inputDeviceId) // auto-apply the device's calibration
-      void refreshDevices() // labels are available now that permission is granted
-      // If we loaded straight into a material type, don't leave guitar detection armed.
-      if (isMaterialType(measRef.current)) engine.disarm()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-      engineRef.current = null
-    }
-  }, [recordCapture, applyCalibrationForDevice, refreshDevices])
-
-  // Start listening automatically — GuitarTap has no Start button; the only
-  // browser-mandated gate is the mic permission prompt itself.
-  useEffect(() => {
-    void start()
-    return () => {
-      void engineRef.current?.stop()
-      engineRef.current = null
-      setRunning(false)
-    }
-  }, [start])
-
   // Re-enumerate inputs whenever the Settings dialog opens, so a freshly-plugged
   // microphone shows up in the device picker without a reload.
   useEffect(() => {
@@ -580,10 +476,8 @@ export default function App() {
     engineRef.current?.arm()
   }, [])
 
-  // ── Pause / Resume / Cancel (mirror Swift pauseTapDetection / resumeTapDetection /
-  //    cancelTapSequence; the engine owns the state transitions). ─────────────────
-  const pauseTap = useCallback(() => engineRef.current?.pause(), [])
-  const resumeTap = useCallback(() => engineRef.current?.resume(), [])
+  // Cancel (mirror Swift cancelTapSequence) — engine owns the transition; we reset progress +
+  // material phase + the cancelled flag. Pause/Resume live in useAudioEngine.
   const cancelTap = useCallback(() => {
     engineRef.current?.cancel()
     setProgress({ collected: 0, total: numberOfTaps })
@@ -1146,7 +1040,7 @@ export default function App() {
         })()}
 
         {error && (
-          <button className="btn" onClick={() => void start()}>
+          <button className="btn" onClick={() => void retry()}>
             Retry microphone
           </button>
         )}

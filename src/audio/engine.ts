@@ -57,6 +57,10 @@ export interface AudioEngineCallbacks {
   onCaptureAudio?: (samples: Float32Array, sampleRate: number, kind: 'guitar' | 'material') => void
   /** Live-FFT performance, emitted once per continuous spectrum (FFTAnalysisMetricsView). */
   onMetrics?: (m: EngineMetrics) => void
+  /** The active input device changed on its own (a mic was attached → auto-selected, or the active
+   *  mic was unplugged → fell back). The caller re-syncs device state + reloads the per-device
+   *  calibration for `deviceId`. Mirrors Swift's CoreAudio device-change → selectedInputDevice.didSet. */
+  onInputChanged?: (deviceId: string | null) => void
 }
 
 /** Live-FFT performance counters (mirrors FFTAnalysisMetricsView's Performance section). */
@@ -120,6 +124,8 @@ export class AudioEngine {
   deviceLabel = ''
   /** deviceId of the active input (for the device picker + per-device calibration mapping). */
   inputDeviceId: string | null = null
+  /** Last-enumerated input deviceIds — baseline for detecting attach (new id) vs detach (id gone). */
+  private knownDevices: string[] = []
 
   // Active mic calibration applied to the continuous + guitar-capture spectra (material/gated
   // applies it via the MaterialSearch passed to armMaterial). guitarCorr caches the per-bin
@@ -297,27 +303,45 @@ export class AudioEngine {
     }
   }
 
-  /** Enumerate available audio input devices (labels are populated once permission is granted). */
+  /** Acquire a mic stream for `deviceId`, falling back to the DEFAULT input when an exact
+   *  deviceId can't be satisfied — a saved id goes stale across sessions (Safari rotates input
+   *  deviceIds for privacy) or when the device is unplugged. Without this, auto-start would fail
+   *  with OverconstrainedError ("Invalid constraint") instead of just using the default mic. */
+  private async acquireStream(deviceId?: string | null): Promise<MediaStream> {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) })
+    } catch (e) {
+      const name = (e as { name?: string } | null)?.name
+      if (deviceId && (name === 'OverconstrainedError' || name === 'NotFoundError')) {
+        return navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(null) }) // default input
+      }
+      throw e
+    }
+  }
+
+  /** Enumerate available audio input devices (labels are populated once permission is granted).
+   *  Chrome exposes synthetic "default"/"communications" aliases that duplicate a real device
+   *  (e.g. "Default - MacBook Pro Microphone" alongside "MacBook Pro Microphone"); drop them so the
+   *  picker lists each physical mic once, matching the native apps. */
   async listInputs(): Promise<{ deviceId: string; label: string }[]> {
     const devices = await navigator.mediaDevices.enumerateDevices()
     return devices
-      .filter((d) => d.kind === 'audioinput')
-      .map((d) => ({ deviceId: d.deviceId, label: d.label }))
+      .filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications')
+      // Chrome appends a USB "(vid:pid)" hex suffix to labels (e.g. "UMIK-1 … (2752:0007)"); strip it
+      // so labels match Safari + the native apps' CoreAudio device names. deviceId is untouched.
+      .map((d) => ({ deviceId: d.deviceId, label: d.label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '') }))
   }
 
-  /** Switch the live input to `deviceId`, re-acquiring the stream and reconnecting the source
-   *  while keeping the same AudioContext/worklet (so the sample rate and DSP state are intact).
-   *  The web equivalent of RealtimeFFTAnalyzer.setInputDevice. */
-  async setInputDevice(deviceId: string): Promise<void> {
+  /** Swap the live source to `stream`, keeping the same AudioContext/worklet (so the sample rate
+   *  and DSP state survive). Updates inputDeviceId/label/settings from the new track. */
+  private async applyStream(stream: MediaStream, requestedDeviceId?: string | null): Promise<void> {
     if (!this.context || !this.node) return
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) })
     const track = stream.getAudioTracks()[0]!
     try {
       await track.applyConstraints({ echoCancellation: false, noiseSuppression: false, autoGainControl: false })
     } catch {
       /* not all browsers support applyConstraints on these */
     }
-    // Swap the source node; stop the old stream's tracks.
     this.source?.disconnect()
     this.stream?.getTracks().forEach((t) => t.stop())
     this.stream = stream
@@ -325,7 +349,44 @@ export class AudioEngine {
     this.source.connect(this.node)
     this.audioSettings = track.getSettings() ?? null
     this.deviceLabel = track.label ?? ''
-    this.inputDeviceId = track.getSettings().deviceId ?? deviceId
+    this.inputDeviceId = track.getSettings().deviceId ?? requestedDeviceId ?? null
+  }
+
+  /** Switch the live input to `deviceId` (explicit user choice — no default fallback; the picker
+   *  caller surfaces any error). The web equivalent of RealtimeFFTAnalyzer.setInputDevice. */
+  async setInputDevice(deviceId: string): Promise<void> {
+    if (!this.context || !this.node) return
+    await this.applyStream(await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) }), deviceId)
+  }
+
+  /** Hardware-change handler (mic attached / unplugged), mirroring Swift's CoreAudio device listener:
+   *   • a NEW device appeared → auto-select it (Swift switches to the first newly-connected device);
+   *   • the ACTIVE device was unplugged → fall back to the default input;
+   *  then fire onInputChanged so the per-device calibration is reloaded for the now-active device.
+   *  Bound field so add/removeEventListener match. */
+  private handleDeviceChange = async (): Promise<void> => {
+    if (!this.context || !this.node) return
+    const ids = (await this.listInputs()).map((d) => d.deviceId)
+    const prev = this.knownDevices
+    this.knownDevices = ids
+    const attached = ids.find((id) => !prev.includes(id))
+    try {
+      if (prev.length && attached) {
+        await this.applyStream(await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(attached) }), attached)
+      } else if (this.inputDeviceId && !ids.includes(this.inputDeviceId)) {
+        await this.applyStream(await this.acquireStream(null)) // active mic gone → default
+      } else {
+        this.callbacks.onInputChanged?.(this.inputDeviceId) // unrelated change — just resync the picker
+        return
+      }
+    } catch {
+      try {
+        await this.applyStream(await this.acquireStream(null)) // chosen device failed → last-resort default
+      } catch {
+        return /* mic fully unavailable */
+      }
+    }
+    this.callbacks.onInputChanged?.(this.inputDeviceId)
   }
 
   async start(deviceId?: string | null): Promise<void> {
@@ -335,7 +396,7 @@ export class AudioEngine {
     // is set in macOS Audio MIDI Setup (the AudioContext follows the default OUTPUT
     // device, so input AND output must be set to the same rate). The DSP reads the
     // actual ctx.sampleRate; the UI warns if it isn't EXPECTED_SAMPLE_RATE.
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) })
+    this.stream = await this.acquireStream(deviceId) // exact saved device, else default (Safari stale ids)
     const track = this.stream.getAudioTracks()[0]!
     // Re-assert processing-off; some UAs only honor applyConstraints.
     try {
@@ -365,6 +426,10 @@ export class AudioEngine {
     this.node.connect(ctx.destination) // processor emits no output → silent
 
     this.arm() // listen immediately (GuitarTap is always-on; New Tap only re-arms a frozen result)
+
+    // Baseline the device list + watch for hot-plug changes (attach → auto-select, unplug → fall back).
+    this.knownDevices = (await this.listInputs()).map((d) => d.deviceId)
+    navigator.mediaDevices.addEventListener('devicechange', this.handleDeviceChange)
   }
 
   private onChunk(data: ChunkMessage): void {
@@ -627,6 +692,8 @@ export class AudioEngine {
   }
 
   async stop(): Promise<void> {
+    navigator.mediaDevices.removeEventListener('devicechange', this.handleDeviceChange)
+    this.knownDevices = []
     this.removeGestureResume?.()
     this.node?.disconnect()
     this.source?.disconnect()
