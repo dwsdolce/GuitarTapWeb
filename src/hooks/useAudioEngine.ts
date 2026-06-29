@@ -62,6 +62,8 @@ export interface AudioEngineModel {
   progress: { collected: number; total: number }
   setProgress: (p: { collected: number; total: number }) => void
   engineMetrics: EngineMetrics | null
+  /** Live ring-out (decay) time in seconds, or null — for the Analysis Results panel. */
+  decayTime: number | null
   /** Re-attempt engine start after a mic error ("Retry microphone"). */
   retry: () => void
   pauseTap: () => void
@@ -99,6 +101,7 @@ export function useAudioEngine({
   const [clipping, setClipping] = useState(false)
   const [progress, setProgress] = useState({ collected: 0, total: 1 })
   const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
+  const [decayTime, setDecayTime] = useState<number | null>(null)
 
   // Resolve the calibration for a device (device-specific → global → none) and apply it to the
   // engine + UI + the refs read by matSearch/save. Mirrors RealtimeFFTAnalyzer's auto-apply.
@@ -196,6 +199,7 @@ export function useAudioEngine({
           applyCalibrationForDevice(deviceId)
           void refreshDevices()
         },
+        onDecay: setDecayTime,
       },
       { tapDetectionThreshold: tapThresholdRef.current },
     )
@@ -249,6 +253,7 @@ export function useAudioEngine({
     progress,
     setProgress,
     engineMetrics,
+    decayTime,
     retry: start,
     pauseTap,
     resumeTap,

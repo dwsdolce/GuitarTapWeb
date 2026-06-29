@@ -85,6 +85,8 @@ export interface BuildMeasurementArgs {
   calibrationName?: string
   /** Dragged annotation-label positions, keyed by `frequency.toFixed(1)` → [absFreqHz, absDB]. */
   annotationOffsetsByFreq?: Map<string, [number, number]>
+  /** Measured ring-out time (s) from the engine, or null/undefined if not measured. */
+  decayTime?: number | null
 }
 
 /** Construct a guitar TapToneMeasurementModel from the current frozen result. */
@@ -170,6 +172,7 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
     id: uuid(),
     timestamp,
     peaks: peakModels,
+    decayTime: a.decayTime ?? undefined,
     measurementName: a.name.trim() || undefined,
     notes: a.notes.trim() || undefined,
     spectrumSnapshot: snapshot,

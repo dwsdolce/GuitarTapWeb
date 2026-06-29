@@ -1,6 +1,7 @@
 import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { averageSpectra } from '../dsp/spectrumAverage'
+import { DecayTracker } from '../dsp/decay'
 import {
   gatedCaptureResult,
   GATED_CAPTURE_DURATION,
@@ -61,6 +62,9 @@ export interface AudioEngineCallbacks {
    *  mic was unplugged → fell back). The caller re-syncs device state + reloads the per-device
    *  calibration for `deviceId`. Mirrors Swift's CoreAudio device-change → selectedInputDevice.didSet. */
   onInputChanged?: (deviceId: string | null) => void
+  /** Live ring-out (decay) time in seconds, or null — fired when it changes (the value refines as
+   *  the post-tap level decays, and clears to null on New Tap). Drives the live Ring-Out box. */
+  onDecay?: (decayTime: number | null) => void
 }
 
 /** Live-FFT performance counters (mirrors FFTAnalysisMetricsView's Performance section). */
@@ -141,6 +145,15 @@ export class AudioEngine {
   private prevAbove = true
   private consecutive = 0
 
+  // Ring-out (decay) tracking — guitar only; fed the broadband level per chunk on an audio clock.
+  private decay = new DecayTracker()
+  private audioElapsed = 0 // accumulated audio time (s) — the decay tracker's clock
+  private lastDecay: number | null = null // last value emitted via onDecay (de-dupe)
+  /** Latest measured ring-out time (s), read into the measurement at save (Swift currentDecayTime). */
+  get decayTime(): number | null {
+    return this.decay.decayTime
+  }
+
   // Tap capture state (pre-roll ring buffer → capture window). Guitar uses a fixed
   // 65536 window (non-gated); material uses a ~500 ms window (gated FFT).
   private prerollSamples = 0
@@ -217,6 +230,9 @@ export class AudioEngine {
     this.collected = []
     this.prevAbove = true
     this.consecutive = 0
+    this.decay.reset() // New Tap → drop any prior ring-out (the next tap re-seeds it)
+    this.lastDecay = null
+    this.callbacks.onDecay?.(null)
     this.callbacks.onProgress?.(0, this.config.numberOfTaps)
     this.setState('listening')
   }
@@ -444,6 +460,14 @@ export class AudioEngine {
     this.callbacks.onLevel?.(db)
     this.detectClipping(s, db)
 
+    // Ring-out clock: track the broadband level on an audio timeline (runs through capture + idle).
+    this.audioElapsed += s.length / this.sampleRate
+    this.decay.track(this.audioElapsed, db)
+    if (this.decay.decayTime !== this.lastDecay) {
+      this.lastDecay = this.decay.decayTime
+      this.callbacks.onDecay?.(this.lastDecay)
+    }
+
     this.feedContinuous(s)
     this.feedPreroll(s)
     if (this.state === 'capturing') this.feedCapture(s)
@@ -604,6 +628,7 @@ export class AudioEngine {
       else if (!this.prevAbove) this.consecutive = 1
       if (this.consecutive >= CONFIRM_CHUNKS) {
         this.consecutive = 0
+        if (this.captureKind === 'guitar') this.decay.start(this.audioElapsed, levelDb) // ring-out, guitar only
         this.beginCapture()
       }
     } else {

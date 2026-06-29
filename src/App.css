@@ -253,6 +253,54 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Live guitar summary — Ring-Out | Tap Ratio side by side with a divider, pinned below the peak
+   list and above the export bar. Mirrors the native live panel (Python guitar-summary). */
+.analysis-bar {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 0.7rem;
+  padding: 0.45rem 0.1rem 0.5rem;
+  border-top: 1px solid var(--line);
+}
+.analysis-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+}
+.analysis-divider {
+  width: 1px;
+  background: var(--line);
+  align-self: stretch;
+}
+.ac-cap {
+  font-size: 0.66rem;
+  color: var(--muted);
+}
+.ac-val-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.ac-val {
+  font-size: 1.02rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ac-qual {
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.ac-sub {
+  font-size: 0.64rem;
+  color: var(--muted);
+}
+
 /* Highlighted Specific Modulus (E/ρ) box */
 .mat-specmod {
   background: rgba(127, 127, 127, 0.1);
@@ -1034,20 +1082,49 @@
 .results-inner {
   position: absolute;
   inset: 0;
-  padding: 0.75rem 0.9rem 2.9rem; /* extra bottom so content clears the pinned footer */
+  padding: 0.75rem 0.9rem;
+  /* Flex column: head (fixed) · peak list (scrolls) · guitar summary + export bar (pinned bottom).
+     Stays absolute so the PANE height tracks the chart, not the content. */
+  display: flex;
+  flex-direction: column;
+}
+.results-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 .results-foot {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  flex: none;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.4rem;
-  padding: 0.5rem 0.7rem;
+  padding: 0.5rem 0.1rem 0.1rem;
   border-top: 1px solid var(--line);
-  background: var(--panel);
+}
+.foot-export {
+  display: flex;
+  gap: 0.4rem;
+}
+/* Running/stopped indicator — green ● "Analyzing" while the mic is live, else gray ● "Stopped".
+   Mirrors the Swift/Python results-footer status. */
+.foot-status {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.foot-status .foot-dot {
+  font-size: 0.66rem;
+  color: #8a8a8e;
+}
+.foot-status.on {
+  color: var(--text, #dfe4ea);
+}
+.foot-status.on .foot-dot {
+  color: #3fb950;
 }
 .results-head {
   display: flex;

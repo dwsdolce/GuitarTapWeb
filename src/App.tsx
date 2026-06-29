@@ -14,6 +14,8 @@ import { SaveSheet } from './components/SaveSheet'
 import { PlayFileSheet } from './components/PlayFileSheet'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults } from './components/MaterialResults'
+import { AnalysisResults } from './components/AnalysisResults'
+import { tapToneRatio } from './dsp/analysisQuality'
 import {
   buildGuitarMeasurement,
   buildMaterialMeasurement,
@@ -405,6 +407,7 @@ export default function App() {
     progress,
     setProgress,
     engineMetrics,
+    decayTime,
     pauseTap,
     resumeTap,
     refreshDevices,
@@ -520,6 +523,8 @@ export default function App() {
   }, [captured, material, loadedPeaks, guitarType, analysisMinHz, analysisMaxHz, peakMin])
 
   const sortedPeaks = useMemo(() => [...peaks].sort((a, b) => a.frequency - b.frequency), [peaks])
+  // Live tap-tone ratio (f_Top / f_Air) for the Analysis Results panel — same fn the PDF uses.
+  const tapRatio = useMemo(() => (material ? null : tapToneRatio(peaks, guitarType)), [material, peaks, guitarType])
   const modeByPeak = useMemo(() => classifyAll(peaks, guitarType), [peaks, guitarType])
   const displayPeaks = useMemo(
     () =>
@@ -699,6 +704,7 @@ export default function App() {
         selectedIds,
         overridesByFreq: overrides,
         annotationOffsetsByFreq: annotationOffsets,
+        decayTime: engineRef.current?.decayTime ?? null,
         view,
         settings,
         numberOfTaps,
@@ -1097,6 +1103,7 @@ export default function App() {
             </span>
           </div>
 
+          <div className="results-scroll">
           {comparison ? (
             <ComparisonResultsView rows={comparisonRows} />
           ) : material ? (
@@ -1157,24 +1164,38 @@ export default function App() {
             </>
           )}
           </div>
-          {/* Export footer — mirrors the native Analysis Results footer (Export Spectrum · Export PDF). */}
+
+          {/* Guitar summary (Ring-Out · Tap Ratio) — pinned below the scrollable peak list, above
+              the export bar, side by side. Mirrors the native live panel (guitar only). */}
+          {!material && !comparison && !showMultiTap && (
+            <AnalysisResults decayTime={decayTime} ratio={tapRatio} guitarType={guitarType} />
+          )}
+
+          {/* Export footer — running/stopped status (left) + Export Spectrum · Export PDF (right),
+              mirroring the native footer row. */}
           <div className="results-foot">
-            <button
-              className="btn mini"
-              onClick={exportSpectrumImage}
-              disabled={!canExportSpectrum}
-              title="Export the spectrum as a PNG image"
-            >
-              ∿ Export Spectrum
-            </button>
-            <button
-              className="btn mini"
-              onClick={exportPdf}
-              disabled={!canExportSpectrum}
-              title="Export a single-page PDF report"
-            >
-              ▤ Export PDF
-            </button>
+            <span className={`foot-status${running ? ' on' : ''}`}>
+              <span className="foot-dot">●</span> {running ? 'Analyzing' : 'Stopped'}
+            </span>
+            <div className="foot-export">
+              <button
+                className="btn mini"
+                onClick={exportSpectrumImage}
+                disabled={!canExportSpectrum}
+                title="Export the spectrum as a PNG image"
+              >
+                ∿ Export Spectrum
+              </button>
+              <button
+                className="btn mini"
+                onClick={exportPdf}
+                disabled={!canExportSpectrum}
+                title="Export a single-page PDF report"
+              >
+                ▤ Export PDF
+              </button>
+            </div>
+          </div>
           </div>
         </aside>
       </div>

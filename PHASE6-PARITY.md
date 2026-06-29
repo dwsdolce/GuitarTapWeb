@@ -9,9 +9,10 @@ Swift `GuitarTap` (`/Users/dws/src/GuitarTap`) leads on both algorithm and UX; P
 
 ## Goal
 Close the remaining gaps so the web reaches **feature parity** with the Swift/Python apps:
-the ring-out/tap-tone analysis a luthier reads off the results panel, a log-frequency view,
+the ring-out/tap-tone analysis a luthier reads off the results panel,
 draggable material labels, the multi-tap PDF, the continuous session recording, and in-app
-help — plus the version/build identity the desktop apps show.
+help — plus the version/build identity the desktop apps show. (A log-frequency axis is NOT a
+gap — see 6c: neither native app exposes a user toggle, and the web already mirrors that.)
 
 ## Versioning & identity ✅ DONE (kicked off Phase 6)
 Web now matches the Swift/Python scheme: short version = `package.json` `version` = **1.0.1**
@@ -44,12 +45,15 @@ column) shows only the peak list. Add the two analysis boxes — Ring-Out Time (
 Tap Tone Ratio (ready now) — matching Swift `TapAnalysisResultsView` (~569–628): value +
 quality label + color + ideal-range hint. Tap-Tone-Ratio can ship before 6a lands.
 
-### 6c — Log-frequency axis
-`SpectrumChart`/`spectrumRender` already support `logFreq` (xFor uses log10; FREQ_TICKS_LOG
-exists), but it's hardcoded `false`, has **no toggle**, and the wheel/drag interaction
-**early-returns** when logFreq is set (`if (logFreq) return`). Port log-space pan/zoom from
-Swift `SpectrumView+GestureHandlers` (logAnchor/logMin/logMax) and log-space badge anchoring
-(`PeakAnnotations` uses log10(freq)); add a setting + a ⋯ Chart-Options / toolbar toggle.
+### 6c — Log-frequency axis — DROPPED (NOT a parity gap; the original audit was wrong)
+Verified 2026-06 against both apps: `isLogarithmic` / `is_logarithmic` is a SERIALIZED model field
+that is set to **`false` at every construction site** and is **never toggled by any UI** — there is no
+`Toggle`/menu/setting for it in Swift (`TapSettingsView+Sections` toggles are only measureFlc /
+showUnknownModes / dumpCaptureAudio; the one `$isLogarithmic` binding is inside a `#Preview`) or
+Python. Swift carries DORMANT log-rendering/gesture code (`SpectrumView+GestureHandlers`,
+`PeakAnnotations`), Python doesn't even have that. **The web already mirrors this exactly**: a dormant
+`logFreq` capability (hardcoded false) + the serialized `isLogarithmic` field + no toggle. Adding a
+log-frequency toggle would DIVERGE from Swift/Python (which have none), so do NOT implement it.
 
 ### 6d — Material annotation dragging
 Drag infra is generic (annoKey/annoOffset + badgeRects from Phase 5), but App passes
@@ -191,6 +195,6 @@ that touches `App.tsx` (6b especially), so do the `useAudioEngine`/`useMeasureme
 and the `presentation/` move early, incrementally, tests green after each step. **6-MAP** can land
 anytime (independent tooling) — recommend right after the `presentation/` move so the anchors are added
 as files settle. Then features: **6a (decay) → 6b (live analysis boxes)** (highest user value, feeds
-the PDF) → **6c (log freq)**, **6d (material drag)**, **6e (multi-tap PDF)** in any order → **6f, 6g,
+the PDF) → ~~6c (log freq, DROPPED — not a parity gap)~~ **6d (material drag)**, **6e (multi-tap PDF)** in any order → **6f, 6g,
 6h** polish. Verify each gap against current `main` before starting (Phase 5 already closed some items
 an earlier audit listed as missing — e.g. per-capture WAV, saved-comparison PDF).
