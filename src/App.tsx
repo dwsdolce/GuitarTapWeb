@@ -33,8 +33,8 @@ import { saveMeasurement } from './measurement/store'
 import { parseCalibration, type Calibration } from './dsp/calibration'
 import { decodeWav, encodeWavFloat32 } from './dsp/wav'
 import { exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
-import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData } from './presentation/measurementImage'
-import { exportPdfReport } from './presentation/pdfReport'
+import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData, multiTapPdfData } from './presentation/measurementImage'
+import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfReport'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
 import { MODE_DISPLAY_NAME } from './presentation/modeColors'
 import { GUITAR_FFT_SIZE, modePeaksFromSpectrum, type Spectrum } from './dsp/guitarFFT'
@@ -248,6 +248,9 @@ function dumpCaptureWav(samples: Float32Array, sampleRate: number, label: string
 
 export default function App() {
   const [captured, setCaptured] = useState<Spectrum | null>(null)
+  // Stable handle to useAnnotations' resetLabels so the material start handlers (defined above the
+  // annotations hook) can clear dragged labels on a fresh capture (mirrors Swift resetAllAnnotationOffsets).
+  const resetLabelsRef = useRef<() => void>(() => {})
 
   // Mirror of the applied calibration for matSearch + save provenance (read from stable refs).
   // Owned here (shared handle); the audio engine hook resolves + writes it.
@@ -327,6 +330,10 @@ export default function App() {
   // recalculateFrozenPeaksIfNeeded / Python recalculate_frozen_peaks_if_needed). Cleared
   // on a fresh live capture / New Tap / measurement-type change, reverting to findPeaks.
   const [loadedPeaks, setLoadedPeaks] = useState<Peak[] | null>(null)
+  // Ring-out time of a LOADED guitar measurement (its stored `decayTime`). Read by the Analysis panel
+  // only while `loadedPeaks != null`; live captures use the engine's live decayTime instead. Set on
+  // the guitar-load path (the only place loadedPeaks becomes non-null), so it's always in sync there.
+  const [loadedDecayTime, setLoadedDecayTime] = useState<number | null>(null)
 
   const updateSettings = useCallback((patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch })), [])
   useEffect(() => saveSettings(settings), [settings])
@@ -446,6 +453,7 @@ export default function App() {
       setPlayingFileName(audio.name)
       if (isMaterialType(measRef.current)) {
         // Material: fresh phase machine (no arm — the engine owns the L→C→(FLC) auto-advance session).
+        resetLabelsRef.current() // a fresh capture starts with un-dragged labels (Swift resets offsets on start)
         startMaterial(false)
         await engineRef.current.playFile(samples, fileRate, {
           material: { brace: measRef.current === 'brace', measureFlc: measureFlcRef.current, calibration: cal },
@@ -494,9 +502,11 @@ export default function App() {
     engineRef.current?.setConfig({ numberOfTaps: v })
   }, [])
 
-  // New Tap in material mode: clear the cancelled flag, then start the phase machine (hooks/useMaterialSession).
+  // New Tap in material mode: clear the cancelled flag + any dragged labels (Swift resets offsets on
+  // start), then start the phase machine (hooks/useMaterialSession).
   const onMaterialNewTap = useCallback(() => {
     setCancelled(false)
+    resetLabelsRef.current()
     startMaterial()
   }, [startMaterial])
 
@@ -554,7 +564,9 @@ export default function App() {
     onAnnotationDrag,
     resetLabels,
     restore: restoreAnnotations,
-  } = useAnnotations({ peaks, guitarType, captured })
+    restoreMaterialOffsets,
+  } = useAnnotations({ peaks, guitarType, captured, material })
+  resetLabelsRef.current = resetLabels // bridge for the material start handlers defined above the hook
 
   const keyOf = (p: Peak) => p.frequency.toFixed(1)
   const labelFor = (p: Peak, mode: ResolvedMode) => overrides.get(keyOf(p)) ?? MODE_DISPLAY_NAME[mode]
@@ -576,10 +588,11 @@ export default function App() {
     [displayPeaks, selectedIds, modeByPeak, overrides, annotationMode, annotationOffsets],
   )
 
-  // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors).
+  // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors). Reuses the shared
+  // annotation-offset store so L/C/FLC labels drag exactly like guitar labels (Swift/Python parity).
   const materialMarkers = useMemo<PeakMarker[]>(() => {
-    return buildMaterialMarkers(matPeaks)
-  }, [matPeaks])
+    return buildMaterialMarkers(matPeaks, annotationOffsets)
+  }, [matPeaks, annotationOffsets])
 
   // ── Multi-tap comparison (guitar, >1 tap) ───────────────────────────────────
   // Per-tap mode peaks are (re)found from each tap spectrum at the current Peak Min,
@@ -692,6 +705,7 @@ export default function App() {
           name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, sampleRate, deviceLabel,
           microphoneUID: currentDeviceId ?? undefined,
           calibrationName: calibrationRef.current?.name,
+          annotationOffsetsByFreq: annotationOffsets,
         })
       }
       if (!captured) return null
@@ -704,7 +718,8 @@ export default function App() {
         selectedIds,
         overridesByFreq: overrides,
         annotationOffsetsByFreq: annotationOffsets,
-        decayTime: engineRef.current?.decayTime ?? null,
+        // A loaded measurement keeps its stored ring-out (don't overwrite with the live engine's).
+        decayTime: loadedPeaks != null ? loadedDecayTime : (engineRef.current?.decayTime ?? null),
         view,
         settings,
         numberOfTaps,
@@ -715,7 +730,7 @@ export default function App() {
         calibrationName: calibrationRef.current?.name,
       })
     },
-    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel, currentDeviceId],
+    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedPeaks, loadedDecayTime, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel, currentDeviceId],
   )
 
   const onSaveMeasurement = useCallback(
@@ -733,7 +748,14 @@ export default function App() {
     if (!m) return
     const stem =
       (loadedName ?? 'report').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'report'
-    void exportPdfReport(measurementToPdfData(m), `${stem}-report-${Math.floor(Date.now() / 1000)}.pdf`)
+    const ts = Math.floor(Date.now() / 1000)
+    // Multi-tap guitar measurements always produce the two-page report (averaged + per-tap
+    // comparison), mirroring Swift exportMultiTapPDFReport (gated on tapEntries, not the on-screen toggle).
+    if (m.tapEntries && m.tapEntries.length > 1) {
+      void exportMultiTapPdfReport(multiTapPdfData(m), `${stem}-multitap-report-${ts}.pdf`)
+    } else {
+      void exportPdfReport(measurementToPdfData(m), `${stem}-report-${ts}.pdf`)
+    }
   }, [buildCurrentMeasurement, loadedName])
 
   const onLoadMeasurement = useCallback(
@@ -763,6 +785,7 @@ export default function App() {
         setCaptured(null)
         setComparison(null)
         restoreMaterial({ matSpectra: mat.matSpectra, matPeaks: mat.matPeaks })
+        restoreMaterialOffsets(mat.annotationOffsetsByFreq) // dragged L/C/FLC label positions (shared store)
         setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
         setLoadedName(m.measurementName ?? null)
         setTapSpectra([]) // material has no per-tap entries
@@ -779,6 +802,7 @@ export default function App() {
       if (live.measurementType !== settings.measurementType) skipNextTypeResetRef.current = true
       updateSettings(live.settingsPatch)
       setLoadedPeaks(live.loadedPeaks) // authoritative saved peaks (Peak Min filters them)
+      setLoadedDecayTime(m.decayTime ?? null) // show the FILE's stored ring-out, not the live engine's
       setCaptured(live.captured)
       setComparison(null)
       setView(live.view)
@@ -1078,8 +1102,8 @@ export default function App() {
               maxDb={view.maxDb}
               onViewChange={setView}
               onReset={resetView}
-              onAnnotationDrag={material || comparison || showMultiTap ? undefined : onAnnotationDrag}
-              onResetLabels={material || comparison || showMultiTap ? undefined : resetLabels}
+              onAnnotationDrag={comparison || showMultiTap ? undefined : onAnnotationDrag}
+              onResetLabels={comparison || showMultiTap ? undefined : resetLabels}
               hasMovedLabels={annotationOffsets.size > 0}
             />
           </div>
@@ -1168,7 +1192,7 @@ export default function App() {
           {/* Guitar summary (Ring-Out · Tap Ratio) — pinned below the scrollable peak list, above
               the export bar, side by side. Mirrors the native live panel (guitar only). */}
           {!material && !comparison && !showMultiTap && (
-            <AnalysisResults decayTime={decayTime} ratio={tapRatio} guitarType={guitarType} />
+            <AnalysisResults decayTime={loadedPeaks != null ? loadedDecayTime : decayTime} ratio={tapRatio} guitarType={guitarType} />
           )}
 
           {/* Export footer — running/stopped status (left) + Export Spectrum · Export PDF (right),

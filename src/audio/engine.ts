@@ -90,6 +90,10 @@ const DEFAULT_CONFIG: AudioEngineConfig = {
 }
 
 const CLIP_HOLD_SECONDS = 1.5
+// Decay-seed peak hold (Swift `peakHoldDuration`): how long recentPeakDb latches its max before
+// releasing to the current level. Canonical value is Swift's CODE (2.0 s); the Swift "0.5 s" comment
+// was stale (never updated after the value changed during testing).
+const PEAK_HOLD_SECONDS = 2.0
 
 const CONFIRM_CHUNKS = 2
 
@@ -149,6 +153,13 @@ export class AudioEngine {
   private decay = new DecayTracker()
   private audioElapsed = 0 // accumulated audio time (s) — the decay tracker's clock
   private lastDecay: number | null = null // last value emitted via onDecay (de-dupe)
+  // Peak-held broadband level for the decay SEED — mirrors Swift `recentPeakLevelDB`
+  // (RealtimeFFTAnalyzer+FFTProcessing.swift): latch the running max, release to the current level
+  // only after PEAK_HOLD_SECONDS without a higher peak. Captures the true tap strike even though tap
+  // detection confirms a couple of chunks late, so the −15 dB reference isn't under-stated. Uses the
+  // audio clock (deterministic / file-playback-safe), not wall-clock. Canonical value = Swift's CODE.
+  private recentPeakDb = -100
+  private recentPeakTime = 0
   /** Latest measured ring-out time (s), read into the measurement at save (Swift currentDecayTime). */
   get decayTime(): number | null {
     return this.decay.decayTime
@@ -462,6 +473,12 @@ export class AudioEngine {
 
     // Ring-out clock: track the broadband level on an audio timeline (runs through capture + idle).
     this.audioElapsed += s.length / this.sampleRate
+    // Recent-peak hold for the decay seed (Swift recentPeakLevelDB): latch the max, release to the
+    // current level after 2.0 s without a higher peak.
+    if (db > this.recentPeakDb || this.audioElapsed - this.recentPeakTime > PEAK_HOLD_SECONDS) {
+      this.recentPeakDb = db
+      this.recentPeakTime = this.audioElapsed
+    }
     this.decay.track(this.audioElapsed, db)
     if (this.decay.decayTime !== this.lastDecay) {
       this.lastDecay = this.decay.decayTime
@@ -628,7 +645,10 @@ export class AudioEngine {
       else if (!this.prevAbove) this.consecutive = 1
       if (this.consecutive >= CONFIRM_CHUNKS) {
         this.consecutive = 0
-        if (this.captureKind === 'guitar') this.decay.start(this.audioElapsed, levelDb) // ring-out, guitar only
+        // Seed the ring-out from the PEAK-HELD level (Swift tapPeakLevel = recentPeakLevelDB), not the
+        // instantaneous level: tap confirmation lags the strike by ~2 chunks, so the true peak would
+        // otherwise be missed and the −15 dB reference under-stated. Guitar only.
+        if (this.captureKind === 'guitar') this.decay.start(this.audioElapsed, this.recentPeakDb)
         this.beginCapture()
       }
     } else {

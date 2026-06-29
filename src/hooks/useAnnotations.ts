@@ -18,6 +18,10 @@ interface UseAnnotationsArgs {
   guitarType: GuitarTypeName
   /** A new frozen spectrum → fresh capture; clears selection/overrides/labels (unless loading). */
   captured: Spectrum | null
+  /** In material mode the offset store is driven by the material lifecycle (startMaterial clears,
+   *  load restores), NOT by fresh `captured` spectra — so the capture-reset effect leaves it alone.
+   *  Mirrors the gold standard: Swift/Python use ONE peakAnnotationOffsets store for all peaks. */
+  material: boolean
 }
 
 /** Values a loaded measurement restores into this slice. */
@@ -42,9 +46,12 @@ export interface AnnotationsModel {
   resetLabels: () => void
   /** Restore selection/overrides/labels from a loaded measurement (survives the capture reset). */
   restore: (r: AnnotationRestore) => void
+  /** Restore only the dragged-label positions for a loaded MATERIAL measurement (material reuses
+   *  this same offset store; its capture-reset is suppressed so no loading-guard dance is needed). */
+  restoreMaterialOffsets: (offsets: Map<string, [number, number]>) => void
 }
 
-export function useAnnotations({ peaks, guitarType, captured }: UseAnnotationsArgs): AnnotationsModel {
+export function useAnnotations({ peaks, guitarType, captured, material }: UseAnnotationsArgs): AnnotationsModel {
   // Set by `restore` so the fresh-capture reset below skips clobbering a just-loaded measurement.
   const loadingRef = useRef(false)
 
@@ -63,6 +70,14 @@ export function useAnnotations({ peaks, guitarType, captured }: UseAnnotationsAr
   // A fresh capture clears the user's selection/overrides/label positions; a load sets
   // `loadingRef` so its restored values survive this reset.
   useEffect(() => {
+    // Material drives the offset store via its own lifecycle (startMaterial clears, load restores),
+    // so don't clobber it on the captured→null transition. Clear the loading guard too so it can't
+    // leak into a later guitar capture. Leaving material back to guitar (material→false) runs the
+    // reset below, wiping any leftover material offsets.
+    if (material) {
+      loadingRef.current = false
+      return
+    }
     if (loadingRef.current) {
       loadingRef.current = false
       return
@@ -70,7 +85,7 @@ export function useAnnotations({ peaks, guitarType, captured }: UseAnnotationsAr
     setUserModified(false)
     setOverrides(new Map())
     setAnnotationOffsets(new Map())
-  }, [captured])
+  }, [captured, material])
 
   useEffect(() => {
     if (!userModified) setSelectedIds(autoIds)
@@ -120,6 +135,12 @@ export function useAnnotations({ peaks, guitarType, captured }: UseAnnotationsAr
     setUserModified(true)
   }, [])
 
+  // Material load: the capture-reset effect is suppressed in material mode, so just set the offsets
+  // (no loading-guard needed). Overrides/selection are guitar-only and stay empty for material.
+  const restoreMaterialOffsets = useCallback((offsets: Map<string, [number, number]>) => {
+    setAnnotationOffsets(offsets)
+  }, [])
+
   return {
     selectedIds,
     overrides,
@@ -134,5 +155,6 @@ export function useAnnotations({ peaks, guitarType, captured }: UseAnnotationsAr
     onAnnotationDrag,
     resetLabels,
     restore,
+    restoreMaterialOffsets,
   }
 }

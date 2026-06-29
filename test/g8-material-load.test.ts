@@ -153,3 +153,54 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
     expect(r.settingsPatch.plateStiffnessPreset).toBe('steelStringTop')
   })
 })
+
+// 6d: material L/C/FLC labels drag exactly like guitar labels, reusing the single shared
+// peakAnnotationOffsets store. The live store is keyed by `frequency.toFixed(1)`; persistence is
+// keyed by peak UUID (gold-standard format) — this asserts the build→file→restore re-keying both ways.
+describe('material annotation offsets round-trip (6d)', () => {
+  const matPeak = (f: number, mag: number) => ({ frequency: f, magnitude: mag, quality: 20, bandwidth: 5 })
+  const built = buildMaterialMeasurement({
+    name: 'Top Plate',
+    notes: '',
+    spectra: {
+      longitudinal: { frequencies: [100, 120, 140], magnitudesDb: [-50, -40, -60] },
+      cross: { frequencies: [200, 250, 300], magnitudesDb: [-55, -45, -65] },
+      flc: null,
+    },
+    peaks: { longitudinal: matPeak(120, -40), cross: matPeak(250, -45), flc: null },
+    view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
+    settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const },
+    sampleRate: 48000,
+    deviceLabel: 'Test Mic',
+    // Drag only the longitudinal label; cross is left un-dragged.
+    annotationOffsetsByFreq: new Map<string, [number, number]>([['120.0', [125, -38]]]),
+  })
+
+  it('writes the dragged offset into peakAnnotationOffsets keyed by the L peak UUID', () => {
+    const lId = built.selectedLongitudinalPeakID!
+    expect(built.peakAnnotationOffsets).toBeDefined()
+    expect(built.peakAnnotationOffsets![lId]).toEqual([125, -38])
+    // The un-dragged cross peak gets no entry.
+    expect(built.peakAnnotationOffsets![built.selectedCrossPeakID!]).toBeUndefined()
+  })
+
+  it('restores the offset re-keyed by frequency after a file round-trip', () => {
+    const m = parseGuitarTapFile(serializeGuitarTapFile([built]))[0]!
+    const r = measurementToLiveMaterial(m)
+    expect(r.annotationOffsetsByFreq.get('120.0')).toEqual([125, -38])
+    expect(r.annotationOffsetsByFreq.has('250.0')).toBe(false)
+  })
+
+  it('omits peakAnnotationOffsets entirely when no labels were dragged', () => {
+    const plain = buildMaterialMeasurement({
+      name: '', notes: '',
+      spectra: { longitudinal: { frequencies: [100, 120], magnitudesDb: [-50, -40] }, cross: null, flc: null },
+      peaks: { longitudinal: matPeak(120, -40), cross: null, flc: null },
+      view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
+      settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const },
+      sampleRate: 48000,
+      deviceLabel: 'Test Mic',
+    })
+    expect(plain.peakAnnotationOffsets).toBeUndefined()
+  })
+})

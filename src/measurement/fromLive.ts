@@ -370,6 +370,8 @@ export interface MaterialRestore {
   matPeaks: { longitudinal: MaterialPeak | null; cross: MaterialPeak | null; flc: MaterialPeak | null }
   /** Type + dimensions (+ dB range) to restore so Material Results recomputes correctly. */
   settingsPatch: Partial<Settings>
+  /** Dragged L/C/FLC label positions (keyed by `frequency.toFixed(1)`), for the shared offset store. */
+  annotationOffsetsByFreq: Map<string, [number, number]>
 }
 
 /** Decompose a saved plate/brace measurement for restore into the view. Mirrors Swift
@@ -386,6 +388,14 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
   const toMatPeak = (id: string | undefined): MaterialPeak | null => {
     const p = id != null ? byId.get(id) : undefined
     return p ? { frequency: p.frequency, magnitude: p.magnitude, quality: p.quality, bandwidth: p.bandwidth } : null
+  }
+
+  // Dragged label positions: re-key the saved {peakUUID → [Hz,dB]} offsets by frequency (the live
+  // store's key), mirroring the guitar restore path. Stale UUIDs (no matching peak) are dropped.
+  const annotationOffsetsByFreq = new Map<string, [number, number]>()
+  for (const [id, pos] of Object.entries(m.peakAnnotationOffsets ?? {})) {
+    const p = byId.get(id)
+    if (p) annotationOffsetsByFreq.set(key(p.frequency), pos)
   }
 
   // Restore the dimensions so MaterialResults recomputes moduli/quality/Gore numbers.
@@ -417,6 +427,7 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
       flc: toMatPeak(m.selectedFlcPeakID),
     },
     settingsPatch: patch,
+    annotationOffsetsByFreq,
   }
 }
 
@@ -431,6 +442,8 @@ export interface BuildMaterialArgs {
   deviceLabel: string
   microphoneUID?: string
   calibrationName?: string
+  /** Dragged L/C/FLC label positions, keyed by `frequency.toFixed(1)` (the shared offset store). */
+  annotationOffsetsByFreq?: Map<string, [number, number]>
 }
 
 /** Construct a plate/brace TapToneMeasurementModel from the current completed material
@@ -478,12 +491,16 @@ export function buildMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasureme
     ...dims,
   })
 
-  // The selected L/C/FLC peaks become the measurement's peaks (UUID each).
+  // The selected L/C/FLC peaks become the measurement's peaks (UUID each); any dragged label offset
+  // is written into the shared peakAnnotationOffsets map keyed by that UUID (gold-standard format).
   const peaks: ResonantPeakModel[] = []
+  const peakAnnotationOffsets: AnnotationOffsets = {}
   const addPeak = (mp: MaterialPeak | null): string | undefined => {
     if (!mp) return undefined
     const id = uuid()
     peaks.push({ id, frequency: mp.frequency, magnitude: mp.magnitude, quality: mp.quality, bandwidth: mp.bandwidth, timestamp })
+    const offset = a.annotationOffsetsByFreq?.get(mp.frequency.toFixed(1))
+    if (offset != null) peakAnnotationOffsets[id] = offset
     return id
   }
   const selL = addPeak(a.peaks.longitudinal)
@@ -514,6 +531,7 @@ export function buildMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasureme
     selectedFlcPeakID: selFlc,
     selectedPeakIDs,
     selectedPeakFrequencies,
+    peakAnnotationOffsets: Object.keys(peakAnnotationOffsets).length ? peakAnnotationOffsets : undefined,
     annotationVisibilityMode: a.settings.annotationVisibilityMode,
     tapDetectionThreshold: a.settings.tapDetectionThreshold,
     numberOfTaps: 1,
@@ -575,6 +593,42 @@ export function buildComparisonEntries(measurements: TapToneMeasurementModel[]):
       sourceMeasurementID: m.id,
     }
   })
+}
+
+// Averaged-spectrum highlight color for the multi-tap comparison — must match
+// MultiTapComparisonResultsView.MULTITAP_AVG_COLOR (the per-tap colors reuse COMPARISON_PALETTE).
+export const MULTITAP_AVG_COLOR = '#ffd900'
+
+/** Convert a multi-tap guitar measurement's per-tap entries into comparison entries — one "Tap N"
+ *  per tap (palette-cycled) plus a trailing "Averaged" entry built from the measurement's own
+ *  spectrum + selected peaks. Mirrors Swift `exportMultiTapPDFReport`'s `cmpEntries`
+ *  (TapToneAnalysisView+Export.swift): the averaged entry is appended last. Each entry keeps only
+ *  its SELECTED peaks so the comparison table resolves the same Air/Top/Back the live view shows. */
+export function multiTapComparisonEntries(m: TapToneMeasurementModel): ComparisonEntryModel[] {
+  const selectedOf = (peaks: ResonantPeakModel[], ids?: string[]): ResonantPeakModel[] => {
+    if (!ids?.length) return peaks
+    const set = new Set(ids)
+    return peaks.filter((p) => set.has(p.id))
+  }
+  const entries: ComparisonEntryModel[] = (m.tapEntries ?? []).map((e, i) => ({
+    id: uuid(),
+    label: `Tap ${e.tapIndex}`,
+    colorComponents: hexToComponents(COMPARISON_PALETTE[i % COMPARISON_PALETTE.length]!),
+    snapshot: e.snapshot,
+    peaks: selectedOf(e.peaks, e.selectedPeakIDs),
+    guitarType: e.snapshot.guitarType,
+  }))
+  if (m.spectrumSnapshot) {
+    entries.push({
+      id: uuid(),
+      label: 'Averaged',
+      colorComponents: hexToComponents(MULTITAP_AVG_COLOR),
+      snapshot: m.spectrumSnapshot,
+      peaks: selectedOf(m.peaks, m.selectedPeakIDs),
+      guitarType: m.spectrumSnapshot.guitarType,
+    })
+  }
+  return entries
 }
 
 /** Resolve the Air/Top/Back mode frequencies for one comparison entry (its selected peaks

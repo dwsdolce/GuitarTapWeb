@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildGuitarMeasurement } from '../src/measurement/fromLive'
+import { buildGuitarMeasurement, multiTapComparisonEntries, colorComponentsToCss } from '../src/measurement/fromLive'
+import { multiTapPdfData } from '../src/presentation/measurementImage'
 import { serializeGuitarTapFile, parseGuitarTapFile } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import type { Peak } from '../src/dsp/peaks'
@@ -47,5 +48,42 @@ describe('buildGuitarMeasurement — multi-tap entries', () => {
     expect(m.tapEntries).toHaveLength(2)
     expect(m.tapEntries![0]!.snapshot.frequencies).toEqual([100, 200, 300])
     expect(m.tapEntries![1]!.snapshot.magnitudes).toEqual(tap2.magnitudesDb)
+  })
+})
+
+// 6e: a multi-tap guitar measurement exports a TWO-page PDF — page 1 the averaged single-measurement
+// report, page 2 the per-tap comparison (each "Tap N" plus a trailing "Averaged"), mirroring Swift
+// generateMultiTapReport / exportMultiTapPDFReport.
+describe('multiTapComparisonEntries — per-tap + averaged (6e)', () => {
+  const entries = multiTapComparisonEntries(buildGuitarMeasurement(args))
+
+  it('is one entry per tap plus a trailing Averaged entry', () => {
+    expect(entries.map((e) => e.label)).toEqual(['Tap 1', 'Tap 2', 'Averaged'])
+  })
+
+  it('cycles the comparison palette for taps and uses the avg color for Averaged', () => {
+    expect(colorComponentsToCss(entries[0]!.colorComponents)).toBe('rgba(10, 132, 255, 1)') // #0a84ff
+    expect(colorComponentsToCss(entries[1]!.colorComponents)).toBe('rgba(255, 159, 10, 1)') // #ff9f0a
+    expect(colorComponentsToCss(entries[2]!.colorComponents)).toBe('rgba(255, 217, 0, 1)') // #ffd900 (avg)
+  })
+
+  it('the Averaged entry keeps the measurement’s selected peaks', () => {
+    expect(entries[2]!.peaks.map((p) => p.frequency)).toContain(200)
+  })
+})
+
+describe('multiTapPdfData — two-page report data (6e)', () => {
+  const { averaged, comparison } = multiTapPdfData(buildGuitarMeasurement(args))
+
+  it('page 1 is the averaged guitar report (peaks + analysis)', () => {
+    expect(averaged.kind).toBe('guitar')
+    expect(averaged.guitarAnalysis).toBeDefined()
+    expect(averaged.peaks.length).toBeGreaterThan(0)
+  })
+
+  it('page 2 is a comparison of the N taps + Averaged', () => {
+    expect(comparison.kind).toBe('comparison')
+    expect(comparison.comparison!.spectraCount).toBe(3)
+    expect(comparison.comparison!.rows.map((r) => r.label)).toEqual(['Tap 1', 'Tap 2', 'Averaged'])
   })
 })

@@ -23,6 +23,10 @@ export interface SpectrumImageOpts {
   guitarType?: GuitarTypeName
   date?: string
   width?: number
+  /** Plot height (px) inside the composite. Default 660 (full-size PNG). The PDF passes a smaller
+   *  value so the embedded image is shorter — fixed Letter pages have less vertical room than
+   *  Swift's auto-grown page, so the report stays compact enough to keep the analysis on page 1. */
+  chartHeight?: number
 }
 
 const FONT = (s: number, w = '') => `${w ? w + ' ' : ''}${s}px system-ui, sans-serif`
@@ -37,7 +41,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   const markers = opts.markers ?? []
 
   const headerH = 116
-  const chartH = 660 // renderSpectrum lays out title + plot + axis titles within this
+  const chartH = opts.chartHeight ?? 660 // renderSpectrum lays out title + plot + axis titles within this
   const summaryH = markers.length ? 110 : 0
   const legendH = 44
   const H = PAD + headerH + chartH + summaryH + legendH + PAD

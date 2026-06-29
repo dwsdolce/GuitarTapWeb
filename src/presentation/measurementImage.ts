@@ -16,6 +16,7 @@ import {
   comparisonAxisRange,
   comparisonEntryModeFreqs,
   colorComponentsToCss,
+  multiTapComparisonEntries,
 } from '../measurement/fromLive'
 import {
   isGuitarType,
@@ -108,16 +109,25 @@ export function buildGuitarMarkers(
   })
 }
 
-/** Material phase markers (L=blue, C=orange, FLC=purple), matching the live view + native colors. */
-export function buildMaterialMarkers(matPeaks: {
-  longitudinal: MaterialPeak | null
-  cross: MaterialPeak | null
-  flc: MaterialPeak | null
-}): PeakMarker[] {
+/** Material phase markers (L=blue, C=orange, FLC=purple), matching the live view + native colors.
+ *  Each marker carries an `annoKey` (frequency.toFixed(1)) + its dragged `annoOffset`, exactly like
+ *  guitar markers — material reuses the single shared offset store (Swift/Python peakAnnotationOffsets). */
+export function buildMaterialMarkers(
+  matPeaks: {
+    longitudinal: MaterialPeak | null
+    cross: MaterialPeak | null
+    flc: MaterialPeak | null
+  },
+  offsetsByFreq?: Map<string, [number, number]>,
+): PeakMarker[] {
   const out: PeakMarker[] = []
-  if (matPeaks.longitudinal) out.push({ ...matPeaks.longitudinal, color: '#4ea1ff', label: 'Longitudinal', annotated: true })
-  if (matPeaks.cross) out.push({ ...matPeaks.cross, color: '#f0a03a', label: 'Cross-grain', annotated: true })
-  if (matPeaks.flc) out.push({ ...matPeaks.flc, color: '#b07ad8', label: 'FLC', annotated: true })
+  const push = (mp: MaterialPeak, color: string, label: string) => {
+    const key = mp.frequency.toFixed(1)
+    out.push({ ...mp, color, label, annotated: true, annoKey: key, annoOffset: offsetsByFreq?.get(key) })
+  }
+  if (matPeaks.longitudinal) push(matPeaks.longitudinal, '#4ea1ff', 'Longitudinal')
+  if (matPeaks.cross) push(matPeaks.cross, '#f0a03a', 'Cross-grain')
+  if (matPeaks.flc) push(matPeaks.flc, '#b07ad8', 'FLC')
   return out
 }
 
@@ -151,7 +161,7 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
       title,
       spectrum: null,
       overlays,
-      markers: buildMaterialMarkers(r.matPeaks),
+      markers: buildMaterialMarkers(r.matPeaks, r.annotationOffsetsByFreq),
       view: { minHz: s.minFreq, maxHz: s.maxFreq, minDb: s.minDB, maxDb: s.maxDB },
       measurementTypeName: MEASUREMENT_FULL_NAME[r.measurementType],
       date,
@@ -240,6 +250,17 @@ export function measurementToPdfData(m: TapToneMeasurementModel): PdfReportData 
   return guitarPdfData(m, base)
 }
 
+/** Two-page PDF data for a multi-tap guitar measurement (Swift `generateMultiTapReport`): page 1 is
+ *  the averaged single-measurement report, page 2 the per-tap comparison. Page 2 reuses the comparison
+ *  PDF path by synthesizing comparison entries from the measurement's `tapEntries` + an "Averaged"
+ *  entry — so it stays identical to a saved-comparison report. Caller gates on `m.tapEntries.length > 1`. */
+export function multiTapPdfData(m: TapToneMeasurementModel): { averaged: PdfReportData; comparison: PdfReportData } {
+  return {
+    averaged: measurementToPdfData(m),
+    comparison: measurementToPdfData({ ...m, comparisonEntries: multiTapComparisonEntries(m) }),
+  }
+}
+
 type PdfBase = Pick<
   PdfReportData,
   'image' | 'timestamp' | 'measurementName' | 'notes' | 'microphoneName' | 'calibrationName' | 'measurementTypeName' | 'freqRange'
@@ -250,8 +271,12 @@ function guitarPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData
   const guitarType: GuitarTypeName = isGuitarType(r.measurementType) ? r.measurementType : 'generic'
   const modeByPeak = classifyAll(r.loadedPeaks, guitarType)
 
-  // Swift's visibleSortedPeaks: selected peaks only, low → high.
-  const visible = r.loadedPeaks.filter((p) => r.selectedIndices.has(p.id)).sort((a, b) => a.frequency - b.frequency)
+  // Swift's PDF table = rangeFilteredPeaks ∩ selectedPeakIDs, low → high: only SELECTED peaks that
+  // fall within the displayed frequency range (Swift PDFReportGenerator.rangeFilteredPeaks +
+  // visibleSortedPeaks). Peaks outside [minFreq, maxFreq] are excluded.
+  const visible = r.loadedPeaks
+    .filter((p) => r.selectedIndices.has(p.id) && p.frequency >= base.freqRange.min && p.frequency <= base.freqRange.max)
+    .sort((a, b) => a.frequency - b.frequency)
   const peaks: PdfPeakRow[] = visible.map((p) => {
     const mode = modeByPeak.get(p.id) ?? 'unknown'
     const override = r.overridesByFreq.get(p.frequency.toFixed(1))

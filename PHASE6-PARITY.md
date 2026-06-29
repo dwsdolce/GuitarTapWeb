@@ -1,6 +1,6 @@
 # Phase 6 — Parity completion & analysis features (web)
 
-**Status:** planning. Builds on **Phase 5** (shipped, tracked outside this repo — no PHASE5
+**Status:** in progress (updated 2026-06-28) — see the **Progress** checklist below. Builds on **Phase 5** (shipped, tracked outside this repo — no PHASE5
 doc): export PNG + PDF (single + saved-comparison), Play-File through the live pipeline +
 headless regression harness, device picker + calibration import, Pause/Cancel tap controls,
 draggable annotations + Reset Labels, per-capture "Dump Capture Audio". Canonical references:
@@ -13,6 +13,22 @@ the ring-out/tap-tone analysis a luthier reads off the results panel,
 draggable material labels, the multi-tap PDF, the continuous session recording, and in-app
 help — plus the version/build identity the desktop apps show. (A log-frequency axis is NOT a
 gap — see 6c: neither native app exposes a user toggle, and the web already mirrors that.)
+
+## Progress
+- ✅ **Versioning & identity** — 1.0.1 + git-commit build, shown like the desktop apps
+- ✅ **6-ARCH** — ViewModel hooks (`useAudioEngine`/`useMaterialSession`/`useAnnotations`/`useChartView`) + `presentation/` layer extracted
+- ✅ **6a** — Ring-out / decay-time computation (`dsp/decay.ts`, wired into the engine)
+- ✅ **6b** — Live "Analysis Results" panel (Ring-Out + Tap-Tone-Ratio) + footer status
+- ✅ **6c** — DROPPED (not a parity gap; the original audit was wrong)
+- ✅ **6d** — Material annotation dragging (single shared offset store, save/load)
+- ✅ **6e** — Multi-tap PDF report (two-page: averaged + per-tap comparison)
+- ⬜ **6f** — Continuous session-recording WAV
+- ⬜ **6g** — In-app Help View + online User Manual link
+- ⬜ **6h** — Per-measurement-type display ranges (minor)
+- ⬜ **6i** — Decay clock → audio-time everywhere + cross-platform ring-out regression test
+- ⬜ **6j** — Status-bar review (footer status + metrics line) vs Swift/Python
+- ⬜ **6-MAP** — parity anchors + generated map (needs tag-syntax sign-off)
+- ⬜ **6-TEST** — cross-platform test review & normalization (major)
 
 ## Versioning & identity ✅ DONE (kicked off Phase 6)
 Web now matches the Swift/Python scheme: short version = `package.json` `version` = **1.0.1**
@@ -27,7 +43,11 @@ only ever an internal milestone label and is gone from the UI.)
 
 ## Sub-phases (each independently shippable)
 
-### 6a — Ring-out / decay-time computation
+### 6a — Ring-out / decay-time computation ✅ DONE
+**Done 2026-06-28:** `src/dsp/decay.ts` (`DecayTracker` + pure `measureDecayTime`) — post-tap peak →
+first sample below peak−15 dB → seconds, in AUDIO time (deterministic / file-playback-safe); wired into
+`audio/engine.ts` (`onDecay`, `get decayTime`); tested in `test/g4d-decay.test.ts`. Original gap below.
+
 The model already carries `decayTime` and encode/decode round-trips it, but **nothing computes
 it**. Port the decay-tracking state machine: Swift `TapToneAnalyzer+DecayTracking.swift`
 (start/track/measure), Python `models/tap_tone_analyzer_decay_tracking.py`. It tracks the
@@ -38,7 +58,12 @@ seconds, with per-guitar-type quality thresholds (already ported in
 (PDF guitar analysis currently omits it because `decayTime` is null). **Highest leverage** —
 feeds 6b and the PDF.
 
-### 6b — Live "Analysis Results" panel (Ring-Out + Tap-Tone-Ratio)
+### 6b — Live "Analysis Results" panel (Ring-Out + Tap-Tone-Ratio) ✅ DONE
+**Done 2026-06-28:** `components/AnalysisResults.tsx` rewritten to the native compact 2-column format
+(Ring-Out | divider | Tap Ratio), pinned below the scrollable peak list & above the export bar, always
+visible, with "Waiting…" / "Need Air & Top" empty states. Also restored the footer status indicator
+(green ● "Analyzing" / gray ● "Stopped"). Original gap below.
+
 The web already **computes** tapToneRatio (`dsp/analysisQuality.ts`) and renders both boxes in
 the **PDF** (`pdfReport.ts` drawGuitarAnalysis), but the **live results pane** (App.tsx right
 column) shows only the peak list. Add the two analysis boxes — Ring-Out Time (needs 6a) and
@@ -55,19 +80,29 @@ Python. Swift carries DORMANT log-rendering/gesture code (`SpectrumView+GestureH
 `logFreq` capability (hardcoded false) + the serialized `isLogarithmic` field + no toggle. Adding a
 log-frequency toggle would DIVERGE from Swift/Python (which have none), so do NOT implement it.
 
-### 6d — Material annotation dragging
-Drag infra is generic (annoKey/annoOffset + badgeRects from Phase 5), but App passes
-`onAnnotationDrag/onResetLabels = undefined` for material/comparison and material markers carry
-no `annoKey`. Swift drags L/C/FLC labels too. Thread `annoKey` + a material offset store (key by
-phase or peak frequency) through `buildMaterialMarkers`, App state, and save/load — the guitar
-path is the template.
+### 6d — Material annotation dragging ✅ DONE
+Confirmed against the gold standard: Swift/Python use ONE `peakAnnotationOffsets` store (keyed by peak
+UUID) for ALL peaks — there is no material-specific annotation code (one shared `spectrumView` +
+`resetAllAnnotationOffsets` for both). So the web now reuses the SINGLE shared offset store for material
+too rather than a separate one: `buildMaterialMarkers` sets `annoKey`/`annoOffset` (key =
+`frequency.toFixed(1)`); `useAnnotations` gained a `material` flag so the fresh-capture reset steps
+aside in material mode (material's lifecycle clears on `startMaterial`, restores on load); the chart's
+existing drag/Reset-Labels are enabled for material; and offsets persist via the same
+`peakAnnotationOffsets` slot (re-keyed UUID↔frequency in `buildMaterialMeasurement` /
+`measurementToLiveMaterial`). Tests: 3 round-trip cases in `g8-material-load.test.ts`. (Live drag
+gesture reuses the guitar path verbatim — worth a quick browser confirm.)
 
-### 6e — Multi-tap PDF report
-Web multi-tap export is image-only. Swift `exportMultiTapPDFReport` / `generateMultiTapReport`
-produce a **two-page** report (the averaged single-measurement report + a per-tap comparison
-page); Python `export_multi_tap_pdf`. Add a multi-tap variant to `pdfReport.ts` reusing the
-existing single-page + comparison-table drawers. (Single-measurement and saved-comparison PDFs
-already done in Phase 5.)
+### 6e — Multi-tap PDF report ✅ DONE
+**Done 2026-06-28:** `pdfReport.ts` refactored into a reusable `renderReportContent(cur, data)` +
+shared `drawFooters` so `generateMultiTapPdfReport(averaged, comparison)` composes a **two-page**
+report exactly like Swift `generateMultiTapReport` — page 1 the averaged single-measurement report,
+page 2 the per-tap comparison. Page 2 is built by `multiTapPdfData(m)` (presentation) which
+synthesizes comparison entries from the measurement's `tapEntries` + a trailing "Averaged" entry
+(`multiTapComparisonEntries`, model layer, mirroring Swift `cmpEntries`) and feeds them back through
+the existing comparison PDF path — so it can't drift from a saved-comparison report. `App.exportPdf`
+gates on `m.tapEntries.length > 1` ("multi-tap always produces the two-page report", like Swift).
+Per-tap colors reuse `COMPARISON_PALETTE`; averaged uses `MULTITAP_AVG_COLOR`. 5 tests in
+`g9-multitap.test.ts`; 132 green, typecheck+build clean. (Single + saved-comparison PDFs were Phase 5.)
 
 ### 6f — Continuous session-recording WAV
 Phase 5 added the **per-capture** dump (guitar per-tap + material per-phase analyzed buffers).
@@ -84,28 +119,62 @@ chart's zoom/pan popover):
   setup, guitar/plate/brace workflows, ring-out, tap-tone ratio, material properties,
   troubleshooting), Python `views/help_view.py` (`HelpDialog`, opened via `_show_help`). Add a
   Help panel/modal — prefer **deriving from the canonical `Documentation/Manual` markdown** over
-  re-authoring.
-- **6g-2 — User Manual (online) link**: opens the published manual in a new tab. Swift
+  re-authoring. **The Help View does NOT itself link to the User Manual** — verified `HelpView.swift`
+  contains no `DocumentationLinks.userManual` reference (only descriptive prose at ~line 275 telling
+  the reader where the Help button / Settings live). 6g-1 and 6g-2 are **separate, sibling actions**.
+- **6g-2 — User Manual (online) link**: opens the published manual in a new browser tab. Swift
   `DocumentationLinks.userManual`, Python `_open_user_manual` — both build the SAME versioned URL
-  `https://www.dolcesfogato.com/guitar_tap/manual/GuitarTap-User-Manual-{version}.html` (embed
-  `__APP_VERSION__` so it tracks releases, exactly as the desktop apps embed the marketing version).
+  `https://www.dolcesfogato.com/guitar_tap/manual/GuitarTap-User-Manual-{version}.html`. **The online
+  User Manual is ONE shared resource serving all three apps** (Python, Swift, and the web) — the web
+  links to the same manual, embedding `__APP_VERSION__` in the URL exactly as the desktop apps embed
+  their marketing version.
 
-**How the desktop apps expose these:** via the **menu bar** Help menu — macOS Swift and the Python
-desktop app both put "Help" (→ Help View) and "User Manual" there; the Swift About & Help **Settings**
-section repeats both. (iOS Swift may use a toolbar "?" — no parity weight for the web.) There is **no
-in-toolbar Help button** in either desktop app.
+**How the apps expose these:**
+- **iOS / iPadOS (the model for the web):** a **toolbar Help icon (`questionmark.circle`) immediately
+  to the right of Settings** opens a **two-item popover menu** (`helpMenuPopover`): ① **Help View**
+  (`questionmark.bubble` → `showingHelp`), ② **User Manual** (→ `DocumentationLinks.userManual`).
+  This is the exact pattern the user described.
+- **macOS Swift / Python desktop:** the **menu-bar Help menu** holds both items; the **Settings →
+  About & Help** section repeats both. No in-toolbar Help button on desktop.
 
-**Web plan (no menu bar):** add a **Help button on the control bar (`.toolbar-app`), immediately to
-the right of Settings**, using a standard web help glyph (circled "?"). It opens the **Help View**
-modal (6g-1), which itself contains the **User Manual (online)** link (6g-2) — so the single button
-covers both, the way the desktop Help menu groups them. Also surface both in **Settings → About &
-Help** (parity with the desktop About; currently the web About has neither). The chart's existing "?"
+**Web plan (no menu bar → mirror the iOS toolbar pattern):** add a **Help icon on the control bar
+(`.toolbar-app`), immediately right of Settings** (circled "?"). It opens a **two-item menu**: ① **Help
+View** (6g-1) and ② **User Manual (online)** (6g-2) — siblings, mirroring `helpMenuPopover` exactly
+(NOT the manual nested inside the Help View). Also surface the User Manual link in **Settings → About &
+Help** (parity with the desktop About; the web About currently has neither). The chart's existing "?"
 popover is unrelated (zoom/pan controls) and stays.
 
 ### 6h — Per-measurement-type display ranges (minor)
 Swift keys displayMinFreq/displayMaxFreq per `MeasurementType`; web `settings.ts` uses a single
 **global** displayMinHz/displayMaxHz, so switching type doesn't restore a type-specific default
 range. Low priority.
+
+### 6i — Decay clock → audio-time everywhere + cross-platform ring-out regression test
+The live-decay audit (2026-06-29) left one gap: the three apps now share the decay *algorithm* (20·log10(rms)
+dBFS, ~43 Hz per-chunk cadence, 2.0 s peak-hold seed, max-post-tap → first-below-(peak−15 dB)), but NOT
+the same *clock*. The **web** times decay on the AUDIO clock (sample-count / rate) → deterministic and
+correct under headless/fast file playback. **Swift** (`Date()`) and **Python** (`time.monotonic()`) time
+decay on WALL-CLOCK — fine for live mic / real-time-paced playback, but a fast/headless play of a recorded
+file yields ~0 wall-clock deltas → garbage ring-out. So a deterministic ring-out value can be pinned in the
+web today but NOT in Swift/Python's fast regression harness.
+**Plan:** (1) move Swift + Python decay timing to audio-sample time (mirror the web) — also more correct
+for real file playback, and makes ring-out *values* identical across platforms for the same WAV; then
+(2) add a shared **REG-G ring-out** regression test to all three (web `g11-file-playback`, Python
+`test_file_playback_regression`, Swift `FilePlaybackRegressionTests`) that plays a guitar WAV
+(`Recording 5.wav` single-tap is already a shared fixture) and asserts `decayTime` against a golden value
+within tolerance. NB: Swift is the master and on Apple-review hold — the clock change is behavioral, so it
+waits for a release window; sequence the web test first (it's deterministic now), Python/Swift after the
+clock move. Builds on the audit recorded in the Phase 6 memory.
+
+### 6j — Status-bar review (footer status + metrics line)
+Audit the app's bottom status bar for Swift/Python parity — content, wording, and conditions. The web
+footer currently shows the run indicator (green ● "Analyzing" / gray ● "Stopped", added in 6b) plus a
+metrics line (e.g. "48.0 kHz · 0.73 Hz/bin · 0.73 fps · AGC ? · EC off · NS ?"). Open questions: do Swift
+and Python show the same fields, in the same order, with the same labels/units? Are the "?" states (AGC/NS
+unknown) handled the same, or should they resolve to on/off? Is the sample-rate / bin-width / fps line a
+native feature or web-only? Compare against Swift's and Python's status presentation and reconcile (drop
+web-only clutter, add any missing native fields). Not yet scoped against the canonical source — start with
+a read of how Swift/Python render their status/footer.
 
 ## Architecture & tooling (HIGH PRIORITY — do early)
 
@@ -116,7 +185,12 @@ oracle-tested), `components/*.tsx` = **views**, `audio/engine.ts` = a **service*
 **utilities**. React expresses the ViewModel layer as **custom hooks**, not a folder. The real
 divergences are two:
 
-### 6-ARCH — ViewModel hooks + presentation layer
+### 6-ARCH — ViewModel hooks + presentation layer ✅ DONE
+**Done 2026-06-28:** extracted `useAudioEngine`, `useMaterialSession`, `useAnnotations`, `useChartView`
+hooks (App.tsx ~1,570 → ~1,250 lines) and moved the non-component `.ts` (chartTypes, modeColors,
+spectrumRender, spectrumExport, pdfReport, measurementImage) into a `presentation/` layer so the model
+no longer imports from views. Tests green after each step. Original plan below.
+
 - **`App.tsx` is ~1,570 lines** — it's the de-facto ViewModel (most state + handlers) inline in the
   root view. Extract **custom hooks**, each owning a coherent slice of state + its handlers (the React
   ViewModel): candidates `useAudioEngine` (engine lifecycle + capture/material callbacks + clip/level),
@@ -190,11 +264,13 @@ final layout/naming) and alongside the feature sub-phases (e.g. the decay-tracki
   "Optional:" line; **not** a Swift/Python parity gap (neither app has cloud sync). May be dropped.
 
 ## Sequencing
-**6-ARCH first / alongside 6a-6b** (user: high priority) — extracting hooks de-risks every feature
-that touches `App.tsx` (6b especially), so do the `useAudioEngine`/`useMeasurementLibrary` extraction
-and the `presentation/` move early, incrementally, tests green after each step. **6-MAP** can land
-anytime (independent tooling) — recommend right after the `presentation/` move so the anchors are added
-as files settle. Then features: **6a (decay) → 6b (live analysis boxes)** (highest user value, feeds
-the PDF) → ~~6c (log freq, DROPPED — not a parity gap)~~ **6d (material drag)**, **6e (multi-tap PDF)** in any order → **6f, 6g,
-6h** polish. Verify each gap against current `main` before starting (Phase 5 already closed some items
-an earlier audit listed as missing — e.g. per-capture WAV, saved-comparison PDF).
+**Done so far:** ~~6-ARCH~~ → ~~6a (decay)~~ → ~~6b (live analysis boxes)~~ → ~~6c (log freq, DROPPED — not a parity gap)~~ → ~~6d (material drag)~~ → ~~6e (multi-tap PDF)~~.
+
+**Remaining:** **6f (continuous session WAV)**, **6g (Help View + manual link)**,
+**6h (per-type display ranges, minor)**, **6j (status-bar review)** in roughly that priority order;
+**6i (decay clock → audio-time + ring-out regression test)** is gated on a Swift release window (the
+clock change is behavioral, Apple-review hold); plus the tooling **6-MAP** (needs tag-syntax sign-off)
+and the **6-TEST** normalization (major — sequence after 6-MAP so the web suites land in their final
+naming). Verify each gap against current `main` before starting (Phase 5 +
+the work above already closed several items an earlier audit listed as missing — e.g. per-capture WAV,
+saved-comparison PDF, the log-axis "gap").
