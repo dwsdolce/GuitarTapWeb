@@ -36,12 +36,14 @@ interface UseAudioEngineArgs {
   measRef: MutableRefObject<MeasurementType>
   /** Tap-detection threshold for the engine's initial config. */
   tapThresholdRef: MutableRefObject<number>
+  /** "Dump Capture Audio" diagnostic flag for the engine's initial config (gates session recording). */
+  dumpCaptureRef: MutableRefObject<boolean>
   /** A guitar tap (or averaged multi-tap) was captured — App stores the frozen result. STABLE. */
   onGuitarCapture: (spectrum: Spectrum, taps?: Spectrum[]) => void
   /** A gated material phase was captured — the material session records + advances. STABLE. */
   onMaterialCapture: (r: MaterialCaptureResult) => void
-  /** Raw captured buffer for the Dump-Capture-Audio diagnostic. STABLE. */
-  onCaptureAudio: (samples: Float32Array, sampleRate: number, kind: 'guitar' | 'material') => void
+  /** Continuous session WAV for the Dump-Capture-Audio diagnostic (one per measurement). STABLE. */
+  onSessionAudio: (samples: Float32Array, sampleRate: number, label: string) => void
 }
 
 export interface AudioEngineModel {
@@ -84,7 +86,8 @@ export function useAudioEngine({
   tapThresholdRef,
   onGuitarCapture,
   onMaterialCapture,
-  onCaptureAudio,
+  onSessionAudio,
+  dumpCaptureRef,
 }: UseAudioEngineArgs): AudioEngineModel {
   const [running, setRunning] = useState(false)
   const [engineState, setEngineState] = useState<EngineState>('idle')
@@ -188,7 +191,7 @@ export function useAudioEngine({
         onProgress: (collected, total) => setProgress({ collected, total }),
         onMetrics: setEngineMetrics,
         onMaterialCapture,
-        onCaptureAudio,
+        onSessionAudio,
         // A mic was attached (auto-selected) or the active one was unplugged (fell back): re-sync the
         // device + RELOAD that device's calibration (None if it has none). Mirrors Swift's didSet.
         onInputChanged: (deviceId) => {
@@ -201,7 +204,7 @@ export function useAudioEngine({
         },
         onDecay: setDecayTime,
       },
-      { tapDetectionThreshold: tapThresholdRef.current },
+      { tapDetectionThreshold: tapThresholdRef.current, dumpCaptureAudio: dumpCaptureRef.current },
     )
     engineRef.current = engine
     try {
@@ -219,7 +222,7 @@ export function useAudioEngine({
       setError(e instanceof Error ? e.message : String(e))
       engineRef.current = null
     }
-  }, [engineRef, measRef, tapThresholdRef, onGuitarCapture, onMaterialCapture, onCaptureAudio, applyCalibrationForDevice, refreshDevices])
+  }, [engineRef, measRef, tapThresholdRef, dumpCaptureRef, onGuitarCapture, onMaterialCapture, onSessionAudio, applyCalibrationForDevice, refreshDevices])
 
   // Start listening automatically — GuitarTap has no Start button; the only
   // browser-mandated gate is the mic permission prompt itself.

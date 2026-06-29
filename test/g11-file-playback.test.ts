@@ -173,3 +173,50 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
     }
   })
 })
+
+// 6f: continuous session recording (Swift finishSessionRecording). When the dump-capture diagnostic
+// is on, a guitar measurement emits ONE session WAV labeled "Guitar_<n>tap" covering every chunk that
+// flowed through the pipeline (arm → final tap). Off (default), nothing is buffered or emitted.
+async function playGuitarSession(
+  reg: { fixture: string; calibration: string | null; settings: RegSettings },
+  dumpCaptureAudio: boolean,
+): Promise<{ wav: { samples: Float32Array; sampleRate: number }; sessions: { samples: Float32Array; rate: number; label: string }[] }> {
+  const wav = loadWav(reg.fixture)
+  const sessions: { samples: Float32Array; rate: number; label: string }[] = []
+  const engine = new AudioEngine(
+    { onSessionAudio: (samples, rate, label) => sessions.push({ samples, rate, label }) },
+    {
+      tapDetectionThreshold: reg.settings.tapDetectionThreshold,
+      numberOfTaps: reg.settings.numberOfTaps ?? 1,
+      dumpCaptureAudio,
+    },
+  )
+  engine.initForTesting()
+  await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration), pace: false })
+  return { wav, sessions }
+}
+
+describe('G11 — continuous session recording (6f)', () => {
+  it('REG-G1 + dump on: one session WAV labeled Guitar_1tap, continuous & bounded by the file', async () => {
+    const { wav, sessions } = await playGuitarSession(oracle.filePlayback['REG-G1'], true)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]!.label).toBe('Guitar_1tap')
+    expect(sessions[0]!.rate).toBe(wav.sampleRate)
+    // Covers the arm→tap→capture span: a continuous run of many chunks (not empty / single-chunk),
+    // and never more than the whole file. (Exact length is deterministic but not pinned, to stay
+    // robust to capture-window/detection-timing tweaks.)
+    expect(sessions[0]!.samples.length).toBeGreaterThan(8192)
+    expect(sessions[0]!.samples.length).toBeLessThanOrEqual(wav.samples.length)
+  })
+
+  it('REG-G2 multi-tap: session labeled by the tap count (Guitar_8tap)', async () => {
+    const { sessions } = await playGuitarSession(oracle.filePlayback['REG-G2'], true)
+    expect(sessions).toHaveLength(1)
+    expect(sessions[0]!.label).toBe('Guitar_8tap')
+  })
+
+  it('dump off (default): no session WAV is emitted or buffered', async () => {
+    const { sessions } = await playGuitarSession(oracle.filePlayback['REG-G1'], false)
+    expect(sessions).toHaveLength(0)
+  })
+})

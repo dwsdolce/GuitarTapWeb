@@ -91,12 +91,24 @@ export function useMaterialSession({
     [measRef, calibrationRef],
   )
 
+  // Continuous session WAV label for a completed material measurement (Swift Plate_LC / Plate_LCF /
+  // Brace). Engine no-ops if no session is recording (dump setting off, or file playback).
+  const finishMaterialSession = useCallback(() => {
+    const label = measRef.current === 'brace' ? 'Brace' : measureFlcRef.current ? 'Plate_LCF' : 'Plate_LC'
+    engineRef.current?.finishSessionRecording(label)
+  }, [engineRef, measRef, measureFlcRef])
+
   const startMaterial = useCallback(
     (arm = true) => {
       setMatPeaks(EMPTY_MAT_PEAKS)
       setMatSpectra(EMPTY_MAT_SPECTRA)
       setMatPhase('capturingL')
-      if (arm) engineRef.current?.armMaterial(matSearch('longitudinal'))
+      if (arm) {
+        // Begin the continuous session WAV (dump-gated). startSessionRecording seeds checkpoint [0]
+        // (the L-phase truncation anchor), so no explicit checkpoint is needed here.
+        engineRef.current?.startSessionRecording()
+        engineRef.current?.armMaterial(matSearch('longitudinal'))
+      }
     },
     [engineRef, matSearch, setMatPhase],
   )
@@ -105,21 +117,26 @@ export function useMaterialSession({
     const phase = matPhaseRef.current
     if (phase === 'reviewingL') {
       setMatPhase('capturingC')
+      engineRef.current?.checkpointSession() // C phase start (so a redo can drop it)
       engineRef.current?.armMaterial(matSearch('cross'))
     } else if (phase === 'reviewingC') {
       if (measureFlcRef.current) {
         setMatPhase('capturingFlc')
+        engineRef.current?.checkpointSession() // FLC phase start
         engineRef.current?.armMaterial(matSearch('flc'))
       } else {
         setMatPhase('complete')
+        finishMaterialSession()
       }
     } else if (phase === 'reviewingFlc') {
       setMatPhase('complete')
+      finishMaterialSession()
     }
-  }, [engineRef, measureFlcRef, matSearch, setMatPhase])
+  }, [engineRef, measureFlcRef, matSearch, setMatPhase, finishMaterialSession])
 
   const redoMaterial = useCallback(() => {
     const phase = matPhaseRef.current
+    engineRef.current?.redoSession() // drop the rejected phase's audio from the session WAV
     if (phase === 'reviewingL') {
       setMatPhase('capturingL')
       engineRef.current?.armMaterial(matSearch('longitudinal'))
@@ -149,8 +166,10 @@ export function useMaterialSession({
       if (ph === 'longitudinal') {
         setMatSpectra((s) => ({ ...s, longitudinal: spectrum }))
         setMatPeaks((p) => ({ ...p, longitudinal: peak }))
-        if (measRef.current === 'brace') setMatPhase('complete')
-        else setMatPhase(playing ? 'capturingC' : 'reviewingL')
+        if (measRef.current === 'brace') {
+          setMatPhase('complete')
+          finishMaterialSession() // brace = single phase → session done
+        } else setMatPhase(playing ? 'capturingC' : 'reviewingL')
       } else if (ph === 'cross') {
         setMatSpectra((s) => ({ ...s, cross: spectrum }))
         setMatPeaks((p) => ({ ...p, cross: peak }))
@@ -162,14 +181,15 @@ export function useMaterialSession({
         setMatPhase(playing ? 'complete' : 'reviewingFlc')
       }
     },
-    [engineRef, measRef, measureFlcRef, setMatPhase],
+    [engineRef, measRef, measureFlcRef, setMatPhase, finishMaterialSession],
   )
 
   const resetMaterial = useCallback(() => {
     setMatPhase('notStarted')
     setMatPeaks(EMPTY_MAT_PEAKS)
     setMatSpectra(EMPTY_MAT_SPECTRA)
-  }, [setMatPhase])
+    engineRef.current?.cancelSessionRecording() // abandon any partial session WAV
+  }, [engineRef, setMatPhase])
 
   const restoreMaterial = useCallback(
     (m: { matSpectra: MatSpectra; matPeaks: MaterialPeaks }) => {

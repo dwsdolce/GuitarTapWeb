@@ -52,10 +52,11 @@ export interface AudioEngineCallbacks {
   onClipping?: (clipping: boolean) => void
   /** A gated material tap was captured (one phase of a plate/brace measurement). */
   onMaterialCapture?: (result: MaterialCaptureResult) => void
-  /** Raw captured buffer for the "Dump Capture Audio" diagnostic — fired per guitar tap and
-   *  per material phase with the exact samples that were analyzed. `kind` is the capture kind;
-   *  the caller adds context (phase/tap) + decides whether to write the WAV (setting-gated). */
-  onCaptureAudio?: (samples: Float32Array, sampleRate: number, kind: 'guitar' | 'material') => void
+  /** Continuous session recording for the "Dump Capture Audio" diagnostic — fired ONCE at the end of a
+   *  measurement with every chunk that flowed through the pipeline while recording (minus paused
+   *  segments and redone phases), so replaying it reproduces the session. `label` identifies the
+   *  measurement ("Guitar_8tap" / "Plate_LC" / "Plate_LCF" / "Brace"). Mirrors Swift finishSessionRecording. */
+  onSessionAudio?: (samples: Float32Array, sampleRate: number, label: string) => void
   /** Live-FFT performance, emitted once per continuous spectrum (FFTAnalysisMetricsView). */
   onMetrics?: (m: EngineMetrics) => void
   /** The active input device changed on its own (a mic was attached → auto-selected, or the active
@@ -82,11 +83,14 @@ export interface AudioEngineConfig {
   tapDetectionThreshold: number
   /** Number of taps to average (1–10). */
   numberOfTaps: number
+  /** "Dump Capture Audio" diagnostic on — gates continuous session recording (no buffer cost when off). */
+  dumpCaptureAudio: boolean
 }
 
 const DEFAULT_CONFIG: AudioEngineConfig = {
   tapDetectionThreshold: -40,
   numberOfTaps: 1,
+  dumpCaptureAudio: false,
 }
 
 const CLIP_HOLD_SECONDS = 1.5
@@ -160,6 +164,17 @@ export class AudioEngine {
   // audio clock (deterministic / file-playback-safe), not wall-clock. Canonical value = Swift's CODE.
   private recentPeakDb = -100
   private recentPeakTime = 0
+
+  // Continuous session recording (Swift sessionRecordingBuffer) — every pipeline chunk while
+  // `sessionRecording`, accumulated as chunk slices. `sessionActive` survives pause/resume (which
+  // toggle `sessionRecording`); `sessionCheckpoints` hold the chunk-count at each phase start so a
+  // redone material phase can be truncated away. Only runs when the dump-capture setting is on.
+  private sessionChunks: Float32Array[] = []
+  private sessionCheckpoints: number[] = []
+  private sessionRecording = false
+  private sessionActive = false
+  private sessionRate = 48000
+
   /** Latest measured ring-out time (s), read into the measurement at save (Swift currentDecayTime). */
   get decayTime(): number | null {
     return this.decay.decayTime
@@ -245,6 +260,7 @@ export class AudioEngine {
     this.lastDecay = null
     this.callbacks.onDecay?.(null)
     this.callbacks.onProgress?.(0, this.config.numberOfTaps)
+    this.startSessionRecording() // begin the continuous session WAV for this guitar sequence (dump-gated)
     this.setState('listening')
   }
 
@@ -268,7 +284,10 @@ export class AudioEngine {
    *  the collected taps are preserved. Mirrors Swift `pauseTapDetection()`. Only acts while
    *  listening — the capture window is sub-second and finishes on its own. */
   pause(): void {
-    if (this.state === 'listening') this.setState('paused')
+    if (this.state === 'listening') {
+      this.sessionRecording = false // exclude the paused segment from the session WAV (Swift)
+      this.setState('paused')
+    }
   }
 
   /** Resume after a pause, continuing the sequence from the current tap count. Resets the
@@ -278,6 +297,7 @@ export class AudioEngine {
     if (this.state !== 'paused') return
     this.prevAbove = true
     this.consecutive = 0
+    if (this.sessionActive) this.sessionRecording = true // resume accumulating into the session WAV
     this.setState('listening')
   }
 
@@ -291,7 +311,59 @@ export class AudioEngine {
     this.captureIdx = 0
     this.prevAbove = true
     this.consecutive = 0
+    this.cancelSessionRecording() // discard the partial session WAV
     this.setState('idle')
+  }
+
+  // ── Continuous session recording (Swift TapToneAnalyzer session WAV) ────────
+  /** Begin accumulating every pipeline chunk for the session WAV (no-op unless the dump setting is on).
+   *  Guitar calls this from `arm()`; live material drives it from useMaterialSession. */
+  startSessionRecording(): void {
+    if (!this.config.dumpCaptureAudio) return
+    this.sessionChunks = []
+    this.sessionCheckpoints = [0] // first-phase truncation anchor (Swift/Python seed [0] at start)
+    this.sessionRate = this.sampleRate
+    this.sessionActive = true
+    this.sessionRecording = true
+  }
+
+  /** Mark a phase boundary so a later redo can truncate the rejected phase's audio (Swift sessionCheckpoints). */
+  checkpointSession(): void {
+    if (this.sessionActive) this.sessionCheckpoints.push(this.sessionChunks.length)
+  }
+
+  /** Redo the current phase: drop everything recorded since the last checkpoint (Swift redo truncation). */
+  redoSession(): void {
+    if (!this.sessionActive) return
+    const cp = this.sessionCheckpoints[this.sessionCheckpoints.length - 1] ?? 0
+    if (cp < this.sessionChunks.length) this.sessionChunks.length = cp
+  }
+
+  /** Finish the session: emit the accumulated audio (if any) as one WAV via onSessionAudio, then clear. */
+  finishSessionRecording(label: string): void {
+    this.sessionRecording = false
+    this.sessionActive = false
+    const chunks = this.sessionChunks
+    const rate = this.sessionRate
+    this.sessionChunks = []
+    this.sessionCheckpoints = []
+    const total = chunks.reduce((n, c) => n + c.length, 0)
+    if (total === 0) return
+    const out = new Float32Array(total)
+    let o = 0
+    for (const c of chunks) {
+      out.set(c, o)
+      o += c.length
+    }
+    this.callbacks.onSessionAudio?.(out, rate, label)
+  }
+
+  /** Abandon the session without writing (cancel / measurement-type change / New Tap of a fresh kind). */
+  cancelSessionRecording(): void {
+    this.sessionRecording = false
+    this.sessionActive = false
+    this.sessionChunks = []
+    this.sessionCheckpoints = []
   }
 
   private setState(state: EngineState): void {
@@ -485,6 +557,10 @@ export class AudioEngine {
       this.callbacks.onDecay?.(this.lastDecay)
     }
 
+    // Continuous session recording: keep every chunk that flows through the pipeline while active
+    // (Swift sessionRecordingBuffer.append). Paused segments are excluded (pause() clears the flag).
+    if (this.sessionRecording) this.sessionChunks.push(s.slice())
+
     this.feedContinuous(s)
     this.feedPreroll(s)
     if (this.state === 'capturing') this.feedCapture(s)
@@ -552,6 +628,7 @@ export class AudioEngine {
     } else {
       this.captureKind = 'guitar'
       this.capture = this.guitarCapture
+      this.startSessionRecording() // continuous session WAV for the played guitar sequence (dump-gated)
       this.setState('listening')
       this.callbacks.onProgress?.(0, this.config.numberOfTaps)
     }
@@ -684,7 +761,6 @@ export class AudioEngine {
         this.sampleRate,
         this.materialSearch!,
       )
-      this.callbacks.onCaptureAudio?.(this.capture.slice(), this.sampleRate, 'material')
       this.captureIdx = 0
       this.setState('idle')
       const sess = this.materialSession
@@ -712,7 +788,6 @@ export class AudioEngine {
       return
     }
 
-    this.callbacks.onCaptureAudio?.(this.capture.slice(0, GUITAR_FFT_SIZE), this.sampleRate, 'guitar')
     const spectrum = this.applyCal(dftAnalRect(this.capture, this.sampleRate, GUITAR_FFT_SIZE))
     this.captureIdx = 0
     this.collected.push(spectrum)
@@ -732,6 +807,7 @@ export class AudioEngine {
     const taps = total > 1 ? this.collected : undefined
     this.collected = []
     this.callbacks.onProgress?.(total, total)
+    this.finishSessionRecording(`Guitar_${total}tap`) // write the continuous session WAV (dump-gated)
     this.setState('idle')
     this.callbacks.onCapture?.(result, taps)
   }
@@ -751,6 +827,7 @@ export class AudioEngine {
     this.accumIdx = 0
     this.captureIdx = 0
     this.collected = []
+    this.cancelSessionRecording()
     this.lastClipTime = null
     this.clipState = false
     this.setState('idle')

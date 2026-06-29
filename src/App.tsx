@@ -296,13 +296,17 @@ export default function App() {
   tapThresholdRef.current = settings.tapDetectionThreshold
   const dumpAudioRef = useRef(settings.dumpCaptureAudio)
   dumpAudioRef.current = settings.dumpCaptureAudio
+  // Keep the engine's dump flag in sync so it (de)activates continuous session recording on the next
+  // measurement (the engine gates session accumulation on this to avoid buffering when the diagnostic is off).
+  useEffect(() => {
+    engineRef.current?.setConfig({ dumpCaptureAudio: settings.dumpCaptureAudio })
+  }, [settings.dumpCaptureAudio])
 
   // The audio engine handle (constructed in `start`) — declared early so the material session
   // can arm it. Material measurement (plate/brace phase machine) — see hooks/useMaterialSession.
   const engineRef = useRef<AudioEngine | null>(null)
   const {
     matPhase,
-    matPhaseRef,
     matPeaks,
     matSpectra,
     startMaterial,
@@ -381,19 +385,10 @@ export default function App() {
     setShowMultiTap(false)
     setComparison(null)
   }, [])
-  // Dump-Capture-Audio diagnostic: label the WAV by the material phase just captured (else "guitar").
-  const onCaptureAudio = useCallback((samples: Float32Array, sr: number, kind: 'guitar' | 'material') => {
-    if (!dumpAudioRef.current) return
-    const label =
-      kind === 'material'
-        ? matPhaseRef.current === 'capturingC' || matPhaseRef.current === 'reviewingC'
-          ? 'cross'
-          : matPhaseRef.current === 'capturingFlc' || matPhaseRef.current === 'reviewingFlc'
-            ? 'flc'
-            : 'longitudinal'
-        : 'guitar'
-    dumpCaptureWav(samples, sr, label)
-  }, [matPhaseRef])
+  // Continuous session WAV (one per measurement) — the engine already gated it on the dump setting.
+  const onSessionAudio = useCallback((samples: Float32Array, sr: number, label: string) => {
+    dumpCaptureWav(samples, sr, `session_${label}`)
+  }, [])
 
   // Audio engine: lifecycle + telemetry + audio-input/calibration — see hooks/useAudioEngine.
   const {
@@ -423,7 +418,7 @@ export default function App() {
     onSelectCalibration,
     onDeleteCalibration,
     retry,
-  } = useAudioEngine({ engineRef, calibrationRef, measRef, tapThresholdRef, onGuitarCapture, onMaterialCapture: recordCapture, onCaptureAudio })
+  } = useAudioEngine({ engineRef, calibrationRef, measRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onGuitarCapture, onMaterialCapture: recordCapture, onSessionAudio })
 
   // Play a recorded WAV through the live pipeline (Swift openAudioFile/startFromFile). Resets the
   // view like New Tap, applies an optional calibration for the playback, then pumps. Guitar arms a

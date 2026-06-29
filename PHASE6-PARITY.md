@@ -22,7 +22,7 @@ gap — see 6c: neither native app exposes a user toggle, and the web already mi
 - ✅ **6c** — DROPPED (not a parity gap; the original audit was wrong)
 - ✅ **6d** — Material annotation dragging (single shared offset store, save/load)
 - ✅ **6e** — Multi-tap PDF report (two-page: averaged + per-tap comparison)
-- ⬜ **6f** — Continuous session-recording WAV
+- ✅ **6f** — Continuous session-recording WAV (guitar live + file; live material; gated on the dump setting)
 - ⬜ **6g** — In-app Help View + online User Manual link
 - ⬜ **6h** — Per-measurement-type display ranges (minor)
 - ⬜ **6i** — Decay clock → audio-time everywhere + cross-platform ring-out regression test
@@ -104,12 +104,31 @@ gates on `m.tapEntries.length > 1` ("multi-tap always produces the two-page repo
 Per-tap colors reuse `COMPARISON_PALETTE`; averaged uses `MULTITAP_AVG_COLOR`. 5 tests in
 `g9-multitap.test.ts`; 132 green, typecheck+build clean. (Single + saved-comparison PDFs were Phase 5.)
 
-### 6f — Continuous session-recording WAV
-Phase 5 added the **per-capture** dump (guitar per-tap + material per-phase analyzed buffers).
-Swift **also** writes a **continuous session buffer** (`finishSessionRecording` accumulates
-every accepted phase across the whole measurement → one `*_session_*.wav`). Add a continuous
-accumulation buffer in the engine (gated to the dump setting) + a session WAV at completion.
-Lower value than 6a–6e.
+### 6f — Continuous session-recording WAV ✅ DONE
+**Done 2026-06-29:** the engine accumulates every pipeline chunk into a session buffer while
+`sessionRecording`, emitting it once at measurement completion via the new `onSessionAudio(samples,
+rate, label)` callback → App writes `session_<label>.wav`. Mirrors Swift `finishSessionRecording`:
+labels `Guitar_<n>tap` / `Plate_LC` / `Plate_LCF` / `Brace`; paused segments excluded (pause/resume
+toggle the flag); redone material phases truncated via checkpoints (`checkpointSession`/`redoSession`).
+Accumulation is **gated on the `dumpCaptureAudio` setting** (config flag synced from App) so there's
+zero buffering cost when the diagnostic is off. **Guitar** is engine-managed (auto-start in `arm()` +
+the file-playback guitar branch, auto-finish on the final tap) so it covers live AND file playback;
+**live material** is driven by `useMaterialSession` (start/checkpoint/redo/finish/cancel). Tests:
+3 cases in `g11-file-playback` (Guitar_1tap continuous+bounded, Guitar_8tap label, off→none); 135 green.
+**Known minor gap:** file-playback *material* sessions aren't recorded (the engine owns that auto-advance
+path; live material — the actual diagnostic use — is fully wired). Low value (you already have the file).
+**Parity correction (2026-06-29) — ALL THREE PLATFORMS:** the "Dump Capture Audio" diagnostic now writes
+ONLY the continuous session WAV per measurement; the per-capture/intermediate dumps are gone. The session
+file already contains every APPROVED tap/phase in capture order (redone phases truncated via the
+checkpoint mechanism), which is the whole point — replay reproduces the measurement. Changes:
+(1) the web's per-phase material dump (a Phase-5 over-implementation) was removed; (2) the **per-tap
+"guitar" dump** that Swift+Python+web all wrote in finish[Guitar]GatedCapture was removed from **all three**
+(Swift `+SpectrumCapture.swift:621`, Python `…spectrum_capture.py:777`, web engine `onCaptureAudio` —
+removed entirely). So a 3-tap guitar = one `session_Guitar_3tap.wav`; a plate = one `session_Plate_LCF.wav`
+(5 taps/phase × 3 phases = 15 taps, in order). **Redo-of-first-phase** is handled by the session-start
+checkpoint `[0]` (Swift `Control.swift:172` + Python `:622` already seeded it; the web now seeds `[0]` in
+`startSessionRecording` too). Verified: web 135 tests, Python 372 tests; Swift edit is a clean
+single-statement removal (params still used; on the Apple-review hold — edited, not committed).
 
 ### 6g — In-app Help View + online User Manual link
 Two distinct things both Swift and Python expose, and the web currently has **neither** (only the
@@ -266,7 +285,7 @@ final layout/naming) and alongside the feature sub-phases (e.g. the decay-tracki
 ## Sequencing
 **Done so far:** ~~6-ARCH~~ → ~~6a (decay)~~ → ~~6b (live analysis boxes)~~ → ~~6c (log freq, DROPPED — not a parity gap)~~ → ~~6d (material drag)~~ → ~~6e (multi-tap PDF)~~.
 
-**Remaining:** **6f (continuous session WAV)**, **6g (Help View + manual link)**,
+**Remaining:** **6g (Help View + manual link)**,
 **6h (per-type display ranges, minor)**, **6j (status-bar review)** in roughly that priority order;
 **6i (decay clock → audio-time + ring-out regression test)** is gated on a Swift release window (the
 clock change is behavioral, Apple-review hold); plus the tooling **6-MAP** (needs tag-syntax sign-off)
