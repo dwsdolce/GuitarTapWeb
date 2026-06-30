@@ -204,6 +204,19 @@ export class AudioEngine {
   private lastClipTime: number | null = null
   private clipState = false
 
+  // Buffer-delivery watchdog (mirrors Swift RealtimeFFTAnalyzer+Watchdog / Python).
+  // Recovers from a silently-starved mic stream: the worklet stops posting chunks with
+  // no error (the active track ends/mutes, the OS reconfigures the device, another app
+  // takes it). A timer detects the silence and re-acquires the stream with bounded backoff.
+  private lastChunkTime = 0
+  private watchdogTimer: ReturnType<typeof setInterval> | null = null
+  private engineStartTime = 0
+  private isRecovering = false
+  private recoveryAttempts = 0
+  private readonly watchdogSilenceMs = 2500
+  private readonly watchdogMaxAttempts = 6
+  private readonly watchdogBackoffsMs = [500, 1000, 2000, 4000]
+
   // Live-FFT performance (30-frame moving average), for the Metrics panel.
   private readonly procTimes: number[] = []
   processingMs = 0
@@ -443,6 +456,7 @@ export class AudioEngine {
   private async applyStream(stream: MediaStream, requestedDeviceId?: string | null): Promise<void> {
     if (!this.context || !this.node) return
     const track = stream.getAudioTracks()[0]!
+    this.watchTrack(track)
     try {
       await track.applyConstraints({ echoCancellation: false, noiseSuppression: false, autoGainControl: false })
     } catch {
@@ -504,6 +518,7 @@ export class AudioEngine {
     // actual ctx.sampleRate; the UI warns if it isn't EXPECTED_SAMPLE_RATE.
     this.stream = await this.acquireStream(deviceId) // exact saved device, else default (Safari stale ids)
     const track = this.stream.getAudioTracks()[0]!
+    this.watchTrack(track)
     // Re-assert processing-off; some UAs only honor applyConstraints.
     try {
       await track.applyConstraints({ echoCancellation: false, noiseSuppression: false, autoGainControl: false })
@@ -536,11 +551,83 @@ export class AudioEngine {
     // Baseline the device list + watch for hot-plug changes (attach → auto-select, unplug → fall back).
     this.knownDevices = (await this.listInputs()).map((d) => d.deviceId)
     navigator.mediaDevices.addEventListener('devicechange', this.handleDeviceChange)
+
+    this.startBufferWatchdog()
+  }
+
+  // ── Buffer-delivery watchdog ────────────────────────────────────────────────
+  // Detects a silently-starved mic stream (worklet stops posting chunks, no error)
+  // and re-acquires the input with bounded backoff. Mirrors Swift/Python.
+
+  private startBufferWatchdog(): void {
+    this.stopBufferWatchdog()
+    this.engineStartTime = performance.now()
+    this.lastChunkTime = performance.now()
+    this.watchdogTimer = setInterval(() => this.checkBufferWatchdog(), 1000)
+  }
+
+  private stopBufferWatchdog(): void {
+    if (this.watchdogTimer != null) {
+      clearInterval(this.watchdogTimer)
+      this.watchdogTimer = null
+    }
+  }
+
+  private checkBufferWatchdog(): void {
+    // Only watch a live, running mic context (a suspended context — backgrounded tab —
+    // legitimately delivers no chunks and must not be "recovered").
+    if (!this.context || this.context.state !== 'running' || this.playingFile || this.isRecovering) return
+    if (performance.now() - this.engineStartTime <= 4000) return // startup grace
+    const silentFor = performance.now() - this.lastChunkTime
+    if (silentFor <= this.watchdogSilenceMs) {
+      if (this.recoveryAttempts !== 0) this.recoveryAttempts = 0 // healthy — clear the streak
+      return
+    }
+    console.warn(`[engine] buffer watchdog: no audio for ${Math.round(silentFor)}ms — re-acquiring input`)
+    this.isRecovering = true
+    void this.attemptWatchdogRecovery()
+  }
+
+  private async attemptWatchdogRecovery(): Promise<void> {
+    this.recoveryAttempts += 1
+    if (this.recoveryAttempts > this.watchdogMaxAttempts) {
+      console.error(`[engine] buffer watchdog: gave up after ${this.watchdogMaxAttempts} attempts`)
+      this.isRecovering = false
+      this.stopBufferWatchdog()
+      return
+    }
+    const backoff = this.watchdogBackoffsMs[Math.min(this.recoveryAttempts - 1, this.watchdogBackoffsMs.length - 1)]!
+    await new Promise((r) => setTimeout(r, backoff))
+    try {
+      // Re-acquire the current input (exact device, else default) and reconnect the
+      // source to the existing worklet node — the context/worklet survive.
+      await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId)
+      this.lastChunkTime = performance.now() // give the fresh stream a grace window
+      this.engineStartTime = performance.now()
+      console.warn('[engine] buffer watchdog: input re-acquired')
+      this.isRecovering = false
+    } catch (e) {
+      console.warn('[engine] buffer watchdog: re-acquire failed, retrying', e)
+      void this.attemptWatchdogRecovery() // bounded retry
+    }
   }
 
   private onChunk(data: ChunkMessage): void {
+    this.lastChunkTime = performance.now() // watchdog liveness stamp (the mic worklet is alive)
     if (this.playingFile) return // mic chunks are ignored while a file plays through the pipeline
     this.processChunk(data.samples, data.rms)
+  }
+
+  /** Wire a fresh input track's loss signals: `ended` (device truly gone) forces the watchdog
+   *  to recover on its next tick; `mute` is informational (a persistent mute is caught by the
+   *  watchdog's silence threshold; a transient one self-resolves without a disruptive re-acquire). */
+  private watchTrack(track: MediaStreamTrack): void {
+    track.onended = () => {
+      this.lastChunkTime = 0 // force "starved" so the next watchdog tick re-acquires
+    }
+    track.onmute = () => {
+      /* no-op: the watchdog recovers only if the silence persists past the threshold */
+    }
   }
 
   // The shared per-chunk core, fed by BOTH the live mic (onChunk) and file playback (playFile),
@@ -846,6 +933,7 @@ export class AudioEngine {
   }
 
   async stop(): Promise<void> {
+    this.stopBufferWatchdog()
     navigator.mediaDevices.removeEventListener('devicechange', this.handleDeviceChange)
     this.knownDevices = []
     this.removeGestureResume?.()

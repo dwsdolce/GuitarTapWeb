@@ -624,6 +624,34 @@
   display: flex;
   flex-direction: column;
 }
+/* Alert dialog (native .alert popups: Microphone Not Connected / Access Required / Audio Engine Error). */
+.alert-modal {
+  max-width: 420px;
+  padding: 1.25rem 1.4rem;
+}
+.alert-title {
+  margin: 0 0 0.4rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.alert-message {
+  margin: 0 0 1.1rem;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 0.92rem;
+}
+.alert-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+.alert-modal .btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06121f;
+  font-weight: 600;
+}
 .settings-modal-head {
   display: flex;
   align-items: center;
@@ -861,6 +889,19 @@
   flex: 1 1 auto;
 }
 
+/* Loaded-measurement settings banner — sits in the status-bar region, above the bar
+   (mirrors Swift's "Settings from loaded measurement — …" row). */
+.loaded-settings-banner {
+  padding: 0.4rem 0.85rem;
+  margin-top: 0.4rem;
+  border: 1px solid #6b4a1e;
+  background: #2a1f10;
+  color: #f0a258;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
 /* ── Main: spectrum + results pane ───────────────────────── */
 .main {
   display: flex;
@@ -873,11 +914,14 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .chart-wrap {
   width: 100%;
-  height: 100%;
-  min-height: 320px;
+  flex: 1 1 auto;
+  min-height: 240px;
   /* No fixed aspect ratio — the chart fills the available vertical space (matches native). */
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -888,6 +932,72 @@
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+/* Material (plate/brace) instruction panel below the chart — mirrors Swift
+   materialInstructionsView / Python material instruction panel. */
+.mat-instr {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  padding: 10px 12px;
+}
+.mat-instr-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.mat-instr-phase {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mat-instr-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.mat-instr-short {
+  font-weight: 600;
+  font-size: 13px;
+}
+.mat-instr-step {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+.mat-instr-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 8px 0;
+}
+.mat-instr-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.mat-instr-icon {
+  flex: 0 0 30px;
+  display: flex;
+  justify-content: center;
+  padding-top: 1px;
+}
+.mat-instr-text {
+  min-width: 0;
+}
+.mat-instr-title {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.mat-instr-desc {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.4;
 }
 .chart-title {
   position: absolute;
@@ -1339,6 +1449,39 @@
   min-width: 14rem;
   font-weight: 500;
 }
+/* Status-bar detection state (left) + statusMessage (right) — mirrors Swift bar order. */
+.sb-state-dot,
+.sb-active-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.sb-state-dot {
+  background: var(--muted);
+}
+.sb-state-dot.complete {
+  background: #3fb950;
+}
+.sb-active-dot {
+  background: #c0772a;
+}
+.sb-active-dot.on {
+  background: #3fb950;
+}
+.sb-detect,
+.sb-sep {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sb-msg {
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+.sb-msg.idle {
+  color: #f0a258;
+}
 .spacer {
   flex: 1;
 }
@@ -1346,6 +1489,23 @@
 .rate {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
+  white-space: nowrap;
+}
+/* Status-bar widgets (mirror Swift status bar: phase/tap progress, frozen badge, peak readout). */
+.sb-progress {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.sb-frozen {
+  font-weight: 600;
+  color: #f0a258;
+  white-space: nowrap;
+}
+.sb-peak {
+  font-variant-numeric: tabular-nums;
+  color: #6fb6ff;
   white-space: nowrap;
 }
 

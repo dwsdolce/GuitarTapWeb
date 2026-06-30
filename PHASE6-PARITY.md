@@ -26,7 +26,7 @@ gap — see 6c: neither native app exposes a user toggle, and the web already mi
 - ⬜ **6g** — In-app Help View + online User Manual link
 - ✅ **6h** — Per-measurement-type display ranges
 - ⬜ **6i** — Decay clock → audio-time everywhere + cross-platform ring-out regression test
-- ⬜ **6j** — Status-bar review (footer status + metrics line) vs Swift/Python
+- ✅ **6j** — Status-bar review (+ material instruction panel, loaded-settings banner, mic-error modals)
 - ✅ **6k** — Multi-tap averaging per MATERIAL phase (numberOfTaps applies to plate/brace phases too)
 - ⬜ **6-MAP** — parity anchors + generated map (needs tag-syntax sign-off)
 - ⬜ **6-TEST** — cross-platform test review & normalization (major)
@@ -216,7 +216,35 @@ within tolerance. NB: Swift is the master and on Apple-review hold — the clock
 waits for a release window; sequence the web test first (it's deterministic now), Python/Swift after the
 clock move. Builds on the audit recorded in the Phase 6 memory.
 
-### 6j — Status-bar review (footer status + metrics line)
+### 6j — Status-bar review ✅ DONE
+**Done 2026-06-29.** Exhaustively mapped Swift + Python (parallel readers) → the web's status bar diverged
+in wording, order, and missing elements; brought it to canonical parity in three stages plus two loaded-
+measurement fixes that surfaced during browser verification:
+
+- **A — material instruction panel:** new `MaterialInstructionPanel.tsx` below the chart (plate/brace
+  only) — phase dot + short status + "Phase N/M" + icon + bold title + detailed body, verbatim from Swift
+  `materialInstructionsView`.
+- **B — status-bar wording:** replaced the web's strings with the canonical `statusMessage` set (guitar +
+  material, symmetric L→C / C→FLC transitions, review prompts, complete, loaded, cancelled), plus a
+  clipping override (`⚠ Input clipping — reduce mic gain`, wired to the existing detector) and an auto
+  device-change message.
+- **C — status-bar widgets + order:** reordered to match Swift (left: state dot + "Waiting for tap…/Tap
+  Detected!" + level; right: ⏸ Complete + "Peak: X dB @ Y Hz" + active dot + statusMessage + "Phase X/Y ·
+  Tap N/M"); guitar level shows peak magnitude (Swift), Starting… fallback; **removed** the web-only
+  `kHz·Hz/bin·fps` and `AGC·EC·NS` spans (native keeps those only in the Metrics modal). User rule applied:
+  duplicate exactly what Swift/Python show; drop what they don't ([[feedback_improvements_all_three_platforms]]).
+- **Loaded-settings banner:** restore the loaded measurement's `numberOfTaps` (was stuck at 1) + show the
+  Swift `showLoadedSettingsWarning` row ("Settings from loaded measurement — Threshold: X dB · Taps: N") in
+  the status-bar region; cleared on new measurement / taps change.
+- **Mic-error modals:** converted the inline mic-error banner + Retry button + load-warning banner to modal
+  dialogs (`AlertModal`) matching Swift `.alert` / Python `QMessageBox`: "Microphone Not Connected",
+  "Microphone Access Required" (Open Settings → Retry on web, since a browser can't open System Settings),
+  "Audio Engine Error". Categorized live errors (permission vs engine) in `useAudioEngine`.
+
+User-verified in the running web app. Swift/Python were already canonical (web was the lone outlier), so
+these are web-only changes that close the gap; nothing changed on Swift/Python. Original audit notes below.
+
+### 6j — Status-bar review (original audit) (footer status + metrics line)
 Audit the app's bottom status bar for Swift/Python parity — content, wording, and conditions. The web
 footer currently shows the run indicator (green ● "Analyzing" / gray ● "Stopped", added in 6b) plus a
 metrics line (e.g. "48.0 kHz · 0.73 Hz/bin · 0.73 fps · AGC ? · EC off · NS ?"). Open questions: do Swift

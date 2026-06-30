@@ -10,7 +10,7 @@
 // capture-result callbacks (guitar tap, material phase, raw-audio dump) are passed in stable so the
 // engine's once-registered callbacks never capture stale closures.
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { AudioEngine, type EngineState, type EngineMetrics, type MaterialCaptureResult } from '../audio/engine'
 import type { Spectrum } from '../dsp/guitarFFT'
@@ -55,12 +55,16 @@ export interface AudioEngineModel {
   audioSettings: MediaTrackSettings | null
   deviceLabel: string
   error: string | null
+  /** What kind of error, so the UI shows the right native-style alert title:
+   *  'permission' → "Microphone Access Required", else → "Audio Engine Error". */
+  errorKind: 'permission' | 'engine' | 'other' | null
   setError: (e: string | null) => void
   inputDevices: { deviceId: string; label: string }[]
   currentDeviceId: string | null
   calibrations: StoredCalibration[]
   activeCalId: string | null
   clipping: boolean
+  deviceChanging: boolean
   progress: { collected: number; total: number }
   setProgress: (p: { collected: number; total: number }) => void
   engineMetrics: EngineMetrics | null
@@ -97,11 +101,16 @@ export function useAudioEngine({
   const [audioSettings, setAudioSettings] = useState<MediaTrackSettings | null>(null)
   const [deviceLabel, setDeviceLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [errorKind, setErrorKind] = useState<'permission' | 'engine' | 'other' | null>(null)
   const [inputDevices, setInputDevices] = useState<{ deviceId: string; label: string }[]>([])
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null)
   const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
   const [activeCalId, setActiveCalId] = useState<string | null>(null)
   const [clipping, setClipping] = useState(false)
+  // Transient "Audio device changed - reinitializing…" flag (Swift route-change status),
+  // set on an automatic hardware change and cleared shortly after.
+  const [deviceChanging, setDeviceChanging] = useState(false)
+  const deviceChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [progress, setProgress] = useState({ collected: 0, total: 1 })
   const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
   const [decayTime, setDecayTime] = useState<number | null>(null)
@@ -129,6 +138,7 @@ export function useAudioEngine({
         await engineRef.current?.setInputDevice(deviceId)
       } catch (e) {
         setError(`Couldn't switch input: ${e instanceof Error ? e.message : String(e)}`)
+        setErrorKind('other')
         return
       }
       const id = engineRef.current?.inputDeviceId ?? deviceId
@@ -155,6 +165,7 @@ export function useAudioEngine({
         applyCalibrationForDevice(currentDeviceId)
       } catch (e) {
         setError(`Couldn't import calibration: ${e instanceof Error ? e.message : String(e)}`)
+        setErrorKind('other')
       }
     },
     [applyCalibrationForDevice, currentDeviceId],
@@ -181,6 +192,7 @@ export function useAudioEngine({
   const start = useCallback(async () => {
     if (engineRef.current) return
     setError(null)
+    setErrorKind(null)
     const engine = new AudioEngine(
       {
         onLevel: setLevel,
@@ -201,6 +213,10 @@ export function useAudioEngine({
           if (deviceId) setSavedInputDeviceId(deviceId) // remember the now-active device (Swift persists it)
           applyCalibrationForDevice(deviceId)
           void refreshDevices()
+          // Briefly surface "Audio device changed - reinitializing…" (mirrors Swift route change).
+          setDeviceChanging(true)
+          if (deviceChangeTimer.current) clearTimeout(deviceChangeTimer.current)
+          deviceChangeTimer.current = setTimeout(() => setDeviceChanging(false), 1500)
         },
         onDecay: setDecayTime,
       },
@@ -219,7 +235,11 @@ export function useAudioEngine({
       // If we loaded straight into a material type, don't leave guitar detection armed.
       if (isMaterialType(measRef.current)) engine.disarm()
     } catch (e) {
+      // Categorize for the native-style alert: a blocked/denied mic → "Microphone Access
+      // Required"; anything else (no device, engine failure) → "Audio Engine Error".
+      const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError')
       setError(e instanceof Error ? e.message : String(e))
+      setErrorKind(denied ? 'permission' : 'engine')
       engineRef.current = null
     }
   }, [engineRef, measRef, tapThresholdRef, dumpCaptureRef, onGuitarCapture, onMaterialCapture, onSessionAudio, applyCalibrationForDevice, refreshDevices])
@@ -247,12 +267,14 @@ export function useAudioEngine({
     audioSettings,
     deviceLabel,
     error,
+    errorKind,
     setError,
     inputDevices,
     currentDeviceId,
     calibrations,
     activeCalId,
     clipping,
+    deviceChanging,
     progress,
     setProgress,
     engineMetrics,

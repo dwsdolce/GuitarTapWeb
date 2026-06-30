@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, type EngineState } from './audio/engine'
 import { SpectrumChart } from './components/SpectrumChart'
+import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
+import { AlertModal } from './components/AlertModal'
 import type { ChartView, PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
 import { useAnnotations } from './hooks/useAnnotations'
@@ -72,47 +74,75 @@ const MAT_L_COLOR = '#4ea1ff'
 const MAT_C_COLOR = '#f0a03a'
 const MAT_FLC_COLOR = '#b07ad8'
 
-const fmtProc = (b: unknown) => (b === undefined ? '?' : b ? 'ON' : 'off')
-
-function statusText(state: EngineState, progress: { collected: number; total: number }): string {
-  const { collected, total } = progress
-  const multi = total > 1
-  const n = `${Math.min(collected + 1, total)} of ${total}`
-  switch (state) {
-    case 'listening':
-      return multi ? `Listening — tap ${n}` : 'Listening — tap the guitar'
-    case 'capturing':
-      return multi ? `Capturing tap ${n}…` : 'Capturing tap…'
-    case 'paused':
-      // The exact string Swift/Python use — one message, no per-count variant.
-      return 'Detection paused – tap freely, then resume'
-    case 'idle':
-      return multi ? `Averaged ${total} taps — press New Tap to listen again` : 'Tap captured — press New Tap to listen again'
-  }
-}
 
 const isReviewing = (p: MatPhase) => p === 'reviewingL' || p === 'reviewingC' || p === 'reviewingFlc'
 
-function matInstruction(p: MatPhase, brace: boolean, collected: number, total: number): string {
-  // Each phase averages `total` taps (Swift numberOfTaps). Show the per-phase count while capturing.
-  const prog = total > 1 ? ` — ${collected}/${total} captured, tap again` : ''
-  switch (p) {
+// Bottom status-bar text — canonical `statusMessage` strings replicated verbatim from
+// Swift TapToneAnalyzer / Python tap_tone_analyzer. The detailed per-phase instructions
+// live in the MaterialInstructionPanel; the bar carries the short capture status.
+
+function guitarBarStatus(
+  state: EngineState,
+  progress: { collected: number; total: number },
+  peakCount: number,
+  hasCapture: boolean,
+): string {
+  const { collected, total } = progress
+  switch (state) {
+    case 'listening':
+      if (collected === 0) return total === 1 ? 'Tap the guitar...' : `Tap the guitar ${total} times...`
+      return `Tap ${collected}/${total} captured. Tap again...`
+    case 'capturing': {
+      const prov = Math.min(collected + 1, total)
+      return prov < total ? `Tap ${prov}/${total} capturing...` : 'All taps captured. Processing...'
+    }
+    case 'paused':
+      return 'Detection paused – tap freely, then resume'
+    case 'idle':
+      return hasCapture ? `Analysis complete! ${peakCount} peaks identified (from ${total} averaged taps).` : ''
+  }
+}
+
+type MatBarPeaks = {
+  longitudinal: { frequency: number } | null
+  cross: { frequency: number } | null
+  flc: { frequency: number } | null
+}
+const fHz = (p: { frequency: number } | null) => (p ? p.frequency.toFixed(1) : '?')
+
+function materialBarStatus(
+  phase: MatPhase,
+  brace: boolean,
+  measureFlc: boolean,
+  progress: { collected: number; total: number },
+  peaks: MatBarPeaks,
+): string {
+  const { collected, total } = progress
+  switch (phase) {
     case 'notStarted':
-      return 'Press New Tap to begin measurement'
+      return '' // the instruction panel carries "Press 'New Tap' to Begin"
     case 'capturingL':
-      return (brace ? 'Tap the brace (longitudinal)…' : 'Tap along the grain (longitudinal)…') + prog
+      if (collected === 0) {
+        if (brace) return total > 1 ? `Ready for fL tap (×${total})` : 'Ready for fL tap'
+        if (total > 1) return `Ready for L tap (×${total} each for ${measureFlc ? 'L, C, FLC' : 'L, C'})`
+        return 'Ready for L tap'
+      }
+      return `L tap ${collected}/${total} captured. Tap again...`
     case 'reviewingL':
-      return 'L tap captured — Accept to continue or Redo to re-tap'
+      return `fL: ${fHz(peaks.longitudinal)} Hz — Accept to continue or Redo to re-tap`
     case 'capturingC':
-      return 'Tap across the grain (cross)…' + prog
+      if (collected === 0) return 'Rotate 90° and tap for C'
+      return `C tap ${collected}/${total} captured. Tap again...`
     case 'reviewingC':
-      return 'C tap captured — Accept to continue or Redo to re-tap'
+      return `fC: ${fHz(peaks.cross)} Hz — Accept to continue or Redo to re-tap`
     case 'capturingFlc':
-      return 'Hold at the long-edge midpoint; tap near the opposite corner (~22%)…' + prog
+      if (collected === 0) return 'Set up for FLC tap, then tap'
+      return `FLC tap ${collected}/${total} captured. Tap again...`
     case 'reviewingFlc':
-      return 'FLC tap captured — Accept to complete or Redo to re-tap'
+      return `fLC: ${fHz(peaks.flc)} Hz — Accept to complete or Redo to re-tap`
     case 'complete':
-      return 'Measurement complete'
+      if (!brace && !measureFlc) return `Complete — fL: ${fHz(peaks.longitudinal)} Hz, fC: ${fHz(peaks.cross)} Hz`
+      return 'Complete - check Results'
   }
 }
 
@@ -283,6 +313,10 @@ export default function App() {
   const [showMeasurements, setShowMeasurements] = useState(false)
   // Load-time provenance warning for a loaded measurement (mic/calibration/sample rate).
   const [loadWarning, setLoadWarning] = useState<string | null>(null)
+  // Loaded-measurement settings banner (Swift showLoadedSettingsWarning): shown after a
+  // load while its restored Threshold/Taps are active; cleared on a new measurement or
+  // when the user changes Taps.
+  const [showLoadedSettings, setShowLoadedSettings] = useState(false)
   // Name of the currently loaded measurement → chart title ("FFT Peaks — {name}", else "New").
   const [loadedName, setLoadedName] = useState<string | null>(null)
   const annotationMode = settings.annotationVisibilityMode
@@ -383,6 +417,7 @@ export default function App() {
     setCaptured(null)
     setLoadedName(null)
     setLoadedView(null) // a new measurement context drops the loaded measurement's transient range
+    setShowLoadedSettings(false)
     setTapSpectra([])
     setShowMultiTap(false)
     setComparison(null)
@@ -402,6 +437,7 @@ export default function App() {
     setLoadWarning(null)
     setLoadedName(null)
     setLoadedView(null) // a live capture supersedes the loaded measurement's transient range
+    setShowLoadedSettings(false)
     setCaptured(s)
     setTapSpectra(taps ?? []) // per-tap spectra for the multi-tap comparison view
     setShowMultiTap(false)
@@ -419,15 +455,16 @@ export default function App() {
     level,
     liveSpectrum,
     sampleRate,
-    audioSettings,
     deviceLabel,
     error,
+    errorKind,
     setError,
     inputDevices,
     currentDeviceId,
     calibrations,
     activeCalId,
     clipping,
+    deviceChanging,
     progress,
     setProgress,
     engineMetrics,
@@ -462,6 +499,7 @@ export default function App() {
       setLoadWarning(null)
       setLoadedName(null)
       setLoadedView(null) // playing a file starts a new measurement — drop any loaded range
+      setShowLoadedSettings(false)
       setCaptured(null)
       setTapSpectra([])
       setShowMultiTap(false)
@@ -497,6 +535,7 @@ export default function App() {
     setLoadWarning(null)
     setLoadedName(null)
     setLoadedView(null) // new tap → drop the loaded measurement's transient range
+    setShowLoadedSettings(false)
     setCaptured(null)
     setTapSpectra([])
     setShowMultiTap(false)
@@ -519,6 +558,7 @@ export default function App() {
     const v = Math.max(1, Math.min(10, n))
     setNumberOfTaps(v)
     engineRef.current?.setConfig({ numberOfTaps: v })
+    setShowLoadedSettings(false) // user changed Taps → the loaded-settings banner no longer applies
   }, [])
 
   // New Tap in material mode: clear the cancelled flag + any dragged labels (Swift resets offsets on
@@ -526,6 +566,7 @@ export default function App() {
   const onMaterialNewTap = useCallback(() => {
     setCancelled(false)
     setLoadedView(null) // new material measurement → drop the loaded transient range
+    setShowLoadedSettings(false)
     resetLabelsRef.current()
     startMaterial()
   }, [startMaterial])
@@ -646,7 +687,6 @@ export default function App() {
   }, [tapSpectra, captured])
 
   const binHz = sampleRate ? sampleRate / GUITAR_FFT_SIZE : null
-  const frameMs = sampleRate ? (GUITAR_FFT_SIZE / sampleRate) * 1000 : null
   // For auto-dB / metrics, use the primary material spectrum; the chart itself draws all
   // per-phase curves via `matOverlays`.
   const displaySpectrum = material
@@ -717,6 +757,22 @@ export default function App() {
       isRunning: running,
     }
   }, [displaySpectrum, binHz, material, captured, sampleRate, engineMetrics, running])
+
+  // Status-bar progress + frozen indicators (mirror Swift "Phase X/Y · Tap N/M" / "⏸ Complete").
+  const sbDetecting = engineState === 'listening' || engineState === 'capturing'
+  const sbProgress = (() => {
+    if (material && sbDetecting && matPhase.startsWith('capturing')) {
+      const step = matPhase.startsWith('capturingC') ? 2 : matPhase.startsWith('capturingFlc') ? 3 : 1
+      if (brace) return numberOfTaps > 1 ? `Tap ${progress.collected}/${numberOfTaps}` : ''
+      const tapPart = numberOfTaps > 1 ? ` · Tap ${progress.collected}/${numberOfTaps}` : ''
+      return `Phase ${step}/${settings.measureFlc ? 3 : 2}${tapPart}`
+    }
+    if (!material && sbDetecting && numberOfTaps > 1) {
+      return `Tap ${Math.min(progress.collected + (engineState === 'capturing' ? 1 : 0), numberOfTaps)}/${numberOfTaps}`
+    }
+    return ''
+  })()
+  const sbComplete = !sbDetecting && (material ? matPhase === 'complete' : captured != null)
 
   // ── Library (Phase 4b): save the frozen guitar result, load one back in ───
   // Build a TapToneMeasurementModel from the CURRENT frozen result — the one place that
@@ -793,6 +849,7 @@ export default function App() {
         const range = comparisonAxisRange(m.comparisonEntries)
         if (range) setView(range)
         setComparison(m.comparisonEntries)
+        setShowLoadedSettings(false) // comparison isn't a settings-load (Swift gates on !isSavedComparison)
         setLoadedPeaks(null)
         setCaptured(null)
         setTapSpectra([])
@@ -816,6 +873,12 @@ export default function App() {
         restoreMaterialOffsets(mat.annotationOffsetsByFreq) // dragged L/C/FLC label positions (shared store)
         setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
         setLoadedName(m.measurementName ?? null)
+        {
+          const loadedTaps = m.numberOfTaps ?? 1
+          setNumberOfTaps(loadedTaps)
+          engineRef.current?.setConfig({ numberOfTaps: loadedTaps })
+          setShowLoadedSettings(true)
+        }
         setTapSpectra([]) // material has no per-tap entries
         setShowMultiTap(false)
         setShowMeasurements(false)
@@ -848,6 +911,13 @@ export default function App() {
       // side of the sample-rate epic. Cleared on New Tap / fresh capture.
       setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
       setLoadedName(m.measurementName ?? null)
+      // Restore the measurement's Taps and show the loaded-settings banner (Swift parity).
+      {
+        const loadedTaps = m.numberOfTaps ?? 1
+        setNumberOfTaps(loadedTaps)
+        engineRef.current?.setConfig({ numberOfTaps: loadedTaps })
+        setShowLoadedSettings(true)
+      }
       // Restore per-tap spectra so the multi-tap comparison view is available.
       setTapSpectra((m.tapEntries ?? []).map((e) => ({ magnitudesDb: e.snapshot.magnitudes, frequencies: e.snapshot.frequencies })))
       setShowMultiTap(false)
@@ -1096,24 +1166,7 @@ export default function App() {
             </div>
           )
         })()}
-
-        {error && (
-          <button className="btn" onClick={() => void retry()}>
-            Retry microphone
-          </button>
-        )}
       </div>
-
-      {error && <p className="error">⚠ {error}</p>}
-
-      {loadWarning && (
-        <div className="load-warning" role="status">
-          <span>⚠ {loadWarning}</span>
-          <button className="btn mini" onClick={() => setLoadWarning(null)} aria-label="Dismiss">
-            ✕
-          </button>
-        </div>
-      )}
 
       <div className="main">
         <div className="chart-pane">
@@ -1135,6 +1188,9 @@ export default function App() {
               hasMovedLabels={annotationOffsets.size > 0}
             />
           </div>
+          {material && !comparison && (
+            <MaterialInstructionPanel phase={matPhase} brace={brace} measureFlc={settings.measureFlc} />
+          )}
         </div>
 
         <aside className="results-pane">
@@ -1252,36 +1308,89 @@ export default function App() {
         </aside>
       </div>
 
+      {showLoadedSettings && !comparison && (
+        <div className="loaded-settings-banner" role="status">
+          ⚠ Settings from loaded measurement — Threshold: {Math.round(settings.tapDetectionThreshold)} dB · Taps:{' '}
+          {numberOfTaps}
+        </div>
+      )}
       <div className={`statusbar state-${engineState}`}>
-        <span className="status-text">
-          {error
+        {/* LEFT — detection state: dot + Waiting/Detected + level (mirrors Swift order). */}
+        <span className={`sb-state-dot${sbComplete ? ' complete' : ''}`} />
+        <span className="sb-detect">{engineState === 'capturing' ? 'Tap Detected!' : 'Waiting for tap...'}</span>
+        <span className="sb-sep">•</span>
+        {/* Swift: guitar shows peak magnitude here, material shows the input level. */}
+        <span className="level">{(material ? level : (metrics.peakMagnitude ?? level)).toFixed(1)} dB</span>
+        <span className="spacer" />
+        {/* RIGHT — complete badge + peak + active dot + statusMessage + progress. */}
+        {sbComplete && <span className="sb-frozen">⏸ Complete</span>}
+        {running && (
+          <span className="sb-peak">
+            {metrics.peakFrequency != null && metrics.peakMagnitude != null
+              ? `Peak: ${metrics.peakMagnitude.toFixed(1)} dB @ ${metrics.peakFrequency.toFixed(1)} Hz`
+              : 'Starting...'}
+          </span>
+        )}
+        <span className={`sb-active-dot${sbDetecting ? ' on' : ''}`} />
+        <span className={`sb-msg${sbDetecting ? '' : ' idle'}`}>
+          {clipping
+            ? '⚠ Input clipping — reduce mic gain'
+            : deviceChanging
+            ? 'Audio device changed - reinitializing...'
+            : error
             ? 'Microphone unavailable'
             : !running
-              ? 'Requesting microphone…'
-              : playingFileName
-                ? `Playing ${playingFileName}…`
-                : cancelled && engineState === 'idle'
-                ? 'Cancelled — press New Tap to start again'
-                : engineState === 'paused'
-                  ? 'Detection paused – tap freely, then resume'
-                  : material
-                    ? matInstruction(matPhase, brace, progress.collected, numberOfTaps)
-                    : statusText(engineState, progress)}
+            ? 'Requesting microphone…'
+            : playingFileName
+            ? `Playing ${playingFileName}…`
+            : comparison
+            ? `Comparing ${comparison.length} measurements`
+            : showMultiTap
+            ? `Tap comparison — ${tapSpectra.length} taps + averaged`
+            : cancelled && engineState === 'idle'
+            ? 'Cancelled — press New Tap to start again'
+            : loadedName && engineState === 'idle'
+            ? 'Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.'
+            : engineState === 'paused'
+            ? 'Detection paused – tap freely, then resume'
+            : material
+            ? materialBarStatus(matPhase, brace, settings.measureFlc, progress, matPeaks)
+            : guitarBarStatus(engineState, progress, displayPeaks.length, captured != null)}
         </span>
-        <span className="spacer" />
-        <span className="level">{level.toFixed(1)} dBFS</span>
-        {sampleRate && binHz && frameMs && (
-          <span className="rate">
-            {(sampleRate / 1000).toFixed(1)} kHz · {binHz.toFixed(2)} Hz/bin · {(1000 / frameMs).toFixed(2)} fps
-          </span>
-        )}
-        {audioSettings && (
-          <span className="rate" title="Mic processing the browser actually applied">
-            AGC {fmtProc(audioSettings.autoGainControl)} · EC {fmtProc(audioSettings.echoCancellation)} · NS{' '}
-            {fmtProc(audioSettings.noiseSuppression)}
-          </span>
-        )}
+        {sbProgress && <span className="sb-progress">{sbProgress}</span>}
       </div>
+
+      {/* Mic-error / load-warning alerts as modal dialogs, mirroring the native apps'
+          .alert(...) popups (Microphone Access Required / Audio Engine Error / Microphone
+          Not Connected) instead of an inline banner. */}
+      {error
+        ? (() => {
+            const permission = errorKind === 'permission'
+            const title = permission
+              ? 'Microphone Access Required'
+              : errorKind === 'other'
+              ? 'Error'
+              : 'Audio Engine Error'
+            const message = permission
+              ? 'GuitarTap needs microphone access to analyse tap tones. Please allow microphone access for this site in your browser settings, then retry.'
+              : error
+            const buttons =
+              errorKind === 'other'
+                ? [{ label: 'OK', primary: true, onClick: () => setError(null) }]
+                : [
+                    { label: 'Retry', primary: true, onClick: () => { setError(null); void retry() } },
+                    { label: permission ? 'Cancel' : 'OK', onClick: () => setError(null) },
+                  ]
+            return <AlertModal title={title} message={message} buttons={buttons} onDismiss={() => setError(null)} />
+          })()
+        : loadWarning && (
+            <AlertModal
+              title="Microphone Not Connected"
+              message={loadWarning}
+              buttons={[{ label: 'OK', primary: true, onClick: () => setLoadWarning(null) }]}
+              onDismiss={() => setLoadWarning(null)}
+            />
+          )}
 
       {showSettings && (
         <SettingsPanel
