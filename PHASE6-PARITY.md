@@ -25,7 +25,7 @@ gap — see 6c: neither native app exposes a user toggle, and the web already mi
 - ✅ **6f** — Continuous session-recording WAV (guitar live + file; live material; gated on the dump setting)
 - ✅ **6g** — In-app Quick Start Guide + online User Manual link (toolbar Help menu + Settings → About) — also added the always-live crosshair the audit had missed
 - ✅ **6h** — Per-measurement-type display ranges
-- ⬜ **6i** — Decay clock → audio-time everywhere + cross-platform ring-out regression test
+- ✅ **6i** — Cross-platform ring-out (REG-G) regression test added to all three (golden 0.0853 s ±0.03; web/Python/Swift green). Decay-clock audio-time rework deliberately **skipped** after risk/benefit review — real-time-paced test pins the value with no app-code change; the clock rework + "fast playback tests" deferred to 6-TEST.
 - ✅ **6j** — Status-bar review (+ material instruction panel, loaded-settings banner, mic-error modals)
 - ✅ **6k** — Multi-tap averaging per MATERIAL phase (numberOfTaps applies to plate/brace phases too)
 - ✅ **6l** — Analysis Results pane consistency + hover-tip port — **DONE 2026-06-30**: Python select icons; web fixed-header selection row + icons + disabled states; tooltips across toolbar/tap/results/peak-cards/chart/library; device-name row + normal header kept visible while waiting; per-mode peak glyphs (incl. override glyph+colour swap) + `Q:`/`BW:` formatting + mode-label-as-text + Export-PDF label; chart-options menu un-clipped. Cancel-button "divergence" investigated → **not a bug** (all three identical; was a mixed tap-count comparison).
@@ -235,7 +235,30 @@ Swift keys displayMinFreq/displayMaxFreq per `MeasurementType`; web `settings.ts
 **global** displayMinHz/displayMaxHz, so switching type doesn't restore a type-specific default
 range. Low priority.
 
-### 6i — Decay clock → audio-time everywhere + cross-platform ring-out regression test
+### 6i — Cross-platform ring-out regression test — ✅ DONE 2026-06-30 (decay-clock rework deliberately SKIPPED)
+**Done 2026-06-30, no application-code changes.** A shared **REG-G ring-out** test was added to all three —
+web `test/g4d-decay.test.ts`, Python `tests/test_file_playback_regression.py::test_REG_G_generic_guitar_ringout`,
+Swift `FilePlaybackRegressionTests.REG_G_genericGuitarRingOut_matchesGolden` — each plays `Recording 5.wav`
+(REG-G1 fixture: generic, −40 dB, 1 tap) through the full live engine and asserts the ring-out against a
+shared golden **0.0853 s ± 0.03 s**. Measured: web **0.0853** (audio-clock, deterministic), Python **0.091**,
+Swift in-tolerance — all green.
+
+**Why the decay-clock rework was skipped (user-reviewed risk/benefit 2026-06-30).** The original plan was to
+move Swift+Python decay timing to audio-sample time so a *fast/headless* play yields a deterministic value.
+But: (a) the fixture is only **0.53 s**, so a real-time-paced play is ~1–2 s — fast enough; (b) at real-time
+pace **wall-clock ≈ audio-time 1:1**, so Swift/Python's existing wall-clock decay already lands within ±0.03
+of the web's audio-clock value (no code change needed to pin it); (c) the Swift rework is genuinely risky —
+`trackDecayFast` runs on the main thread via an async Combine `$inputLevelDB` subscription, so doing it
+correctly means stamping the audio time at the audio-thread compute site and carrying it across the Combine
+boundary (touching a released app's audio pipeline). **Decision: a good ring-out test with minimal/no app
+changes wins; test runtime is a nuisance, not a problem.** The audio-clock rework + the related
+"decouple file-playback from the real-time `sleep`/`Thread.sleep` pacing → make the 18–30 s playback tests
+instant" idea are left as a **separate, larger 6-TEST item** (the pacing — not the decay window — is what
+makes those suites slow; removing it needs the decay clock *and* verifying nothing else depends on
+wall-clock/event-loop timing, with Swift's main-thread Combine decay as the hard blocker).
+
+<details><summary>Original gap + plan (superseded)</summary>
+
 The live-decay audit (2026-06-29) left one gap: the three apps now share the decay *algorithm* (20·log10(rms)
 dBFS, ~43 Hz per-chunk cadence, 2.0 s peak-hold seed, max-post-tap → first-below-(peak−15 dB)), but NOT
 the same *clock*. The **web** times decay on the AUDIO clock (sample-count / rate) → deterministic and
@@ -251,6 +274,7 @@ for real file playback, and makes ring-out *values* identical across platforms f
 within tolerance. NB: Swift is the master and on Apple-review hold — the clock change is behavioral, so it
 waits for a release window; sequence the web test first (it's deterministic now), Python/Swift after the
 clock move. Builds on the audit recorded in the Phase 6 memory.
+</details>
 
 ### 6j — Status-bar review ✅ DONE
 **Done 2026-06-29.** Exhaustively mapped Swift + Python (parallel readers) → the web's status bar diverged
@@ -639,11 +663,12 @@ final layout/naming) and alongside the feature sub-phases (e.g. the decay-tracki
   "Optional:" line; **not** a Swift/Python parity gap (neither app has cloud sync). May be dropped.
 
 ## Sequencing
-**Done so far:** ~~6-ARCH~~ → ~~6a (decay)~~ → ~~6b (live analysis boxes)~~ → ~~6c (log freq, DROPPED — not a parity gap)~~ → ~~6d (material drag)~~ → ~~6e (multi-tap PDF)~~ → ~~6f (session WAV)~~ → ~~6h (per-type display ranges)~~ → ~~6j (status-bar review)~~ → ~~6k (per-phase multi-tap averaging)~~ → ~~6g (Quick Start Guide + manual link + crosshair)~~ → ~~6l (Analysis Results pane consistency + hover-tip port)~~.
+**Done so far:** ~~6-ARCH~~ → ~~6a (decay)~~ → ~~6b (live analysis boxes)~~ → ~~6c (log freq, DROPPED — not a parity gap)~~ → ~~6d (material drag)~~ → ~~6e (multi-tap PDF)~~ → ~~6f (session WAV)~~ → ~~6h (per-type display ranges)~~ → ~~6j (status-bar review)~~ → ~~6k (per-phase multi-tap averaging)~~ → ~~6g (Quick Start Guide + manual link + crosshair)~~ → ~~6l (Analysis Results pane consistency + hover-tip port)~~ → ~~6i (cross-platform ring-out test — decay-clock rework skipped)~~.
 
-**Remaining:** **6i (decay clock → audio-time + ring-out
-regression test)** — gated on a Swift release window (the clock change is behavioral, Apple-review hold);
-plus the tooling **6-MAP** (needs tag-syntax sign-off) and the **6-TEST** normalization (major — sequence
-after 6-MAP so the web suites land in their final naming). Verify each gap against current `main` before starting (Phase 5 +
+**Remaining:** the tooling **6-MAP** (needs tag-syntax sign-off) and the **6-TEST** normalization (major —
+sequence after 6-MAP so the web suites land in their final naming). NOTE: a sub-item now lives under
+6-TEST — "decouple file playback from real-time pacing so the 18–30 s Python/Swift playback suites run
+instant like the web" (needs the decay audio-clock + Swift's main-thread Combine decay moved to a sync
+audio-thread feed; see 6i for the risk write-up). Verify each gap against current `main` before starting (Phase 5 +
 the work above already closed several items an earlier audit listed as missing — e.g. per-capture WAV,
 saved-comparison PDF, the log-axis "gap").

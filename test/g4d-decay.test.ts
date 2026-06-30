@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { measureDecayTime, DecayTracker, DECAY_THRESHOLD_DB, type DecaySample } from '../src/dsp/decay'
+import { AudioEngine } from '../src/audio/engine'
+import { decodeWav } from '../src/dsp/wav'
 
 // Ring-out (decay) time — pinned to the Swift DecayTrackingTests / Python test_decay_tracking
 // reference vectors. Peak → first later sample below (peak − threshold) → elapsed seconds.
@@ -69,5 +72,32 @@ describe('DecayTracker — streaming', () => {
     for (let i = 1; i <= 40; i++) d.track(i * 0.1, -11) // t up to 4.0 s, never crosses
     d.track(3.5, -40)
     expect(d.decayTime).toBeNull()
+  })
+})
+
+// REG-G — ring-out regression through the FULL live engine (the same end-to-end path as REG-G1 in
+// g11): Recording 5.wav → chunked pipeline → tap detection → per-chunk level → DecayTracker →
+// post-tap peak → first sample below peak−15 dB. The web's clock is audio-time so the value is
+// deterministic regardless of pacing. This golden is SHARED cross-platform: the Swift
+// FilePlaybackRegression and Python file-playback tests assert the same value ± RING_OUT_TOL_SEC
+// (they run the file at real-time pace, where wall-clock ≈ audio-time, so they reach the same
+// crossing). 0.0853 s = 4 chunks @ 1024/48 kHz for this fixture.
+
+/** Shared cross-platform ring-out golden for Recording 5.wav (REG-G1 fixture, −40 dB, 1 tap). */
+export const RING_OUT_GOLDEN_SEC = 0.0853
+/** Tolerance covering per-platform chunk-granularity + seed differences (~1.5 chunks). */
+export const RING_OUT_TOL_SEC = 0.03
+
+describe('G4d — REG-G ring-out (file playback)', () => {
+  it('Recording 5.wav decays to −15 dB in ~0.085 s', async () => {
+    const wav = decodeWav(
+      new Uint8Array(readFileSync(new URL('./fixtures/Recording 5.wav', import.meta.url))),
+      { downmix: true },
+    )
+    const engine = new AudioEngine({ onCapture: () => {} }, { tapDetectionThreshold: -40, numberOfTaps: 1 })
+    engine.initForTesting()
+    await engine.playFile(wav.samples, wav.sampleRate, { pace: false })
+    expect(engine.decayTime, 'no ring-out measured').not.toBeNull()
+    expect(Math.abs(engine.decayTime! - RING_OUT_GOLDEN_SEC)).toBeLessThan(RING_OUT_TOL_SEC)
   })
 })
