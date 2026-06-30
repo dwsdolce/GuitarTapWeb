@@ -4,6 +4,7 @@ import { averageSpectra } from '../dsp/spectrumAverage'
 import { DecayTracker } from '../dsp/decay'
 import {
   gatedCaptureResult,
+  findDominantPeak,
   GATED_CAPTURE_DURATION,
   PLATE_PHASES,
   BRACE_PHASE,
@@ -192,6 +193,9 @@ export class AudioEngine {
   private captureIdx = 0
   private captureKind: 'guitar' | 'material' = 'guitar'
   private materialSearch: MaterialSearch | null = null
+  // Gated spectra collected for the CURRENT material phase — averaged when numberOfTaps is reached,
+  // exactly as guitar averages `collected` (Swift materialCapturedTaps + handleLongitudinalGatedProgress).
+  private materialCollected: Spectrum[] = []
 
   // Multi-tap accumulation.
   private collected: Spectrum[] = []
@@ -264,14 +268,16 @@ export class AudioEngine {
     this.setState('listening')
   }
 
-  /** Arm one gated material capture (a single plate/brace phase) with a search range. */
+  /** Arm a gated material phase (a fresh L/C/FLC phase, or a redo of one) with its search range. */
   armMaterial(search: MaterialSearch): void {
     if (!this.running || this.state === 'capturing') return
     this.captureKind = 'material'
     this.materialSearch = search
     this.capture = this.materialCapture
+    this.materialCollected = [] // a new (or redone) phase starts averaging from zero
     this.prevAbove = true
     this.consecutive = 0
+    this.callbacks.onProgress?.(0, this.config.numberOfTaps) // per-phase tap progress starts at 0
     this.setState('listening')
   }
 
@@ -305,6 +311,7 @@ export class AudioEngine {
    *  captures, and return to idle so New Tap re-arms. Mirrors Swift `cancelTapSequence()`. */
   cancel(): void {
     this.collected = []
+    this.materialCollected = []
     this.materialSearch = null
     this.captureKind = 'guitar'
     this.capture = this.guitarCapture
@@ -756,16 +763,42 @@ export class AudioEngine {
 
   private finishCapture(): void {
     if (this.captureKind === 'material') {
-      const { magnitudesDb, frequencies, peak } = gatedCaptureResult(
-        this.capture,
-        this.sampleRate,
-        this.materialSearch!,
-      )
+      const search = this.materialSearch!
+      // Each material phase averages `numberOfTaps` taps, exactly like guitar (Swift
+      // handleLongitudinalGatedProgress: collect materialCapturedTaps, then averageSpectra).
+      const { magnitudesDb, frequencies } = gatedCaptureResult(this.capture, this.sampleRate, search)
+      this.materialCollected.push({ magnitudesDb, frequencies })
       this.captureIdx = 0
+
+      const total = this.config.numberOfTaps
+      if (this.materialCollected.length < total) {
+        // Need more taps for THIS phase — re-arm the same phase (Swift reEnableDetectionForNextPlateTap).
+        this.prevAbove = true
+        this.consecutive = 0
+        this.callbacks.onProgress?.(this.materialCollected.length, total)
+        this.setState('listening')
+        return
+      }
+
+      // Phase complete: average the phase's taps and find the dominant peak ON THE AVERAGED spectrum
+      // (within the phase's search range) — the whole point of averaging is to read the peak off the
+      // averaged waveform, exactly as guitar multi-tap does (Swift processMultipleTaps findPeaks on the
+      // average). NB: Swift/Python material historically used the LAST tap's peak (a UUID-hack
+      // side-effect in buildAllPeaks) — that was a latent bug; all three now use the averaged peak.
+      const averaged = averageSpectra(this.materialCollected)
+      const peak = findDominantPeak(
+        averaged.magnitudesDb,
+        averaged.frequencies,
+        search.minHz,
+        search.maxHz,
+        search.preferLowestSignificant,
+      )
+      this.materialCollected = []
+      this.callbacks.onProgress?.(total, total)
       this.setState('idle')
       const sess = this.materialSession
       this.callbacks.onMaterialCapture?.({
-        spectrum: { magnitudesDb, frequencies },
+        spectrum: averaged,
         peak,
         phase: sess ? sess.phases[sess.idx]?.name : undefined,
       })

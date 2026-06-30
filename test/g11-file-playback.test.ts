@@ -67,7 +67,7 @@ async function playMaterial(
   const caps: MaterialCaptureResult[] = []
   const engine = new AudioEngine(
     { onMaterialCapture: (r) => caps.push(r) },
-    { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: 1 },
+    { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
   engine.initForTesting()
   await engine.playFile(wav.samples, wav.sampleRate, {
@@ -218,5 +218,42 @@ describe('G11 — continuous session recording (6f)', () => {
   it('dump off (default): no session WAV is emitted or buffered', async () => {
     const { sessions } = await playGuitarSession(oracle.filePlayback['REG-G1'], false)
     expect(sessions).toHaveLength(0)
+  })
+})
+// 6k: multi-tap averaging per MATERIAL phase. plate-umik-1-web-mac-3-taps.wav is a 3-taps-per-phase
+// plate session recorded by the web app (Chrome, UMIK-1). Replaying it at numberOfTaps=3 averages each
+// phase (L/C/FLC) and finds the dominant peak ON THE AVERAGED spectrum — exactly as guitar multi-tap
+// does. Expected values are the averaged-spectrum peaks (the web app's saved .guitartap, same
+// recording). NB: Swift/Python historically read material peaks off the LAST tap (a buildAllPeaks
+// UUID-hack side-effect) — a latent bug fixed alongside this so all three read the averaged peak.
+describe('G11 — multi-tap averaging per material phase (6k)', () => {
+  const reg = {
+    fixture: 'plate-umik-1-web-mac-3-taps.wav',
+    calibration: '7108913.txt',
+    settings: { tapDetectionThreshold: -40, numberOfTaps: 3, measureFlc: true },
+  }
+  // [frequency Hz, magnitude dB, Q] — peaks read off the AVERAGED spectrum per phase.
+  const EXPECTED = {
+    longitudinal: [68.2587, -71.5858, 15.667],
+    cross: [117.4681, -56.5436, 26.667],
+    flc: [35.3011, -63.6008, 6.0],
+  } as const
+  // Tighter than the generic magDb tolerance: the averaged values are deterministic
+  // across platforms, so they agree far more closely than a single tap. 0.5 dB still
+  // leaves headroom for FFT-library differences while reliably catching a regression
+  // to last-tap selection (the masked deltas were fL 0.94, fC 0.81, fLC 2.62 dB).
+  const P2_MAG_TOL = 0.5
+
+  it('REG-P2: averages numberOfTaps per phase → one capture/phase, matches the canonical baseline', async () => {
+    const caps = await playMaterial(reg, false)
+    expect(caps.length).toBe(3) // ONE averaged capture per phase (not per tap)
+    for (const phase of ['longitudinal', 'cross', 'flc'] as const) {
+      const cap = caps.find((c) => c.phase === phase)
+      expect(cap?.peak, `phase ${phase} not captured`).toBeTruthy()
+      const [ef, em, eq] = EXPECTED[phase]
+      expect(Math.abs(cap!.peak!.frequency - ef), `${phase} freq`).toBeLessThan(TOL.freqHz)
+      expect(Math.abs(cap!.peak!.magnitude - em), `${phase} mag`).toBeLessThan(P2_MAG_TOL)
+      expect(Math.abs(cap!.peak!.quality - eq), `${phase} Q`).toBeLessThan(TOL.q)
+    }
   })
 })

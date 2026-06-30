@@ -91,20 +91,22 @@ function statusText(state: EngineState, progress: { collected: number; total: nu
 
 const isReviewing = (p: MatPhase) => p === 'reviewingL' || p === 'reviewingC' || p === 'reviewingFlc'
 
-function matInstruction(p: MatPhase, brace: boolean): string {
+function matInstruction(p: MatPhase, brace: boolean, collected: number, total: number): string {
+  // Each phase averages `total` taps (Swift numberOfTaps). Show the per-phase count while capturing.
+  const prog = total > 1 ? ` — ${collected}/${total} captured, tap again` : ''
   switch (p) {
     case 'notStarted':
       return 'Press New Tap to begin measurement'
     case 'capturingL':
-      return brace ? 'Tap the brace (longitudinal)…' : 'Tap along the grain (longitudinal)…'
+      return (brace ? 'Tap the brace (longitudinal)…' : 'Tap along the grain (longitudinal)…') + prog
     case 'reviewingL':
       return 'L tap captured — Accept to continue or Redo to re-tap'
     case 'capturingC':
-      return 'Tap across the grain (cross)…'
+      return 'Tap across the grain (cross)…' + prog
     case 'reviewingC':
       return 'C tap captured — Accept to continue or Redo to re-tap'
     case 'capturingFlc':
-      return 'Hold at the long-edge midpoint; tap near the opposite corner (~22%)…'
+      return 'Hold at the long-edge midpoint; tap near the opposite corner (~22%)…' + prog
     case 'reviewingFlc':
       return 'FLC tap captured — Accept to complete or Redo to re-tap'
     case 'complete':
@@ -505,10 +507,13 @@ export default function App() {
     startMaterial()
   }, [startMaterial])
 
-  // Lock the stepper while a tap is being captured or a multi-tap sequence is underway.
-  const tapsLocked =
-    engineState === 'capturing' ||
-    ((engineState === 'listening' || engineState === 'paused') && progress.collected > 0)
+  // Lock the stepper while a measurement is underway. Material: locked from the first phase until
+  // complete (the tap count applies to every phase, so it can't change mid-measurement). Guitar:
+  // locked while capturing or once the multi-tap sequence has started.
+  const tapsLocked = material
+    ? matPhase !== 'notStarted' && matPhase !== 'complete'
+    : engineState === 'capturing' ||
+      ((engineState === 'listening' || engineState === 'paused') && progress.collected > 0)
 
   // Live-tap path: re-analyze the frozen spectrum as Peak Min / guitar type change.
   // Loaded-measurement path: the saved peaks are authoritative — only filter them by
@@ -948,33 +953,30 @@ export default function App() {
       <div className="toolbar toolbar-taps">
         {running && (
           <>
-            {!material && (
-              <>
-                <div className="field">
-                  <label>Taps</label>
-                  <div className="stepper">
-                    <button
-                      className="btn step"
-                      onClick={() => changeTaps(numberOfTaps - 1)}
-                      disabled={tapsLocked || numberOfTaps <= 1}
-                      aria-label="Fewer taps"
-                    >
-                      −
-                    </button>
-                    <span className="step-val">{numberOfTaps}</span>
-                    <button
-                      className="btn step"
-                      onClick={() => changeTaps(numberOfTaps + 1)}
-                      disabled={tapsLocked || numberOfTaps >= 10}
-                      aria-label="More taps"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-                <span className="divider" />
-              </>
-            )}
+            {/* Taps stepper — applies to guitar AND each material phase (Swift numberOfTaps). */}
+            <div className="field">
+              <label>Taps</label>
+              <div className="stepper">
+                <button
+                  className="btn step"
+                  onClick={() => changeTaps(numberOfTaps - 1)}
+                  disabled={tapsLocked || numberOfTaps <= 1}
+                  aria-label="Fewer taps"
+                >
+                  −
+                </button>
+                <span className="step-val">{numberOfTaps}</span>
+                <button
+                  className="btn step"
+                  onClick={() => changeTaps(numberOfTaps + 1)}
+                  disabled={tapsLocked || numberOfTaps >= 10}
+                  aria-label="More taps"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+            <span className="divider" />
 
             <div className="field">
               <label>Threshold</label>
@@ -1232,7 +1234,7 @@ export default function App() {
                 : engineState === 'paused'
                   ? 'Detection paused – tap freely, then resume'
                   : material
-                    ? matInstruction(matPhase, brace)
+                    ? matInstruction(matPhase, brace, progress.collected, numberOfTaps)
                     : statusText(engineState, progress)}
         </span>
         <span className="spacer" />

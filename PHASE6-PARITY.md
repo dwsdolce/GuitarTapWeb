@@ -27,6 +27,7 @@ gap — see 6c: neither native app exposes a user toggle, and the web already mi
 - ⬜ **6h** — Per-measurement-type display ranges (minor)
 - ⬜ **6i** — Decay clock → audio-time everywhere + cross-platform ring-out regression test
 - ⬜ **6j** — Status-bar review (footer status + metrics line) vs Swift/Python
+- ✅ **6k** — Multi-tap averaging per MATERIAL phase (numberOfTaps applies to plate/brace phases too)
 - ⬜ **6-MAP** — parity anchors + generated map (needs tag-syntax sign-off)
 - ⬜ **6-TEST** — cross-platform test review & normalization (major)
 
@@ -194,6 +195,48 @@ unknown) handled the same, or should they resolve to on/off? Is the sample-rate 
 native feature or web-only? Compare against Swift's and Python's status presentation and reconcile (drop
 web-only clutter, add any missing native fields). Not yet scoped against the canonical source — start with
 a read of how Swift/Python render their status/footer.
+
+### 6k — Multi-tap averaging per MATERIAL phase ✅ DONE
+**Done 2026-06-29:** mirrored Swift `handleLongitudinalGatedProgress`. The engine now collects
+`numberOfTaps` gated spectra per material phase into `materialCollected`; while `< total` it re-arms the
+SAME phase (Swift `reEnableDetectionForNextPlateTap`) and emits per-phase tap progress; at `total` it
+`averageSpectra`-s the phase's taps, re-finds the dominant peak on the AVERAGED spectrum within the
+phase's search range (`findDominantPeak`), and emits one `onMaterialCapture` → review/advance (so
+`useMaterialSession` still sees one capture per phase, and the session WAV + checkpoint/redo already
+cover multi-tap-per-phase). UI: the **Taps stepper is now shown in material mode** (was `{!material &&}`);
+`tapsLocked` is material-aware (locked from the first phase until complete); `matInstruction` shows
+"N/total captured, tap again" while capturing. Backward-compatible at `numberOfTaps=1` (average of 1 =
+the tap; peak re-found on it is identical) — REG-P1/B1 plate/brace file-playback tests still pass.
+
+**Latent bug found during porting (fixed 2026-06-29):** Swift/Python material handlers averaged the
+phase spectra but then auto-selected the **last tap's** dominant peak, not the averaged one — Swift
+`buildAllPeaks` overwrote the nearby averaged peak with `dominantPeak` (the last tap) for UUID
+consistency, and Python mirrored it. Result: plate L/C/FLC reported last-tap values, defeating the
+point of averaging. Web was originally correct (re-found the peak on the averaged spectrum). Fix: all
+three now re-find the dominant peak on the AVERAGED spectrum via `findDominantPeak` within the phase
+range (mirrors the guitar `processMultipleTaps` path). The masked magnitude deltas on the REG-P2 fixture
+were fL 0.94 dB, fC 0.81 dB, fLC 2.62 dB — only fLC exceeded the old ±1.0 dB tolerance, which is how the
+bug surfaced.
+
+**Test coverage (REG-P2):** `plate-umik-1-web-mac-3-taps.wav` (9 taps, 3/phase, UMIK-1) replayed at
+`numberOfTaps=3` with the SAME fixture + averaged baseline across all three platforms
+(fL 68.2587/−71.5858/15.667, fC 117.4681/−56.5436/26.667, fLC 35.3011/−63.6008/6.0). REG-P2's magnitude
+tolerance is tightened to **±0.5 dB** (vs the generic ±1.0) since the averaged values are deterministic
+across engines — this reliably catches any regression to last-tap selection. Green on web (vitest),
+Python (pytest), and Swift (Swift Testing).
+
+Swift & Python apply `numberOfTaps` to plate/brace phases too: each phase (L, C, FLC) collects
+`numberOfTaps` taps and averages their spectra before review/advance (Swift `handleLongitudinalGatedProgress`
++ cross/FLC variants; Python `_handle_longitudinal_gated_progress` etc., gated by `captured < total`). So a
+plate at 5 taps = 5/phase × 3 = 15 taps. The web does NOT: (a) the **UI** hides the Taps stepper in material
+mode (`App.tsx` `{!material && …}`), and (b) the **engine** captures a single tap per phase — material
+`finishCapture` never loops on `numberOfTaps` or averages (only the guitar path does). Fix: thread a
+per-phase accumulator through the engine's material capture (collect `numberOfTaps` gated results, average
+via the existing `averageSpectra`, then advance to review) — mirror the guitar multi-tap loop and Swift's
+per-phase progress; and show the Taps stepper in material mode. Backward-compatible at `numberOfTaps=1`
+(average of 1 = the tap), so the REG-P1/B1 file-playback fixtures (1 tap/phase) are unaffected. The session
+WAV + checkpoint/redo already handle multi-tap-per-phase (redo re-does the whole phase). NEW backlog
+2026-06-29 (user-flagged).
 
 ## Architecture & tooling (HIGH PRIORITY — do early)
 
