@@ -14,6 +14,31 @@ import { SettingsPanel } from './components/SettingsPanel'
 import { MetricsPanel, type Metrics } from './components/MetricsPanel'
 import { SaveSheet } from './components/SaveSheet'
 import { PlayFileSheet } from './components/PlayFileSheet'
+import { QuickStartGuide } from './components/QuickStartGuide'
+// Toolbar + tap-control icons live in a shared module so the Quick Start Guide can render the
+// exact same glyphs next to each control (Swift SF Symbols / Python qtawesome equivalents).
+import {
+  TapIcon,
+  PauseIcon,
+  PlayIcon,
+  CancelIcon,
+  CheckIcon,
+  UndoIcon,
+  AutoDbIcon,
+  EyeIcon,
+  StarIcon,
+  EyeOffIcon,
+  SaveIcon,
+  ClipboardIcon,
+  BarChartIcon,
+  GearIcon,
+  HelpIcon,
+  BookIcon,
+  FilePlayIcon,
+  DotViewfinderIcon,
+  PlusViewfinderIcon,
+  WandIcon,
+} from './components/icons'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
@@ -146,125 +171,6 @@ function materialBarStatus(
   }
 }
 
-// Tap-control button icons (Lucide-style, monochrome `currentColor` so they follow each button's
-// text colour and disabled opacity). Mirror the native glyphs: Swift SF Symbols / Python qtawesome —
-// New Tap = hand.tap/gesture-tap, Pause = pause.circle, Resume = play.circle, Cancel = xmark/times-
-// circle, Accept = checkmark.circle (review), Redo = arrow.counterclockwise/undo (review).
-const ICON_SVG = {
-  width: 14,
-  height: 14,
-  viewBox: '0 0 24 24',
-  fill: 'none',
-  stroke: 'currentColor',
-  strokeWidth: 2,
-  strokeLinecap: 'round',
-  strokeLinejoin: 'round',
-  'aria-hidden': true,
-} as const
-const TapIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M22 14a8 8 0 0 1-8 8" />
-    <path d="M18 11v-1a2 2 0 0 0-2-2 2 2 0 0 0-2 2" />
-    <path d="M14 10V9a2 2 0 0 0-2-2 2 2 0 0 0-2 2v1" />
-    <path d="M10 9.5V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v10" />
-    <path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
-  </svg>
-)
-const PauseIcon = () => (
-  <svg {...ICON_SVG}>
-    <rect x="6" y="4" width="4" height="16" rx="1" />
-    <rect x="14" y="4" width="4" height="16" rx="1" />
-  </svg>
-)
-const PlayIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M6 4 20 12 6 20 Z" />
-  </svg>
-)
-const CancelIcon = () => (
-  <svg {...ICON_SVG}>
-    <circle cx="12" cy="12" r="10" />
-    <path d="m15 9-6 6" />
-    <path d="m9 9 6 6" />
-  </svg>
-)
-const CheckIcon = () => (
-  <svg {...ICON_SVG}>
-    <circle cx="12" cy="12" r="10" />
-    <path d="m9 12 2 2 4-4" />
-  </svg>
-)
-const UndoIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M3 7v6h6" />
-    <path d="M21 17a9 9 0 0 0-9-9 8.97 8.97 0 0 0-6.4 2.6L3 13" />
-  </svg>
-)
-// App control-bar icons (replace the colored emoji ⇅ 👁 ★ 🚫 ⤓ ⚙ with monochrome SVG that match
-// the native control-bar glyphs and the tap-control icons above).
-const AutoDbIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="m21 16-4 4-4-4" />
-    <path d="M17 20V4" />
-    <path d="m3 8 4-4 4 4" />
-    <path d="M7 4v16" />
-  </svg>
-)
-const EyeIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-)
-const StarIcon = () => (
-  <svg {...ICON_SVG}>
-    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26" />
-  </svg>
-)
-const EyeOffIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
-    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
-    <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
-    <line x1="2" x2="22" y1="2" y2="22" />
-  </svg>
-)
-const SaveIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-    <path d="M17 21v-8H7v8" />
-    <path d="M7 3v5h8" />
-  </svg>
-)
-const ClipboardIcon = () => (
-  <svg {...ICON_SVG}>
-    <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
-    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-    <path d="M12 11h4" />
-    <path d="M12 16h4" />
-    <path d="M8 11h.01" />
-    <path d="M8 16h.01" />
-  </svg>
-)
-const BarChartIcon = () => (
-  <svg {...ICON_SVG}>
-    <line x1="6" x2="6" y1="20" y2="14" />
-    <line x1="12" x2="12" y1="20" y2="8" />
-    <line x1="18" x2="18" y1="20" y2="4" />
-  </svg>
-)
-const GearIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-)
-const FilePlayIcon = () => (
-  <svg {...ICON_SVG}>
-    <circle cx="12" cy="12" r="10" />
-    <polygon points="10 8 16 12 10 16 10 8" />
-  </svg>
-)
 
 // "Dump Capture Audio" diagnostic: encode a captured buffer to a 32-bit-float WAV and silently
 // download it (the browser equivalent of Swift's write to ~/Documents/GuitarTap — no save dialog,
@@ -279,6 +185,34 @@ function dumpCaptureWav(samples: Float32Array, sampleRate: number, label: string
   a.click()
   URL.revokeObjectURL(url)
 }
+
+// Hover-tip text mirrored verbatim from Swift `HintText` (Views/Utilities/Extensions.swift) so the
+// web tooltips match the desktop app. Shown via the `title` attribute (desktop hover; no-op on touch,
+// exactly like macOS `.help()`).
+const HINTS = {
+  playFile: 'Feed an audio file through the analysis pipeline',
+  autoScale: (on: boolean) =>
+    on ? 'Auto-scale dB enabled - click to disable and reset' : 'Automatically scale dB range to fit the current spectrum',
+  annotations: (label: string) => `Annotation visibility: ${label}`,
+  save: 'Save the current measurement with measurement name and notes',
+  measurements: 'View and manage saved measurements',
+  showMetrics: 'View FFT analysis metrics including sample rate and resolution',
+  settings: 'Configure spectrum display, analysis parameters, and audio input',
+  taps: 'Number of taps to average for peak detection (1-10)',
+  threshold:
+    'Signal level that triggers tap detection. Lower values detect quieter taps. In brace/plate mode this is used as the headroom above the ambient noise floor, not an absolute level.',
+  peakMin:
+    'Minimum peak magnitude shown on the spectrum chart. In guitar mode this also gates which peaks are reported. In brace/plate mode the tap capture uses its own adaptive noise floor, so this only affects chart display.',
+  newTap: 'Start a new tap sequence to detect and analyze resonance peaks',
+  pauseDetection: 'Pause tap detection to experiment with taps without advancing the sequence; spectrum stays live',
+  resumeDetection: 'Resume tap detection to continue the in-progress sequence',
+  acceptTap: 'Accept this tap and continue',
+  cancel: 'Cancel the current tap sequence and start over',
+  redoTap: 'Redo this tap phase',
+  exportSpectrum: 'Export spectrum image as PNG file',
+  compareTaps: 'Compare individual taps',
+  showAveraged: 'Show averaged result only',
+} as const
 
 export default function App() {
   const [captured, setCaptured] = useState<Spectrum | null>(null)
@@ -305,6 +239,23 @@ export default function App() {
 
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [showSettings, setShowSettings] = useState(false)
+  const [showHelpMenu, setShowHelpMenu] = useState(false)
+  const [showQuickStart, setShowQuickStart] = useState(false)
+  // Touch-only crosshair toggle (mirrors the iOS crosshair control on the toolbar, between
+  // Auto dB and Annotations). Shown only on touch devices — a device with a real hovering
+  // pointer (mouse/trackpad) gets the always-live crosshair and needs no toggle. Detect touch
+  // via `maxTouchPoints` (+ `any-pointer: coarse`) rather than `(hover: hover)`: iPadOS Safari
+  // defaults to a "desktop" UA that reports hover:hover=true with no mouse. `maxTouchPoints` is
+  // 5 on iPad/iPhone regardless of desktop mode.
+  const [crosshairMode, setCrosshairMode] = useState(false)
+  const [isTouch] = useState(
+    () =>
+      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) ||
+      window.matchMedia('(any-pointer: coarse)').matches,
+  )
+  // The one shared online User Manual (versioned), same URL as Swift DocumentationLinks.userManual
+  // and Python _open_user_manual.
+  const userManualUrl = `https://www.dolcesfogato.com/guitar_tap/manual/GuitarTap-User-Manual-${__APP_VERSION__}.html`
   const [showPlayFile, setShowPlayFile] = useState(false)
   // Name of the file currently playing through the pipeline (drives the status bar), or null.
   const [playingFileName, setPlayingFileName] = useState<string | null>(null)
@@ -1002,7 +953,7 @@ export default function App() {
           className="btn"
           onClick={() => setShowPlayFile(true)}
           disabled={!running || comparison != null}
-          title="Play a recorded WAV through the analysis pipeline"
+          title={HINTS.playFile}
         >
           <FilePlayIcon />
           <span>Play File</span>
@@ -1012,16 +963,27 @@ export default function App() {
           onClick={toggleAutoDb}
           disabled={!running}
           aria-pressed={autoDb}
-          title="Auto-scale the dB axis to the spectrum"
+          title={HINTS.autoScale(autoDb)}
         >
           <AutoDbIcon />
           <span>Auto dB</span>
         </button>
+        {isTouch && (
+          <button
+            className={`btn toggle ${crosshairMode ? 'on' : ''}`}
+            onClick={() => setCrosshairMode((m) => !m)}
+            aria-pressed={crosshairMode}
+            title={crosshairMode ? 'Crosshair on — drag the chart to read values' : 'Crosshair — drag the chart to read values'}
+          >
+            {crosshairMode ? <PlusViewfinderIcon /> : <DotViewfinderIcon />}
+            <span>Crosshair</span>
+          </button>
+        )}
         <button
           className={`btn toggle ${annotationMode !== 'none' ? 'on' : ''}`}
           onClick={cycleAnnotations}
           disabled={!running || material || displayPeaks.length === 0}
-          title={`Annotation visibility: ${ANNOTATION_LABEL[annotationMode]} (click to cycle)`}
+          title={HINTS.annotations(ANNOTATION_LABEL[annotationMode])}
         >
           {annotationMode === 'all' ? <EyeIcon /> : annotationMode === 'selected' ? <StarIcon /> : <EyeOffIcon />}
           <span>Annotations</span>
@@ -1030,23 +992,62 @@ export default function App() {
           className="btn"
           onClick={() => setShowSave(true)}
           disabled={comparison ? false : material ? matPhase !== 'complete' : !captured}
-          title="Save measurement to the library"
+          title={HINTS.save}
         >
           <SaveIcon />
           <span>Save</span>
         </button>
-        <button className="btn" onClick={() => setShowMeasurements(true)} title="Measurements library">
+        <button className="btn" onClick={() => setShowMeasurements(true)} title={HINTS.measurements}>
           <ClipboardIcon />
           <span>Measurements</span>
         </button>
-        <button className="btn" onClick={() => setShowMetrics(true)} disabled={!running} title="Analysis metrics">
+        <button className="btn" onClick={() => setShowMetrics(true)} disabled={!running} title={HINTS.showMetrics}>
           <BarChartIcon />
           <span>Metrics</span>
         </button>
-        <button className="btn" onClick={() => setShowSettings(true)} title="Settings">
+        <button className="btn" onClick={() => setShowSettings(true)} title={HINTS.settings}>
           <GearIcon />
           <span>Settings</span>
         </button>
+        <div className="help-menu-wrap">
+          <button
+            className="btn"
+            onClick={() => setShowHelpMenu((v) => !v)}
+            title="Help"
+            aria-haspopup="menu"
+            aria-expanded={showHelpMenu}
+          >
+            <HelpIcon />
+            <span>Help</span>
+          </button>
+          {showHelpMenu && (
+            <>
+              <div className="menu-backdrop" onClick={() => setShowHelpMenu(false)} />
+              <div className="help-menu" role="menu">
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setShowHelpMenu(false)
+                    setShowQuickStart(true)
+                  }}
+                >
+                  <HelpIcon />
+                  <span>Quick Start Guide</span>
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setShowHelpMenu(false)
+                    window.open(userManualUrl, '_blank', 'noopener,noreferrer')
+                  }}
+                >
+                  <BookIcon />
+                  <span>User Manual</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Row 2 — Tap Controls (measurement controls). Native macOS order
@@ -1055,7 +1056,7 @@ export default function App() {
         {running && (
           <>
             {/* Taps stepper — applies to guitar AND each material phase (Swift numberOfTaps). */}
-            <div className="field">
+            <div className="field" title={HINTS.taps}>
               <label>Taps</label>
               <div className="stepper">
                 <button
@@ -1079,7 +1080,7 @@ export default function App() {
             </div>
             <span className="divider" />
 
-            <div className="field">
+            <div className="field" title={HINTS.threshold}>
               <label>Threshold</label>
               <ThresholdMeter
                 level={level}
@@ -1095,7 +1096,7 @@ export default function App() {
             {!material && (
               <>
                 <span className="divider" />
-                <div className="field">
+                <div className="field" title={HINTS.peakMin}>
                   <label>Peak Min</label>
                   <input
                     type="range"
@@ -1143,6 +1144,7 @@ export default function App() {
                 className="btn btn-primary tap-action"
                 onClick={material ? onMaterialNewTap : newTap}
                 disabled={newTapDisabled}
+                title={HINTS.newTap}
               >
                 <TapIcon />
                 <span>New Tap</span>
@@ -1151,6 +1153,7 @@ export default function App() {
                 className={`btn tap-action${reviewing ? ' btn-accept' : ''}`}
                 onClick={reviewing ? acceptMaterial : paused ? resumeTap : pauseTap}
                 disabled={!pauseEnabled}
+                title={reviewing ? HINTS.acceptTap : paused ? HINTS.resumeDetection : HINTS.pauseDetection}
               >
                 {reviewing ? <CheckIcon /> : paused ? <PlayIcon /> : <PauseIcon />}
                 <span>{reviewing ? 'Accept' : paused ? 'Resume' : 'Pause'}</span>
@@ -1159,6 +1162,7 @@ export default function App() {
                 className={`btn tap-action${cancelEnabled ? ' btn-cancel' : ''}`}
                 onClick={reviewing ? redoMaterial : cancelTap}
                 disabled={!cancelEnabled}
+                title={reviewing ? HINTS.redoTap : HINTS.cancel}
               >
                 {reviewing ? <UndoIcon /> : <CancelIcon />}
                 <span>{reviewing ? 'Redo' : 'Cancel'}</span>
@@ -1186,6 +1190,8 @@ export default function App() {
               onAnnotationDrag={comparison || showMultiTap ? undefined : onAnnotationDrag}
               onResetLabels={comparison || showMultiTap ? undefined : resetLabels}
               hasMovedLabels={annotationOffsets.size > 0}
+              frozen={captured != null || (material && matPhase === 'complete')}
+              crosshairMode={crosshairMode}
             />
           </div>
           {material && !comparison && (
@@ -1201,7 +1207,7 @@ export default function App() {
               <button
                 className={`btn mini taps-toggle${showMultiTap ? ' active' : ''}`}
                 onClick={() => setShowMultiTap((v) => !v)}
-                title={showMultiTap ? 'Hide per-tap comparison' : 'Compare each tap vs the average'}
+                title={showMultiTap ? HINTS.showAveraged : HINTS.compareTaps}
               >
                 ∿ Taps
               </button>
@@ -1210,6 +1216,51 @@ export default function App() {
               {comparison ? 'Comparison' : MEASUREMENT_SHORT_NAME[settings.measurementType]}
             </span>
           </div>
+
+          {/* Active input device — mirrors the Swift/Python results header (row 2). The web has no
+              Re-analyze button (loaded peaks are authoritative), so this is the device name alone. */}
+          {!comparison && <div className="results-mic">{deviceLabel}</div>}
+
+          {/* Selection controls — FIXED above the scroll (only peak cards scroll), mirroring the
+              Swift/Python header. Shown in the guitar peak view whether or not peaks exist yet (like
+              native, the header stays put while waiting); the buttons disable themselves when empty.
+              Icon-only, matching Swift: checkmark.circle (All) / xmark.circle (None) / wand.and.stars. */}
+          {!comparison && !material && !showMultiTap && (
+            <div className="results-sub">
+              <span className="range-text">
+                Showing {displayMinHz} – {displayMaxHz} Hz
+              </span>
+              <div className="sel-buttons">
+                <button
+                  className="btn mini icon"
+                  onClick={selectAll}
+                  disabled={displayPeaks.every((p) => selectedIds.has(p.id))}
+                  title="Select all peaks"
+                  aria-label="Select all peaks"
+                >
+                  <CheckIcon />
+                </button>
+                <button
+                  className="btn mini icon"
+                  onClick={selectNone}
+                  disabled={displayPeaks.every((p) => !selectedIds.has(p.id))}
+                  title="Deselect all peaks"
+                  aria-label="Deselect all peaks"
+                >
+                  <CancelIcon />
+                </button>
+                <button
+                  className="btn mini icon"
+                  onClick={resetSelection}
+                  disabled={!userModified}
+                  title="Reset to automatic mode selection"
+                  aria-label="Reset to automatic mode selection"
+                >
+                  <WandIcon />
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="results-scroll">
           {comparison ? (
@@ -1224,25 +1275,6 @@ export default function App() {
             <MultiTapComparisonResultsView taps={tapRows} avg={avgModes} />
           ) : (
             <>
-              {displayPeaks.length > 0 && (
-                <div className="results-sub">
-                  <span className="range-text">
-                    Showing {displayMinHz} – {displayMaxHz} Hz
-                  </span>
-                  <div className="sel-buttons">
-                    <button className="btn mini" onClick={selectAll} title="Select all peaks">
-                      All
-                    </button>
-                    <button className="btn mini" onClick={selectNone} title="Deselect all peaks">
-                      None
-                    </button>
-                    <button className="btn mini" onClick={resetSelection} disabled={!userModified} title="Reset to automatic selection">
-                      Auto
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {displayPeaks.length > 0 ? (
                 <div className="cards">
                   {displayPeaks.map((p) => {
@@ -1266,9 +1298,9 @@ export default function App() {
                     )
                   })}
                 </div>
-              ) : (
-                <p className="empty">{captured ? 'No peaks above Peak Min.' : 'No tap captured yet.'}</p>
-              )}
+              ) : captured ? (
+                <p className="empty">No peaks above Peak Min.</p>
+              ) : null}
             </>
           )}
           </div>
@@ -1290,7 +1322,7 @@ export default function App() {
                 className="btn mini"
                 onClick={exportSpectrumImage}
                 disabled={!canExportSpectrum}
-                title="Export the spectrum as a PNG image"
+                title={HINTS.exportSpectrum}
               >
                 ∿ Export Spectrum
               </button>
@@ -1401,6 +1433,11 @@ export default function App() {
           onApply={setSettings}
           onSaveCurrentView={saveCurrentView}
           onClose={() => setShowSettings(false)}
+          userManualUrl={userManualUrl}
+          onShowQuickStart={() => {
+            setShowSettings(false)
+            setShowQuickStart(true)
+          }}
           inputDevices={inputDevices}
           currentDeviceId={currentDeviceId}
           onSelectDevice={(id) => void onSelectDevice(id)}
@@ -1429,6 +1466,8 @@ export default function App() {
       {showPlayFile && (
         <PlayFileSheet onPlay={(audio, cal) => void onPlayFile(audio, cal)} onClose={() => setShowPlayFile(false)} />
       )}
+
+      {showQuickStart && <QuickStartGuide onClose={() => setShowQuickStart(false)} />}
     </div>
   )
 }

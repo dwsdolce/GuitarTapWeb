@@ -33,6 +33,16 @@ export const MODE_DISPLAY_NAME: Record<ResolvedMode, string> = {
   unknown: 'Unknown',
 }
 
+// Reverse of MODE_DISPLAY_NAME: a displayed label → its ResolvedMode (used to derive the glyph +
+// colour from the EFFECTIVE label, so a manual override swaps both, like Swift GuitarMode.icon/color).
+export const MODE_BY_DISPLAY_NAME: Record<string, ResolvedMode> = Object.fromEntries(
+  (Object.entries(MODE_DISPLAY_NAME) as [ResolvedMode, string][]).map(([m, name]) => [name, m]),
+) as Record<string, ResolvedMode>
+
+// A user-defined / custom override label (not a known mode) shows the tag glyph in teal —
+// mirrors Swift's `tag.fill` + RGB(0,128,128) for UserAssignedMode freeform labels.
+export const USER_MODE_COLOR = '#1a9a9a'
+
 /** Quick-pick mode labels for the override menu (GuitarMode.currentCases order). */
 export const QUICK_PICK_MODES = [
   'Air (Helmholtz)',

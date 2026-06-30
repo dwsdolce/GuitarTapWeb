@@ -51,6 +51,126 @@
   align-items: center;
   gap: 0.35rem;
 }
+/* Help dropdown menu (Quick Start Guide | User Manual). */
+.help-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.help-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 41;
+  min-width: 210px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.help-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+.help-menu button:hover {
+  background: var(--line);
+}
+
+/* Quick Start Guide modal (Help → Quick Start Guide). Reuses .settings-overlay/.settings-modal;
+   wider and with a scrolling sectioned body of help rows. */
+.qs-modal {
+  max-width: 640px;
+}
+.qs-scroll {
+  overflow-y: auto;
+  padding: 0.5rem 1.25rem 1.25rem;
+}
+.qs-section {
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.qs-section:last-child {
+  border-bottom: none;
+}
+.qs-h {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem;
+  font-size: 1rem;
+  color: var(--accent);
+}
+.qs-h-icon {
+  display: inline-flex;
+  color: var(--accent);
+}
+.qs-h-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.qs-row.has-icon {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+.qs-row-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  margin-top: 0.1rem;
+  color: var(--muted);
+}
+.qs-row-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.qs-row-main {
+  min-width: 0;
+}
+.qs-intro {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+.qs-row {
+  margin: 0 0 0.7rem;
+}
+.qs-row:last-child {
+  margin-bottom: 0;
+}
+.qs-row-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.92rem;
+  margin-bottom: 0.15rem;
+}
+.qs-row-body {
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 0.9rem;
+}
+
+/* Settings → About & Help: the two help launchers (Quick Start Guide / User Manual). */
+.set-help-links {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0.75rem;
+}
 .btn {
   appearance: none;
   border: 1px solid var(--line);
@@ -1134,8 +1254,10 @@
   text-align: right;
 }
 .chart-ctx {
-  position: absolute;
-  z-index: 5;
+  /* fixed (not absolute) so it escapes .chart-wrap's overflow:hidden; positioned in viewport
+     coords by SpectrumChart and clamped on-screen. */
+  position: fixed;
+  z-index: 60;
   background: #11161d;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1295,6 +1417,16 @@
   margin: 0;
 }
 
+/* Active input device — results header row 2 (mirrors Swift/Python's mic-name caption). */
+.results-mic {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── Analysis Results sub-header + cards ──────────────────── */
 .results-sub {
   display: flex;
@@ -1311,6 +1443,18 @@
 .btn.mini {
   padding: 0.12rem 0.45rem;
   font-size: 0.75rem;
+}
+/* Icon-only mini buttons (Analysis Results selection controls: All / None / Reset-to-auto).
+   Mirrors Swift's icon-only .controlSize(.mini) buttons. */
+.btn.mini.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem;
+}
+.btn.mini.icon svg {
+  width: 14px;
+  height: 14px;
 }
 
 .cards {
@@ -1343,10 +1487,14 @@
   gap: 2px;
   padding-top: 2px;
 }
-.mode-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
+.mode-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.mode-glyph svg {
+  width: 16px;
+  height: 16px;
 }
 .range-flag {
   font-size: 0.7rem;
@@ -1370,7 +1518,12 @@
   justify-content: space-between;
   gap: 0.5rem;
 }
+/* Mode label — plain text (not a dropdown widget), click to reassign. Mirrors Swift's Menu /
+   Python's QToolButton: colored text, italic when manually overridden. `appearance: none` strips
+   the native select chrome so it reads as text; the click still opens the (native) reassign list. */
 .mode-select {
+  appearance: none;
+  -webkit-appearance: none;
   background: none;
   border: none;
   font-size: 0.95rem;
@@ -1378,6 +1531,9 @@
   padding: 0;
   cursor: pointer;
   max-width: 60%;
+}
+.mode-select.override {
+  font-style: italic;
 }
 .mode-select:focus {
   outline: none;

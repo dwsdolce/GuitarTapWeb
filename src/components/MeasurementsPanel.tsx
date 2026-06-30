@@ -262,7 +262,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                   className="btn"
                   onClick={enterCompare}
                   disabled={comparableCount < 2}
-                  title="Select measurements to overlay and compare"
+                  title="Select measurements to overlay on a comparison chart"
                 >
                   Compare…
                 </button>
@@ -364,7 +364,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                         className="meas-info"
                         onPointerUp={comparing ? undefined : rowPointerUp(m)}
                         onClick={comparing ? () => toggleSelect(m) : undefined}
-                        title={comparing ? 'Click to select' : 'Double-click to load'}
+                        title={comparing ? 'Toggle selection for comparison' : 'Double-click to load measurement'}
                       >
                         <div className="meas-line1">
                           <span className="meas-name">
@@ -388,6 +388,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                           <button
                             className="meas-menu-btn"
                             aria-label="Actions"
+                            title="Actions"
                             aria-haspopup="menu"
                             onClick={(e) => {
                               if (menuId === m.id) {

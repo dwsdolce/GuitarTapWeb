@@ -1,9 +1,37 @@
 import type { Peak } from '../dsp/peaks'
 import type { ResolvedMode } from '../dsp/classify'
-import { MODE_COLOR, MODE_DISPLAY_NAME, QUICK_PICK_MODES, magnitudeColor } from '../presentation/modeColors'
+import {
+  MODE_COLOR,
+  MODE_DISPLAY_NAME,
+  MODE_BY_DISPLAY_NAME,
+  USER_MODE_COLOR,
+  QUICK_PICK_MODES,
+  magnitudeColor,
+} from '../presentation/modeColors'
+import {
+  WindIcon,
+  ArrowUpDownIcon,
+  SquareFilledIcon,
+  DipoleIcon,
+  CircleDashedIcon,
+  WaveformIcon,
+  HelpIcon,
+  TagIcon,
+} from './icons'
 
 // One resonant-peak card, mirroring Swift CombinedPeakModeRowView:
-//   [star] [mode dot + in-range check] [mode label · freq / pitch / Q · BW · mag]
+//   [star] [mode glyph + in-range check] [mode label · freq / pitch / Q · BW · mag]
+
+// Per-mode glyph — the web equivalent of the Swift SF Symbols (GuitarMode.icon).
+const MODE_ICON: Record<ResolvedMode, () => JSX.Element> = {
+  air: WindIcon, // wind
+  top: ArrowUpDownIcon, // arrow.up.and.down
+  back: SquareFilledIcon, // square.fill
+  dipole: DipoleIcon, // circle.lefthalf.filled
+  ring: CircleDashedIcon, // circle.dashed
+  upper: WaveformIcon, // waveform
+  unknown: HelpIcon, // questionmark.circle
+}
 
 export interface PeakCardProps {
   peak: Peak
@@ -36,8 +64,12 @@ export function PeakCard({
   onSetLabel,
   onResetLabel,
 }: PeakCardProps) {
-  const color = MODE_COLOR[mode]
   const autoName = MODE_DISPLAY_NAME[mode]
+  // Glyph + colour follow the EFFECTIVE (possibly overridden) label, like Swift — a manual override
+  // swaps both. A custom label that isn't a known mode gets the tag glyph in teal.
+  const effMode = MODE_BY_DISPLAY_NAME[effectiveLabel]
+  const color = effMode ? MODE_COLOR[effMode] : USER_MODE_COLOR
+  const ModeIcon = effMode ? MODE_ICON[effMode] : TagIcon
 
   // Build the option list, ensuring the current value is present.
   const options = [...QUICK_PICK_MODES]
@@ -66,10 +98,12 @@ export function PeakCard({
       </button>
 
       <div className="mode-icon">
-        <span className="mode-dot" style={{ background: color }} />
+        <span className="mode-glyph" style={{ color }}>
+          <ModeIcon />
+        </span>
         {inRange !== null && (
           <span className={`range-flag ${inRange ? 'ok' : 'warn'}`} title={inRange ? 'In ideal range' : 'Outside ideal range'}>
-            {inRange ? '✓' : '!'}
+            {inRange ? '✓' : '⚠'}
           </span>
         )}
       </div>
@@ -77,10 +111,11 @@ export function PeakCard({
       <div className="peak-info">
         <div className="row">
           <select
-            className="mode-select"
+            className={`mode-select${isManualOverride ? ' override' : ''}`}
             style={{ color }}
             value={effectiveLabel}
             onChange={(e) => onPick(e.target.value)}
+            title={isManualOverride ? 'Manually assigned — click to change or reset' : 'Click to assign a mode label'}
           >
             {options.map((l) => (
               <option key={l} value={l}>
@@ -103,10 +138,10 @@ export function PeakCard({
 
         <div className="row details">
           <span className="kv">
-            Q <b>{peak.quality.toFixed(1)}</b>
+            Q: <b>{peak.quality.toFixed(1)}</b>
           </span>
           <span className="kv">
-            BW <b>{peak.bandwidth.toFixed(1)} Hz</b>
+            BW: <b>{peak.bandwidth.toFixed(1)} Hz</b>
           </span>
           <span className="mag" style={{ color: magnitudeColor(peak.magnitude) }}>
             {peak.magnitude.toFixed(1)} dB

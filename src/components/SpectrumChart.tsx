@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { renderSpectrum, chartGeometry, DARK_CHART } from '../presentation/spectrumRender'
 import type { GuitarTypeName } from '../dsp/guitarModes'
@@ -29,6 +29,12 @@ export interface SpectrumChartProps {
   onResetLabels?: () => void
   /** Enables the "Reset Labels" menu item (true when any label has been moved). */
   hasMovedLabels?: boolean
+  /** A frozen/captured result is shown → the crosshair snaps to the nearest spectrum bin
+   *  (otherwise it tracks freely). Material/comparison overlays snap to a curve regardless. */
+  frozen?: boolean
+  /** Touch crosshair mode — owned by the parent (the toggle lives on the control bar, like iOS).
+   *  When true, a one-finger drag moves the crosshair instead of panning. */
+  crosshairMode?: boolean
 }
 
 // Limits mirror SpectrumView+GestureHandlers.swift.
@@ -72,12 +78,40 @@ export function SpectrumChart({
   onAnnotationDrag,
   onResetLabels,
   hasMovedLabels = false,
+  frozen = false,
+  crosshairMode = false,
 }: SpectrumChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [showHelp, setShowHelp] = useState(false)
-  // Reset menu: anchored at the cursor (right-click) via `left`, or under the ⋯ button
-  // (top-right) via `right`.
-  const [menu, setMenu] = useState<{ left?: number; right?: number; top: number } | null>(null)
+  // Live crosshair cursor position (CSS px), set on hover (buttons===0), cleared on
+  // drag/leave. Drives the always-on readout in renderSpectrum.
+  const [hover, setHover] = useState<{ x: number; y: number } | null>(null)
+  // Touch crosshair mode is OWNED by the parent — the toggle lives on the control bar (between
+  // Auto dB and Annotations), mirroring iOS, not on the chart surface. The chart only consumes
+  // the flag for its pointer logic, and clears the crosshair when the mode is switched off.
+  const crosshairModeRef = useRef(false)
+  crosshairModeRef.current = crosshairMode
+  useEffect(() => {
+    if (!crosshairMode) setHover(null)
+  }, [crosshairMode])
+  // Reset/⋯ menu — stored in VIEWPORT coords and rendered `position: fixed` so it escapes the
+  // chart wrapper's `overflow: hidden` (which used to clip it) and is clamped to stay on screen.
+  // `alignRight` anchors the menu's right edge to `x` (for the top-right ⋯ button).
+  const [menu, setMenu] = useState<{ x: number; y: number; alignRight?: boolean } | null>(null)
+  const ctxRef = useRef<HTMLDivElement>(null)
+  const [menuStyle, setMenuStyle] = useState<{ left: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!menu || !ctxRef.current) {
+      setMenuStyle(null)
+      return
+    }
+    const r = ctxRef.current.getBoundingClientRect()
+    const pad = 8
+    let left = menu.alignRight ? menu.x - r.width : menu.x
+    left = Math.max(pad, Math.min(left, window.innerWidth - r.width - pad))
+    const top = Math.max(pad, Math.min(menu.y, window.innerHeight - r.height - pad))
+    setMenuStyle({ left, top })
+  }, [menu])
 
   const viewRef = useRef<ChartView>({ minHz, maxHz, minDb, maxDb })
   viewRef.current = { minHz, maxHz, minDb, maxDb }
@@ -115,8 +149,10 @@ export function SpectrumChart({
       theme: DARK_CHART,
       view: { minHz, maxHz, minDb, maxDb },
       badgeRectsOut: badgeRectsRef.current,
+      crosshair: hover,
+      frozen,
     })
-  }, [spectrum, markers, overlays, logFreq, title, guitarType, minHz, maxHz, minDb, maxDb])
+  }, [spectrum, markers, overlays, logFreq, title, guitarType, minHz, maxHz, minDb, maxDb, hover, frozen])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
   useEffect(() => {
@@ -235,9 +271,25 @@ export function SpectrumChart({
     // the wheel/pointer; zoom is applied from the start view by the cumulative scale.
     const pointers = new Map<number, { x: number; y: number }>()
     let pinch: { startDist: number; aHz: number; aDb: number; region: Region; view: ChartView } | null = null
+    let crosshairTouch: number | null = null // pointerId of a touch positioning the crosshair (crosshair mode)
     const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
 
     const onDown = (e: PointerEvent) => {
+      // Touch crosshair mode: a finger positions the crosshair instead of panning. Gate on
+      // "not a real mouse" rather than pointerType==='touch' — iPadOS desktop mode can label
+      // finger input inconsistently; the toggle is only shown on touch devices anyway.
+      if (crosshairModeRef.current && e.pointerType !== 'mouse') {
+        const r = canvas.getBoundingClientRect()
+        setHover({ x: e.clientX - r.left, y: e.clientY - r.top })
+        try {
+          canvas.setPointerCapture(e.pointerId)
+        } catch {
+          /* capture may be unavailable */
+        }
+        crosshairTouch = e.pointerId
+        return
+      }
+      setHover(null) // a press starts a pan/pinch/drag — hide the hover crosshair
       if (!onViewChangeRef.current || logFreq || e.button !== 0) return
       const rect = canvas.getBoundingClientRect()
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
@@ -273,10 +325,21 @@ export function SpectrumChart({
       start = { ...viewRef.current }
     }
     const onMove = (e: PointerEvent) => {
-      // Hover feedback over draggable badges (no buttons pressed).
-      if (!annoDrag && !start && !pinch && pointers.size === 0 && onAnnotationDragRef.current) {
+      // Touch crosshair mode: the finger drags the crosshair.
+      if (crosshairTouch === e.pointerId) {
+        const r = canvas.getBoundingClientRect()
+        setHover({ x: e.clientX - r.left, y: e.clientY - r.top })
+        return
+      }
+      // Hover (no button pressed): drive the live crosshair + badge-grab cursor. A touch
+      // pointer never reports buttons===0 while moving, so this is naturally hover-only
+      // (touch gets the toggle instead). Mirrors the desktop always-live crosshair.
+      if (e.buttons === 0 && !annoDrag && !start && !pinch) {
         const rect = canvas.getBoundingClientRect()
-        canvas.style.cursor = hitBadge(e.clientX - rect.left, e.clientY - rect.top) ? 'grab' : ''
+        setHover({ x: e.clientX - rect.left, y: e.clientY - rect.top })
+        if (onAnnotationDragRef.current) {
+          canvas.style.cursor = hitBadge(e.clientX - rect.left, e.clientY - rect.top) ? 'grab' : ''
+        }
       }
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       // Annotation badge drag takes priority over pan/pinch.
@@ -312,6 +375,15 @@ export function SpectrumChart({
       emit(out)
     }
     const onUp = (e: PointerEvent) => {
+      if (crosshairTouch === e.pointerId) {
+        crosshairTouch = null // leave the crosshair at its last position so the value stays readable
+        try {
+          canvas.releasePointerCapture(e.pointerId)
+        } catch {
+          /* capture may already be gone */
+        }
+        return
+      }
       pointers.delete(e.pointerId)
       if (annoDrag) {
         annoDrag = null
@@ -326,17 +398,20 @@ export function SpectrumChart({
       }
     }
 
+    const onLeave = () => setHover(null) // pointer left the chart — hide the crosshair
     canvas.addEventListener('wheel', onWheel, { passive: false })
     canvas.addEventListener('pointerdown', onDown)
     canvas.addEventListener('pointermove', onMove)
     canvas.addEventListener('pointerup', onUp)
     canvas.addEventListener('pointercancel', onUp)
+    canvas.addEventListener('pointerleave', onLeave)
     return () => {
       canvas.removeEventListener('wheel', onWheel)
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
       canvas.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('pointercancel', onUp)
+      canvas.removeEventListener('pointerleave', onLeave)
     }
   }, [logFreq])
 
@@ -357,8 +432,7 @@ export function SpectrumChart({
         onContextMenu={(e) => {
           if (!onReset) return
           e.preventDefault()
-          const rect = e.currentTarget.getBoundingClientRect()
-          setMenu({ left: e.clientX - rect.left, top: e.clientY - rect.top })
+          setMenu({ x: e.clientX, y: e.clientY })
           setShowHelp(false)
         }}
       />
@@ -381,16 +455,17 @@ export function SpectrumChart({
           className="chart-menu-btn"
           title="Chart options"
           aria-haspopup="menu"
-          onClick={() => {
+          onClick={(e) => {
             setShowHelp(false)
-            setMenu((m) => (m ? null : { right: 8, top: 32 }))
+            const r = e.currentTarget.getBoundingClientRect()
+            setMenu((m) => (m ? null : { x: r.right, y: r.bottom + 4, alignRight: true }))
           }}
         >
           ⋯
         </button>
       )}
 
-      <button className="chart-help" title="Zoom & pan controls" onClick={() => setShowHelp((s) => !s)}>
+      <button className="chart-help" title="Zoom & Pan Controls" onClick={() => setShowHelp((s) => !s)}>
         ?
       </button>
 
@@ -412,7 +487,15 @@ export function SpectrumChart({
       {menu && (
         <>
           <div className="chart-overlay-backdrop" onClick={closeOverlays} onContextMenu={(e) => { e.preventDefault(); closeOverlays() }} />
-          <div className="chart-ctx" style={{ left: menu.left, right: menu.right, top: menu.top }}>
+          <div
+            ref={ctxRef}
+            className="chart-ctx"
+            style={{
+              left: menuStyle?.left ?? menu.x,
+              top: menuStyle?.top ?? menu.y,
+              visibility: menuStyle ? 'visible' : 'hidden',
+            }}
+          >
             <div className="ctx-title">Chart Options</div>
             <div className="ctx-header">Reset to Saved</div>
             <button onClick={() => doReset('saved', 'both')}>Both Axes</button>

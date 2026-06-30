@@ -33,6 +33,10 @@ export interface SettingsPanelProps {
   onSaveCurrentView: () => void
   /** Close without applying (Cancel / backdrop). */
   onClose: () => void
+  /** The versioned online User Manual URL (opened in a new tab). */
+  userManualUrl: string
+  /** Open the in-app Quick Start Guide (closes Settings first). */
+  onShowQuickStart: () => void
   // ── Audio Input & Calibration (apply IMMEDIATELY, independent of Done/Cancel) ──
   /** Available audio input devices (enumerated once mic permission is granted). */
   inputDevices: { deviceId: string; label: string }[]
@@ -129,6 +133,8 @@ export function SettingsPanel({
   onApply,
   onSaveCurrentView,
   onClose,
+  userManualUrl,
+  onShowQuickStart,
   inputDevices,
   currentDeviceId,
   onSelectDevice,
@@ -449,6 +455,14 @@ export function SettingsPanel({
               An acoustic analysis tool for guitar makers. Tap-tone analysis using real-time FFT to identify resonant
               frequencies of guitar top and back plates.
             </p>
+            <div className="set-help-links">
+              <button className="btn" onClick={onShowQuickStart}>
+                Quick Start Guide
+              </button>
+              <button className="btn" onClick={() => window.open(userManualUrl, '_blank', 'noopener,noreferrer')}>
+                User Manual
+              </button>
+            </div>
             <p className="set-note">Copyright © 2026 David W. Smith dba Dolce Sfogato</p>
           </section>
         </div>

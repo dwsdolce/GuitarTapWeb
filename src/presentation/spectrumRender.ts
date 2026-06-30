@@ -34,6 +34,10 @@ export interface ChartTheme {
   title: string
   curve: string // spectrum curve
   badgeBg: string
+  crosshairLine: string // crosshair lines + readout box border
+  crosshairFreq: string // default frequency-readout color (when not snapped to a colored curve)
+  crosshairDb: string // magnitude-readout color
+  crosshairBg: string // readout box fill
 }
 export const DARK_CHART: ChartTheme = {
   bg: '#0e1116',
@@ -43,6 +47,10 @@ export const DARK_CHART: ChartTheme = {
   title: '#dfe4ea',
   curve: '#4ea1ff',
   badgeBg: 'rgba(20, 25, 33, 0.92)',
+  crosshairLine: 'rgba(150, 160, 170, 0.55)',
+  crosshairFreq: '#dc6464',
+  crosshairDb: '#8a97a6',
+  crosshairBg: 'rgba(20, 25, 33, 0.92)',
 }
 export const LIGHT_CHART: ChartTheme = {
   bg: '#ffffff',
@@ -52,6 +60,10 @@ export const LIGHT_CHART: ChartTheme = {
   title: '#1a2330',
   curve: '#e0584a',
   badgeBg: 'rgba(255, 255, 255, 0.96)',
+  crosshairLine: 'rgba(90, 100, 110, 0.5)',
+  crosshairFreq: '#cc3232',
+  crosshairDb: '#6b7785',
+  crosshairBg: 'rgba(255, 255, 255, 0.96)',
 }
 
 // Margins around the plot: room for the title + mode labels (top), the y-axis title + labels (left),
@@ -84,6 +96,28 @@ export interface RenderOpts {
   theme?: ChartTheme
   /** When provided, the renderer pushes each drawn (keyed) badge's screen rect here for hit-testing. */
   badgeRectsOut?: AnnotationRect[]
+  /** Live pointer crosshair (CSS px). Always-on hover readout; mirrors Python fft_canvas
+   *  `_on_mouse_moved` / Swift desktop crosshair. Omitted for exports (no crosshair in PNG/PDF). */
+  crosshair?: { x: number; y: number } | null
+  /** When true (a frozen/captured result is shown), the crosshair snaps to the nearest
+   *  spectrum bin so the readout reflects actual data; otherwise it tracks freely. */
+  frozen?: boolean
+}
+
+/** Nearest index in a sorted ascending array to `target` (for crosshair bin snap). */
+function nearestIndex(sorted: ArrayLike<number>, target: number): number {
+  const n = sorted.length
+  if (n === 0) return -1
+  let lo = 0
+  let hi = n - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (sorted[mid]! < target) lo = mid + 1
+    else hi = mid
+  }
+  // lo is the first >= target; check the neighbor for the truly nearest.
+  if (lo > 0 && Math.abs(sorted[lo - 1]! - target) <= Math.abs(sorted[lo]! - target)) return lo - 1
+  return lo
 }
 
 /** Draw the spectrum chart into ctx over a W×H region (origin at 0,0). */
@@ -244,6 +278,81 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     const anchorBottom = m.annoOffset ? yFor(m.annoOffset[1]) : yFor(m.magnitude) - 10
     const rect = drawBadge(ctx, m, xFor(m.frequency), yFor(m.magnitude), anchorX, anchorBottom, plotL, plotR, plotT, th, !!m.annoOffset)
     if (opts.badgeRectsOut && m.annoKey) opts.badgeRectsOut.push({ key: m.annoKey, ...rect })
+  }
+
+  // ── Crosshair (always-live pointer readout; mirrors Python fft_canvas._on_mouse_moved) ──
+  const ch = opts.crosshair
+  if (ch && ch.x >= plotL && ch.x <= plotR && ch.y >= plotT && ch.y <= plotB) {
+    // Inverse of xFor/yFor.
+    const hzAt = logFreq
+      ? Math.pow(10, logLo + ((ch.x - plotL) / plotW) * (logHi - logLo))
+      : minHz + ((ch.x - plotL) / plotW) * (maxHz - minHz)
+    let dispHz = hzAt
+    let dispDb = minDb + ((plotB - ch.y) / plotH) * (maxDb - minDb)
+    let freqColor = th.crosshairFreq
+
+    if (overlays.length > 0) {
+      // Always lock to the nearest overlay curve (vertically follows it), colored to it.
+      // Mirrors Python: when comparing, the crosshair snaps to a curve at all times; the
+      // 12 px "gravity" is only hysteresis for switching which curve (added later).
+      let bestDy = Infinity
+      for (const ov of overlays) {
+        const fs = ov.frequencies
+        const ms = ov.magnitudesDb
+        if (!fs.length) continue
+        const i = nearestIndex(fs, hzAt)
+        const dy = Math.abs(ch.y - yFor(ms[i]!))
+        if (dy < bestDy) {
+          bestDy = dy
+          dispHz = fs[i]!
+          dispDb = ms[i]!
+          freqColor = ov.color
+        }
+      }
+    } else if (opts.frozen && spectrum && spectrum.frequencies.length) {
+      // Snap to the nearest FFT bin of the frozen curve so the readout is an actual data value.
+      const i = nearestIndex(spectrum.frequencies, hzAt)
+      dispHz = spectrum.frequencies[i]!
+      dispDb = spectrum.magnitudesDb[i]!
+    }
+    // else: live — free cursor tracking.
+
+    const lx = xFor(dispHz)
+    const ly = yFor(dispDb)
+    ctx.save()
+    ctx.strokeStyle = th.crosshairLine
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(lx, plotT)
+    ctx.lineTo(lx, plotB)
+    ctx.moveTo(plotL, ly)
+    ctx.lineTo(plotR, ly)
+    ctx.stroke()
+
+    // Readout label: frequency (colored) over magnitude (gray), boxed, kept inside the plot.
+    const freqStr = dispHz >= 1000 ? `${(dispHz / 1000).toFixed(2)} kHz` : `${dispHz.toFixed(1)} Hz`
+    const dbStr = `${dispDb.toFixed(1)} dB`
+    ctx.font = '600 12px system-ui, sans-serif'
+    const tw = Math.max(ctx.measureText(freqStr).width, ctx.measureText(dbStr).width)
+    const padX = 6
+    const boxW = tw + padX * 2
+    const boxH = 32
+    let bx = lx + 10
+    let by = ly + 10
+    if (bx + boxW > plotR) bx = lx - 10 - boxW
+    if (by + boxH > plotB) by = ly - 10 - boxH
+    ctx.fillStyle = th.crosshairBg
+    ctx.strokeStyle = th.crosshairLine
+    ctx.beginPath()
+    ctx.rect(bx, by, boxW, boxH)
+    ctx.fill()
+    ctx.stroke()
+    ctx.textAlign = 'left'
+    ctx.fillStyle = freqColor
+    ctx.fillText(freqStr, bx + padX, by + 13)
+    ctx.fillStyle = th.crosshairDb
+    ctx.fillText(dbStr, bx + padX, by + 26)
+    ctx.restore()
   }
 }
 

@@ -23,11 +23,12 @@ gap — see 6c: neither native app exposes a user toggle, and the web already mi
 - ✅ **6d** — Material annotation dragging (single shared offset store, save/load)
 - ✅ **6e** — Multi-tap PDF report (two-page: averaged + per-tap comparison)
 - ✅ **6f** — Continuous session-recording WAV (guitar live + file; live material; gated on the dump setting)
-- ⬜ **6g** — In-app Help View + online User Manual link
+- ✅ **6g** — In-app Quick Start Guide + online User Manual link (toolbar Help menu + Settings → About) — also added the always-live crosshair the audit had missed
 - ✅ **6h** — Per-measurement-type display ranges
 - ⬜ **6i** — Decay clock → audio-time everywhere + cross-platform ring-out regression test
 - ✅ **6j** — Status-bar review (+ material instruction panel, loaded-settings banner, mic-error modals)
 - ✅ **6k** — Multi-tap averaging per MATERIAL phase (numberOfTaps applies to plate/brace phases too)
+- ✅ **6l** — Analysis Results pane consistency + hover-tip port — **DONE 2026-06-30**: Python select icons; web fixed-header selection row + icons + disabled states; tooltips across toolbar/tap/results/peak-cards/chart/library; device-name row + normal header kept visible while waiting; per-mode peak glyphs (incl. override glyph+colour swap) + `Q:`/`BW:` formatting + mode-label-as-text + Export-PDF label; chart-options menu un-clipped. Cancel-button "divergence" investigated → **not a bug** (all three identical; was a mixed tap-count comparison).
 - ⬜ **6-MAP** — parity anchors + generated map (needs tag-syntax sign-off)
 - ⬜ **6-TEST** — cross-platform test review & normalization (major)
 
@@ -131,7 +132,42 @@ checkpoint `[0]` (Swift `Control.swift:172` + Python `:622` already seeded it; t
 `startSessionRecording` too). Verified: web 135 tests, Python 372 tests; Swift edit is a clean
 single-statement removal (params still used; on the Apple-review hold — edited, not committed).
 
-### 6g — In-app Help View + online User Manual link
+### 6g — In-app Quick Start Guide + online User Manual link ✅ DONE
+**Done 2026-06-30.** Mirrors the iOS pattern: a **toolbar Help button** (`HelpIcon`, right of Settings)
+opens a **two-item menu** (`.help-menu`) — **Quick Start Guide** → in-app modal
+`components/QuickStartGuide.tsx` (window title "Quick Start Guide"); **User Manual** →
+`window.open(userManualUrl, '_blank', 'noopener,noreferrer')` (new tab) with
+`userManualUrl = https://www.dolcesfogato.com/guitar_tap/manual/GuitarTap-User-Manual-${__APP_VERSION__}.html`.
+Both are **also** surfaced in **Settings → About & Help** (`.set-help-links`; SettingsPanel gains
+`userManualUrl` + `onShowQuickStart` props — the latter closes Settings then opens the guide).
+
+The Quick Start content is data-driven (`QUICK_START_SECTIONS`, 10 sections) ported from Python
+`help_view.py`, **web-adapted**: the Menu-Bar / keyboard-shortcut row became a **Toolbar** row (the
+web has no menu bar and no shortcuts); the iPhone-only and "Re-analyze Peaks" rows were dropped (no
+web equivalent); "wand" → the **Auto** button; "Play Audio File (File menu, Ctrl+Alt+O)" → "click the
+**Play File** button". Each section header and every control row carries an **icon** — the toolbar/tap
+glyphs were extracted into a shared **`components/icons.tsx`** so the guide renders the *exact same*
+glyphs as the live controls (App.tsx imports them from there too), plus section-header icons matching
+the native mdi/SF symbols.
+
+**Always-live crosshair (audit miss, built as part of 6g).** The audit had *not* flagged that the web
+lacked the spectrum crosshair that Swift/Python have always-on. Built in `presentation/spectrumRender.ts`
++ `components/SpectrumChart.tsx`: a hover crosshair (keys off `e.buttons === 0`, so mouse/trackpad/pen
+hover shows it and press-drag pans) with 3 snap modes mirroring Python `fft_canvas`: free (live) → raw
+cursor; frozen → nearest FFT bin; comparison/material overlays → always lock to the nearest curve,
+colour-matched. **Touch toggle:** on a touchscreen (no hover), a **Crosshair button on the control bar
+between Auto dB and Annotations** (exactly the iOS `Play File · Auto dB · Crosshair · Annotations` order)
+toggles a one-finger drag between moving the crosshair and panning. Touch detected via
+`navigator.maxTouchPoints` (+ `any-pointer: coarse`), NOT `(hover: hover)` — iPadOS Safari's desktop UA
+reports `hover:hover=true` with no mouse, which would have hidden the toggle. Glyph = the iOS SF Symbol
+pair `dot.viewfinder` (off) / `plus.viewfinder` (on), accent-tinted when on. `crosshairMode` is owned by
+`App.tsx` (control-bar button) and passed into the chart as a prop. Quick Start's Crosshair + Toolbar
+rows document this placement. Verified live on iPad + iPhone (user, 2026-06-30). Web-only platform detail
+(touch detection + the toolbar toggle) — nothing to mirror back to Swift/Python, whose iOS path already
+handles this via `#if os(iOS)`. 142 web tests green, tsc + build clean throughout.
+
+Original gap + plan below.
+
 Two distinct things both Swift and Python expose, and the web currently has **neither** (only the
 chart's zoom/pan popover):
 
@@ -296,6 +332,225 @@ per-phase progress; and show the Taps stepper in material mode. Backward-compati
 WAV + checkpoint/redo already handle multi-tap-per-phase (redo re-does the whole phase). NEW backlog
 2026-06-29 (user-flagged).
 
+### 6l — Analysis Results pane consistency + hover tooltips — ✅ DONE 2026-06-30
+**Implemented 2026-06-30:** (6l-1) Python — Select-All/None icons swapped from the blank-on-macOS
+`SP_Dialog*` to qtawesome `fa5s.check-circle` / `fa5s.times-circle` (kept `fa5s.magic`); the unused
+`style = self.style()` removed; syntax-checked. (6l-2) Web — "Showing X–Y Hz" + the selection row lifted
+OUT of `.results-scroll` into a FIXED block between `.results-head` and the scroll (only `.cards` scroll
+now). (6l-3) Web — text All/None/Auto → icon-only buttons `CheckIcon`/`CancelIcon`/`WandIcon`
+(checkmark.circle / xmark.circle / wand.and.stars), Swift disabled states (All when all displayed peaks
+selected, None when none selected, Auto when `!userModified`), exact Swift tooltips. (6l-4) Web — Swift
+`HintText` mirrored into a `HINTS` const in App.tsx and applied across the toolbar (Play File / Auto dB
+[dynamic] / Annotations [dynamic] / Save / Measurements / Metrics / Settings), tap controls (Taps /
+Threshold / Peak Min fields; New Tap; Pause/Resume/Accept [dynamic]; Cancel/Redo [dynamic]), results pane
+(∿ Taps [dynamic], Export Spectrum), peak cards (star [already matched]; mode label, web "click" verb),
+and chart (? "Zoom & Pan Controls"); Measurements library wording aligned (row, Compare, ⋯ Actions) —
+Export All kept its web-appropriate "(backup / move to another browser or device)" instead of Swift's
+"share/AirDrop". 142 web tests green, tsc + build clean. **6l-OPEN still needs a decision (below).**
+
+**6l-5 — device-name row + waiting-state layout (DONE 2026-06-30).** The web replaced the whole pane
+with a "No tap captured yet." placeholder while waiting; Swift/Python keep the normal header (mic name +
+"Showing X–Y Hz" + selection controls) visible and just leave the peak list empty. Fixed: (a) added a
+`.results-mic` device-name row (row 2, shown when `!comparison`) — the user confirmed mic-in-header is the
+parity goal; no Re-analyze button (web has none by design). (b) the "Showing… + selection" row now renders
+whenever in the guitar peak view (dropped the `displayPeaks.length>0` gate) so it stays put while waiting;
+the All/None/Auto buttons disable themselves when there are no peaks (the `.every` checks + `!userModified`
+already handle empty). (c) empty peak list shows nothing while not-captured (matches native) and "No peaks
+above Peak Min." only when captured-but-filtered. 142 tests green, tsc + build clean.
+
+**Cancel-button investigation (RESOLVED — not a divergence).** Reported as web/native differing while
+waiting. Read all three: Swift `cancelButtonEnabled` (TapToneAnalysisView.swift:198-208), Python
+`_update_tap_buttons` (L2594/2661-2667), web `cancelEnabled` — ALL identical: enabled iff `isDetecting &&
+numberOfTaps > 1 && currentTapCount < numberOfTaps` (so single-tap → disabled, multi-tap → active from the
+first tap). User confirmed the apparent difference was a mixed tap-count comparison (one app in multi-tap,
+another in single). No change made to any app.
+
+**6l-6 — peak-row rendering parity (DONE 2026-06-30).** From a 2-app audit of one peak row
+(Swift `CombinedPeakModeRowView.swift` + `GuitarMode.swift`; Python `peak_card_widget.py` +
+`guitar_mode.py`). Four fixes, Swift canonical:
+
+1. **Per-mode glyph** — the web showed a colored dot; Swift/Python show a per-mode icon. Added web SVGs
+   (`components/icons.tsx`) + a `MODE_ICON` map in `PeakCard.tsx`, matching `GuitarMode.icon`:
+
+   | Mode | Swift SF Symbol | Python qtawesome | Web SVG |
+   |---|---|---|---|
+   | Air (Helmholtz) | `wind` | `fa5s.wind` | `WindIcon` |
+   | Top | `arrow.up.and.down` | `fa5s.arrows-alt-v` | `ArrowUpDownIcon` |
+   | Back | `square.fill` | `fa5s.square` | `SquareFilledIcon` |
+   | Dipole | `circle.lefthalf.filled` | `fa5s.adjust` | `DipoleIcon` |
+   | Ring Mode | `circle.dashed` | `fa5s.circle-notch` | `CircleDashedIcon` |
+   | Upper Modes | `waveform` | `fa5s.wave-square` | `WaveformIcon` (reused) |
+   | Unknown | `questionmark.circle` | `fa5s.question-circle` | `HelpIcon` (reused) |
+   | (user-defined override) | `tag.fill` | `fa5s.tag` | — *(not yet; web icon still follows the auto mode, see note)* |
+
+   The range badge (✓ / ⚠) stays stacked under the glyph and is hidden for Unknown/Upper (web's
+   `inRangeFor` already returns null there — matches Swift's guard). Web `!`→`⚠` for the warn glyph.
+
+2. **Q / BW format** — canonical is `Q: <v>  BW: <v> Hz` (colon + space; label muted, value bold).
+   Swift uses **one decimal** for Q (`%.1f`); the web was `Q 28.0` (no colon) → now `Q: 28.0`. **Python
+   diverged** (`Q: {q:.0f}`, integer) → fixed to `{q:.1f}` (`peak_card_widget.py:290`) so all three match
+   Swift. BW was already one-decimal everywhere.
+
+3. **Mode label as text** — Swift uses a `Menu` (macOS) / `Sheet` (iOS); Python a `QToolButton`+`QMenu`:
+   colored text, *italic* when manually overridden, click to reassign (quick-pick modes + extended +
+   Custom… + Reset-to-auto). The web used a `<select>` showing the OS dropdown chrome. Made it read as
+   text via `appearance: none` + `.override` italic; the existing ` ✎` suffix on the selected option is
+   the edit indicator; click still opens the (native, un-clipped) reassign list. Kept the native select
+   (not a custom popup) deliberately — a custom menu would be clipped by `.results-scroll`'s overflow,
+   whereas the native popup renders above it.
+
+4. **Export-PDF label** — the results-panel button: Swift "Export PDF", web "Export PDF", Python was
+   "Export PDF Report" → fixed to "Export PDF" (`tap_tone_analysis_view.py:1466`). The File-menu /
+   measurements-row full-name labels ("Export PDF Report…") were left as-is (Swift spells those out too).
+
+Canonical row layout (L→R): star · mode glyph (+ range badge stacked under) · mode label (left) +
+frequency (right, bold) · ♪ pitch+cents · `Q:` `BW:` (left) + magnitude dB (right, colour-coded).
+
+**Override glyph+colour swap (DONE 2026-06-30).** Like Swift, a manual override now swaps the glyph AND
+colour (and the label-text colour) to the override mode, not just the label text. `PeakCard` derives them
+from the EFFECTIVE label via `MODE_BY_DISPLAY_NAME` (reverse of `MODE_DISPLAY_NAME`); a custom label that
+isn't a known mode gets the tag glyph (`TagIcon`) in teal (`USER_MODE_COLOR`), mirroring Swift's
+`tag.fill` + RGB(0,128,128). (The range badge still uses the auto mode's range — unchanged.)
+
+**Chart-options menu clipping (DONE 2026-06-30, web-only polish).** The ⋯ / right-click Chart Options menu
+was `position: absolute` inside `.chart-host`, so `.chart-wrap`'s `overflow: hidden` clipped it near the
+window edge. Switched `.chart-ctx` to `position: fixed` (z 60) with VIEWPORT coords + an on-screen clamp
+(`useLayoutEffect` measures the menu and pins it inside the viewport with 8px padding; `alignRight` anchors
+the ⋯ menu's right edge to the button). Not a parity item — native apps don't have the overflow constraint.
+(The chart's `?` Zoom/Pan help popover uses the same absolute pattern but is anchored to its fixed
+top-right button — its position is constant and can't run off-screen, so it needs no change.)
+
+142 web tests green, tsc + build clean; Python syntax-checked.
+
+Spec / canonical reference below (kept for the record).
+
+### 6l — Analysis Results pane consistency + hover tooltips — SPEC
+Flagged by the user from a side-by-side of the three apps' Analysis Results pane (web / Swift / Python).
+Two divergences + a follow-on (hover tips). Captured here from a 3-agent canonical audit so it's
+reviewable before any code changes. **Swift is canonical** — Python and web both conform to it.
+
+**The two divergences:**
+1. **Selection-control set + icons.** Web has **All / None / Auto** as *text* buttons. Swift has the same
+   three as *icon-only* buttons. Python *appears* (in the screenshot) to have only Reset-to-auto. → all
+   three should agree on Swift's three-icon set.
+2. **Scroll boundary.** Swift & Python keep **"Showing X–Y Hz" + the selection controls in a FIXED header
+   above the scroll**; only the peak cards scroll. The web put that row *inside* `.results-scroll`. → move
+   it out so **only peak cards scroll**.
+
+**Follow-on — hover tips on web?** YES. The `title=` attribute shows on desktop hover and is a no-op on
+touch — the exact behaviour of macOS `.help()`. So Swift's full tooltip set should be ported to the web
+controls (most web buttons have a `title` already, but many are missing or don't match Swift's wording).
+
+#### Canonical Swift spec (`Views/TapAnalysisResultsView.swift`)
+- **Selection controls** — icon-only, `.controlSize(.mini)`, order left→right:
+  | Control | SF Symbol | Action | Tooltip | Disabled when |
+  |---|---|---|---|---|
+  | Select All | `checkmark.circle` | `selectAllPeaks()` | "Select all peaks" | all peaks already selected, **or** not guitar |
+  | Select None | `xmark.circle` | `selectNoPeaks()` | "Deselect all peaks" | no peaks selected, **or** not guitar |
+  | Reset to Auto | `wand.and.stars` | `resetToAutoSelection()` | "Reset to automatic mode selection" | `!userHasModifiedPeakSelection` (guitar only — hidden otherwise) |
+
+  In plate/brace mode Select All / None stay visible but **disabled**, tooltip → "Peak selection is fixed
+  during plate/brace measurements". Hidden entirely while `showingMultiTapComparison`.
+- **Scroll structure** (top→bottom):
+  - **FIXED header** (OUTSIDE the ScrollView): row 1 = "Analysis Results" title + type badge (or the
+    multi-tap Taps toggle); row 2 = **device name + Re-analyze button** (`arrow.trianglehead.2.counterclockwise`,
+    "Re-analyze peaks from spectrum using the current algorithm"); row 3 = **"Showing X–Y Hz" + the
+    selection controls**. Then a `Divider`.
+  - **ScrollView**: peak cards + (plate/brace) properties / Gore / process sections.
+  - **FIXED footer** (OUTSIDE the ScrollView): guitar Ring-Out + Tap-Ratio summary; status indicator +
+    **Export Spectrum** (`chart.line.uptrend.xyaxis`) / **Export PDF** (`doc.richtext`).
+
+#### Python state (`views/tap_tone_analysis_view.py`) — VERIFIED: buttons exist but render BLANK on macOS
+**Confirmed by reading the source (not the agent's word).** Python **already has all three buttons** in
+`freq_row`, fully wired and visibility-managed: `select_all_btn` (L923-932), `deselect_all_btn` (L934-943),
+`reset_auto_selection_btn` (L945-952); connected at L1843-1845; shown when peaks exist
+(`setVisible(_has_peaks)`, L3803-3805); enabled in guitar mode (L2216-2217); model/analyzer methods exist
+(`peaks_model.select_all_peaks/deselect_all_peaks`, `tap_tone_analyzer.select_all_peaks/select_no_peaks`,
+`…peak_analysis.reset_to_auto_selection`). In git since 2026-04-02 ("Refactoring to match swift").
+
+**Why the user sees only the wand:** the icon sources differ —
+`select_all_btn` → `style.standardIcon(SP_DialogApplyButton)`; `deselect_all_btn` →
+`style.standardIcon(SP_DialogCancelButton)`; `reset_auto_selection_btn` → `qta.icon("fa5s.magic")` (the
+only qtawesome icon). **Qt's macOS style does not supply the `SP_Dialog*` standard pixmaps**, so those two
+buttons render as **blank 22×22 boxes** (present + sized, no glyph) — only the wand shows. So the user is
+right that there aren't "3 select icons": one visible (wand) + two invisible/blank.
+→ **6l-1 ACTION (Python):** swap Select-All / Select-None from the non-rendering `SP_Dialog*` standard
+icons to **qtawesome** (`fa5s.check-circle` / `fa5s.times-circle`; keep `fa5s.magic`) so they actually
+appear; re-check the macOS render. Pure icon-source fix — buttons, wiring, visibility, enable logic are
+already correct; do **not** add duplicate buttons. Swift is canonical & already correct; Python mirror only
+(not Apple-gated).
+
+#### Web today (`App.tsx` results pane, `components/AnalysisResults.tsx`)
+- `.results-head` (fixed) = h2 + multi-tap Taps toggle + type badge. **`.results-sub`** ("Showing X–Y Hz"
+  + `.sel-buttons` All/None/Auto as TEXT) is **inside `.results-scroll`** (wrong — should be fixed header).
+- Ring-Out/Tap-Ratio (`AnalysisResults`) + the Export footer are **already pinned** below the scroll (6b).
+- No device-name / Re-analyze row (web has **no Re-analyze** by design — loaded peaks are authoritative,
+  [[loaded_peaks_authoritative]]).
+
+#### Tasks
+- **6l-1 (Python):** verify + align select-all/none icons to qtawesome and visibility (above). Python mirror,
+  not Apple-gated. Update the paired Swift/Python parity assertion if one covers these controls.
+- **6l-2 (Web — layout):** lift the "Showing X–Y Hz" + selection row OUT of `.results-scroll` into a fixed
+  block between `.results-head` and `.results-scroll`, gated to the guitar peak list
+  (`!comparison && !material && !showMultiTap && displayPeaks.length>0`). Only `.cards` scroll.
+- **6l-3 (Web — icons + states):** swap text All/None/Auto → icons: All=`CheckIcon` (checkmark.circle),
+  None=`CancelIcon` (xmark.circle), Auto=`WandIcon` (wand.and.stars — **already added to
+  `components/icons.tsx`** as the one pre-staged building block). Mirror Swift disabled states (All when all
+  displayed peaks selected; None when none selected; Auto when `!userModified`). Tooltips → exact Swift
+  strings ("Select all peaks" / "Deselect all peaks" / "Reset to automatic mode selection").
+- **6l-4 (Web — hover tooltips):** add `title=` to every control per the Swift inventory below, incl. the
+  DYNAMIC variants (Auto dB on/off, Pause/Resume/Accept, Cancel/Redo, Annotations-by-mode, per-peak star
+  select/deselect, peak mode-label). Audit the current web `title`s and fill gaps / fix wording.
+- **6l-OPEN (decision):** Swift/Python show a **device-name row** (and Re-analyze) in the results header;
+  the web has neither. Re-analyze is intentionally absent (loaded-peaks-authoritative). **Do we add the
+  device-name line to the web results header for parity, or leave it (web shows the device in Settings +
+  status bar)? — needs user sign-off.**
+
+#### Swift tooltip inventory (source of truth for 6l-4)
+`HintText` constants (`Views/Utilities/Extensions.swift`):
+```
+start(isRunning)    running ? "Stop audio analysis" : "Start audio analysis and tap detection"
+showResults         "View detected peaks with mode assignments and frequencies"
+showMetrics         "View FFT analysis metrics including sample rate and resolution"
+save                "Save the current measurement with measurement name and notes"
+exportSpectrum      "Export spectrum image as PNG file"
+autoScale(enabled)  enabled ? "Auto-scale dB enabled - click to disable and reset"
+                            : "Automatically scale dB range to fit the current spectrum"
+measurements        "View and manage saved measurements"
+settings            "Configure spectrum display, analysis parameters, and audio input"
+taps                "Number of taps to average for peak detection (1-10)"
+threshold           "Signal level that triggers tap detection. Lower values detect quieter taps. In brace/plate mode this is used as the headroom above the ambient noise floor, not an absolute level."
+hysteresis          "How far the signal must drop below the detection threshold before the detector resets and is ready for the next tap. Prevents a single loud tap from triggering multiple detections."
+peakMin             "Minimum peak magnitude shown on the spectrum chart. In guitar mode this also gates which peaks are reported. In brace/plate mode the tap capture uses its own adaptive noise floor, so this only affects chart display."
+newTap              "Start a new tap sequence to detect and analyze resonance peaks"
+cancel              "Cancel the current tap sequence and start over"
+resetLabels         "Reset all peak label positions to their default locations"
+pauseDetection      "Pause tap detection to experiment with taps without advancing the sequence; spectrum stays live"
+resumeDetection     "Resume tap detection to continue the in-progress sequence"
+```
+Per-control (web target → exact text):
+- **Toolbar:** Play File → "Feed an audio file through the analysis pipeline"; Auto dB → `autoScale(on/off)`
+  (dynamic); Crosshair → (none in Swift — keep the web's current text); Annotations →
+  "Annotation visibility: {mode label}" (dynamic); Save → `save`; Measurements → `measurements`;
+  Metrics → `showMetrics`; Settings → `settings`; Help → (none); Results [phone/iPad] → `showResults`.
+- **Tap controls:** Taps stepper → `taps`; Threshold slider → `threshold`; Peak Min slider → `peakMin`;
+  each slider's **reset arrow** → "Reset to default"; New Tap → `newTap`;
+  Pause/Resume/Accept → `pauseDetection` / `resumeDetection` / "Accept this tap and continue" (dynamic);
+  Cancel/Redo → `cancel` / "Redo this tap phase" (dynamic).
+- **Results pane:** Taps comparison toggle → "Compare individual taps"; Show-averaged toggle → "Show
+  averaged result only"; Re-analyze → "Re-analyze peaks from spectrum using the current algorithm"
+  (web N/A); Select All / None / Reset → see 6l-3 table; per-peak **star** → "Select peak" / "Deselect peak"
+  (dynamic); per-peak **mode label** → "Manually assigned — tap to change or reset" / "Tap to assign a mode
+  label" (dynamic); Export Spectrum → `exportSpectrum`; Export PDF → (Swift: button label only).
+- **Chart:** ⋯ Chart options → "Chart options"; ? Zoom/Pan info → "Zoom & Pan Controls"; dragged peak label
+  → "Drag to reposition label" / "Drag to adjust • Right-click to reset position" (dynamic).
+- **Measurements / library:** row → "Double-click to load measurement" / "Toggle selection for comparison"
+  (dynamic); Compare → "Select measurements to overlay on a comparison chart"; Export All → "Export the
+  whole library as one .guitartap file (share/AirDrop or save to disk)"; row ⋯ menu → "Actions".
+
+**Pre-staged so far:** only `WandIcon` was added to `components/icons.tsx` (inert export) before this was
+paused for documentation. No layout/wiring/Python changes made yet.
+
 ## Architecture & tooling (HIGH PRIORITY — do early)
 
 These are not feature parity, but the user has flagged them high priority. The model/view
@@ -384,13 +639,11 @@ final layout/naming) and alongside the feature sub-phases (e.g. the decay-tracki
   "Optional:" line; **not** a Swift/Python parity gap (neither app has cloud sync). May be dropped.
 
 ## Sequencing
-**Done so far:** ~~6-ARCH~~ → ~~6a (decay)~~ → ~~6b (live analysis boxes)~~ → ~~6c (log freq, DROPPED — not a parity gap)~~ → ~~6d (material drag)~~ → ~~6e (multi-tap PDF)~~.
+**Done so far:** ~~6-ARCH~~ → ~~6a (decay)~~ → ~~6b (live analysis boxes)~~ → ~~6c (log freq, DROPPED — not a parity gap)~~ → ~~6d (material drag)~~ → ~~6e (multi-tap PDF)~~ → ~~6f (session WAV)~~ → ~~6h (per-type display ranges)~~ → ~~6j (status-bar review)~~ → ~~6k (per-phase multi-tap averaging)~~ → ~~6g (Quick Start Guide + manual link + crosshair)~~ → ~~6l (Analysis Results pane consistency + hover-tip port)~~.
 
-**Remaining:** **6g (Help View + manual link)**,
-**6h (per-type display ranges, minor)**, **6j (status-bar review)** in roughly that priority order;
-**6i (decay clock → audio-time + ring-out regression test)** is gated on a Swift release window (the
-clock change is behavioral, Apple-review hold); plus the tooling **6-MAP** (needs tag-syntax sign-off)
-and the **6-TEST** normalization (major — sequence after 6-MAP so the web suites land in their final
-naming). Verify each gap against current `main` before starting (Phase 5 +
+**Remaining:** **6i (decay clock → audio-time + ring-out
+regression test)** — gated on a Swift release window (the clock change is behavioral, Apple-review hold);
+plus the tooling **6-MAP** (needs tag-syntax sign-off) and the **6-TEST** normalization (major — sequence
+after 6-MAP so the web suites land in their final naming). Verify each gap against current `main` before starting (Phase 5 +
 the work above already closed several items an earlier audit listed as missing — e.g. per-capture WAV,
 saved-comparison PDF, the log-axis "gap").
