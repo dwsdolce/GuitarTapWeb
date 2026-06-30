@@ -61,12 +61,19 @@ describe('measurementToLiveMaterial — restore a plate measurement', () => {
     expect(r.matPeaks.flc).toBeNull()
   })
 
-  it('restores type + dimensions + dB range into the settings patch', () => {
+  it('restores type + dimensions into the settings patch (NOT the axis range)', () => {
     expect(r.settingsPatch.measurementType).toBe('plate')
     expect(r.settingsPatch.plateLength).toBe(500)
     expect(r.settingsPatch.plateMass).toBe(100)
     expect(r.settingsPatch.plateStiffnessPreset).toBe('steelStringTop')
-    expect(r.settingsPatch.minDb).toBe(-100)
+    // The axis range is a transient override (Swift loadedAxisRange), not a persisted
+    // setting — so it must NOT be in the settings patch.
+    expect(r.settingsPatch.minDb).toBeUndefined()
+    expect('displayRanges' in r.settingsPatch).toBe(false)
+  })
+
+  it('carries the saved axis range as a transient view (freq + dB), not persisted', () => {
+    expect(r.view).toEqual({ minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 })
   })
 })
 

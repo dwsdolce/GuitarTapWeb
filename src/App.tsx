@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, type EngineState } from './audio/engine'
 import { SpectrumChart } from './components/SpectrumChart'
-import type { PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
+import type { ChartView, PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
 import { useAnnotations } from './hooks/useAnnotations'
 import { useMaterialSession, type MatPhase } from './hooks/useMaterialSession'
@@ -54,11 +54,13 @@ import {
   saveSettings,
   isGuitarType,
   isMaterialType,
+  displayRangeFor,
   MEASUREMENT_SHORT_NAME,
   MEASUREMENT_FULL_NAME,
   ANNOTATION_NEXT,
   ANNOTATION_LABEL,
   type Settings,
+  type MeasurementType,
 } from './settings'
 import './App.css'
 
@@ -250,6 +252,9 @@ function dumpCaptureWav(samples: Float32Array, sampleRate: number, label: string
 
 export default function App() {
   const [captured, setCaptured] = useState<Spectrum | null>(null)
+  // A loaded measurement's saved axis range — transient override of the persisted display
+  // range (mirrors Swift loadedAxisRange). Set on load, cleared on any new measurement.
+  const [loadedView, setLoadedView] = useState<ChartView | null>(null)
   // Stable handle to useAnnotations' resetLabels so the material start handlers (defined above the
   // annotations hook) can clear dragged labels on a fresh capture (mirrors Swift resetAllAnnotationOffsets).
   const resetLabelsRef = useRef<() => void>(() => {})
@@ -284,7 +289,9 @@ export default function App() {
   const guitarType: GuitarTypeName = isGuitarType(settings.measurementType) ? settings.measurementType : 'generic'
   const material = isMaterialType(settings.measurementType)
   const brace = settings.measurementType === 'brace'
-  const { displayMinHz, displayMaxHz, minDb, maxDb, analysisMinHz, analysisMaxHz, showUnknownModes } = settings
+  const { minDb, maxDb, analysisMinHz, analysisMaxHz, showUnknownModes } = settings
+  // Display frequency range resolves per measurement type (Swift minFrequency(for:)).
+  const { minHz: displayMinHz, maxHz: displayMaxHz } = displayRangeFor(settings, settings.measurementType)
   const peakMin = settings.peakMinThreshold
   const tapThreshold = settings.tapDetectionThreshold
 
@@ -342,6 +349,17 @@ export default function App() {
   const [loadedDecayTime, setLoadedDecayTime] = useState<number | null>(null)
 
   const updateSettings = useCallback((patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch })), [])
+  // Persist the display frequency range for a specific measurement type, merging with
+  // the existing per-type map (Swift setMinFrequency(_:for:)). Functional update so it
+  // never clobbers another type's stored range.
+  const updateDisplayRange = useCallback(
+    (type: MeasurementType, range: Partial<{ minHz: number; maxHz: number }>) =>
+      setSettings((s) => ({
+        ...s,
+        displayRanges: { ...s.displayRanges, [type]: { ...displayRangeFor(s, type), ...range } },
+      })),
+    [],
+  )
   useEffect(() => saveSettings(settings), [settings])
   // Ask the browser to make storage persistent so the saved-measurements library (IndexedDB)
   // isn't evicted under pressure. Best-effort: Chrome/Firefox honor it; Safari mostly ignores
@@ -364,6 +382,7 @@ export default function App() {
     setLoadedPeaks(null)
     setCaptured(null)
     setLoadedName(null)
+    setLoadedView(null) // a new measurement context drops the loaded measurement's transient range
     setTapSpectra([])
     setShowMultiTap(false)
     setComparison(null)
@@ -382,6 +401,7 @@ export default function App() {
     setLoadedPeaks(null)
     setLoadWarning(null)
     setLoadedName(null)
+    setLoadedView(null) // a live capture supersedes the loaded measurement's transient range
     setCaptured(s)
     setTapSpectra(taps ?? []) // per-tap spectra for the multi-tap comparison view
     setShowMultiTap(false)
@@ -441,6 +461,7 @@ export default function App() {
       setLoadedPeaks(null)
       setLoadWarning(null)
       setLoadedName(null)
+      setLoadedView(null) // playing a file starts a new measurement — drop any loaded range
       setCaptured(null)
       setTapSpectra([])
       setShowMultiTap(false)
@@ -475,6 +496,7 @@ export default function App() {
     setLoadedPeaks(null)
     setLoadWarning(null)
     setLoadedName(null)
+    setLoadedView(null) // new tap → drop the loaded measurement's transient range
     setCaptured(null)
     setTapSpectra([])
     setShowMultiTap(false)
@@ -503,6 +525,7 @@ export default function App() {
   // start), then start the phase machine (hooks/useMaterialSession).
   const onMaterialNewTap = useCallback(() => {
     setCancelled(false)
+    setLoadedView(null) // new material measurement → drop the loaded transient range
     resetLabelsRef.current()
     startMaterial()
   }, [startMaterial])
@@ -639,8 +662,10 @@ export default function App() {
     return out
   }, [material, brace, matSpectra])
   const chartMarkers = material ? materialMarkers : markers
-  const chartMinHz = material ? (brace ? 50 : 10) : displayMinHz
-  const chartMaxHz = material ? (brace ? 1200 : 300) : displayMaxHz
+  // Per-measurement-type display range (plate 20–200, brace 30–1000, guitar 75–350),
+  // matching Swift/Python — no special-cased material override.
+  const chartMinHz = displayMinHz
+  const chartMaxHz = displayMaxHz
 
   // Chart view (zoom/pan range) + Auto-dB — see hooks/useChartView.
   const { view, setView, saveCurrentView, resetView, autoDb, toggleAutoDb } = useChartView({
@@ -648,9 +673,11 @@ export default function App() {
     chartMaxHz,
     minDb,
     maxDb,
-    material,
+    measurementType: settings.measurementType,
+    loadedView,
     displaySpectrum,
     updateSettings,
+    updateDisplayRange,
   })
 
   const cycleAnnotations = useCallback(() => {
@@ -781,6 +808,7 @@ export default function App() {
         const mat = measurementToLiveMaterial(m)
         if (mat.measurementType !== settings.measurementType) skipNextTypeResetRef.current = true
         updateSettings(mat.settingsPatch)
+        setLoadedView(mat.view) // transient loaded axis range (Swift loadedAxisRange)
         setLoadedPeaks(null)
         setCaptured(null)
         setComparison(null)
@@ -801,6 +829,9 @@ export default function App() {
       }
       if (live.measurementType !== settings.measurementType) skipNextTypeResetRef.current = true
       updateSettings(live.settingsPatch)
+      // The loaded measurement's axis range is a TRANSIENT override (Swift loadedAxisRange):
+      // shown now, but the user's persisted per-type display range is left untouched.
+      setLoadedView(live.view)
       setLoadedPeaks(live.loadedPeaks) // authoritative saved peaks (Peak Min filters them)
       setLoadedDecayTime(m.decayTime ?? null) // show the FILE's stored ring-out, not the live engine's
       setCaptured(live.captured)

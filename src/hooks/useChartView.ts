@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import type { ChartView, ResetTarget, ResetAxis } from '../presentation/chartTypes'
-import { DEFAULT_SETTINGS, type Settings } from '../settings'
+import { DEFAULT_SETTINGS, defaultDisplayRange, type MeasurementType, type Settings } from '../settings'
 import type { Spectrum } from '../dsp/guitarFFT'
 
 interface UseChartViewArgs {
@@ -13,11 +13,17 @@ interface UseChartViewArgs {
   chartMaxHz: number
   minDb: number
   maxDb: number
-  /** Material modes keep their freq range on a "defaults" reset (only dB goes to factory). */
-  material: boolean
+  /** Current measurement type — the freq range is saved/reset per type. */
+  measurementType: MeasurementType
+  /** A loaded measurement's saved axis range — a TRANSIENT override of the persisted
+   *  default (mirrors Swift `loadedAxisRange`). Set on load, cleared on a new measurement;
+   *  never persisted, and never the target of reset-to-saved. */
+  loadedView: ChartView | null
   /** The spectrum Auto-dB fits to (live/captured/material). */
   displaySpectrum: Spectrum | null
   updateSettings: (patch: Partial<Settings>) => void
+  /** Persist the display freq range for a measurement type (merges per-type). */
+  updateDisplayRange: (type: MeasurementType, range: Partial<{ minHz: number; maxHz: number }>) => void
 }
 
 export interface ChartViewModel {
@@ -34,28 +40,30 @@ export function useChartView({
   chartMaxHz,
   minDb,
   maxDb,
-  material,
+  measurementType,
+  loadedView,
   displaySpectrum,
   updateSettings,
+  updateDisplayRange,
 }: UseChartViewArgs): ChartViewModel {
   const [autoDb, setAutoDb] = useState(false)
 
-  // Live chart view (zoom/pan). Resets to the configured range whenever that range
-  // changes (settings edit, measurement-type switch). Save Current View commits it.
+  // Live chart view (zoom/pan). The "default" it follows is the persisted per-type range,
+  // unless a measurement is loaded — then its saved range overrides transiently (Swift
+  // loadedAxisRange). Resets whenever that effective default changes (load, settings edit,
+  // type switch, new measurement). Save Current View commits the current view.
   const defaultView = useMemo<ChartView>(
     () => ({ minHz: chartMinHz, maxHz: chartMaxHz, minDb, maxDb }),
     [chartMinHz, chartMaxHz, minDb, maxDb],
   )
-  const [view, setView] = useState<ChartView>(defaultView)
-  useEffect(() => setView(defaultView), [defaultView])
+  const effectiveDefault = loadedView ?? defaultView
+  const [view, setView] = useState<ChartView>(effectiveDefault)
+  useEffect(() => setView(effectiveDefault), [effectiveDefault])
   const saveCurrentView = useCallback(() => {
-    updateSettings({
-      displayMinHz: Math.round(view.minHz),
-      displayMaxHz: Math.round(view.maxHz),
-      minDb: Math.round(view.minDb),
-      maxDb: Math.round(view.maxDb),
-    })
-  }, [view, updateSettings])
+    // Freq range persists per measurement type; the dB range stays global.
+    updateDisplayRange(measurementType, { minHz: Math.round(view.minHz), maxHz: Math.round(view.maxHz) })
+    updateSettings({ minDb: Math.round(view.minDb), maxDb: Math.round(view.maxDb) })
+  }, [view, measurementType, updateDisplayRange, updateSettings])
 
   // Right-click axis reset. Mirrors Swift resetBothAxesToSaved / resetBothAxesToDefaults:
   // BOTH only move the live view — neither persists. "Saved" → the saved display range;
@@ -63,12 +71,13 @@ export function useChartView({
   // View / the Settings dialog are the only things that change what's saved.
   const resetView = useCallback(
     (target: ResetTarget, axis: ResetAxis) => {
+      const factory = defaultDisplayRange(measurementType)
       const tgt: ChartView =
         target === 'saved'
           ? defaultView // configured (saved) display range
           : {
-              minHz: material ? defaultView.minHz : DEFAULT_SETTINGS.displayMinHz,
-              maxHz: material ? defaultView.maxHz : DEFAULT_SETTINGS.displayMaxHz,
+              minHz: factory.minHz,
+              maxHz: factory.maxHz,
               minDb: DEFAULT_SETTINGS.minDb,
               maxDb: DEFAULT_SETTINGS.maxDb,
             }
@@ -79,7 +88,7 @@ export function useChartView({
         maxDb: axis === 'freq' ? v.maxDb : tgt.maxDb,
       }))
     },
-    [defaultView, material],
+    [defaultView, measurementType],
   )
 
   // ── Auto-dB (autoScaleDB): fit the dB axis to the displayed spectrum ───────

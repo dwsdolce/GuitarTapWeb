@@ -24,7 +24,7 @@ gap — see 6c: neither native app exposes a user toggle, and the web already mi
 - ✅ **6e** — Multi-tap PDF report (two-page: averaged + per-tap comparison)
 - ✅ **6f** — Continuous session-recording WAV (guitar live + file; live material; gated on the dump setting)
 - ⬜ **6g** — In-app Help View + online User Manual link
-- ⬜ **6h** — Per-measurement-type display ranges (minor)
+- ✅ **6h** — Per-measurement-type display ranges
 - ⬜ **6i** — Decay clock → audio-time everywhere + cross-platform ring-out regression test
 - ⬜ **6j** — Status-bar review (footer status + metrics line) vs Swift/Python
 - ✅ **6k** — Multi-tap averaging per MATERIAL phase (numberOfTaps applies to plate/brace phases too)
@@ -164,7 +164,37 @@ View** (6g-1) and ② **User Manual (online)** (6g-2) — siblings, mirroring `h
 Help** (parity with the desktop About; the web About currently has neither). The chart's existing "?"
 popover is unrelated (zoom/pan controls) and stays.
 
-### 6h — Per-measurement-type display ranges (minor)
+### 6h — Per-measurement-type display ranges ✅ DONE
+**Done 2026-06-29:** the web now keys the display frequency range per `MeasurementType`, matching
+Swift (`minFrequency(for:)`/`maxFrequency(for:)`, `displayMinFreq_<rawValue>`) and Python
+(`min_frequency_for`/`max_frequency_for`). `settings.ts`: replaced the flat global
+`displayMinHz`/`displayMaxHz` with a per-type map `displayRanges: Partial<Record<MeasurementType,
+{minHz,maxHz}>>` (only stores user-customized types; unset → default) plus `defaultDisplayRange(type)`,
+`displayRangeFor(s,type)`, and `setDisplayRangePatch(s,type,range)`. Canonical per-type defaults
+adopted: **guitar (all subtypes) 75–350, plate 20–200, brace 30–1000** — `App.tsx`'s hardcoded
+material override (plate 10–300 / brace 50–1200) was **deleted**; the chart range now resolves from
+`displayRangeFor(settings, measurementType)`. Save Current View, the Settings Frequency-Range fields,
+and the Display "Reset to Defaults" all read/write the **current type's** range (other types' saved
+ranges untouched); Reset uses the per-type factory default. The chart
+right-click "Defaults" reset goes to `defaultDisplayRange(measurementType)`; "Saved" goes to the
+persisted per-type range.
+
+**Loaded range is TRANSIENT (parity audit correction, same day):** a cross-platform comparison showed
+Swift (`setLoadedAxisRange`, loadMeasurement.swift:554) and Python (`set_loaded_axis_range`,
+measurement_management.py:412/1067) apply a loaded measurement's saved axis range as a **transient
+override** of the persisted display setting — they do NOT persist it. The web's first 6h cut persisted
+it (carried over from the old global-on-load behavior). Corrected: added a `loadedView: ChartView | null`
+layer in `useChartView` (`effectiveDefault = loadedView ?? defaultView`) mirroring Swift's
+`loadedAxisRange`. On load (guitar `live.view`, material `mat.view`) the whole axis range — **freq AND
+dB** — is set transiently and NOTHING axis-related is written to settings (`fromLive` drops `minDb/maxDb`
+and the freq fields from both settingsPatches; the range rides in `view`). `loadedView` is cleared on
+every new-measurement entry (type switch, guitar/material capture, play-file, New Tap), so a new capture
+shows the user's persisted per-type range — not the loaded measurement's. Reset-to-saved still targets
+the persisted setting, reset-to-defaults the per-type factory. So loading a measurement never mutates
+the user's display settings, exactly like Swift/Python. Tests: `settings-display-range.test.ts` (5) +
+`g8-material-load` updated (range in `view`, not the patch); 142 web tests green, typecheck + build clean. (Web was unreleased so no migration was needed; Swift/Python already
+correct and unchanged.) Below = original gap note.
+
 Swift keys displayMinFreq/displayMaxFreq per `MeasurementType`; web `settings.ts` uses a single
 **global** displayMinHz/displayMaxHz, so switching type doesn't restore a type-specific default
 range. Low priority.

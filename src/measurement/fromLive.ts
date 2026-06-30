@@ -338,12 +338,11 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
       : m.peaks.map((_, i) => i),
   )
 
+  // The loaded axis range (freq AND dB) is carried in `view` and applied as a TRANSIENT
+  // override by the caller (Swift loadedAxisRange) — it is NOT persisted to settings, so
+  // no display range goes in the patch here.
   const settingsPatch: Partial<Settings> = {
     measurementType,
-    displayMinHz: Math.round(snap.minFreq),
-    displayMaxHz: Math.round(snap.maxFreq),
-    minDb: Math.round(snap.minDB),
-    maxDb: Math.round(snap.maxDB),
     showUnknownModes: snap.showUnknownModes ?? DEFAULT_SETTINGS.showUnknownModes,
     peakMinThreshold: m.peakMinThreshold ?? DEFAULT_SETTINGS.peakMinThreshold,
   }
@@ -368,8 +367,10 @@ export interface MaterialRestore {
   matSpectra: { longitudinal: Spectrum | null; cross: Spectrum | null; flc: Spectrum | null }
   /** The selected L/C/FLC peaks, for the markers + Material Results panel. */
   matPeaks: { longitudinal: MaterialPeak | null; cross: MaterialPeak | null; flc: MaterialPeak | null }
-  /** Type + dimensions (+ dB range) to restore so Material Results recomputes correctly. */
+  /** Type + dimensions to restore so Material Results recomputes correctly. */
   settingsPatch: Partial<Settings>
+  /** The saved axis range — applied as a transient override (not persisted), like guitar. */
+  view: ChartView
   /** Dragged L/C/FLC label positions (keyed by `frequency.toFixed(1)`), for the shared offset store. */
   annotationOffsetsByFreq: Map<string, [number, number]>
 }
@@ -399,7 +400,8 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
   }
 
   // Restore the dimensions so MaterialResults recomputes moduli/quality/Gore numbers.
-  const patch: Partial<Settings> = { measurementType, minDb: Math.round(snap.minDB), maxDb: Math.round(snap.maxDB) }
+  // The axis range is transient (see `view` below), so it is NOT in the patch.
+  const patch: Partial<Settings> = { measurementType }
   if (snap.plateLength != null) patch.plateLength = snap.plateLength
   if (snap.plateWidth != null) patch.plateWidth = snap.plateWidth
   if (snap.plateThickness != null) patch.plateThickness = snap.plateThickness
@@ -427,6 +429,7 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
       flc: toMatPeak(m.selectedFlcPeakID),
     },
     settingsPatch: patch,
+    view: { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB },
     annotationOffsetsByFreq,
   }
 }

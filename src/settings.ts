@@ -85,9 +85,11 @@ export interface Settings {
   braceWidth: number
   braceThickness: number
   braceMass: number
-  // Display Settings
-  displayMinHz: number
-  displayMaxHz: number
+  // Display Settings — the frequency range is PER measurement type (Swift keys
+  // displayMinFreq_<rawValue>; Python min_frequency_for(type)). Only types the user
+  // has customized are stored; unset types fall back to defaultDisplayRange(type).
+  // The dB range stays global, matching Swift/Python.
+  displayRanges: Partial<Record<MeasurementType, { minHz: number; maxHz: number }>>
   minDb: number
   maxDb: number
   // Analysis Settings
@@ -122,8 +124,7 @@ export const DEFAULT_SETTINGS: Settings = {
   braceWidth: 6,
   braceThickness: 12,
   braceMass: 8,
-  displayMinHz: 75,
-  displayMaxHz: 350,
+  displayRanges: {},
   minDb: -100,
   maxDb: 0,
   showUnknownModes: false,
@@ -135,8 +136,34 @@ export const DEFAULT_SETTINGS: Settings = {
   annotationVisibilityMode: 'selected',
 }
 
-// Default keys grouped for the two "Reset" buttons in Advanced settings.
-export const DISPLAY_KEYS = ['displayMinHz', 'displayMaxHz', 'minDb', 'maxDb'] as const
+// Per-measurement-type default display frequency range (Hz). Mirrors Swift
+// TapDisplaySettings.defaultMin/MaxFrequency(for:) and Python default_min/max_frequency:
+// guitar (all subtypes) 75–350, plate 20–200, brace 30–1000.
+export function defaultDisplayRange(type: MeasurementType): { minHz: number; maxHz: number } {
+  if (type === 'plate') return { minHz: 20, maxHz: 200 }
+  if (type === 'brace') return { minHz: 30, maxHz: 1000 }
+  return { minHz: 75, maxHz: 350 }
+}
+
+// Resolve the display range for a measurement type: the user's persisted per-type
+// range if set, else the type default. Mirrors Swift minFrequency(for:)/maxFrequency(for:).
+export function displayRangeFor(s: Settings, type: MeasurementType): { minHz: number; maxHz: number } {
+  return s.displayRanges[type] ?? defaultDisplayRange(type)
+}
+
+// Build a settings patch that stores (part of) a per-type display range, merging
+// with the type's current resolved range and the existing per-type map.
+export function setDisplayRangePatch(
+  s: Settings,
+  type: MeasurementType,
+  range: Partial<{ minHz: number; maxHz: number }>,
+): Partial<Settings> {
+  return { displayRanges: { ...s.displayRanges, [type]: { ...displayRangeFor(s, type), ...range } } }
+}
+
+// dB-axis keys for the Display "Reset" button. The frequency range is reset
+// separately (per measurement type) since it is no longer a flat setting.
+export const DISPLAY_KEYS = ['minDb', 'maxDb'] as const
 export const ANALYSIS_KEYS = ['showUnknownModes', 'analysisMinHz', 'analysisMaxHz', 'peakMinThreshold', 'dumpCaptureAudio'] as const
 
 const KEY = 'guitartap-settings'

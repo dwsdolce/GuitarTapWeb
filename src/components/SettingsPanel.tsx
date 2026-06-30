@@ -9,6 +9,9 @@ import {
   MEASUREMENT_FULL_NAME,
   MEASUREMENT_TYPES,
   STIFFNESS_LABEL,
+  defaultDisplayRange,
+  displayRangeFor,
+  setDisplayRangePatch,
   isGuitarType,
   type MeasurementType,
   type Settings,
@@ -160,13 +163,23 @@ export function SettingsPanel({
     patch(p)
   }
 
+  // Reset the Display group: dB axis to factory + the CURRENT measurement type's
+  // frequency range to its per-type default (other types' saved ranges are kept).
+  const resetDisplay = () => {
+    const p: Partial<Settings> = {}
+    for (const k of DISPLAY_KEYS) (p as Record<string, unknown>)[k] = DEFAULT_SETTINGS[k]
+    patch({ ...p, ...setDisplayRangePatch(d, d.measurementType, defaultDisplayRange(d.measurementType)) })
+  }
+
   // Save Current View persists immediately (Swift behavior) AND reflects into the draft
   // so Done doesn't revert it and the range fields update.
   const saveCurrentView = () => {
     onSaveCurrentView()
     patch({
-      displayMinHz: Math.round(currentView.minHz),
-      displayMaxHz: Math.round(currentView.maxHz),
+      ...setDisplayRangePatch(d, d.measurementType, {
+        minHz: Math.round(currentView.minHz),
+        maxHz: Math.round(currentView.maxHz),
+      }),
       minDb: Math.round(currentView.minDb),
       maxDb: Math.round(currentView.maxDb),
     })
@@ -355,12 +368,12 @@ export function SettingsPanel({
                 <h4>Display Settings</h4>
                 <RangeField
                   title="Frequency Range"
-                  description="Frequency range shown in the spectrum chart"
+                  description={`Frequency range shown in the spectrum chart for ${MEASUREMENT_FULL_NAME[d.measurementType]} (saved per measurement type)`}
                   unit="Hz"
-                  min={d.displayMinHz}
-                  max={d.displayMaxHz}
-                  onMin={(v) => patch({ displayMinHz: v })}
-                  onMax={(v) => patch({ displayMaxHz: v })}
+                  min={displayRangeFor(d, d.measurementType).minHz}
+                  max={displayRangeFor(d, d.measurementType).maxHz}
+                  onMin={(v) => patch(setDisplayRangePatch(d, d.measurementType, { minHz: v }))}
+                  onMax={(v) => patch(setDisplayRangePatch(d, d.measurementType, { maxHz: v }))}
                 />
                 <RangeField
                   title="Magnitude Range"
@@ -375,7 +388,7 @@ export function SettingsPanel({
                   <button className="btn mini" onClick={saveCurrentView} title="Save the spectrum chart's current zoom as the display range">
                     Save Current View
                   </button>
-                  <button className="btn mini" onClick={() => resetKeys(DISPLAY_KEYS)}>
+                  <button className="btn mini" onClick={resetDisplay}>
                     Reset to Defaults
                   </button>
                 </div>
