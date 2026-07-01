@@ -1,3 +1,4 @@
+// @parity view/peak-card
 import type { Peak } from '../dsp/peaks'
 import type { ResolvedMode } from '../dsp/classify'
 import {

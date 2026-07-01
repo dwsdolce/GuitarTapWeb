@@ -1,3 +1,4 @@
+// @parity test/brace
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { decodeWav } from '../src/dsp/wav'

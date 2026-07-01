@@ -1,6 +1,7 @@
 // Comparison results table — mirrors Swift/Python ComparisonResultsView.
 // One row per compared spectrum: a colored dot + label, then the resolved
 // Air / Top / Back mode frequencies. Reuses the multi-tap table styling.
+// @parity view/comparison-results
 
 export interface ComparisonRow {
   label: string

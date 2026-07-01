@@ -2,6 +2,8 @@
 // exp(-2πi·kn/N) convention — identical to numpy.fft.fft / Accelerate's forward
 // DFT — so magnitudes match the Swift/Python reference. Length must be a power
 // of two. re/im are the real/imaginary parts (im typically all-zero on input).
+// @parity dsp/fft
+
 export function fftInPlace(re: Float64Array, im: Float64Array): void {
   const n = re.length
   if (n !== im.length) throw new Error('fftInPlace: re/im length mismatch')

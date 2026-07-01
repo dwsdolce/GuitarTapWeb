@@ -1,3 +1,4 @@
+// @parity test/measurement-codable
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import {

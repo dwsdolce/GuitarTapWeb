@@ -2,6 +2,7 @@
 // material_properties.py. Inputs in mm/grams; SI internally. See INVENTORY.md
 // "Material Property Formulas". NOTE: plate beam uses βL²=22.37, brace uses
 // 22.37332 (deliberate, matches both Swift and Python).
+// @parity dsp/material-properties tests=test/brace,test/plate
 
 export interface Dimensions {
   lengthMm: number

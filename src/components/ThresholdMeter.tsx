@@ -1,3 +1,4 @@
+// @parity view/threshold-slider
 import { useEffect, useRef } from 'react'
 
 // Combined level meter + threshold slider, mirroring the native app's

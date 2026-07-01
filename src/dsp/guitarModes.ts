@@ -2,6 +2,7 @@
 // (GuitarType.swift) — see INVENTORY.md "Mode Classification". Inclusive Hz ranges.
 // Bands overlap by design (Top vs Back especially); the context-aware claimer in
 // findPeaks / classifyAll resolves the overlaps.
+// @parity dsp/guitar-modes
 
 export type GuitarTypeName = 'generic' | 'classical' | 'flamenco' | 'acoustic'
 

@@ -1,3 +1,4 @@
+// @parity view/main
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AudioEngine, type EngineState } from './audio/engine'
 import { SpectrumChart } from './components/SpectrumChart'

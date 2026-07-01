@@ -3,6 +3,7 @@
 // bits adapted for the browser: "Click" (not "Tap"), the toolbar Help button (no menu bar),
 // no keyboard shortcuts, and the always-live crosshair documented. The full online reference
 // is the separate User Manual (Help menu → User Manual).
+// @parity view/help
 
 import {
   TapIcon,

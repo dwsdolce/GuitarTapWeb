@@ -1,3 +1,4 @@
+// @parity audio/tap-analyzer tests=test/tap-decisions
 import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { averageSpectra } from '../dsp/spectrumAverage'

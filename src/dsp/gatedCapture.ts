@@ -1,3 +1,4 @@
+// @parity dsp/gated-capture
 import { computeGatedFFT } from './gatedFFT'
 import { parabolicInterpolate, calculateQ } from './peaks'
 import { interpolateToBins, applyCalibration, type Calibration } from './calibration'

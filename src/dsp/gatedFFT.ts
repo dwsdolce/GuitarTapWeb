@@ -1,3 +1,4 @@
+// @parity dsp/gated-fft tests=test/gated-fft
 import { fftInPlace } from './fft'
 
 // IEEE-754 binary64 epsilon — matches numpy.finfo(float).eps. Used as the

@@ -1,3 +1,4 @@
+// @parity test/gated-fft
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { computeGatedFFT, magnitudeAtFrequency } from '../src/dsp/gatedFFT'

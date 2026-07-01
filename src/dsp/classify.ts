@@ -1,3 +1,4 @@
+// @parity model/guitar-mode-classify tests=test/classify
 import { modeBands, type GuitarTypeName, type ModeName } from './guitarModes'
 import type { Peak } from './peaks'
 

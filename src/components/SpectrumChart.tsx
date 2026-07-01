@@ -1,3 +1,4 @@
+// @parity view/spectrum-chart
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { renderSpectrum, chartGeometry, DARK_CHART } from '../presentation/spectrumRender'

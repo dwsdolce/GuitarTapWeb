@@ -1,3 +1,4 @@
+// @parity model/mode-colors
 import type { ResolvedMode } from '../dsp/classify'
 
 // Per-mode colors and labels for peak annotations (loosely matching GuitarMode).

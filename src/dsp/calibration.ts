@@ -2,6 +2,7 @@
 // its dB corrections onto FFT bin frequencies. Corrections are added to the
 // magnitude spectrum in the dB domain (after the FFT), with flat extrapolation
 // outside the calibrated range — mirrors MicrophoneCalibration (Python/Swift).
+// @parity dsp/calibration
 
 export interface CalibrationPoint {
   frequency: number

@@ -29,7 +29,7 @@ gap — see 6c: neither native app exposes a user toggle, and the web already mi
 - ✅ **6j** — Status-bar review (+ material instruction panel, loaded-settings banner, mic-error modals)
 - ✅ **6k** — Multi-tap averaging per MATERIAL phase (numberOfTaps applies to plate/brace phases too)
 - ✅ **6l** — Analysis Results pane consistency + hover-tip port — **DONE 2026-06-30**: Python select icons; web fixed-header selection row + icons + disabled states; tooltips across toolbar/tap/results/peak-cards/chart/library; device-name row + normal header kept visible while waiting; per-mode peak glyphs (incl. override glyph+colour swap) + `Q:`/`BW:` formatting + mode-label-as-text + Export-PDF label; chart-options menu un-clipped. Cancel-button "divergence" investigated → **not a bug** (all three identical; was a mixed tap-count comparison).
-- ⬜ **6-MAP** — parity anchors + generated map (needs tag-syntax sign-off)
+- ✅ **6-MAP** — group-key `@parity` anchors + generated db/map/lookup utility (47 groups tagged & green across all three; ambiguous tail deferred — see § 6-MAP)
 - ⬜ **6-TEST** — cross-platform test review & normalization (major)
 
 ## Versioning & identity ✅ DONE (kicked off Phase 6)
@@ -605,26 +605,84 @@ no longer imports from views. Tests green after each step. Original plan below.
   ViewModels, `components/` = Views, `audio/` = service, `presentation/` = view-side transforms,
   `format/` = Utilities.
 
-### 6-MAP — Parity mapping: in-code anchors + generated map (retire the hand-maintained file)
+### 6-MAP — Parity mapping: co-located group-key anchors + generated database/map/utility
 Problem (user): the central **`PARITY-MAP.md`** must be hand-maintained and will diverge; generic
 searches across THREE repos are error-prone. Today the mapping lives in three places — the central
 file (rots), ~38 files' **informal** "mirrors Swift X / Python Y" comments (co-located, good), and the
 **name-echoing convention** (`classify.ts` ↔ `GuitarMode.classify`). The behavioral contract is the
 **oracle** (`parity-oracle.json` + `sync-oracle.sh --check`), which already cannot silently diverge.
 
-**Decision/approach:** make the **co-located in-code anchors the single source of truth**, and
-**generate** the central map from them so the file becomes a build artifact that can't rot:
-1. **Standardize a greppable anchor tag** in each web module header, e.g.
-   `// @parity swift=GuitarTap/Models/GuitarMode.swift:classify python=src/guitar_tap/models/guitar_mode.py:classify`
-   (formalizes the 38 existing informal comments). It travels with the code and is reviewed in the same
-   diff → minimal divergence; finding a counterpart is one grep, not a guess.
-2. **`tooling/gen-parity-map.ts`** scans the `@parity` tags → regenerates the `PARITY-MAP.md` tables
-   (prose intro stays hand-written). `--check` in CI (mirroring `sync-oracle.sh --check`): regenerate &
-   diff (map provably current) **and** assert every referenced Swift/Python path still exists (catches
-   drift when the canonical side moves/renames — the one failure mode co-location can't catch).
-3. Keep the **oracle** (behavioral) and **name-echoing** (search aid) as the other two legs.
-Net: no hand-maintained map, no generic 3-repo searches, and staleness is caught by CI. (Open question
-for sign-off: exact tag syntax + whether to also emit a reverse index keyed by Swift symbol.)
+Requirement (signed off): **any-direction lookup** — stand on a symbol in *any* one platform and be
+told where it lives in the other two, for every combination (Swift→{Py,web}, Py→{Swift,web},
+web→{Swift,Py}). This rules out a web-only anchor: it can only be grepped from the web repo, and it
+can't represent **Swift↔Python-only** groups (desktop-only features; the ~22 Swift ↔ ~24 Python test
+files that already mirror by name). So the anchor must be **co-located in all three repos**.
+
+**Decision/approach — group-key anchors as the single source of truth; generate everything else:**
+1. **Co-located `@parity <slug>` comment in each file**, in all three repos (a comment works in every
+   language: `//` for Swift/TS, `#` for Python). The slug is the **join key** — the generator discovers
+   the paths by grouping files that share a slug, so paths are never restated and therefore can't
+   disagree. Formalizes the ~38 informal comments; the existing name-echoing convention stays as a
+   secondary search aid.
+   - **Slug style: area-namespaced kebab** — `dsp/gated-fft`, `model/guitar-mode-classify`,
+     `view/peak-card`, `test/button-enablement`. Semantic (not a UUID) so a bare grep is meaningful;
+     namespaced so the generated map clusters by area. The slug is just an identifier — it need NOT
+     track the symbol name, so a canonical-side rename doesn't force a slug change.
+   - **No counterpart: reserved slug `@parity none`** — "parity considered, intentionally
+     platform-specific." Collected into a separate appendix; never warned about. Distinct from a real
+     slug that appears in only one repo (that's a typo / missing tag → CI warns).
+2. **One generator scan → three artifacts, all committed in the Swift repo** (per user: the generated
+   output must live in one repo so it's in GitHub; Swift is canonical). Tooling is language-neutral
+   (**Python stdlib or shell — no Node project added to the Swift repo**; npm is available on the machine
+   but not required); it scans the three sibling repos under `~/src`.
+   - **`parity-index.json`** — the database. One record per group:
+     `{ "slug": "...", "swift": "...", "python": "...", "web": "..."|null }`.
+   - **`PARITY-MAP.md`** — a **single self-contained table** (`slug · Swift · Python · Web`), slug-sorted.
+     Any-direction lookup is just Ctrl-F: each reference appears only in its own column, and the row
+     gives the other two — so ONE table (~46 rows) replaces a three-index layout (~120+ rows) with no
+     loss for targeted lookup. Prose intro stays hand-written; tables are generated below a marker.
+   - **`parity-lookup`** — the browse utility over the JSON (the "database + query tool" the user asked
+     for): `parity-lookup classify` prints the matching group(s), matching any column, substring,
+     case-insensitive; `--sort=swift` etc. for sorted browsing (the only thing a single table can't do
+     by itself).
+3. **CI `--check`** (mirrors `sync-oracle.sh --check`): regenerate from the tags → diff `PARITY-MAP.md`
+   **and** `parity-index.json` (both provably current) · assert every referenced path/symbol still
+   exists (catches a canonical-side move/rename — the one failure mode co-location can't catch) · list
+   any slug found in **exactly one** repo (typo, or should be `@parity none`). A `—` cell (a genuine
+   2-member group, e.g. a Swift↔Python-only test) is NOT an error.
+4. Keep the **oracle** (behavioral source of truth) and **name-echoing** (search aid) as the other legs.
+
+Net: no hand-maintained map, no generic 3-repo searches, any-direction lookup from code (grep the slug)
+or from the map (Ctrl-F / `parity-lookup`), and staleness caught by CI. **Signed off:** group-key model,
+area-namespaced slugs, reserved `none`, artifacts + utility in the Swift repo.
+
+**IMPLEMENTED 2026-06-30.** Tooling (Python stdlib, no Node dep) in the **Swift repo**
+`Tooling/parity/`: `gen_parity_map.py` (scan → `PARITY-MAP.md` + `parity-index.json`; `--check` for
+CI — diffs both outputs, flags orphan/malformed slugs), `parity_lookup.py` (any-column substring +
+`--sort`), `README.md`. The generator skips its own dir so example tags in docstrings don't self-match.
+**47 groups tagged** across all three repos (DSP impl, audio engine, UI views, and the mirrored test
+suites — many now 3-member via the web `test/` oracle files; Swift↔Python-only groups render `—` in the
+web column). Validated green: web tsc + 143 tests, Python `py_compile`, Swift `BUILD SUCCEEDED`. The
+web repo's old hand-maintained `PARITY-MAP.md` is now a pointer stub to the generated one. No CI exists
+in any repo yet, so `--check` is runnable/pre-commit for now (drop into CI when added).
+
+**Equivalence column (added on review):** the map is file-level *location* and does NOT prove the
+contents match — that's the oracle's + paired tests' job. So each impl tag may carry `tests=<test-slug>`
+linking its behavioural test group, and the generator derives an **Equivalence** column: `oracle + tests`
+(numerically pinned by a `g#` web oracle test AND covered by paired Swift/Python tests), `oracle` /
+`tests`, `test suite`, or `review only` (no machine check — rests on change-all-three + review). Today
+the 7 oracle-backed DSP groups read `oracle + tests`; UI/engine read `review only`, making the
+verification gap visible. `--check` flags a `tests=` that points at a missing/non-test group.
+
+**Deferred tail (needs path confirmation before tagging — untagged is not an error):** DSP `signal.ts`
+(inline windowing, no distinct Swift/Python file), `wav.ts` (Swift read spread across TapToneAnalyzer /
+RealtimeFFTAnalyzer+EngineControl), `analysisQuality.ts` + its test; `public/spectrum-processor.js`
+input-worklet home; UI `MeasurementsPanel`/`MeasurementDetail`/`PlayFileSheet`/`MaterialResults`/
+`MaterialInstructionPanel`; tests `g6-measurement-bridge`, `g7-measurement-4c`, `g8-material-load`,
+`g9-multitap`, `spectrum-average`, `g3a-calibration` (possibly web-only → `none`), Swift
+`SpectrumViewGestureTests`, Python `test_comparison_annotation_guard` + the `test_wi*` settings tests.
+These either lack a confirmed counterpart file or are plausibly platform-specific; tag them (or mark
+`@parity none`) once confirmed.
 
 ### 6-TEST — Cross-platform test review & normalization (MAJOR)
 A full audit of the test suites across all three repos to establish a **shared common core** that every
@@ -663,9 +721,9 @@ final layout/naming) and alongside the feature sub-phases (e.g. the decay-tracki
   "Optional:" line; **not** a Swift/Python parity gap (neither app has cloud sync). May be dropped.
 
 ## Sequencing
-**Done so far:** ~~6-ARCH~~ → ~~6a (decay)~~ → ~~6b (live analysis boxes)~~ → ~~6c (log freq, DROPPED — not a parity gap)~~ → ~~6d (material drag)~~ → ~~6e (multi-tap PDF)~~ → ~~6f (session WAV)~~ → ~~6h (per-type display ranges)~~ → ~~6j (status-bar review)~~ → ~~6k (per-phase multi-tap averaging)~~ → ~~6g (Quick Start Guide + manual link + crosshair)~~ → ~~6l (Analysis Results pane consistency + hover-tip port)~~ → ~~6i (cross-platform ring-out test — decay-clock rework skipped)~~.
+**Done so far:** ~~6-ARCH~~ → ~~6a (decay)~~ → ~~6b (live analysis boxes)~~ → ~~6c (log freq, DROPPED — not a parity gap)~~ → ~~6d (material drag)~~ → ~~6e (multi-tap PDF)~~ → ~~6f (session WAV)~~ → ~~6h (per-type display ranges)~~ → ~~6j (status-bar review)~~ → ~~6k (per-phase multi-tap averaging)~~ → ~~6g (Quick Start Guide + manual link + crosshair)~~ → ~~6l (Analysis Results pane consistency + hover-tip port)~~ → ~~6i (cross-platform ring-out test — decay-clock rework skipped)~~ → ~~6-MAP (group-key `@parity` anchors + generated db/map/lookup; 47 groups)~~.
 
-**Remaining:** the tooling **6-MAP** (needs tag-syntax sign-off) and the **6-TEST** normalization (major —
+**Remaining:** the **6-TEST** normalization (major —
 sequence after 6-MAP so the web suites land in their final naming). NOTE: a sub-item now lives under
 6-TEST — "decouple file playback from real-time pacing so the 18–30 s Python/Swift playback suites run
 instant like the web" (needs the decay audio-clock + Swift's main-thread Combine decay moved to a sync

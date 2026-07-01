@@ -1,3 +1,4 @@
+// @parity dsp/guitar-fft
 import { fftInPlace } from './fft'
 import { findPeaks, type Peak } from './peaks'
 import { getPeak } from './classify'

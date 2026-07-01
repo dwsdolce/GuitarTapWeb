@@ -1,6 +1,7 @@
 // Multi-tap comparison table — mirrors Swift MultiTapComparisonResultsView.
 // One row per tap (colored dot + "Tap N") plus a bold gold "Averaged" row,
 // each showing the Air / Top / Back resolved mode frequencies.
+// @parity view/multi-tap-results
 
 export interface TapModeFreqs {
   air: number | null

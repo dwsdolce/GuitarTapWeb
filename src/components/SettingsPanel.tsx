@@ -1,3 +1,4 @@
+// @parity view/settings
 import { useRef, useState } from 'react'
 import type { StoredCalibration } from '../measurement/calibrationStore'
 import { densityGPerCm3, type Dimensions } from '../dsp/material'

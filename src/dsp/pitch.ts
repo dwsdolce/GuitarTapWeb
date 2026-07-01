@@ -2,6 +2,7 @@
 // Ported from Pitch.swift / pitch.py: 12-TET anchored at A4 (default 440 Hz),
 // C0 = A4·2^(−4.75). All in float64. Stored per peak as pitchNote/pitchCents/
 // pitchFrequency. See INVENTORY.md "Pitch".
+// @parity dsp/pitch tests=test/pitch
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 

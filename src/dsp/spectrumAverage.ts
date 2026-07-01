@@ -1,3 +1,4 @@
+// @parity dsp/spectrum-average
 import type { Spectrum } from './guitarFFT'
 
 // Frequency-domain power averaging of multiple tap spectra. Mirrors Python

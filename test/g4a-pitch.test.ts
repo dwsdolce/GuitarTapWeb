@@ -1,3 +1,4 @@
+// @parity test/pitch
 import { describe, it, expect } from 'vitest'
 import { Pitch } from '../src/dsp/pitch'
 

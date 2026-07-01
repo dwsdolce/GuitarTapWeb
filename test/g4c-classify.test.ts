@@ -1,3 +1,4 @@
+// @parity test/classify
 import { describe, it, expect } from 'vitest'
 import { classifySingle, classifyAll, getPeak } from '../src/dsp/classify'
 import type { Peak } from '../src/dsp/peaks'

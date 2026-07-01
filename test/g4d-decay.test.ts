@@ -1,3 +1,4 @@
+// @parity test/decay-tracking
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { measureDecayTime, DecayTracker, DECAY_THRESHOLD_DB, type DecaySample } from '../src/dsp/decay'

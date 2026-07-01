@@ -1,3 +1,4 @@
+// @parity test/comparison
 import { describe, it, expect } from 'vitest'
 import {
   buildGuitarMeasurement,

@@ -10,6 +10,7 @@
 // 2.0 s hold), NOT the instantaneous tap-confirm level — tap detection lags the strike by ~2 chunks,
 // so the true peak would otherwise be missed and the −15 dB target under-stated. Guitar only (native
 // skips material). decayTime is stored on the measurement and read at save (Swift currentDecayTime).
+// @parity dsp/decay tests=test/decay-tracking
 
 /** dB drop that defines "decayed" — Swift/Python `decayThreshold` (15 dB). */
 export const DECAY_THRESHOLD_DB = 15.0

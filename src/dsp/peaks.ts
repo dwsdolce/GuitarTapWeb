@@ -1,3 +1,4 @@
+// @parity dsp/find-peaks tests=test/peaks
 import { modeBands, type GuitarTypeName } from './guitarModes'
 
 // Peak detection + parabolic interpolation + Q, ported from

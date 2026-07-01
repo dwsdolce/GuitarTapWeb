@@ -1,3 +1,4 @@
+// @parity test/peaks
 import { describe, it, expect } from 'vitest'
 import { findPeaks, removeDuplicatePeaks, type Peak } from '../src/dsp/peaks'
 

@@ -1,3 +1,4 @@
+// @parity test/file-playback
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { AudioEngine, type MaterialCaptureResult } from '../src/audio/engine'
