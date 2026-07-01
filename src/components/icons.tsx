@@ -253,6 +253,25 @@ export const SearchIcon = () => (
     <line x1="21" x2="16.65" y1="21" y2="16.65" />
   </svg>
 )
+// Analysis Results (phone: opens the results bottom sheet) — matches the iOS `doc.text` Results
+// toolbar button: a page with a folded top-right corner and text lines.
+export const ResultsIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="8" y1="13" x2="16" y2="13" />
+    <line x1="8" y1="17" x2="16" y2="17" />
+    <line x1="8" y1="9" x2="10" y2="9" />
+  </svg>
+)
+// Re-analyze peaks — re-run detection on the loaded/frozen spectrum with the current settings.
+// Mirrors the Swift `arrow.trianglehead.2.counterclockwise` / Python `fa5s.sync-alt`.
+export const RefreshIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+    <path d="M21 3v5h-5" />
+  </svg>
+)
 // Reset-to-auto peak selection — mirrors the iOS SF Symbol `wand.and.stars`.
 export const WandIcon = () => (
   <svg {...ICON_SVG}>

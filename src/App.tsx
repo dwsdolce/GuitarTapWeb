@@ -38,6 +38,8 @@ import {
   DotViewfinderIcon,
   PlusViewfinderIcon,
   WandIcon,
+  ResultsIcon,
+  RefreshIcon,
 } from './components/icons'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults } from './components/MaterialResults'
@@ -241,6 +243,10 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showHelpMenu, setShowHelpMenu] = useState(false)
   const [showQuickStart, setShowQuickStart] = useState(false)
+  // Phone only: the Analysis Results panel is a button-triggered bottom sheet (mirrors iOS
+  // `showingResults`). On desktop/tablet the panel is always visible and this is ignored (the
+  // Results button + sheet styling only activate at the phone breakpoint).
+  const [showResults, setShowResults] = useState(false)
   // Touch-only crosshair toggle (mirrors the iOS crosshair control on the toolbar, between
   // Auto dB and Annotations). Shown only on touch devices — a device with a real hovering
   // pointer (mouse/trackpad) gets the always-live crosshair and needs no toggle. Detect touch
@@ -583,6 +589,20 @@ export default function App() {
   } = useAnnotations({ peaks, guitarType, captured, material })
   resetLabelsRef.current = resetLabels // bridge for the material start handlers defined above the hook
 
+  // Re-analyze — re-detect peaks on the loaded/frozen spectrum using the CURRENT analysis settings
+  // (Peak Min, analysis range, guitar type), letting you retune a saved measurement without
+  // re-tapping. Loaded peaks are otherwise authoritative (never recomputed); this is the manual
+  // "re-detect with current settings" action. Mirrors Swift reanalyzePeaks() / Python
+  // reanalyze_peaks(): it CLEARS the loaded peaks so the `peaks` memo falls through to live
+  // findPeaks() on the frozen spectrum, resets manual selection to auto, and — because loadedPeaks
+  // is now null — disables the button (one-shot, exactly like the native apps). The stored ring-out
+  // (loadedDecayTime) is left intact; decay is gated on loadedName, not loadedPeaks, so it persists.
+  const reanalyze = useCallback(() => {
+    if (!captured) return
+    setLoadedPeaks(null)
+    resetSelection()
+  }, [captured, resetSelection])
+
   const keyOf = (p: Peak) => p.frequency.toFixed(1)
   const labelFor = (p: Peak, mode: ResolvedMode) => overrides.get(keyOf(p)) ?? MODE_DISPLAY_NAME[mode]
   const inRangeFor = (p: Peak, mode: ResolvedMode): boolean | null => {
@@ -753,7 +773,9 @@ export default function App() {
         overridesByFreq: overrides,
         annotationOffsetsByFreq: annotationOffsets,
         // A loaded measurement keeps its stored ring-out (don't overwrite with the live engine's).
-        decayTime: loadedPeaks != null ? loadedDecayTime : (engineRef.current?.decayTime ?? null),
+        // Gated on loadedName, not loadedPeaks, so Re-analyze (which clears loadedPeaks) preserves
+        // the stored ring-out — mirrors Swift currentDecayTime surviving reanalyzePeaks().
+        decayTime: loadedName != null ? loadedDecayTime : (engineRef.current?.decayTime ?? null),
         view,
         settings,
         numberOfTaps,
@@ -764,7 +786,7 @@ export default function App() {
         calibrationName: calibrationRef.current?.name,
       })
     },
-    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedPeaks, loadedDecayTime, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel, currentDeviceId],
+    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, loadedDecayTime, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel, currentDeviceId],
   )
 
   const onSaveMeasurement = useCallback(
@@ -949,6 +971,17 @@ export default function App() {
       </header>
 
       <div className="toolbar toolbar-app">
+        {/* Phone only: open the Analysis Results bottom sheet (mirrors the iOS Results button).
+            Hidden on desktop/tablet, where the results panel is always visible. */}
+        <button
+          className={`btn phone-only${showResults ? ' on' : ''}`}
+          onClick={() => setShowResults((v) => !v)}
+          aria-pressed={showResults}
+          title="Analysis Results"
+        >
+          <ResultsIcon />
+          <span>Results</span>
+        </button>
         <button
           className="btn"
           onClick={() => setShowPlayFile(true)}
@@ -1199,7 +1232,9 @@ export default function App() {
           )}
         </div>
 
-        <aside className="results-pane">
+        {/* Phone: tap outside the results sheet to close it. */}
+        {showResults && <div className="results-sheet-backdrop phone-only" onClick={() => setShowResults(false)} />}
+        <aside className={`results-pane${showResults ? ' open' : ''}`}>
           <div className="results-inner">
           <div className="results-head">
             <h2>Analysis Results</h2>
@@ -1219,7 +1254,22 @@ export default function App() {
 
           {/* Active input device — mirrors the Swift/Python results header (row 2). The web has no
               Re-analyze button (loaded peaks are authoritative), so this is the device name alone. */}
-          {!comparison && <div className="results-mic">{deviceLabel}</div>}
+          {!comparison && (
+            <div className="results-mic">
+              <span className="results-mic-name">{deviceLabel}</span>
+              {!material && (
+                <button
+                  className="btn mini icon"
+                  onClick={reanalyze}
+                  disabled={loadedPeaks == null}
+                  title="Re-analyze peaks from the spectrum using the current settings"
+                  aria-label="Re-analyze peaks"
+                >
+                  <RefreshIcon />
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Selection controls — FIXED above the scroll (only peak cards scroll), mirroring the
               Swift/Python header. Shown in the guitar peak view whether or not peaks exist yet (like
@@ -1308,7 +1358,7 @@ export default function App() {
           {/* Guitar summary (Ring-Out · Tap Ratio) — pinned below the scrollable peak list, above
               the export bar, side by side. Mirrors the native live panel (guitar only). */}
           {!material && !comparison && !showMultiTap && (
-            <AnalysisResults decayTime={loadedPeaks != null ? loadedDecayTime : decayTime} ratio={tapRatio} guitarType={guitarType} />
+            <AnalysisResults decayTime={loadedName != null ? loadedDecayTime : decayTime} ratio={tapRatio} guitarType={guitarType} />
           )}
 
           {/* Export footer — running/stopped status (left) + Export Spectrum · Export PDF (right),

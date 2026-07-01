@@ -30,6 +30,7 @@ import {
   EllipsisIcon,
   SearchIcon,
   GaugeIcon,
+  RefreshIcon,
 } from './icons'
 
 // Icon registry — keys used by the section/row data below. The control glyphs (tap, pause, cancel,
@@ -61,6 +62,7 @@ const ICONS = {
   ellipsis: EllipsisIcon,
   search: SearchIcon,
   gauge: GaugeIcon,
+  refresh: RefreshIcon,
 } as const
 type IconKey = keyof typeof ICONS
 
@@ -260,6 +262,11 @@ export const QUICK_START_SECTIONS: QSSection[] = [
         title: 'Analysis Results',
         icon: 'waveform',
         body: 'The Analysis Results panel shows the peak list, decay time, plate properties, quality rating, and (for Plate mode) the Gore target thickness. It also contains Export Spectrum and Export PDF Report buttons. The panel is to the right of the chart on a wide window and below it on a narrow one.',
+      },
+      {
+        title: 'Re-analyze',
+        icon: 'refresh',
+        body: 'Shown next to the microphone name when a saved measurement is loaded. Re-runs peak detection on the stored spectrum using the current analysis settings — useful for trying a different Peak Min, analysis range, or guitar type on a saved measurement without re-tapping. Enabled only while a loaded measurement is shown.',
       },
       {
         title: 'Auto dB',

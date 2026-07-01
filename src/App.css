@@ -5,7 +5,11 @@
   width: 100%;
   min-width: min-content;
   height: 100%; /* fill the viewport so .main can flex to fill vertical space (native-like) */
-  padding: 1rem 1rem 1.25rem;
+  /* Base padding + the iOS safe-area insets (notch, translucent status bar, home indicator) so the
+     installed standalone PWA doesn't tuck content under the system UI. env(...) is 0 on desktop and
+     non-notch devices, so this is a no-op there. */
+  padding: calc(1rem + env(safe-area-inset-top)) calc(1rem + env(safe-area-inset-right))
+    calc(1.25rem + env(safe-area-inset-bottom)) calc(1rem + env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
@@ -1417,11 +1421,19 @@
   margin: 0;
 }
 
-/* Active input device — results header row 2 (mirrors Swift/Python's mic-name caption). */
+/* Active input device + Re-analyze — results header row 2 (mirrors Swift/Python: device name left,
+   Re-analyze button right). */
 .results-mic {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.78rem;
   color: var(--muted);
   margin-bottom: 0.4rem;
+}
+.results-mic-name {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1943,5 +1955,190 @@
   }
   .statusbar {
     flex-wrap: wrap;
+  }
+}
+
+/* Elements that only appear on the phone (installed-PWA) layout. Hidden everywhere else. */
+.phone-only {
+  display: none;
+}
+
+/* ── Phone (installed-PWA) layout — shared by portrait & landscape ─────────────
+   A touch device that's small in at least one dimension (narrow in portrait, short in landscape).
+   Drops the desktop min-content width floor, makes the app toolbar icon-only, and turns the Analysis
+   Results panel into a button-triggered bottom sheet — mirroring the iOS iPhone layout. Keyed off
+   (pointer: coarse) so a narrow/short DESKTOP window is unaffected. The landscape rail is a separate
+   block below. */
+@media (pointer: coarse) and ((max-width: 500px) or (max-height: 500px)) {
+  /* Lock the page to the viewport — the app is a fixed full-screen surface that manages its own
+     internal scrolling (chart, peak list, results sheet). Without this, rotating to landscape in
+     iOS standalone leaves a stale page-scroll offset ("scrolled up, drag down to fix"). */
+  html,
+  body,
+  #root {
+    overflow: hidden;
+    height: 100%;
+  }
+  .app {
+    min-width: 0; /* drop the desktop "minimum window width" floor so the app fits the screen */
+    overflow: hidden;
+    gap: 0.4rem;
+    padding: calc(0.4rem + env(safe-area-inset-top)) calc(0.5rem + env(safe-area-inset-right))
+      calc(0.4rem + env(safe-area-inset-bottom)) calc(0.5rem + env(safe-area-inset-left));
+  }
+  .toolbar {
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+  /* App toolbar → icon-only (like the iOS toolbar); every button stays visible. */
+  .toolbar-app .btn span {
+    display: none;
+  }
+  .toolbar-app .btn {
+    padding: 0.4rem 0.5rem;
+  }
+  .phone-only {
+    display: inline-flex;
+  }
+  div.phone-only {
+    display: block;
+  }
+
+  /* Analysis Results → bottom sheet: fixed to the bottom, slides up when .open. */
+  .results-pane {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    height: 80vh;
+    height: 80dvh;
+    z-index: 60;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    overflow: hidden;
+    transform: translateY(100%);
+    transition: transform 0.25s ease;
+  }
+  .results-pane.open {
+    transform: translateY(0);
+  }
+  /* Restore the internal-scroll layout (the 820px block flattened it for the stacked view). */
+  .results-inner {
+    position: absolute;
+    inset: 0;
+    /* The inner fills the pane's padding box, so the home-indicator safe-area inset goes here on
+       the content (padding on the pane wouldn't push the absolute inner in). */
+    padding-top: 1.1rem; /* room for the grabber */
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    overflow: visible;
+  }
+  /* Grabber affordance at the top of the sheet. */
+  .results-pane::before {
+    content: '';
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--line);
+    z-index: 1;
+  }
+  .results-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 59;
+  }
+}
+
+/* ── Phone LANDSCAPE ──────────────────────────────────────────────────────────
+   Controls move to a left rail so the spectrum gets the full height (mirrors the iOS
+   phoneLandscapeLayout). The app becomes a grid: [app toolbar / tap controls] rail on the left,
+   chart filling the right, status bar spanning the bottom. Results stays a bottom sheet. */
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 500px) {
+  /* Reclaim vertical space — the app name shows in the installed-app's own chrome. */
+  .app-titlebar {
+    display: none;
+  }
+  /* The transient loaded-settings banner is dropped here (it would disrupt the grid, and space
+     is tight in landscape). */
+  .loaded-settings-banner {
+    display: none;
+  }
+  .app {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'appbar main'
+      'taps   main'
+      'status status';
+    gap: 0.4rem;
+  }
+  .toolbar-app {
+    grid-area: appbar;
+  }
+  .toolbar-taps {
+    grid-area: taps;
+    flex-direction: column;
+    align-items: stretch;
+    flex-wrap: nowrap;
+    min-height: 0;
+    overflow-y: auto; /* rail scrolls if the controls are taller than the viewport */
+  }
+  .toolbar-taps .divider {
+    display: none;
+  }
+  .toolbar-taps .field {
+    width: 100%;
+  }
+  .toolbar-taps .tap-actions {
+    width: 100%;
+  }
+  .main {
+    grid-area: main;
+    min-height: 0;
+  }
+  .statusbar {
+    grid-area: status;
+  }
+
+  /* Results = right-side panel in landscape (not a bottom sheet): landscape is wide-and-short, so a
+     side panel gets the FULL height for the peak list and keeps the chart visible on the left.
+     Overrides the shared bottom-sheet styling. */
+  .results-pane {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: min(46%, 420px);
+    height: auto;
+    border-radius: 0;
+    border-left: 1px solid var(--line);
+    transform: translateX(100%);
+    padding: 0;
+  }
+  .results-pane.open {
+    transform: translateX(0);
+  }
+  .results-pane::before {
+    display: none; /* no bottom-sheet grabber on the side panel */
+  }
+  /* The absolute inner fills the pane's padding box (ignoring the pane's own padding), so the
+     safe-area insets that keep content clear of the camera/notch + home indicator go HERE. In
+     landscape the notch is on a side, so env(safe-area-inset-right) is what matters (0 when the
+     notch is on the other side). */
+  .results-inner {
+    padding: calc(0.75rem + env(safe-area-inset-top)) calc(0.9rem + env(safe-area-inset-right))
+      calc(0.75rem + env(safe-area-inset-bottom)) 0.9rem;
+  }
+  /* Reclaim vertical space in the cramped landscape panel — the peak list matters most here, so
+     drop the Ring-Out / Tap-Ratio boxes and the mic-name row (both lower value in landscape). */
+  .analysis-bar,
+  .results-mic {
+    display: none;
   }
 }
