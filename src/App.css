@@ -1962,6 +1962,11 @@
 .phone-only {
   display: none;
 }
+/* `.toolbar-app .btn` (0,2,0) sets display:inline-flex and would otherwise beat `.phone-only`
+   (0,1,0), leaking the phone-only Results button onto desktop — match its specificity to hide it. */
+.toolbar-app .btn.phone-only {
+  display: none;
+}
 
 /* ── Phone (installed-PWA) layout — shared by portrait & landscape ─────────────
    A touch device that's small in at least one dimension (narrow in portrait, short in landscape).
@@ -1998,6 +2003,10 @@
     padding: 0.4rem 0.5rem;
   }
   .phone-only {
+    display: inline-flex;
+  }
+  /* Re-show the toolbar Results button at the phone breakpoint (matches the hide rule's specificity). */
+  .toolbar-app .btn.phone-only {
     display: inline-flex;
   }
   div.phone-only {
