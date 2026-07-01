@@ -253,9 +253,10 @@ correctly means stamping the audio time at the audio-thread compute site and car
 boundary (touching a released app's audio pipeline). **Decision: a good ring-out test with minimal/no app
 changes wins; test runtime is a nuisance, not a problem.** The audio-clock rework + the related
 "decouple file-playback from the real-time `sleep`/`Thread.sleep` pacing → make the 18–30 s playback tests
-instant" idea are left as a **separate, larger 6-TEST item** (the pacing — not the decay window — is what
-makes those suites slow; removing it needs the decay clock *and* verifying nothing else depends on
-wall-clock/event-loop timing, with Swift's main-thread Combine decay as the hard blocker).
+instant" idea are **DROPPED (user decision 2026-06-30): wall-clock-tied Swift/Python playback tests are
+acceptable; runtime is only a nuisance.** Not part of 6-TEST. (For the record, removing the pacing would
+have needed the audio decay clock *and* verifying nothing else depended on wall-clock/event-loop timing,
+with Swift's main-thread Combine decay as the hard blocker — not worth it.)
 
 <details><summary>Original gap + plan (superseded)</summary>
 
@@ -724,9 +725,9 @@ final layout/naming) and alongside the feature sub-phases (e.g. the decay-tracki
 **Done so far:** ~~6-ARCH~~ → ~~6a (decay)~~ → ~~6b (live analysis boxes)~~ → ~~6c (log freq, DROPPED — not a parity gap)~~ → ~~6d (material drag)~~ → ~~6e (multi-tap PDF)~~ → ~~6f (session WAV)~~ → ~~6h (per-type display ranges)~~ → ~~6j (status-bar review)~~ → ~~6k (per-phase multi-tap averaging)~~ → ~~6g (Quick Start Guide + manual link + crosshair)~~ → ~~6l (Analysis Results pane consistency + hover-tip port)~~ → ~~6i (cross-platform ring-out test — decay-clock rework skipped)~~ → ~~6-MAP (group-key `@parity` anchors + generated db/map/lookup; 47 groups)~~.
 
 **Remaining:** the **6-TEST** normalization (major —
-sequence after 6-MAP so the web suites land in their final naming). NOTE: a sub-item now lives under
-6-TEST — "decouple file playback from real-time pacing so the 18–30 s Python/Swift playback suites run
-instant like the web" (needs the decay audio-clock + Swift's main-thread Combine decay moved to a sync
-audio-thread feed; see 6i for the risk write-up). Verify each gap against current `main` before starting (Phase 5 +
+sequence after 6-MAP so the web suites land in their final naming). NOTE: the "decouple file playback from
+real-time pacing so the 18–30 s Python/Swift playback suites run instant" idea is **DROPPED (user, 2026-06-30)**
+— wall-clock-tied playback tests are fine; runtime is only a nuisance. NOT part of 6-TEST.
+Verify each gap against current `main` before starting (Phase 5 +
 the work above already closed several items an earlier audit listed as missing — e.g. per-capture WAV,
 saved-comparison PDF, the log-axis "gap").
