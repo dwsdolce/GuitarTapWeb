@@ -56,7 +56,7 @@ const ICON_PDF = ['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', 
 const isComparable = (m: TapToneMeasurementModel): boolean => m.spectrumSnapshot != null && !isComparison(m)
 
 // Running as an installed PWA? Installed apps are exempt from the browser's storage eviction
-// (notably iOS Safari's 7-day purge of script-writable storage), so the saved-measurements
+// (notably Safari's 7-day purge of script-writable storage, on both macOS and iOS), so the saved-measurements
 // library is far more durable. Used to nudge the user to install + keep a backup.
 const isInstalled = (): boolean =>
   window.matchMedia?.('(display-mode: standalone)').matches ||
@@ -302,8 +302,8 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
           {importError && <p className="error">⚠ {importError}</p>}
           {!isInstalled() && items != null && items.length > 0 && (
             <p className="meas-hint">
-              ⓘ Your library is stored in this browser and can be cleared by the browser (on iOS,
-              after ~7 days unused). <b>Install the app</b> (Add to Home Screen / Add to Dock) for
+              ⓘ Your library is stored in this browser and can be cleared by the browser — Safari
+              deletes a site's data after about 7 days without a visit (on macOS and iOS alike). <b>Install the app</b> (Add to Home Screen / Add to Dock) for
               durable storage, and use <b>Export All</b> to keep a backup.
             </p>
           )}
