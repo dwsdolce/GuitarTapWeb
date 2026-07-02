@@ -1239,10 +1239,15 @@ export default function App() {
           <div className="results-inner">
           <div className="results-head">
             <h2>Analysis Results</h2>
-            {multiTapAvailable && (
+            {/* Multi-tap toggle: shown whenever it could ever be useful (guitar context),
+                enabled only when there's a >1-tap sequence to compare (or it's already open).
+                Hidden in material / saved-comparison, where it can never do anything — so it
+                enables/disables in place instead of appearing and disappearing (all 3 platforms). */}
+            {!material && !comparison && (
               <button
                 className={`btn mini taps-toggle${showMultiTap ? ' active' : ''}`}
                 onClick={() => setShowMultiTap((v) => !v)}
+                disabled={!(multiTapAvailable || showMultiTap)}
                 title={showMultiTap ? HINTS.showAveraged : HINTS.compareTaps}
               >
                 ∿ Taps
