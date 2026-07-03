@@ -27,6 +27,12 @@ describe('G3a — UMIK-1 calibration parse + interpolation', () => {
     expect(cal.sensitivityFactor).toBeCloseTo(-0.524, 6)
   })
 
+  it('parses referenceLevel from SESSION REF / SPL headers (provenance, mirrors Swift/Python)', () => {
+    expect(cal.referenceLevel).toBeNull() // this fixture has no reference SPL
+    expect(parseCalibration('"Sens Factor =-0.5dB, SESSION REF=94.0dBSPL"\n1000\t0\n').referenceLevel).toBe(94.0)
+    expect(parseCalibration('* SPL 93.5 dB\n1000\t0\n').referenceLevel).toBe(93.5)
+  })
+
   it('interpolates to bins matching the canonical Python output', () => {
     const freqs = REFERENCE.map((r) => r[0])
     const got = interpolateToBins(cal, freqs)

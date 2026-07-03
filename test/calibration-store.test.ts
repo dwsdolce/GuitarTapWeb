@@ -22,7 +22,7 @@ beforeEach(() => {
   } as Storage
 })
 
-const cal = (name: string): Calibration => ({ name, sensitivityFactor: null, points: [{ frequency: 1000, correction: 0 }] })
+const cal = (name: string): Calibration => ({ name, sensitivityFactor: null, referenceLevel: null, points: [{ frequency: 1000, correction: 0 }] })
 
 describe('calibration resolution is device-specific (no cross-device global fallback)', () => {
   it('switching to a device with no mapping clears to NONE, even with a global active', () => {

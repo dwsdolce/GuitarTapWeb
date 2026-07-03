@@ -29,14 +29,28 @@ behavioural decision) is logged for a decision before any change.
   A stray out-of-range line could shift the interpolation edges. Added the same filter
   to `src/dsp/calibration.ts`. Latent (the oracle fixture is in-range); tests green.
 
-## Open — category 3 (needs a decision)
+## Open — category 3
 
-- **dsp/calibration — `referenceLevel` (SESSION REF / SPL) not parsed on web.**
-  Swift and Python parse and store the header's reference SPL (`referenceLevel`); the
-  web `Calibration` type omits it. It is **provenance only** — never applied to the
-  DSP — so results are unaffected. Options: (a) add it to the web for strict data
-  parity, or (b) accept the omission as an intentional web simplification and note it.
-  Low priority.
+- **#5 [RESOLVED] calibration — reference-SPL / Sens Factor precedence (Python aligned to Swift).**
+  When a header carries BOTH `SESSION REF=…dBSPL` and `SPL … dB`: **Swift** sets SESSION REF then
+  unconditionally overwrites with SPL → **SPL / last-occurrence wins** (no `nil` guard). **Python**
+  uses `if reference is None:` + `else` → **SESSION REF / first-occurrence wins**. The same
+  first-vs-last split applies to `Sens Factor` (Python guards with `if sensitivity is None`, Swift
+  overwrites). The new web `parseCalibration` matches **Swift** (canonical). Practically unreachable
+  — UMIK-1 files use SESSION REF, REW files use SPL, never both — so no oracle/real-world impact.
+  **RESOLVED (user, 2026-07-02): align Python to Swift.** Changed `microphone_calibration.py` to
+  overwrite unconditionally (dropped the `if ... is None` guards / `else`), so SPL / last-occurrence
+  now wins in Python too. Verified: both present → 88.0 (SPL), SESSION REF only → 94.0, SPL only →
+  93.5 — matches Swift/web. Single-format files (the real case) are unchanged; py_compile OK.
+
+## Resolved — category 3
+
+- **[RESOLVED → added] dsp/calibration — `referenceLevel` (SESSION REF / SPL).** Decision
+  (user, 2026-07-02): strict parity — **add it to the web**. Added `referenceLevel: number | null`
+  to the web `Calibration` type and the `SESSION REF` (UMIK-1) / `SPL` (REW) regexes to
+  `parseCalibration` (mirrors Swift/Python; SPL overrides if both present). It round-trips through
+  `StoredCalibration` automatically (spread + JSON). Provenance only — no DSP or oracle impact.
+  Added a parse test for both header formats. tsc + 144 tests green.
 
 ## Map refinements (re-tag + regenerate `parity-index.json` as a batch)
 

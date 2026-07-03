@@ -9,8 +9,9 @@
  * storage live separately, in `src/measurement/calibrationStore.ts`.)
  *
  * File format (UMIK-1 / REW): header/comment lines start with `"` or `*` and may
- * carry a `Sens Factor`; data lines are `freq <tab|space|comma> correction`. Only
- * points in the 1–24000 Hz range are imported (matches Swift/Python).
+ * carry a `Sens Factor` and a reference SPL (`SESSION REF` / `SPL`); data lines are
+ * `freq <tab|space|comma> correction`. Only points in the 1–24000 Hz range are
+ * imported (matches Swift/Python).
  *
  * @see Development/INVENTORY.md — "Calibration"
  */
@@ -30,19 +31,24 @@ export interface Calibration {
   name: string
   /** `Sens Factor` from the header, in dB; `null` if absent. Stored for provenance, not applied. */
   sensitivityFactor: number | null
+  /** Reference SPL (`SESSION REF` / `SPL`) from the header, in dBSPL; `null` if absent. Provenance only. */
+  referenceLevel: number | null
   /** Correction points, sorted ascending by frequency. */
   points: CalibrationPoint[]
 }
 
 const SENS_RE = /Sens(?:itivity)?\s*Factor\s*=\s*(-?\d+(?:\.\d+)?)/i
+// Reference SPL: UMIK-1 "SESSION REF=94.0dBSPL" or REW "SPL 94.0 dB". Provenance only (mirrors Swift/Python).
+const REF_RE = /SESSION REF\s*=\s*([\d.]+)\s*dBSPL/i
+const SPL_RE = /SPL\s+([\d.]+)\s*dB/i
 
 /**
  * Parse calibration-file content into a {@link Calibration}.
  *
- * Header/comment lines start with `"` or `*` (an optional `Sens Factor` is
- * captured from them); data lines are `freq <tab|space|comma> correction`. Only
- * points in 1–24000 Hz are kept (matches Swift/Python), and points are returned
- * sorted ascending by frequency.
+ * Header/comment lines start with `"` or `*` (an optional `Sens Factor` and
+ * reference SPL are captured from them); data lines are `freq <tab|space|comma>
+ * correction`. Only points in 1–24000 Hz are kept (matches Swift/Python), and
+ * points are returned sorted ascending by frequency.
  *
  * @param content Full calibration-file text.
  * @param name Display name for the profile (defaults to `"calibration"`).
@@ -50,13 +56,20 @@ const SENS_RE = /Sens(?:itivity)?\s*Factor\s*=\s*(-?\d+(?:\.\d+)?)/i
  */
 export function parseCalibration(content: string, name = 'calibration'): Calibration {
   let sensitivityFactor: number | null = null
+  let referenceLevel: number | null = null
   const points: CalibrationPoint[] = []
   for (const raw of content.split(/\r?\n/)) {
     const line = raw.trim()
     if (line === '') continue
     if (line.startsWith('"') || line.startsWith('*')) {
-      const m = SENS_RE.exec(line)
-      if (m) sensitivityFactor = parseFloat(m[1]!)
+      const sm = SENS_RE.exec(line)
+      if (sm) sensitivityFactor = parseFloat(sm[1]!)
+      // Reference SPL: SESSION REF (UMIK-1) or SPL (REW). SPL/last occurrence wins,
+      // matching Swift and Python. Unreachable in practice — a file carries one format.
+      const rm = REF_RE.exec(line)
+      if (rm) referenceLevel = parseFloat(rm[1]!)
+      const spl = SPL_RE.exec(line)
+      if (spl) referenceLevel = parseFloat(spl[1]!)
       continue
     }
     const parts = line.split(/[\t ,]+/)
@@ -71,7 +84,7 @@ export function parseCalibration(content: string, name = 'calibration'): Calibra
     }
   }
   points.sort((a, b) => a.frequency - b.frequency)
-  return { name, sensitivityFactor, points }
+  return { name, sensitivityFactor, referenceLevel, points }
 }
 
 /**
