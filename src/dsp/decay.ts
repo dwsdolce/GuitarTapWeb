@@ -1,15 +1,18 @@
-// Ring-out (decay) time — a port of Swift TapToneAnalyzer+DecayTracking / Python
-// tap_tone_analyzer_decay_tracking. After a tap, the broadband level (dBFS) is sampled per audio
-// chunk; the ring-out time is the elapsed seconds from the post-tap PEAK down to peak − 15 dB.
-//
-// Cadence/metric match the native apps: Swift feeds `inputLevelDB` (= 20·log10(rms) per 1024-sample
-// buffer, ~43 Hz) into trackDecayFast; the web feeds the same 20·log10(rms) per 1024-sample chunk
-// (~47 Hz @ 48 kHz). The web's clock is AUDIO time (sample-count / rate) — deterministic, correct
-// under file playback, and unit-testable; under live mic it equals wall-clock. The PEAK reference
-// (the value passed to `start`) is the engine's peak-HELD recent level (Swift recentPeakLevelDB,
-// 2.0 s hold), NOT the instantaneous tap-confirm level — tap detection lags the strike by ~2 chunks,
-// so the true peak would otherwise be missed and the −15 dB target under-stated. Guitar only (native
-// skips material). decayTime is stored on the measurement and read at save (Swift currentDecayTime).
+/**
+ * Ring-out (decay) time — a port of Swift `TapToneAnalyzer+DecayTracking` / Python
+ * `tap_tone_analyzer_decay_tracking`. After a tap, the broadband level (dBFS) is sampled per
+ * audio chunk; the ring-out time is the elapsed seconds from the post-tap PEAK down to peak − 15 dB.
+ *
+ * Cadence/metric match the native apps: Swift feeds `inputLevelDB` (= 20·log10(rms) per
+ * 1024-sample buffer, ~43 Hz) into trackDecayFast; the web feeds the same 20·log10(rms) per
+ * 1024-sample chunk (~47 Hz @ 48 kHz). The web's clock is AUDIO time (sample-count / rate) —
+ * deterministic, correct under file playback, and unit-testable; under live mic it equals
+ * wall-clock. The PEAK reference (the value passed to `start`) is the engine's peak-HELD recent
+ * level (Swift recentPeakLevelDB, 2.0 s hold), NOT the instantaneous tap-confirm level — tap
+ * detection lags the strike by ~2 chunks, so the true peak would otherwise be missed and the
+ * −15 dB target under-stated. Guitar only (native skips material). decayTime is stored on the
+ * measurement and read at save (Swift currentDecayTime).
+ */
 // @parity dsp/decay tests=test/decay-tracking
 
 /** dB drop that defines "decayed" — Swift/Python `decayThreshold` (15 dB). */
@@ -27,8 +30,11 @@ export interface DecaySample {
 
 /**
  * Ring-out time = post-tap PEAK → first later sample below (peak − threshold), in seconds.
- * Returns null if the level never drops by `threshold` within `history`. Pure function — mirrors
- * Swift measureDecayTime / Python measure_decay_time.
+ * Pure function — mirrors Swift `measureDecayTime` / Python `measure_decay_time`.
+ * @param history Level samples (audio time + dBFS), oldest to newest.
+ * @param tapTime Audio time of the tap, in seconds; only samples at/after this are considered.
+ * @param threshold dB drop that defines "decayed" (default {@link DECAY_THRESHOLD_DB}).
+ * @returns Ring-out seconds, or `null` if the level never drops by `threshold` within `history`.
  */
 export function measureDecayTime(history: DecaySample[], tapTime: number, threshold = DECAY_THRESHOLD_DB): number | null {
   let peak: DecaySample | null = null

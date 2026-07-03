@@ -1,16 +1,25 @@
+/**
+ * Peak detection, parabolic interpolation, and Q / bandwidth for a magnitude
+ * spectrum. Pure — takes magnitude + frequency arrays and returns {@link Peak}s.
+ *
+ * Mirrors the peak-finding algorithm in Swift `TapToneAnalyzer+PeakAnalysis.swift`
+ * and Python `tap_tone_analyzer_peak_analysis.py`; the {@link Peak} shape mirrors
+ * Swift `ResonantPeak`. Numeric output is pinned by oracle case G2
+ * (`test/g2-peaks.test.ts`).
+ */
 // @parity dsp/find-peaks tests=test/peaks
 import { modeBands, type GuitarTypeName } from './guitarModes'
-
-// Peak detection + parabolic interpolation + Q, ported from
-// TapToneAnalyzer+PeakAnalysis.swift / tap_tone_analyzer_peak_analysis.py.
-// Pure: operates on a magnitude/frequency spectrum, returns peaks.
 
 export interface Peak {
   /** Unique id within a findPeaks call (for assembly/dedup bookkeeping). */
   id: number
+  /** Interpolated peak frequency, in Hz. */
   frequency: number
+  /** Interpolated peak magnitude, in dB. */
   magnitude: number
+  /** Q factor: `frequency / bandwidth` (0 when bandwidth is 0). */
   quality: number
+  /** −3 dB bandwidth, in Hz. */
   bandwidth: number
 }
 
@@ -29,11 +38,13 @@ export interface FindPeaksOptions {
 
 type Spectrum = number[] | Float32Array | Float64Array
 
+/** First index whose value satisfies `pred`, or `fallback` if none does. */
 function indexWhere(arr: Spectrum, pred: (v: number) => boolean, fallback: number): number {
   for (let i = 0; i < arr.length; i++) if (pred(arr[i] as number)) return i
   return fallback
 }
 
+/** True when bin `i` is strictly greater than every neighbour within ±{@link WINDOW}. */
 function isLocalMax(mags: Spectrum, i: number): boolean {
   const v = mags[i] as number
   for (let off = -WINDOW; off <= WINDOW; off++) {
@@ -43,7 +54,16 @@ function isLocalMax(mags: Spectrum, i: number): boolean {
   return true
 }
 
-/** δ = 0.5(α−γ)/(α−2β+γ); f = f_bin + δ·Δf; A = β − 0.25(α−γ)δ. Edge/flat-top → raw bin. */
+/**
+ * Refine a peak's frequency and magnitude by fitting a parabola to the bin and
+ * its two neighbours (α = left, β = centre, γ = right):
+ * `δ = 0.5(α−γ)/(α−2β+γ)`, `f = f_bin + δ·Δf`, `A = β − 0.25(α−γ)·δ`.
+ * Edge bins or a flat top (denominator ≈ 0) fall back to the raw bin.
+ * @param mags Magnitude spectrum.
+ * @param freqs Bin centre frequencies (same length as `mags`).
+ * @param i Index of the local-max bin to refine.
+ * @returns The interpolated `{ frequency, magnitude }`.
+ */
 export function parabolicInterpolate(
   mags: Spectrum,
   freqs: Spectrum,
@@ -65,7 +85,15 @@ export function parabolicInterpolate(
   }
 }
 
-/** −3 dB bandwidth walk (uses interpolated peak magnitude as the reference). */
+/**
+ * Q factor and −3 dB bandwidth via a symmetric bin walk outward from the peak
+ * until the magnitude drops 3 dB below the (interpolated) peak magnitude.
+ * @param mags Magnitude spectrum.
+ * @param freqs Bin centre frequencies.
+ * @param peakIndex Index of the peak bin.
+ * @param peakMagnitude Reference magnitude (the interpolated peak), in dB.
+ * @returns `{ quality, bandwidth }` — `quality = frequency / bandwidth` (0 if bandwidth 0).
+ */
 export function calculateQ(
   mags: Spectrum,
   freqs: Spectrum,
@@ -86,13 +114,19 @@ export function calculateQ(
   return { quality, bandwidth }
 }
 
+/** Build a {@link Peak}: parabolic-interpolate bin `i`, then compute its Q and bandwidth. */
 function makePeak(id: number, i: number, mags: Spectrum, freqs: Spectrum): Peak {
   const { frequency, magnitude } = parabolicInterpolate(mags, freqs, i)
   const { quality, bandwidth } = calculateQ(mags, freqs, i, magnitude)
   return { id, frequency, magnitude, quality, bandwidth }
 }
 
-/** Keep the higher-magnitude peak of any pair within PEAK_PROXIMITY_HZ; preserve first-seen order. */
+/**
+ * Collapse near-coincident peaks: within {@link PEAK_PROXIMITY_HZ} of an existing
+ * entry, keep the higher-magnitude one; otherwise append. First-seen order is preserved.
+ * @param peaks Peaks to deduplicate.
+ * @returns The deduplicated peaks.
+ */
 export function removeDuplicatePeaks(peaks: Peak[]): Peak[] {
   const unique: Peak[] = []
   for (const peak of peaks) {
@@ -108,7 +142,11 @@ export function removeDuplicatePeaks(peaks: Peak[]): Peak[] {
  * two-pass strategy (Pass 1: strongest per known-mode band, low→high with a
  * claimed-bin cursor to prevent overlapping bands re-claiming a peak; Pass 2:
  * local maxima outside every known band). Assembly: one guaranteed slot per
- * mode, then all remaining peaks by descending magnitude. Sorted by magnitude.
+ * mode, then all remaining peaks by descending magnitude, sorted by magnitude.
+ * @param mags Magnitude spectrum, in dB.
+ * @param freqs Bin centre frequencies, in Hz (same length as `mags`).
+ * @param opts Guitar type, analysis range (`minHz`/`maxHz`), and magnitude gate.
+ * @returns Detected peaks, sorted by descending magnitude.
  */
 export function findPeaks(mags: Spectrum, freqs: Spectrum, opts: FindPeaksOptions = {}): Peak[] {
   const n = mags.length
