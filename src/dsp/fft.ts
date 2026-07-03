@@ -1,9 +1,25 @@
-// Iterative radix-2 Cooley–Tukey FFT, in place. Forward transform uses the
-// exp(-2πi·kn/N) convention — identical to numpy.fft.fft / Accelerate's forward
-// DFT — so magnitudes match the Swift/Python reference. Length must be a power
-// of two. re/im are the real/imaginary parts (im typically all-zero on input).
+/**
+ * Iterative radix-2 Cooley–Tukey FFT, in place — a from-scratch complex FFT
+ * primitive. The browser has no built-in FFT, so this stands in for the library
+ * transforms the native apps use: Swift's Accelerate/vDSP and Python's
+ * `numpy.fft.fft`. There is therefore no hand-written Swift/Python counterpart to
+ * this function — the `@parity dsp/fft` tag on their side marks the vDSP / numpy
+ * call sites. The higher-level "window → FFT → magnitude → dB" pipeline that
+ * consumes this primitive is `guitarFFT.ts` (`dsp/guitar-fft` ↔ Swift `computeFFT`
+ * ↔ Python `dft_anal`).
+ *
+ * Forward transform, `exp(-2πi·kn/N)` convention, unnormalised — identical to
+ * `numpy.fft.fft` and vDSP's forward DFT, so magnitudes match the reference.
+ */
 // @parity dsp/fft
 
+/**
+ * In-place forward FFT of a complex signal (`re` + i·`im`); overwrites both arrays
+ * with the transform. `im` is typically all-zero on input (a real signal).
+ * @param re Real parts; overwritten with the transform's real parts.
+ * @param im Imaginary parts (same length as `re`); overwritten with the imaginary parts.
+ * @throws If `re`/`im` lengths differ, or the length is not a power of two.
+ */
 export function fftInPlace(re: Float64Array, im: Float64Array): void {
   const n = re.length
   if (n !== im.length) throw new Error('fftInPlace: re/im length mismatch')

@@ -68,3 +68,13 @@ doesn't point at the right canonical file. Fix by adjusting the tag(s) and rerun
   is re-tagged, add `@parity dsp/peak-analysis` to those two files (web `peaks.ts`
   already carries a slug — it hosts both, so it keeps `dsp/find-peaks` and the tracker
   notes the dual role). Then validate the algorithm comments in Swift/Python.
+
+- **M2 — dsp/fft is a web-only primitive; the group has no Swift/Python function counterpart.**
+  Web `fft.ts` (`fftInPlace`) is a hand-rolled radix-2 FFT the browser needs because it has no
+  built-in FFT. Swift uses Accelerate/vDSP and Python uses `numpy.fft`, so neither has a
+  hand-written FFT to mirror — the `@parity dsp/fft` tag on
+  `RealtimeFFTAnalyzer+FFTProcessing.swift` / `realtime_fft_analyzer_fft_processing.py` marks the
+  library call sites for reference only. The real 3-way algorithmic parity (window → FFT →
+  magnitude → dB) is **`dsp/guitar-fft`** (`computeFFT` / `dft_anal` / `guitarFFT.ts`). Map
+  improvement: mark `dsp/fft` as an intentional **web-primitive** group (not a 3-way algorithm
+  mirror) so the generated map/reader doesn't imply a missing Swift/Python function.
