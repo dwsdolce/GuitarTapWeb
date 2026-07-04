@@ -13,17 +13,17 @@ Task 3 (6-TEST) covers the `test/*` groups — do those there, not here.
 | `dsp/fft` | ✓ | ✓ | ✓ | all 3 READ. Swift fix: computeFFT doc dropped stale `calibrationCorrections` (cat-1). Python fix: scipy→numpy + performFFT→computeFFT (cat-1). Web: TSDoc enriched. Map note M2 (web-primitive group) |
 | `dsp/find-peaks` (model) | ✓ | ✓ | ✓ | ResonantPeak.swift + resonant_peak.py READ & verified accurate (faithful mirror, no edits needed); web Peak enriched |
 | `dsp/peak-analysis` (algo) | ✓ | ✓ | ✓ | READ all three: PeakAnalysis.swift (gold; fixed stale reanalyze DocC, finding #3) + peak_analysis.py (accurate mirror) + web findPeaks doc consistent |
-| `dsp/gated-capture` | ☐ | ☐ | ☐ |  |
-| `dsp/gated-fft` | ☐ | ☐ | ☐ |  |
-| `dsp/guitar-fft` | ☐ | ☐ | ☐ |  |
+| `dsp/gated-capture` | ✓ | ✓ | ✓ | all 3 READ. Swift: GC-1 arch-header window numbers + diagram (500 ms buffer / 400 ms FFT / fftSize continuous), GC-2 dispatch-branch doc, GC-3 400→500 ms capture window, + PLATFORM PLUMBING note. Python: PY-1..4 mirror (continuous=fft_size, diagram, 400→500 ms, stale "No Swift counterpart"), + plumbing note. Web: enriched `alignCaptureToOnset`+`findLevelCrossing`, M3 tag `findDominantPeak`→gated-fft. Divergence (GCD closure vs Qt signal/slot) documented both sides |
+| `dsp/gated-fft` | ◐ | ◐ | ◐ | NOT fully done — only opportunistic fixes so far: Swift `findDominantPeak` DocC GF-1 (15→6 dB, ×2, now matches code/Python/web — Python/web `findDominantPeak` code cross-checked = 6 dB, but their full docs not yet reviewed); web `findDominantPeak` tagged `@parity dsp/gated-fft` (M3). Full gated-fft review (computeGatedFFT, Hann window, per-phase handlers) still pending |
+| `dsp/guitar-fft` | ✓ | ✓ | ✓ | all 3 READ. Swift `performFFT` FILE_DEBUG comment fixed (cat-1) → frame-bookkeeping; Python `perform_fft` docstring fixed (dropped phantom FILE_DEBUG bullet, added Qt int-encoding note). Web `dftAnalRect` doc enriched (matches computeFFT/dft_anal). Map note **M3**: web `guitarFFT.ts` is multi-group — added per-symbol `@parity` tags (`averagePowerDb`→spectrum-average, orchestration trio→audio/tap-analyzer) |
 | `dsp/guitar-modes` | ☐ | ☐ | ☐ |  |
 | `dsp/material-properties` | ✓ | ✓ | ✓ | all 3 READ: Swift gold + Python faithful mirror (formulas/thresholds/coeffs match); web docs cross-checked vs canonical — accurate, no drift |
 | `dsp/pitch` | ✓ | ✓ | ✓ | pilot — web enriched (Algorithm Overview + @param/@returns), fixed INVENTORY ref |
-| `dsp/spectrum-average` | ☐ | ☐ | ☐ |  |
+| `dsp/spectrum-average` | ☐ | ☐ | ☐ | web member = `averagePowerDb` inside `src/dsp/guitarFFT.ts` (tagged per-symbol, M3) — enrich its doc here vs canonical |
 | `model/guitar-mode-classify` | ☐ | ☐ | ☐ |  |
 | `model/mode-colors` | ☐ | ☐ | ☐ |  |
 | `audio/realtime-analyzer` | ☐ | ☐ | — |  |
-| `audio/tap-analyzer` | ☐ | ☐ | ☐ |  |
+| `audio/tap-analyzer` | ☐ | ☐ | ☐ | web members = orchestration trio (`guitarModePeaks`, `modePeaksFromSpectrum`, `guitarMultiTapModePeaks`) inside `src/dsp/guitarFFT.ts` (tagged per-symbol, M3) — enrich docs here vs canonical |
 | `view/analysis-metrics` | ☐ | ☐ | ☐ |  |
 | `view/comparison-results` | ☐ | ☐ | ☐ |  |
 | `view/help` | ☐ | ☐ | ☐ |  |

@@ -7,6 +7,37 @@ behavioural decision) is logged for a decision before any change.
 
 ## Fixed — category 1 (clear drift; the outlier corrected)
 
+- **[FIXED] dsp/gated-capture — stale gated-window numbers in BOTH Swift and Python arch docs.**
+  Constants are `gatedCaptureDuration`=500 ms (accumulation buffer, *includes* the 200 ms pre-roll
+  seed), `gatedFFTWindowDuration`=400 ms (post-alignment FFT window), continuous FFT = `fftSize`
+  (65536 ≈ 1.36 s). Swift GC-1: header said "continuous FFT ... ≈400 ms at gatedCaptureDuration"
+  (wrong constant + wrong window) and the ASCII diagram implied pre-roll + 400 ms were additive.
+  GC-3: `startGatedCapture` inline "400 ms capture window" → 500 ms. Python PY-1/PY-2/PY-3 mirror
+  all three. Also GC-2: Swift `accumulateGatedSamples` doc named only one of the two dispatch
+  branches. Comment-only; corrected diagrams recomputed for alignment. Found the GC-3 Swift instance
+  via the Python cross-check (I'd missed it on the Swift-first pass — the reason we read all three).
+
+- **[FIXED] dsp/gated-capture — Python stale "No Swift counterpart yet" (PY-4).** The
+  `start_guitar_gated_capture`/`finish_guitar_gated_capture` section comment claimed "no Swift
+  counterpart — this is the new design path," but Swift now has both (and the method's own docstring
+  already said "mirrors Swift"). Updated to "Mirrors Swift startGuitarGatedCapture / finishGuitarGatedCapture".
+
+- **[DOCUMENTED — intentional divergence, not drift] dsp/gated-capture — guitar/plate dispatch
+  branch location differs by design.** Swift branches at the dispatch site (GCD closure can hold
+  logic → `finishGatedFFTCapture` vs `finishGuitarGatedCapture`); Python emits one Qt signal
+  (`gatedCaptureComplete`) to a single slot and branches inside `finish_gated_fft_capture`. Same
+  inputs → same handler → same result; only the branch LOCATION differs, forced by the concurrency
+  primitive (GCD closure + @Published vs Qt signal/slot). Added a cross-referencing **PLATFORM
+  PLUMBING** comment at both sites (+ a pointer at the Python branch) so the "why do they diverge?"
+  question is answered inline. No code change — this is the correct, required platform difference.
+
+- **[FIXED] dsp/gated-fft (opportunistic) — Swift `findDominantPeak` DocC said "15 dB", code uses
+  6 dB (GF-1).** Two DocC lines (the Step-2 summary and the `preferLowestSignificant` param) said the
+  lowest-frequency candidate is chosen "within 15 dB of the strongest," but the code (`strongest.magnitude
+  - 6.0`), its own inline comment, Python's docstring/code, and the web all use **6 dB**. Fixed both to
+  6 dB. Surfaced while cross-checking the web's `- 6.0` during gated-capture. Full gated-fft review still
+  pending; web `findDominantPeak` tagged `@parity dsp/gated-fft` (M3) so that pass finds it in `gatedCapture.ts`.
+
 - **[FIXED] dsp/peak-analysis — `reanalyzePeaks()` DocC (Swift) had stale "older builds"
   wording.** The function doc still framed re-analyze as "upgrade a measurement saved by an
   older build whose peak-finding algorithm missed some peaks" — the misleading wording we
@@ -78,3 +109,21 @@ doesn't point at the right canonical file. Fix by adjusting the tag(s) and rerun
   magnitude → dB) is **`dsp/guitar-fft`** (`computeFFT` / `dft_anal` / `guitarFFT.ts`). Map
   improvement: mark `dsp/fft` as an intentional **web-primitive** group (not a 3-way algorithm
   mirror) so the generated map/reader doesn't imply a missing Swift/Python function.
+
+- **M3 — file-level `@parity` tagging is too coarse; move to symbol (function) level.** A single
+  file can host functions from several parity groups, and a file-level tag then hides the extra
+  members: when a later group's pass consults the map, it lands on that group's Swift/Python files
+  and never learns the web counterpart is buried in an unrelated file, so it is **silently skipped**
+  (only the deferred/untagged tail backstop would ever eyeball it — not a real 3-way cross-check).
+  **Exemplar: `src/dsp/guitarFFT.ts`** hosts three groups — `dftAnalRect` = `dsp/guitar-fft`,
+  `averagePowerDb` = `dsp/spectrum-average`, and the orchestration trio (`guitarModePeaks`,
+  `modePeaksFromSpectrum`, `guitarMultiTapModePeaks`) = `audio/tap-analyzer` (the web has no
+  analyzer class, so the per-tap/multi-tap flow lives here as free functions). **Done now:** added
+  a per-symbol `// @parity <slug>` tag above each of those functions (the file-level
+  `@parity dsp/guitar-fft` on line 1 is kept as the primary so nothing drops out before the
+  generator is upgraded); only `dftAnalRect` (this group) was doc-enriched — the others are
+  tagged/routed and will be doc-enriched under their own group with the canonical open. **Batch
+  TODO (with M1/M2 regen):** (a) confirm/upgrade `Tooling/parity/gen_parity_map.py` to record each
+  tag's *symbol* (line/name), not just the file, so the map/reader can point a reviewer at the exact
+  function; (b) migrate the line-1 file tag to an adjacent `dftAnalRect` tag once the generator is
+  symbol-aware; (c) sweep the other multi-function DSP files for the same coarse-tag problem.

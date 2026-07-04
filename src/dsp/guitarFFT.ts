@@ -5,10 +5,24 @@ import { getPeak } from './classify'
 import { findAllLevelCrossings } from './gatedCapture'
 import type { GuitarTypeName } from './guitarModes'
 
-// Guitar (non-gated) FFT path, ported from dft_anal / performFFT:
-// rectangular (boxcar) window normalised by its sum (= 1/N), one-sided spectrum
-// with interior bins doubled (DC & Nyquist not), dBFS. This is distinct from the
-// Hann-windowed gated path used for plate/brace.
+/**
+ * Guitar (non-gated, continuous/display) FFT path — the web port of Swift
+ * `computeFFT` / Python `dft_anal`. A rectangular (boxcar) window normalised by
+ * its sum (= 1/N), a full complex FFT, then the one-sided magnitude spectrum in
+ * dBFS with interior bins doubled (DC & Nyquist not). Distinct from the
+ * Hann-windowed gated path used for plate/brace (`gatedFFT.ts`).
+ *
+ * This file hosts MORE THAN ONE @parity group — file-level tagging is too coarse
+ * to cross-check it, so each exported symbol carries its own tag:
+ *   - `dftAnalRect`                → dsp/guitar-fft (the file's primary tag, above)
+ *   - `averagePowerDb`             → dsp/spectrum-average
+ *   - `guitarModePeaks`,
+ *     `modePeaksFromSpectrum`,
+ *     `guitarMultiTapModePeaks`    → audio/tap-analyzer (the web has no analyzer
+ *       class, so its per-tap / multi-tap orchestration lives here as free
+ *       functions). Doc-enrichment for those happens under their own group with
+ *       the Swift/Python canonical open — here they are only tagged/routed.
+ */
 
 const EPS = 2.220446049250313e-16
 
@@ -17,7 +31,17 @@ export interface Spectrum {
   frequencies: number[]
 }
 
-/** Rectangular-window magnitude spectrum, length fftSize/2 + 1 (DC … Nyquist). */
+/**
+ * Rectangular-window magnitude spectrum of `samples`, in dBFS. Mirrors Swift
+ * `computeFFT` / Python `dft_anal`: window (boxcar, ÷N) → full FFT → one-sided
+ * magnitudes with interior bins doubled (DC & Nyquist not) → 20·log10. The
+ * reference's zero-phase (fftshift) rotation is omitted — a circular shift does
+ * not change `|FFT|`.
+ * @param samples Time-domain samples; truncated/zero-filled to `fftSize`.
+ * @param sampleRate Sample rate, in Hz (sets the frequency axis).
+ * @param fftSize FFT length (power of two).
+ * @returns `{ magnitudesDb, frequencies }`, each length `fftSize/2 + 1` (DC … Nyquist).
+ */
 export function dftAnalRect(
   samples: Float32Array | Float64Array | number[],
   sampleRate: number,
@@ -62,6 +86,7 @@ export interface GuitarOptions {
   maxHz?: number
 }
 
+// @parity audio/tap-analyzer
 /** Run the guitar FFT + peak-find + mode resolution on a mono spectrum window. */
 export function guitarModePeaks(
   monoWindow: Float32Array | Float64Array | number[],
@@ -84,6 +109,7 @@ export function guitarModePeaks(
   }
 }
 
+// @parity audio/tap-analyzer
 /** Resolve Air/Top/Back mode peaks from an already-computed spectrum (no FFT).
  *  Used for multi-tap comparison, where each tap's peaks are (re)found at the
  *  current Peak Min — mirrors Swift TapEntry recomputing peaks on threshold change. */
@@ -105,6 +131,7 @@ export function modePeaksFromSpectrum(spectrum: Spectrum, opts: GuitarOptions): 
 
 const PRE_ROLL_DURATION = 0.2
 
+// @parity dsp/spectrum-average
 /** Power-domain average of dB spectra: 10·log10(mean(10^(dB/10))). */
 export function averagePowerDb(spectraDb: number[][]): number[] {
   const n = spectraDb.length
@@ -125,6 +152,7 @@ export interface GuitarMultiTapOptions extends GuitarOptions {
   numberOfTaps: number
 }
 
+// @parity audio/tap-analyzer
 /** Multi-tap guitar: segment N taps, FFT each 65536 window, power-average, find modes. */
 export function guitarMultiTapModePeaks(
   mono: Float32Array | Float64Array | number[],

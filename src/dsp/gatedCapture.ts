@@ -41,7 +41,16 @@ function chunkLevelDb(samples: Samples, start: number, end: number): number {
   return 20 * Math.log10(Math.max(rms, 1e-10))
 }
 
-/** Sample index just past the chunk that confirms the level crossing, or null. */
+/**
+ * Sample index just past the chunk that confirms a level crossing, or null.
+ * Fires only after LEVEL_CROSSING_CONFIRMATION_CHUNKS (2) consecutive
+ * above-threshold 1024-sample chunks following a fall — matching the Swift/Python
+ * live detectors, which reject single-chunk bumps. The exact fire point is later
+ * erased by alignCaptureToOnset, so downstream FFT input is robust to it.
+ * @param samples Mono PCM to scan.
+ * @param thresholdDb Per-chunk RMS level (dBFS) that must be exceeded.
+ * @returns Sample index just past the confirming chunk, or null if never confirmed.
+ */
 export function findLevelCrossing(samples: Samples, thresholdDb: number): number | null {
   let prevAbove = false
   let consecutive = 0
@@ -99,7 +108,21 @@ export function findAllLevelCrossings(samples: Samples, thresholdDb: number, ski
   return crossings
 }
 
-/** Extract a window_size buffer with the tap onset at pre_onset_samples. */
+/**
+ * Re-anchor a captured buffer so the tap onset sits at a fixed index, making the
+ * FFT input independent of level-crossing chunk boundaries. Mirrors Swift
+ * `alignCaptureToOnset` / Python `align_capture_to_onset`: estimate the noise
+ * floor from the first ONSET_NOISE_ESTIMATE_SAMPLES (2048), set an onset threshold
+ * of 10× that RMS (floored at ONSET_MIN_THRESHOLD = 0.001), scan for the first
+ * sample above it, back up ONSET_BACKUP_SAMPLES (32), then extract `windowSize`
+ * samples with the onset at `preOnsetSamples` — zero-padding either edge if it
+ * doesn't fit.
+ * @param samples Raw captured buffer (pre-roll + post-crossing).
+ * @param windowSize Output length (e.g. 19200 = 400 ms at 48 kHz).
+ * @param preOnsetSamples Silence samples to keep before the onset (100 ms).
+ * @returns A `windowSize` Float64Array anchored at the onset (all zeros if the
+ *   buffer is too short or no onset is found).
+ */
 export function alignCaptureToOnset(
   samples: Samples,
   windowSize: number,
@@ -145,6 +168,7 @@ export function alignCaptureToOnset(
   return out
 }
 
+// @parity dsp/gated-fft
 /** Strongest material resonance from a gated spectrum (HPS / minQ / 6 dB rules). */
 export function findDominantPeak(
   magnitudesDb: number[],
