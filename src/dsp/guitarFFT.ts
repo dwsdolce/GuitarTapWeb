@@ -132,7 +132,23 @@ export function modePeaksFromSpectrum(spectrum: Spectrum, opts: GuitarOptions): 
 const PRE_ROLL_DURATION = 0.2
 
 // @parity dsp/spectrum-average
-/** Power-domain average of dB spectra: 10·log10(mean(10^(dB/10))). */
+/**
+ * Power-domain average of dB spectra — the web equivalent of Swift `averageSpectra`
+ * / Python `average_spectra`. Averaging in the frequency domain (phase discarded) is
+ * correct for non-periodic impulse responses: no inter-tap phase to preserve, and
+ * power averaging reduces random noise while keeping consistent resonance peaks.
+ *
+ * Per bin: `dB_avg = 10·log10( mean( 10^(dB_t/10) ) )`.
+ *
+ * Unlike Swift/Python, this omits their length-mismatch guard (they return the first
+ * spectrum if bin counts differ): every caller feeds spectra from
+ * `dftAnalRect(GUITAR_FFT_SIZE)`, so all inputs are the same length and the guard
+ * would be unreachable here.
+ *
+ * @param spectraDb One dBFS spectrum per tap (all the same length).
+ * @returns The averaged dBFS spectrum ([] if empty; a copy of the single spectrum
+ *   if there is only one).
+ */
 export function averagePowerDb(spectraDb: number[][]): number[] {
   const n = spectraDb.length
   if (n === 0) return []

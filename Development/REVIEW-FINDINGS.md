@@ -7,6 +7,39 @@ behavioural decision) is logged for a decision before any change.
 
 ## Fixed — category 1 (clear drift; the outlier corrected)
 
+- **[DOC-PARITY + documented gap] dsp/spectrum-average.** Swift `averageSpectra` doc was already
+  accurate (rationale + per-bin power formula + edge cases) — no change. PY-SA-1: Python
+  `average_spectra` code matched Swift but its docstring lacked the rationale/formula — enriched to
+  mirror Swift. WEB-SA-1: web `averagePowerDb` (in `guitarFFT.ts`) was a one-liner — enriched.
+  WEB-SA-2 (category-3, **documented not fixed**, user's call): web `averagePowerDb` omits the
+  Swift/Python length-mismatch guard (they return the first spectrum if bin counts differ). It's
+  **unreachable** in the web — the only caller feeds per-tap spectra all from `dftAnalRect(GUITAR_FFT_SIZE)`,
+  so inputs are always equal length. Documented the omission in the TSDoc rather than adding an
+  unreachable guard.
+
+- **[FIXED] dsp/gated-fft — `computeGatedFFT` doc number/wording bugs + handler docs + Hann clause.**
+  Swift: GFFT-1 the summary said "return **linear** magnitudes" but the code returns dB (and the
+  `- Returns` line already said dB); GFFT-2 "~0.74 Hz/bin at 44.1 kHz" → 1.35 Hz/bin (0.74 is the
+  window duration / bins-per-Hz; the inline comment already had 1.35); GFFT-3 `handleLongitudinalGatedProgress`
+  was missing the DocC its two siblings have (added); GFFT-4 the cross/FLC handler docs named
+  `.waitingForFlcTap` / "marks complete" but the methods set `.reviewingCross`/`.reviewingFlc` (live,
+  await Accept) or auto-advance during file playback (tightened); GFFT-5 FLC called "shear/diagonal"
+  but fLC is the **twist** mode (shear is the *modulus* Glc, Gore notation) → "torsional/twist".
+  Python mirror: PY-GFFT-A enriched the bare `compute_gated_fft` docstring to the Swift DocC level,
+  PY-GFFT-B FLC "shear/diagonal"→"torsional/twist", PY-GFFT-C enriched the 3 handler docstrings. Web:
+  `computeGatedFFT` doc already full; `findDominantPeak` enriched (was a one-liner). All comment-only.
+
+- **[FIXED — measured, not assumed] dsp/gated-fft — GFFT-6 Hann-window: Swift comment overclaimed
+  "matches np.hanning".** Ran `vDSP_hann_window(…, HANN_DENORM)` directly: it is the **periodic** Hann
+  `0.5·(1 − cos(2πn/N))` (endpoints don't reach 0), whereas `np.hanning` (Python/web) is the
+  **symmetric** form `0.5·(1 − cos(2πn/(N−1)))` (endpoints = 0). They are *different windows*. Then
+  measured the impact on the quantity that matters — the parabolic-interpolated **peak frequency** —
+  across 67–987 Hz, fast/slow ring-out: **~1e-7 Hz difference** (≈1e-7 of a 1.46 Hz bin), ~6 orders
+  below display precision. **Decision (user):** the code stays as-is on each platform (Swift vDSP,
+  Python/web `np.hanning`) — a documented sub-precision platform difference, not worth switching two
+  ports for ~1e-7 Hz. Fixed only the Swift comment to state the periodic-vs-symmetric distinction
+  accurately instead of claiming exact equality. Scripts in the session scratchpad.
+
 - **[FIXED] dsp/gated-capture — stale gated-window numbers in BOTH Swift and Python arch docs.**
   Constants are `gatedCaptureDuration`=500 ms (accumulation buffer, *includes* the 200 ms pre-roll
   seed), `gatedFFTWindowDuration`=400 ms (post-alignment FFT window), continuous FFT = `fftSize`

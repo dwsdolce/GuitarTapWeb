@@ -169,7 +169,28 @@ export function alignCaptureToOnset(
 }
 
 // @parity dsp/gated-fft
-/** Strongest material resonance from a gated spectrum (HPS / minQ / 6 dB rules). */
+/**
+ * Select the dominant resonance from a gated-FFT spectrum. Mirrors Swift
+ * `findDominantPeak` / Python `find_dominant_peak`.
+ *
+ * Step 1 — candidates: local maxima above the median (noise floor) of the search
+ * range, each scored with magnitude (dB), an order-3 HPS
+ * (`linear[i]·linear[2i]·linear[3i]`), and a −3 dB-bandwidth Q.
+ * Step 2 — selection: drop candidates with Q < MIN_Q (3; impact thuds / noise).
+ * If `preferLowestSignificant` (plate longitudinal/FLC phases), take the
+ * lowest-frequency candidate within 6 dB of the strongest; otherwise the strongest
+ * wins unless a lower-frequency candidate is within 6 dB and has an HPS within one
+ * order of magnitude (prefers the fundamental over harmonics). The winner is refined
+ * by parabolic interpolation.
+ *
+ * @param magnitudesDb dBFS magnitude spectrum from the gated FFT.
+ * @param frequencies Frequency axis matching `magnitudesDb`, in Hz.
+ * @param minHz Lower search bound, in Hz.
+ * @param maxHz Upper search bound, in Hz.
+ * @param preferLowestSignificant Prefer the lowest-frequency candidate within 6 dB
+ *   of the peak (longitudinal/FLC phases where tap orientation selects the fundamental).
+ * @returns The best `MaterialPeak`, or null if no candidate clears the noise floor.
+ */
 export function findDominantPeak(
   magnitudesDb: number[],
   frequencies: number[],
