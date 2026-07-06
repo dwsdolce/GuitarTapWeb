@@ -1,20 +1,44 @@
-// Multi-tap comparison table — mirrors Swift MultiTapComparisonResultsView.
-// One row per tap (colored dot + "Tap N") plus a bold gold "Averaged" row,
-// each showing the Air / Top / Back resolved mode frequencies.
+/**
+ * Multi-tap comparison table — mirrors Swift `MultiTapComparisonResultsView`.
+ *
+ * A grid of Air / Top / Back resonance frequencies with one row per individual
+ * tap in a completed multi-tap guitar sequence, plus a final bold "Averaged" row
+ * drawn from the analyzer's current (averaged) peaks. Each row shows a colored
+ * indicator + label | Air | Top | Back.
+ *
+ * Rows:
+ * - One per tap ("Tap 1", "Tap 2", …) with a colored dot from the comparison palette.
+ * - A bold "Averaged" row using a filled square (instead of a dot) to distinguish it.
+ *
+ * Shown in the Analysis Results panel when a multi-tap comparison is active.
+ *
+ * @module
+ */
 // @parity view/multi-tap-results
 
+/** Resolved Air / Top / Back peak frequencies (Hz) for one row; `null` when no peak was found. */
 export interface TapModeFreqs {
   air: number | null
   top: number | null
   back: number | null
 }
 
+/** A single per-tap row: its resolved mode frequencies plus the 1-based tap number. */
 export interface MultiTapRow extends TapModeFreqs {
   tapIndex: number
 }
 
-// Per-tap palette (blue/orange/green/purple/teal) cycled by index; avg = gold (1,0.85,0).
+/**
+ * Per-tap palette cycled by row index (blue / orange / green / purple / teal).
+ *
+ * Mirrors Swift `TapToneAnalyzer.multiTapPalette` (`[.blue, .orange, .green, .purple, .teal]`).
+ * These are the dark-appearance variants of those system colors, brightened for the
+ * chart's dark background — the same convention as the mode colors. A light/dark
+ * unification is tracked in THEME-SPEC.
+ */
 export const MULTITAP_PALETTE = ['#0a84ff', '#ff9f0a', '#30d158', '#bf5af2', '#40c8e0']
+
+/** Averaged-row indicator color — gold; mirrors Swift `TapToneAnalyzer.multiTapAvgColor` = `Color(1.0, 0.85, 0.0)`. */
 export const MULTITAP_AVG_COLOR = '#ffd900'
 
 const hz = (n: number | null) => (n != null ? `${n.toFixed(1)} Hz` : '—')
@@ -29,6 +53,12 @@ function FreqCells({ m }: { m: TapModeFreqs }) {
   )
 }
 
+/**
+ * Renders the multi-tap comparison grid.
+ *
+ * @param taps - Per-tap rows in sequence order; the palette color is chosen by array index.
+ * @param avg - The averaged mode frequencies shown in the final bold "Averaged" row.
+ */
 export function MultiTapComparisonResultsView({ taps, avg }: { taps: MultiTapRow[]; avg: TapModeFreqs }) {
   return (
     <div className="multitap-table">

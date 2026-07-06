@@ -54,7 +54,19 @@ decomposition benefits (small reusable units) are worth **less** here than the p
 | `FFTAnalysisMetricsView` / `fft_analysis_metrics_view` | `MetricsPanel.tsx` | 1:1 — fine as-is |
 | `TapAnalysisResultsView.swift` (1291 ln: peaks + Ring-Out + Tap Ratio + Plate/Brace props + export) / `tap_tone_analysis_view` guitar-summary | `AnalysisResults.tsx` (Ring-Out/Tap-Ratio only) + `PeakCard.tsx` + material panels + export bar | **fan-out** — candidate to consolidate toward a `TapAnalysisResults` component matching the native file |
 | `ComparisonResultsView` (all 3) | `ComparisonResultsView.tsx` | 1:1 — fine. (But Python had copy-pasted `MultiTapComparisonResultsView`'s dead `bold`/rectangle "averaged row" logic — VCR-1, removed. Watch for similar copy-paste between the two comparison views.) |
+| **`view/main`** — Swift `TapToneAnalysisView` (main + 5 extensions: Actions/Controls/Export/Layouts/SpectrumViews) / Python `tap_tone_analysis_view.py` (**6868-line MONOLITH**) | `App.tsx` (orchestrator) + child components (each its own slug: spectrum-chart, peak-card, threshold-slider, settings, save-sheet, metrics…) + hooks (useChartView/useAnnotations/useMaterialSession/useAudioEngine) | **3-way structural divergence, the marquee case.** Swift = class-extension split; Python = monolith whose own module doc says *"the full split into separate mixin files is pending"* (a documented intent to match Swift's extensions); web = component + hooks decomposition. Python monolith is **multi-slug** (inline sub-panels belong to guitar-summary / results / material-list). Restructure: split the Python monolith (it already intends to), reconcile the web decomposition, pick a common target. |
+| `MultiTapComparisonResultsView` (all 3) | `MultiTapComparisonResultsView.tsx` | 1:1 — fine. Clean mapping in all three; **not** a fan-out. (Source of the dead bold/rectangle path Python copy-pasted into `ComparisonResultsView` — VCR-1.) |
 | _(add rows as each view slug is reviewed)_ | | |
+
+## Finding from the view/main deep dive (reassuring)
+
+A feature-by-feature dive across `view/main` (controls, toolbar, status bar, enable-logic,
+material prompts, banners) found the **user-facing content is in tight parity across all three
+despite the structural divergence** — same ranges/defaults, labels, messages, step prompts, wording.
+So the divergence is **structure-only**; the content-sync discipline is strong. Implication for the
+restructure: it's a **code-organization** job (split Python's monolith, reconcile the web
+decomposition), **not** a content-reconciliation job — low risk of behavioural change if the content
+is preserved verbatim while the file/component boundaries move.
 
 ## Open questions for the spec (later)
 - Which fan-outs earn their keep vs. should consolidate? (case-by-case, not a blanket rule)

@@ -93,6 +93,23 @@ visually before locking.
 | ≥ −80 dB | `#d07a1e` | `#f0a03a` |
 | < −80 dB | `#cc3232` | `#e0584a` |
 
+### 3.5 Multi-tap comparison palette (`MultiTapComparisonResultsView`)
+The per-tap dot palette is another **appearance-adaptive system-color set** with the same
+drift as §3.3: Swift uses `TapToneAnalyzer.multiTapPalette = [.blue, .orange, .green, .purple,
+.teal]` (system colors, adaptive — and on macOS also accent-dependent), Python froze a
+light-family constant set, and web froze the dark/brightened iOS variants. Unify to explicit
+hex like the mode colors. Light column = today's Python constants; Dark column = today's web
+hexes — confirm the light values visually (they inherit the same "no exact canonical RGB"
+caveat as §3.4, since Swift's source is adaptive).
+| Slot | Light (Python today) | Dark (web today) |
+|---|---|---|
+| 1 · blue | `#007aff` | `#0a84ff` |
+| 2 · orange | `#ff9500` | `#ff9f0a` |
+| 3 · green | `#34c759` | `#30d158` |
+| 4 · purple | `#af52de` | `#bf5af2` |
+| 5 · teal | `#5ac8fa` | `#40c8e0` |
+| Averaged row | `#ffd900` | `#ffd900` | <!-- gold, fixed in both themes (Swift Color(1.0,0.85,0.0)) -->
+
 ## 4. Per-platform implementation
 
 ### Swift — Small
@@ -160,3 +177,5 @@ Dominant cost: Python step 4. Everything else is small-to-medium.
 3. Settings label + option order — proposed "Appearance: System / Light / Dark".
 4. Exports stay light (§5) — confirm.
 5. Optional: add the per-repo "colors match spec" guard test (§6) — yes/no.
+6. §3.5 multi-tap palette light values — the frozen Python constants (same adaptive-source
+   caveat as §3.4); confirm visually.
