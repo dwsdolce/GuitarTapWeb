@@ -7,6 +7,28 @@ behavioural decision) is logged for a decision before any change.
 
 ## Fixed — category 1 (clear drift; the outlier corrected)
 
+- **[FIXED] audio/realtime-analyzer + audio/tap-analyzer — stale cadence/window figures + a Python
+  doc-depth gap.** Swift `RealtimeFFTAnalyzer.swift` ARA-1/2/3: three "~10 Hz" for the audio-buffer
+  callback → ~43 Hz (1024-sample buffer, verified via `maxSafeBufferSize=1024`); continuous FFT window
+  "~400 ms" → ~1.4 s (fftSize=65536); publish "~2 Hz" → ~0.7 Hz (the metrics panel shows 0.7 Hz — a
+  doc-only bug). Swift `TapToneAnalyzer.swift` TT-1..8: gatedCaptureDuration "400 ms"→500 ms (×2),
+  inputLevelDB "~10 Hz"→~43 Hz (×2, one missed by decay finding #4), peakMagnitude "~1 Hz"→~0.7 Hz,
+  FLC "diagonal/shear"→"torsional/twist" (×2), noise-floor EMA "~10 ms/τ≈190 ms"→"~23 ms/τ≈450 ms",
+  onset "~9600"→"~4800" (**ran the real `align_capture_to_onset`: onset lands at preOnsetSamples ≈4800,
+  not the 200 ms pre-roll length 9600**), route-change settle "2 s"→3 s (code=3.0). Python: PY-TT-7
+  (onset 9600→4800) + a **doc-parity pass** porting Swift's DocC to ~28 bare/under-documented properties
+  (the plate/brace three-layer peak-selection block + scalar config/state like `noise_floor_alpha` — the
+  EMA τ rationale was entirely missing). Python `chunksize` default 16384→1024 aligned. Web `engine.ts`
+  verified clean; `guitarFFT.ts` trio got @param/@returns. All comment-only except the two default/one-line
+  tidies. py_compile + tsc + 4 tests green.
+
+- **[FIXED — retroactive, caught by cross-check] audio/realtime-analyzer — PY-RA-1.** Python
+  `recent_peak_level_db` docstring said "over the last **0.5 s**" but the window is 2.0 s
+  (`_recent_peak_window = 2.0`; the file's own comment at line 502 already noted "the old 0.5 s came
+  from a stale Swift comment", and Swift `peakHoldDuration = 2.0`). Missed when realtime-analyzer was
+  first marked done; surfaced while cross-checking the web engine's `PEAK_HOLD_SECONDS = 2.0` comment.
+  Fixed to "2.0 s".
+
 - **[FIXED] dsp/guitar-modes + model/guitar-mode-classify + model/mode-colors (one file each,
   three slugs).** GM-1: the Swift + Python Mode Map tables omitted the **Generic** guitar type (the
   *default*) — added it (Air 70–135, Top 140–260, Back 180–300, Dipole 310–460, Ring 580–880, Upper

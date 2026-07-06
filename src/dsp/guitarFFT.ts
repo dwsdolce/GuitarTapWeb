@@ -20,8 +20,7 @@ import type { GuitarTypeName } from './guitarModes'
  *     `modePeaksFromSpectrum`,
  *     `guitarMultiTapModePeaks`    → audio/tap-analyzer (the web has no analyzer
  *       class, so its per-tap / multi-tap orchestration lives here as free
- *       functions). Doc-enrichment for those happens under their own group with
- *       the Swift/Python canonical open — here they are only tagged/routed.
+ *       functions, doc-enriched under that group).
  */
 
 const EPS = 2.220446049250313e-16
@@ -87,7 +86,15 @@ export interface GuitarOptions {
 }
 
 // @parity audio/tap-analyzer
-/** Run the guitar FFT + peak-find + mode resolution on a mono spectrum window. */
+/**
+ * Analyze one captured tap: rectangular-window FFT of `monoWindow`, then peak-find and
+ * Air/Top/Back mode resolution — the web's per-tap equivalent of the Swift/Python analyzer's
+ * analyze-magnitudes flow (no analyzer class on the web).
+ * @param monoWindow Mono PCM capture window (fftSize 65536; truncated/zero-filled).
+ * @param sampleRate Sample rate, in Hz.
+ * @param opts Peak-Min threshold, guitar type, and analysis Hz range.
+ * @returns Resolved Air/Top/Back mode peaks plus the full peak list.
+ */
 export function guitarModePeaks(
   monoWindow: Float32Array | Float64Array | number[],
   sampleRate: number,
@@ -110,9 +117,14 @@ export function guitarModePeaks(
 }
 
 // @parity audio/tap-analyzer
-/** Resolve Air/Top/Back mode peaks from an already-computed spectrum (no FFT).
- *  Used for multi-tap comparison, where each tap's peaks are (re)found at the
- *  current Peak Min — mirrors Swift TapEntry recomputing peaks on threshold change. */
+/**
+ * Resolve Air/Top/Back mode peaks from an already-computed spectrum (no FFT). Used for
+ * multi-tap comparison, where each tap's peaks are (re)found at the current Peak Min —
+ * mirrors Swift TapEntry recomputing peaks on threshold change.
+ * @param spectrum A previously-computed magnitude spectrum (dBFS) + frequency axis.
+ * @param opts Peak-Min threshold, guitar type, and analysis Hz range.
+ * @returns Resolved Air/Top/Back mode peaks plus the full peak list.
+ */
 export function modePeaksFromSpectrum(spectrum: Spectrum, opts: GuitarOptions): GuitarModePeaks {
   const guitarType = opts.guitarType ?? 'generic'
   const peaks = findPeaks(spectrum.magnitudesDb, spectrum.frequencies, {
@@ -169,7 +181,16 @@ export interface GuitarMultiTapOptions extends GuitarOptions {
 }
 
 // @parity audio/tap-analyzer
-/** Multi-tap guitar: segment N taps, FFT each 65536 window, power-average, find modes. */
+/**
+ * Multi-tap guitar analysis over a whole recording: segment N taps by level-crossing, FFT
+ * each 65536-sample window, power-average the spectra, then find + resolve modes on the
+ * average. Mirrors the Swift/Python multi-tap flow (per-tap capture → averageSpectra →
+ * findPeaks on the average).
+ * @param mono Full mono recording to segment.
+ * @param sampleRate Sample rate, in Hz.
+ * @param opts Tap-detection threshold, number of taps, Peak-Min, guitar type, Hz range.
+ * @returns Resolved Air/Top/Back mode peaks (from the averaged spectrum) plus the peak list.
+ */
 export function guitarMultiTapModePeaks(
   mono: Float32Array | Float64Array | number[],
   sampleRate: number,

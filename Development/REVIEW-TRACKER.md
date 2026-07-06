@@ -22,8 +22,8 @@ Task 3 (6-TEST) covers the `test/*` groups — do those there, not here.
 | `dsp/spectrum-average` | ✓ | ✓ | ✓ | all 3 READ. Swift `averageSpectra` doc accurate (rationale + formula + edge cases) — no change. Python PY-SA-1: enriched `average_spectra` docstring (added rationale + per-bin formula to mirror Swift). Web WEB-SA-1: enriched `averagePowerDb` (in `guitarFFT.ts`, M3-tagged); WEB-SA-2: documented that it omits the Swift/Python length-mismatch guard — unreachable (callers feed equal-length `GUITAR_FFT_SIZE` spectra), guard NOT added per user |
 | `model/guitar-mode-classify` | ✓ | ✓ | ✓ | all 3 READ. `classifyAll` code correct on all 3 (Top<Back guard in both the claiming + remaining-peaks loops). GM-CLASSIFY-1: Swift/Python DocC omitted the guard + Python had a stale "no frequency cursor / 2 Hz guard" claim — fixed. **PY-CLASSIFY-3 (CODE)**: added the remaining-peaks Back guard to Python `_classify_all_tuples` to match `classify_all`/Swift/web (35 tests pass). Web `classify.ts` correct; INVENTORY ref fixed + `classifyAll` TSDoc enriched |
 | `model/mode-colors` | ✓ | ✓ | ✓ | all 3 READ. Swift/Python colors match (semantic names + RGB). **WEB-COLORS-1** (real mismatch, user-approved): web `dipole` was purple (canonical red) and `ring` was yellow (canonical purple) — fixed to red/purple, keeping the palette's intentional dark-bg brightening (now documented). WEB-COLORS-2: `MODE_LABEL` dipole "Dipole"→"DP", unknown "—"→"?" to match Swift `abbreviation` |
-| `audio/realtime-analyzer` | ☐ | ☐ | — |  |
-| `audio/tap-analyzer` | ☐ | ☐ | ☐ | web members = orchestration trio (`guitarModePeaks`, `modePeaksFromSpectrum`, `guitarMultiTapModePeaks`) inside `src/dsp/guitarFFT.ts` (tagged per-symbol, M3) — enrich docs here vs canonical |
+| `audio/realtime-analyzer` | ✓ | ✓ | — | all 3 READ. Swift ARA-1/2/3: stale ~10 Hz→~43 Hz (×3, 1024-sample buffer), continuous FFT window ~400 ms→~1.4 s, publish ~2 Hz→~0.7 Hz. Python clean; `chunksize` default 16384→1024 aligned (app already passed 1024). **PY-RA-1** (missed on first pass, caught by the peak-hold cross-check during tap-analyzer): `recent_peak_level_db` docstring 0.5 s→2.0 s. **No web member** — the browser's Web Audio API is the engine layer (no analyzer class to port) |
+| `audio/tap-analyzer` | ✓ | ✓ | ✓ | all 3 READ. Swift TT-1..8: gatedCaptureDuration 400→500 ms (×2), inputLevelDB ~10→~43 Hz (×2), peakMagnitude ~1→~0.7 Hz, FLC "diagonal/shear"→"torsional/twist" (×2), noise-floor EMA ~10 ms/190 ms→~23 ms/450 ms, onset ~9600→~4800 (**verified empirically**), route-change settle 2→3 s. Python PY-TT-7 (onset) + **doc-parity pass**: ported Swift DocC to ~28 bare/under-documented properties (three-layer peak-selection block + scalar config/state). Web `engine.ts` verified clean (richly documented, accurate); `guitarFFT.ts` trio enriched with @param/@returns |
 | `view/analysis-metrics` | ☐ | ☐ | ☐ |  |
 | `view/comparison-results` | ☐ | ☐ | ☐ |  |
 | `view/help` | ☐ | ☐ | ☐ |  |
@@ -66,3 +66,23 @@ _(none tagged yet)_
 Files not yet in the `@parity` map (see PHASE6-PARITY.md §6-MAP deferred list):
 `signal.ts`, `wav.ts`, `analysisQuality.ts`, material/measurements panels, a few
 tests. Give these a lighter accuracy-only pass once the mapped groups are done.
+
+## Separate efforts (feature work, not `@parity` comment-doc review)
+
+### Theme — Light / Dark / System
+
+Spec: `THEME-SPEC.md` (**PROPOSED**). Cross-platform feature, **strict lock-step parity**
+(design once, implement + ship all three together). Surfaced by the mode-color parity work.
+**Status: not started — blocked on confirming the §8 open decisions** (mainly the light
+magnitude-gradient hexes + light chrome values). Cells: ☐ todo · ◐ in progress · ✓ done.
+
+| Step | Swift | Python | Web | notes |
+|---|---|---|---|---|
+| 1. Lock spec — confirm §8 decisions | — shared — | — shared — | — shared — | light mag-gradient + light chrome values; else defaults stand |
+| 2. Encode palette (§3 values) | ☐ (S) | ☐ (M) | ☐ (S) | asset-catalog color sets / `THEME` dict / CSS vars |
+| 3. Wire setting (persist + Settings control + `system` resolve + live OS follow) | ☐ (S) | ☐ (S) | ☐ (S) | same "Appearance: System/Light/Dark" all three |
+| 4. Retheme surfaces | ☐ (S) | ☐ (**L**) | ☐ (M) | Python ~150 `setStyleSheet` + pyqtgraph retrofit = long pole; Swift = hardcoded-white audit; web = chart+chrome wiring |
+| 5. Integrated visual QA → ship together | — shared — | — shared — | — shared — | matrix: 2 themes × 3 platforms × {live, cards, annotations, Settings, list, export} |
+
+Exports stay **light** on all three (§5). No DSP/oracle impact — presentation only. Effort:
+Swift Small, Web Medium, Python Large.
