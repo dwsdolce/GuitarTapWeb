@@ -3,16 +3,19 @@ import { computeGatedFFT } from './gatedFFT'
 import { parabolicInterpolate, calculateQ } from './peaks'
 import { interpolateToBins, applyCalibration, type Calibration } from './calibration'
 
-// Gated capture pipeline for plate/brace, ported from Swift/Python:
-//   level-crossing onset → 500 ms capture → align_capture_to_onset →
-//   computeGatedFFT → (calibration) → findDominantPeak.
-// align_capture_to_onset re-anchors the FFT window to the sample-level onset,
-// so the exact level-crossing timing is invisible downstream — we replicate it
-// faithfully but the result is robust to it.
+/**
+ * Gated capture pipeline for plate/brace, ported from Swift/Python:
+ *   level-crossing onset → 500 ms capture → `alignCaptureToOnset` →
+ *   `computeGatedFFT` → (calibration) → `findDominantPeak`.
+ * `alignCaptureToOnset` re-anchors the FFT window to the sample-level onset,
+ * so the exact level-crossing timing is invisible downstream — we replicate it
+ * faithfully but the result is robust to it.
+ */
 
 const CHUNK = 1024
 const LEVEL_CROSSING_CONFIRMATION_CHUNKS = 2
 
+/** Gated capture window length, in seconds (Swift/Python `gatedCaptureDuration` = 500 ms). */
 export const GATED_CAPTURE_DURATION = 0.5
 const GATED_FFT_WINDOW_DURATION = 0.4
 const PRE_ONSET_DURATION = 0.1
@@ -27,6 +30,7 @@ const MIN_Q = 3.0
 
 type Samples = Float32Array | Float64Array | number[]
 
+/** The dominant peak located in a gated material capture (frequency + magnitude + Q + bandwidth). */
 export interface MaterialPeak {
   frequency: number
   magnitude: number
@@ -257,10 +261,15 @@ export function findDominantPeak(
   return { frequency, magnitude, quality, bandwidth }
 }
 
+/** Search window + peak-selection rule for one material phase's gated capture. */
 export interface PhaseSearch {
+  /** Low edge of the peak search range, in Hz. */
   minHz: number
+  /** High edge of the peak search range, in Hz. */
   maxHz: number
+  /** Prefer the lowest significant peak (L/FLC) over the strongest (cross-grain). */
   preferLowestSignificant?: boolean
+  /** Optional mic calibration applied before peak-finding. */
   calibration?: Calibration | null
 }
 
@@ -309,9 +318,10 @@ export function gatedCaptureResult(
   return { magnitudesDb: mags, frequencies, peak }
 }
 
-// Brace: single longitudinal tap. Search 100–1200 Hz (fL ≈ 500 Hz), strongest peak.
+/** Brace: single longitudinal tap. Search 100–1200 Hz (fL ≈ 500 Hz), strongest peak. */
 export const BRACE_PHASE = { name: 'longitudinal', minHz: 100, maxHz: 1200, preferLowestSignificant: false } as const
 
+/** {@link PhaseSearch} plus the tap-onset threshold — inputs to a single-tap gated playback capture. */
 export interface GatedPlaybackOptions extends PhaseSearch {
   tapDetectionThreshold: number
 }
@@ -327,14 +337,17 @@ export function gatedSingleTapPeak(
   return gatedPeakAtCrossing(samples, sampleRate, crossEnd, opts)
 }
 
-// Plate phase order in the session WAV and each phase's search window.
-// L and FLC prefer the lowest significant peak; cross-grain takes the strongest.
+/**
+ * Plate phase order in the session WAV and each phase's search window.
+ * L and FLC prefer the lowest significant peak; cross-grain takes the strongest.
+ */
 export const PLATE_PHASES = [
   { name: 'longitudinal', minHz: 20, maxHz: 100, preferLowestSignificant: true },
   { name: 'cross', minHz: 40, maxHz: 220, preferLowestSignificant: false },
   { name: 'flc', minHz: 15, maxHz: 100, preferLowestSignificant: true },
 ] as const
 
+/** One of the {@link PLATE_PHASES} names (`'longitudinal' | 'cross' | 'flc'`). */
 export type PlatePhaseName = (typeof PLATE_PHASES)[number]['name']
 
 /** Plate full-session: segment L→C→FLC by successive crossings, peak per phase. */

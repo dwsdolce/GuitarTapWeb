@@ -1,10 +1,12 @@
 // @parity model/mode-colors
 import type { ResolvedMode } from '../dsp/classify'
 
-// Per-mode colors and labels for peak annotations. Canonical GuitarMode hues
-// (air cyan, top green, back orange, dipole red, ring purple, upper gray),
-// brightened for the dark chart background — so shades differ from Swift/Python's
-// RGB, but the hue per mode matches.
+/**
+ * Per-mode annotation colors. Canonical GuitarMode hues (air cyan, top green, back
+ * orange, dipole red, ring purple, upper gray), brightened for the dark chart
+ * background — so shades differ from Swift/Python's RGB, but the hue per mode
+ * matches. (Light/dark unification is tracked in THEME-SPEC §3.3.)
+ */
 export const MODE_COLOR: Record<ResolvedMode, string> = {
   air: '#4ea1ff',
   top: '#5fd07a',
@@ -15,6 +17,7 @@ export const MODE_COLOR: Record<ResolvedMode, string> = {
   unknown: '#5a6573',
 }
 
+/** Short mode labels for compact chart annotations (`DP`, `?`, …). */
 export const MODE_LABEL: Record<ResolvedMode, string> = {
   air: 'Air',
   top: 'Top',
@@ -25,8 +28,10 @@ export const MODE_LABEL: Record<ResolvedMode, string> = {
   unknown: '?',
 }
 
-// Full display names (GuitarMode.displayName) — used as the card's mode label and
-// the override quick-pick list.
+/**
+ * Full display names (`GuitarMode.displayName`) — used as the card's mode label and
+ * the override quick-pick list.
+ */
 export const MODE_DISPLAY_NAME: Record<ResolvedMode, string> = {
   air: 'Air (Helmholtz)',
   top: 'Top',
@@ -37,14 +42,19 @@ export const MODE_DISPLAY_NAME: Record<ResolvedMode, string> = {
   unknown: 'Unknown',
 }
 
-// Reverse of MODE_DISPLAY_NAME: a displayed label → its ResolvedMode (used to derive the glyph +
-// colour from the EFFECTIVE label, so a manual override swaps both, like Swift GuitarMode.icon/color).
+/**
+ * Reverse of {@link MODE_DISPLAY_NAME}: a displayed label → its `ResolvedMode` (used to derive
+ * the glyph + colour from the EFFECTIVE label, so a manual override swaps both, like Swift
+ * `GuitarMode.icon`/`color`).
+ */
 export const MODE_BY_DISPLAY_NAME: Record<string, ResolvedMode> = Object.fromEntries(
   (Object.entries(MODE_DISPLAY_NAME) as [ResolvedMode, string][]).map(([m, name]) => [name, m]),
 ) as Record<string, ResolvedMode>
 
-// A user-defined / custom override label (not a known mode) shows the tag glyph in teal —
-// mirrors Swift's `tag.fill` + RGB(0,128,128) for UserAssignedMode freeform labels.
+/**
+ * Color for a user-defined / custom override label (not a known mode) — the tag glyph in teal.
+ * Mirrors Swift's `tag.fill` + RGB(0,128,128) for UserAssignedMode freeform labels.
+ */
 export const USER_MODE_COLOR = '#1a9a9a'
 
 /** Quick-pick mode labels for the override menu (GuitarMode.currentCases order). */

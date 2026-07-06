@@ -207,8 +207,11 @@ export function braceYoungsLongPa(d: Dimensions, fL: number): number {
 export const braceYoungsLongGPa = (d: Dimensions, fL: number) => braceYoungsLongPa(d, fL) / 1e9
 
 // ── Wood quality ─────────────────────────────────────────────────────────────
+/** Wood quality grade, best→worst. Mirrors the Swift/Python quality ladder. */
 export type WoodQuality = 'Excellent' | 'Very Good' | 'Good' | 'Fair' | 'Poor'
+/** Tonewood species selecting the grading thresholds. */
 export type WoodType = 'spruce' | 'cedar' | 'other'
+/** Grain direction a specific-modulus value was measured along. */
 export type GrainDirection = 'longitudinal' | 'cross'
 
 const QUALITY_SCORE: Record<WoodQuality, number> = {

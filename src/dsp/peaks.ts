@@ -10,6 +10,7 @@
 // @parity dsp/find-peaks tests=test/peaks
 import { modeBands, type GuitarTypeName } from './guitarModes'
 
+/** A detected resonant peak. Mirrors Swift `ResonantPeak` (id + frequency/magnitude/Q/bandwidth). */
 export interface Peak {
   /** Unique id within a findPeaks call (for assembly/dedup bookkeeping). */
   id: number
@@ -26,9 +27,13 @@ export interface Peak {
 const WINDOW = 5 // ±5-bin local-max window
 const PEAK_PROXIMITY_HZ = 2.0
 
+/** Optional inputs to {@link findPeaks}: mode-band selection, analysis range, and magnitude gate. */
 export interface FindPeaksOptions {
+  /** Guitar type selecting the known-mode bands (default `'generic'`). */
   guitarType?: GuitarTypeName
+  /** Low edge of the analysis range, in Hz (default 30). */
   minHz?: number
+  /** High edge of the analysis range, in Hz (default 2000). */
   maxHz?: number
   /** Magnitude gate (dB). Default −60. */
   peakMinThreshold?: number

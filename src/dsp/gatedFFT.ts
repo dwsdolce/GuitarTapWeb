@@ -5,6 +5,7 @@ import { fftInPlace } from './fft'
 // magnitude floor before the dB conversion, exactly as the reference does.
 const EPS = 2.220446049250313e-16
 
+/** Output of {@link computeGatedFFT}: a one-sided dBFS magnitude spectrum + its bin frequencies. */
 export interface GatedFFTResult {
   /** Magnitude spectrum in dBFS (ref 1.0), one value per bin [0, fftSize/2). */
   magnitudesDb: number[]

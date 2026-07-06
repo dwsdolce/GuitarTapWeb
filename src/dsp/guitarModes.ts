@@ -1,17 +1,25 @@
-// Guitar resonance mode bands per guitar type, mirroring Swift GuitarType.modeRanges
-// (GuitarType.swift) — see Development/INVENTORY.md "Mode Classification". Inclusive Hz ranges.
-// Bands overlap by design (Top vs Back especially); the context-aware claimer in
-// findPeaks / classifyAll resolves the overlaps.
+/**
+ * Guitar resonance mode bands per guitar type, mirroring Swift `GuitarType.modeRanges`
+ * (`GuitarType.swift`) — see `Development/INVENTORY.md` "Mode Classification". Inclusive Hz
+ * ranges. Bands overlap by design (Top vs Back especially); the context-aware claimer in
+ * `findPeaks` / `classifyAll` resolves the overlaps.
+ */
 // @parity dsp/guitar-modes
 
+/** Guitar type selecting a set of mode bands. Mirrors Swift `GuitarType`. */
 export type GuitarTypeName = 'generic' | 'classical' | 'flamenco' | 'acoustic'
 
+/** The resonance mode names, low→high, shared by every guitar type. */
 export const MODE_NAMES = ['air', 'top', 'back', 'dipole', 'ring', 'upper'] as const
+/** One of the {@link MODE_NAMES}. */
 export type ModeName = (typeof MODE_NAMES)[number]
 
+/** A named, inclusive `[lo, hi]` Hz band for one resonance mode. */
 export interface ModeBand {
   name: ModeName
+  /** Low edge, inclusive, in Hz. */
   lo: number
+  /** High edge, inclusive, in Hz. */
   hi: number
 }
 

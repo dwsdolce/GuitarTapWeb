@@ -1,10 +1,15 @@
 // @parity dsp/spectrum-average
 import type { Spectrum } from './guitarFFT'
 
-// Frequency-domain power averaging of multiple tap spectra. Mirrors Python
-// average_spectra() / Swift averageSpectra(from:): convert each bin's dB to
-// linear power, average, convert back to dB. A single tap is returned unchanged;
-// mismatched bin counts fall back to the first tap.
+/**
+ * Frequency-domain power averaging of multiple tap spectra. Mirrors Python
+ * `average_spectra()` / Swift `averageSpectra(from:)`: convert each bin's dB to
+ * linear power, average, convert back to dB.
+ * @param taps One spectrum per tap; all should share the same bin count.
+ * @returns The averaged spectrum. A single tap is returned unchanged; mismatched
+ * bin counts fall back to the first tap.
+ * @throws If `taps` is empty.
+ */
 export function averageSpectra(taps: Spectrum[]): Spectrum {
   if (taps.length === 0) throw new Error('averageSpectra: no taps')
   if (taps.length === 1) return taps[0]!

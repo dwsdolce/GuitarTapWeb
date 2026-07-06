@@ -6,6 +6,54 @@ Task 2 (developer API docs). Driven by the `@parity` groups; conventions in
 
 Task 3 (6-TEST) covers the `test/*` groups — do those there, not here.
 
+## Doc-parity audit (added 2026-07-06)
+A slug is **read/behavior ✓** (the table below) when its comments were read + verified. It is
+**doc-parity ✓** (this section) only when all three platforms document the same *meaningful*
+symbols to equivalent depth — the measurable definition in `DEV-DOC-STANDARD.md`. These are
+**separate gates**; a slug can be read-✓ but doc-parity ⚠. Mechanical gate:
+`python3 Development/tools/doc_coverage.py [slug-prefix]` — coverage = `documented/total`
+(web = % with **TSDoc**, not `//`). `*` = multi-slug file (symbol-level attribution pending, M3).
+
+Snapshot (in-scope finished slugs; `test/*` excluded — Task 3). Swift/Python sub-100% is mostly
+private view-helpers / Qt accessors / multi-slug noise (parity-OK per criterion 2); the systemic
+real gap is **web TSDoc**.
+
+Coverage = % of the **public/exported** surface documented (internal helpers excluded from the
+gate). `(x/y)` = raw fraction where noise remains. Tool corrected 2026-07-06: measures the
+public surface only, and skips multi-line class/def signatures (was false-flagging documented
+classes like `TapToneAnalyzer`).
+
+| slug | S | P | W | doc-parity | back-fill |
+|---|---|---|---|---|---|
+| `dsp/pitch` | 100 | 100 | 100 | ✓ | — |
+| `dsp/fft` | 100 | — | 100 | ✓ | — |
+| `dsp/calibration` | 100 | 100 | 100 | ✓ | web type summaries added |
+| `dsp/find-peaks` | 100 | 100 | 100 | ✓ | web `Peak` + `FindPeaksOptions` summaries |
+| `dsp/decay` | 100 | 100 | 100 | ✓ | web `DecaySample` summary |
+| `dsp/gated-fft` | 100 | — | 100 | ✓ | web `GatedFFTResult`; Swift `finishGatedFFTCapture` doc |
+| `dsp/gated-capture` | — | — | 100 | ✓ | web: module block + 7 types/consts |
+| `dsp/guitar-fft` | — | 100 | 100 | ✓ | web 5 types/const (multi-slug file) |
+| `dsp/guitar-modes` | 100 | — | 100 | ✓ | web module block + type summaries |
+| `dsp/material-properties` | 100 | 100 | 100 | ✓ | web `WoodQuality`/`WoodType`/`GrainDirection` |
+| `dsp/spectrum-average` | — | 100 | 100 | ✓ | web `averageSpectra` `//`→TSDoc |
+| `model/guitar-mode-classify` | — | — | 100 | ✓ | web `ResolvedMode` + module block |
+| `model/mode-colors` | — | 100 | 100 | ✓ | web 5 consts `//`→TSDoc |
+| `view/multi-tap-results` | (5/11) | (2/6) | 100 | ✓ | WEB-MTC-1; Swift/Python residual = private helpers at parity |
+| `audio/tap-analyzer` | 100 | 100 | 100 | ✓ | web engine+guitarFFT; Python `is_detecting`/`display_mode` getter docstrings |
+| `audio/realtime-analyzer` | 100 | 100 | — | ✓ | Swift `RealtimeFFTAnalyzer` class doc + 2 consts; Python `selected_input_device` getter |
+| `view/analysis-metrics` | (44) | 80 | 0 | ⚠ web | web `MetricsPanel` — VIEW LAYER (not started) |
+| `view/comparison-results` | (29) | 67 | 0 | ⚠ web | web — VIEW LAYER |
+| `view/help` | (0/2) | 83 | 0 | ⚠ web | web `QuickStartGuide` — VIEW LAYER |
+| `view/main` | 74 | 46 | 0 | ⚠ web | web `App.tsx` — VIEW LAYER |
+| `view/*` (remaining) | — | — | ~0 | ⚠ web | peak-card, save-sheet, settings, spectrum-chart, threshold-slider, guitar-summary |
+
+**Status (2026-07-06): DSP + model + audio doc-parity COMPLETE — every non-view slug is 100%
+across all three platforms** (setters/dunders/private helpers excluded per the definition). The
+tool now measures the public surface, skips multi-line signatures, and excludes property
+setters. Remaining: the **view-layer web components** (~0% TSDoc) — the larger remaining batch
+(next). Re-run the tool per slug as the gate; flip a row to ✓ only when the gate + a human read
+of the undoc list agree.
+
 | slug | Swift | Python | Web | notes |
 |---|---|---|---|---|
 | `dsp/calibration` | ✓ | ✓ | ✓ | web: 1–24000 Hz filter (#1) + `referenceLevel` parsing (#2) + fuller TSDoc; Python reference-SPL/Sens precedence aligned to Swift (#5) |

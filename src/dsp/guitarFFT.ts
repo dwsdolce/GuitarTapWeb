@@ -25,6 +25,7 @@ import type { GuitarTypeName } from './guitarModes'
 
 const EPS = 2.220446049250313e-16
 
+/** A magnitude spectrum: parallel dBFS magnitudes and their bin centre frequencies (Hz). */
 export interface Spectrum {
   magnitudesDb: number[]
   frequencies: number[]
@@ -69,8 +70,10 @@ export function dftAnalRect(
   return { magnitudesDb, frequencies }
 }
 
+/** FFT length for continuous/captured guitar spectra (2^16), matching Swift/Python. */
 export const GUITAR_FFT_SIZE = 65536
 
+/** Resolved Air/Top/Back peaks (each optional) plus the full detected peak list. */
 export interface GuitarModePeaks {
   air?: Peak
   top?: Peak
@@ -78,6 +81,7 @@ export interface GuitarModePeaks {
   peaks: Peak[]
 }
 
+/** Peak-finding inputs for a single guitar spectrum: magnitude gate, type, and analysis range. */
 export interface GuitarOptions {
   peakMinThreshold: number
   guitarType?: GuitarTypeName
@@ -175,6 +179,7 @@ export function averagePowerDb(spectraDb: number[][]): number[] {
   return out
 }
 
+/** {@link GuitarOptions} plus multi-tap capture controls (onset threshold and tap count). */
 export interface GuitarMultiTapOptions extends GuitarOptions {
   tapDetectionThreshold: number
   numberOfTaps: number

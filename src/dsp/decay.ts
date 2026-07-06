@@ -21,6 +21,7 @@ const TRACK_SECONDS = 3.0 // stop appending 3 s after the tap (Swift's 3 s timer
 const WINDOW_SECONDS = 5.0 // trim history older than this
 const MIN_SAMPLES = 10 // don't measure until enough points (Swift minimumDecayHistoryCount)
 
+/** One point in the post-tap level history: an audio timestamp paired with a broadband level. */
 export interface DecaySample {
   /** Audio time, seconds. */
   t: number

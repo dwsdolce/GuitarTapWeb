@@ -15,13 +15,18 @@ import {
 /** Identity of a captured material phase (mirrors the plate/brace gated phase order). */
 export type MaterialPhaseName = 'longitudinal' | 'cross' | 'flc'
 
+/** Search parameters for locating a material peak in a gated plate/brace capture. */
 export interface MaterialSearch {
+  /** Low edge of the search range, in Hz. */
   minHz: number
+  /** High edge of the search range, in Hz. */
   maxHz: number
+  /** Prefer the lowest significant peak over the tallest (the plate longitudinal rule). */
   preferLowestSignificant: boolean
   /** Active mic calibration applied to the gated spectrum before peak-finding (see gatedCapture). */
   calibration?: Calibration | null
 }
+/** One captured material phase: its gated spectrum, the located peak, and which phase it is. */
 export interface MaterialCaptureResult {
   spectrum: Spectrum
   peak: MaterialPeak | null
@@ -30,17 +35,10 @@ export interface MaterialCaptureResult {
   phase?: MaterialPhaseName
 }
 
-// Live audio engine. The mic feeds an AudioWorklet that posts 1024-sample chunks
-// (+ RMS) to the main thread, where the tested src/dsp core runs:
-//   • continuous live spectrum (accumulate 65536 → dftAnalRect; 0% overlap),
-//   • tap detection (2-chunk level-crossing), always-on once started (matching
-//     GuitarTap) → 65536 capture → the captured spectrum is emitted and the view
-//     freezes. New Tap simply re-arms a frozen result. Peak-finding/classification
-//     happen in the UI so Peak Min / guitar type re-analyze the frozen spectrum live.
-// Sample rate is read from the live AudioContext (PLAN.md risk #1).
-
+/** Lifecycle state of the {@link AudioEngine}. */
 export type EngineState = 'idle' | 'listening' | 'capturing' | 'paused'
 
+/** Optional callbacks the caller supplies to observe the engine (spectrum, level, captures, state…). */
 export interface AudioEngineCallbacks {
   onSpectrum?: (spectrum: Spectrum) => void
   onLevel?: (db: number) => void
@@ -80,6 +78,7 @@ export interface EngineMetrics {
   frameRate: number
 }
 
+/** Tunable engine settings the caller can change while running (threshold, tap count, diagnostics). */
 export interface AudioEngineConfig {
   /** Level-crossing threshold for tap onset (dBFS). */
   tapDetectionThreshold: number
@@ -103,10 +102,12 @@ const PEAK_HOLD_SECONDS = 2.0
 
 const CONFIRM_CHUNKS = 2
 
-// The rate the whole pipeline + oracle are defined at (Swift/Python run at 48 kHz).
-// We do NOT force it — the OS/Audio MIDI Setup defines the actual capture rate and we
-// let it flow through — but we WARN if the live AudioContext rate differs, since the
-// DSP results only match the canonical apps at 48 kHz.
+/**
+ * The rate the whole pipeline + oracle are defined at (Swift/Python run at 48 kHz).
+ * We do NOT force it — the OS/Audio MIDI Setup defines the actual capture rate and we
+ * let it flow through — but we WARN if the live AudioContext rate differs, since the
+ * DSP results only match the canonical apps at 48 kHz.
+ */
 export const EXPECTED_SAMPLE_RATE = 48000
 
 interface ChunkMessage {
@@ -114,6 +115,18 @@ interface ChunkMessage {
   rms: number
 }
 
+/**
+ * Live audio engine. The mic feeds an AudioWorklet that posts 1024-sample chunks
+ * (+ RMS) to the main thread, where the tested `src/dsp` core runs:
+ *   - continuous live spectrum (accumulate 65536 → `dftAnalRect`; 0% overlap);
+ *   - tap detection (2-chunk level-crossing), always-on once started (matching
+ *     GuitarTap) → 65536 capture → the captured spectrum is emitted and the view
+ *     freezes. New Tap simply re-arms a frozen result. Peak-finding/classification
+ *     happen in the UI so Peak Min / guitar type re-analyze the frozen spectrum live.
+ *
+ * Sample rate is read from the live AudioContext ({@link EXPECTED_SAMPLE_RATE}, PLAN.md risk #1).
+ * Mirrors Swift `TapToneAnalyzer` / Python `tap_tone_analyzer`.
+ */
 export class AudioEngine {
   private context: AudioContext | null = null
   private node: AudioWorkletNode | null = null

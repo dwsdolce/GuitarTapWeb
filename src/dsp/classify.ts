@@ -2,11 +2,14 @@
 import { modeBands, type GuitarTypeName, type ModeName } from './guitarModes'
 import type { Peak } from './peaks'
 
-// Mode classification, ported from GuitarMode.classify / classifyAll.
-// classifyAll is the context-aware claimer used by the Results panel's
-// getPeak(for:) — it disambiguates the Top/Back overlap that a naive per-peak
-// lookup cannot. See Development/INVENTORY.md "Mode Classification".
+/**
+ * Mode classification, ported from `GuitarMode.classify` / `classifyAll`.
+ * `classifyAll` is the context-aware claimer used by the Results panel's
+ * `getPeak(for:)` — it disambiguates the Top/Back overlap that a naive per-peak
+ * lookup cannot. See `Development/INVENTORY.md` "Mode Classification".
+ */
 
+/** A resolved mode name, or `'unknown'` when a peak falls outside every mode band. */
 export type ResolvedMode = ModeName | 'unknown'
 
 /** Single-frequency lookup: bands tested in fixed case order (air→upper); first match wins. */
