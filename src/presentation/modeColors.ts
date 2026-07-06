@@ -1,13 +1,16 @@
 // @parity model/mode-colors
 import type { ResolvedMode } from '../dsp/classify'
 
-// Per-mode colors and labels for peak annotations (loosely matching GuitarMode).
+// Per-mode colors and labels for peak annotations. Canonical GuitarMode hues
+// (air cyan, top green, back orange, dipole red, ring purple, upper gray),
+// brightened for the dark chart background — so shades differ from Swift/Python's
+// RGB, but the hue per mode matches.
 export const MODE_COLOR: Record<ResolvedMode, string> = {
   air: '#4ea1ff',
   top: '#5fd07a',
   back: '#f0a03a',
-  dipole: '#b07ad8',
-  ring: '#e0c84a',
+  dipole: '#e0584a',
+  ring: '#b07ad8',
   upper: '#9aa6b3',
   unknown: '#5a6573',
 }
@@ -16,10 +19,10 @@ export const MODE_LABEL: Record<ResolvedMode, string> = {
   air: 'Air',
   top: 'Top',
   back: 'Back',
-  dipole: 'Dipole',
+  dipole: 'DP',
   ring: 'Ring',
   upper: 'Upper',
-  unknown: '—',
+  unknown: '?',
 }
 
 // Full display names (GuitarMode.displayName) — used as the card's mode label and

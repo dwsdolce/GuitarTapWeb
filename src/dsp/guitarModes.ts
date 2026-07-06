@@ -1,5 +1,5 @@
 // Guitar resonance mode bands per guitar type, mirroring Swift GuitarType.modeRanges
-// (GuitarType.swift) — see INVENTORY.md "Mode Classification". Inclusive Hz ranges.
+// (GuitarType.swift) — see Development/INVENTORY.md "Mode Classification". Inclusive Hz ranges.
 // Bands overlap by design (Top vs Back especially); the context-aware claimer in
 // findPeaks / classifyAll resolves the overlaps.
 // @parity dsp/guitar-modes

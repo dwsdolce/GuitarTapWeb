@@ -7,6 +7,33 @@ behavioural decision) is logged for a decision before any change.
 
 ## Fixed — category 1 (clear drift; the outlier corrected)
 
+- **[FIXED] dsp/guitar-modes + model/guitar-mode-classify + model/mode-colors (one file each,
+  three slugs).** GM-1: the Swift + Python Mode Map tables omitted the **Generic** guitar type (the
+  *default*) — added it (Air 70–135, Top 140–260, Back 180–300, Dipole 310–460, Ring 580–880, Upper
+  880+); web already had all 4. GM-CLASSIFY-1: `classifyAll` DocC in Swift + Python omitted the
+  "Back must be strictly above the claimed Top" guard (code has it in both the claiming and
+  remaining-peaks loops), and Python additionally carried a **stale** "Swift uses only a Set of
+  claimed UUIDs — no frequency cursor or 2 Hz guard" line contradicting the code — both fixed; web
+  `classifyAll` doc enriched to the same 3-step description. Stale `INVENTORY.md`→`Development/INVENTORY.md`
+  refs fixed in web `guitarModes.ts` + `classify.ts`.
+
+- **[FIXED — CODE, user-directed] model/guitar-mode-classify — Python `_classify_all_tuples` missing
+  the overlap guard (PY-CLASSIFY-3).** The Python-only index-keyed helper (live numpy peaks, no UUIDs)
+  had the *claiming-loop* Top<Back guard but not the *remaining-peaks* Back special case that
+  `classify_all` / Swift / web all have — so an overlap-zone peak could land on Top via the tuples path
+  but Back via the UUID path. User: "make the python code the same as swift — add the guard." Added the
+  remaining-peaks Back guard; `test_guitar_mode.py` 35/35 pass.
+
+- **[FIXED — visual parity, user-approved] model/mode-colors — web dipole/ring hues were wrong
+  (WEB-COLORS-1).** Web `MODE_COLOR` had dipole = purple (`#b07ad8`) and ring = yellow (`#e0c84a`),
+  but canonical (Swift/Python) is dipole = **red**, ring = **purple** — a visible cross-platform
+  mismatch (the file even said "loosely matching GuitarMode"). Root cause: the web palette is
+  systematically *brightened* for the dark chart background (a legitimate per-platform adaptation),
+  but dipole/ring were also the wrong hue (not just a brightness variant). Fixed the two hues
+  (dipole→`#e0584a` red, ring→`#b07ad8` purple), kept the intentional brightening, and documented the
+  palette. WEB-COLORS-2: `MODE_LABEL` aligned to Swift `abbreviation` (dipole "Dipole"→"DP", unknown
+  "—"→"?"). tsc clean.
+
 - **[DOC-PARITY + documented gap] dsp/spectrum-average.** Swift `averageSpectra` doc was already
   accurate (rationale + per-bin power formula + edge cases) — no change. PY-SA-1: Python
   `average_spectra` code matched Swift but its docstring lacked the rationale/formula — enriched to

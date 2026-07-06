@@ -5,7 +5,7 @@ import type { Peak } from './peaks'
 // Mode classification, ported from GuitarMode.classify / classifyAll.
 // classifyAll is the context-aware claimer used by the Results panel's
 // getPeak(for:) — it disambiguates the Top/Back overlap that a naive per-peak
-// lookup cannot. See INVENTORY.md "Mode Classification".
+// lookup cannot. See Development/INVENTORY.md "Mode Classification".
 
 export type ResolvedMode = ModeName | 'unknown'
 
@@ -17,7 +17,18 @@ export function classifySingle(freq: number, guitarType: GuitarTypeName): Resolv
   return 'unknown'
 }
 
-/** Claim the strongest in-band peak per mode (low→high), with the Back > Top+1 guard. */
+/**
+ * Context-aware mode classifier — mirrors Swift `GuitarMode.classifyAll` / Python
+ * `classify_all`. Unlike `classifySingle` (per-frequency), it processes all peaks
+ * together so overlapping ranges (especially Top/Back) resolve correctly:
+ * 1. Sort the modes by ascending range lower-bound.
+ * 2. Claim the highest-magnitude unclaimed peak in each mode's range. Back is
+ *    constrained to lie strictly above the claimed Top frequency (the back plate
+ *    resonance is always higher than the top plate's).
+ * 3. Remaining peaks fall back to `classifySingle` — except a peak above the claimed
+ *    Top and within the Back range resolves to `back`, preserving Top-below-Back.
+ * @returns Map of peak `id` -> resolved mode (`'unknown'` if outside all ranges).
+ */
 export function classifyAll(peaks: Peak[], guitarType: GuitarTypeName): Map<number, ResolvedMode> {
   const ordered = modeBands(guitarType).sort((a, b) => a.lo - b.lo)
   const result = new Map<number, ResolvedMode>()
