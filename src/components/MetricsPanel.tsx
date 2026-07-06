@@ -1,3 +1,4 @@
+// @parity view/analysis-metrics
 // FFT analysis metrics panel — mirrors the native FFTAnalysisMetricsView.
 // Three GroupBoxes (Analysis Configuration / Performance / Peak Detection) plus a
 // running/stopped status indicator. The values are computed in App from the live

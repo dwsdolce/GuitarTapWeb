@@ -182,6 +182,20 @@ doesn't point at the right canonical file. Fix by adjusting the tag(s) and rerun
   already carries a slug — it hosts both, so it keeps `dsp/find-peaks` and the tracker
   notes the dual role). Then validate the algorithm comments in Swift/Python.
 
+- **M4 — view/analysis-metrics was mis-tagged on the web; + new `view/guitar-summary` slug.** The web
+  file tagged `@parity view/analysis-metrics` was `AnalysisResults.tsx` — but that is the live Ring-Out +
+  Tap-Ratio **guitar-summary** bar, not the FFT-metrics diagnostics panel. The real counterpart of
+  `FFTAnalysisMetricsView` is **`MetricsPanel.tsx`** (was untagged; header already accurate). **Done:**
+  tagged `MetricsPanel.tsx` → `view/analysis-metrics`; retagged `AnalysisResults.tsx` → a **new
+  `view/guitar-summary`** slug. That slug's Swift/Python members are *sections* of larger files (the
+  Ring-Out/Tap-Ratio block of `TapAnalysisResultsView.swift`, ~L586–630, and the guitar-summary section
+  of `tap_tone_analysis_view.py`) — symbol-level tags to add during the batched map regen.
+  **Related M5 (broader):** `TapAnalysisResultsView.swift` (1291 lines: peaks table + Ring-Out + Tap Ratio
+  + Plate/Brace properties + export) is an untagged **broad results panel that the web decomposed** into
+  several components (`AnalysisResults`, `PeakCard`, material panels, export bar). It needs a mapping pass
+  of its own — its sections map to `view/guitar-summary` / `view/peak-card` / material-properties display /
+  export, not one slug.
+
 - **M2 — dsp/fft is a web-only primitive; the group has no Swift/Python function counterpart.**
   Web `fft.ts` (`fftInPlace`) is a hand-rolled radix-2 FFT the browser needs because it has no
   built-in FFT. Swift uses Accelerate/vDSP and Python uses `numpy.fft`, so neither has a

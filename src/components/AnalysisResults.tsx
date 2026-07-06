@@ -3,7 +3,7 @@
 // tap_tone_analysis_view guitar-summary / Swift TapAnalysisResultsView): always visible, with
 // "Waiting…" / "Need Air & Top" empty states and the value + colored quality inline. Reuses the
 // shared analysisQuality helpers so the labels/colors agree with the PDF.
-// @parity view/analysis-metrics
+// @parity view/guitar-summary
 
 import {
   decayQuality,
