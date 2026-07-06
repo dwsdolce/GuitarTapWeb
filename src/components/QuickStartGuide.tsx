@@ -109,7 +109,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Choose a Measurement Type',
-        body: 'In Settings, the Measurement Type section is directly below Audio Input. Pick Generic Guitar (the default, with broad ranges that work for any guitar), Classical, Flamenco, Acoustic / Steel String, Material (Plate), or Material (Brace). The right choice determines which mode-frequency ranges are used and which measurements are calculated.',
+        body: 'In Settings, the Measurement Type section is directly below Audio Input. Pick Generic Guitar (the default, with broad ranges that work for any guitar), Acoustic / Steel String, Classical, Flamenco, Material (Plate), or Material (Brace). The right choice determines which mode-frequency ranges are used and which measurements are calculated.',
       },
       {
         title: 'Advanced Settings',
@@ -131,7 +131,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Step 1 — Configure',
-        body: 'In Settings choose the guitar type in the Measurement Type section. Generic Guitar (the default) uses broad ranges that work for any guitar; Classical, Flamenco, and Acoustic / Steel String use narrower calibrated windows shown in the same section. The Show Unknown Modes toggle is in the Advanced section.',
+        body: 'In Settings choose the guitar type in the Measurement Type section. Generic Guitar (the default) uses broad ranges that work for any guitar; Acoustic / Steel String, Classical, and Flamenco use narrower calibrated windows shown in the same section. The Show Unknown Modes toggle is in the Advanced section.',
       },
       {
         title: 'Step 2 — Position the Microphone',
@@ -367,7 +367,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Measurement Type',
-        body: 'Shown below Audio Input. Choose Generic Guitar (the default), Classical Guitar, Flamenco, Acoustic/Steel String, Material (Plate), or Material (Brace). Determines which mode frequency windows are applied and which calculations appear in Results.',
+        body: 'Shown below Audio Input. Choose Generic Guitar (the default), Acoustic/Steel String, Classical, Flamenco, Material (Plate), or Material (Brace). Determines which mode frequency windows are applied and which calculations appear in Results.',
       },
       {
         title: 'Advanced (collapsed section)',

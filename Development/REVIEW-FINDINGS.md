@@ -7,6 +7,20 @@ behavioural decision) is logged for a decision before any change.
 
 ## Fixed — category 1 (clear drift; the outlier corrected)
 
+- **[FIXED] view/help — detailed content-parity review.** Extracted + normalized + diffed the help
+  text across all three (~1700 lines). Content is well-synced (same 10 sections, same technical facts).
+  VHELP-1: the Swift class-doc "Content Sections" table was stale (listed Ring-Out Time / Tap Tone Ratio
+  / Material Properties as sections — they aren't — and omitted Controls Reference / Tap Controls /
+  Settings Reference / Glossary) → corrected. **Measurement-type enumeration order** was inconsistent
+  (even between Swift's own two mentions) → aligned to the canonical Settings order **Generic, Acoustic,
+  Classical, Flamenco, Material (Plate), Material (Brace)** in every mention (Swift ×2 + already-correct
+  Settings-ref, Python ×3, web ×3; web "Classical Guitar"→"Classical"). **Decisions (user):** the pervasive
+  **tap (mobile) ↔ click (desktop/web)** verb difference is kept **per-platform** — intentional adaptation,
+  not drift; menu-bar (SwiftUI 5) vs Qt (4) vs web ("no menu bar, two toolbars") content correctly differs
+  per platform. Left as-is: a trivial "Tap OK" drop and cosmetic `≈` vs "approximately". Note: the automated
+  web extractor under-counted (mixed quote styles), so the web was hand-verified + spot-checked.
+
+
 - **[FIXED] audio/realtime-analyzer + audio/tap-analyzer — stale cadence/window figures + a Python
   doc-depth gap.** Swift `RealtimeFFTAnalyzer.swift` ARA-1/2/3: three "~10 Hz" for the audio-buffer
   callback → ~43 Hz (1024-sample buffer, verified via `maxSafeBufferSize=1024`); continuous FFT window
