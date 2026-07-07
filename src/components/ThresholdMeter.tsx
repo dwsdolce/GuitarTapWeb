@@ -1,14 +1,17 @@
 // @parity view/threshold-slider
 import { useEffect, useRef } from 'react'
 
-// Combined level meter + threshold slider, mirroring the native app's
-// ThresholdSlider (Swift Views/Shared/ThresholdSlider.swift ↔ Python
-// views/shared/threshold_slider.py): the live RMS level fills the groove on the
-// SAME dB scale as a draggable threshold handle, with 10 dB ticks and a decaying
-// peak-hold dot. Everything is custom-painted on one canvas and the handle is
-// dragged via pointer events — so the handle position and value use the identical
-// dbToX mapping (no native <input type=range> thumb-inset / width mismatch).
+/**
+ * Combined level meter + threshold slider, mirroring the native app's
+ * `ThresholdSlider` (Swift `Views/Shared/ThresholdSlider.swift` ↔ Python
+ * `views/shared/threshold_slider.py`): the live RMS level fills the groove on the
+ * SAME dB scale as a draggable threshold handle, with 10 dB ticks and a decaying
+ * peak-hold dot. Everything is custom-painted on one canvas and the handle is
+ * dragged via pointer events — so the handle position and value use the identical
+ * dbToX mapping (no native `<input type=range>` thumb-inset / width mismatch).
+ */
 
+/** Props for {@link ThresholdMeter}. */
 export interface ThresholdMeterProps {
   /** Live input level (dBFS). */
   level: number
@@ -29,6 +32,11 @@ const GROOVE_H = 14
 const HANDLE_W = 4
 const HANDLE_H = 22
 
+/**
+ * Renders the level-meter + threshold slider on a canvas. Drives the peak-hold decay
+ * and repaint from the `level`/`value`/`clipping`/range props, and reports handle
+ * drags (click or drag anywhere jumps the handle) via {@link ThresholdMeterProps.onChange}.
+ */
 export function ThresholdMeter({ level, value, onChange, min = -80, max = -20, clipping = false }: ThresholdMeterProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const peak = useRef({ db: min, setTime: 0, last: 0 })

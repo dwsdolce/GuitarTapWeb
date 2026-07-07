@@ -48,7 +48,8 @@ classes like `TapToneAnalyzer`).
 | `view/peak-card` | 100 | 100 | 100 | ✓ | FULL REVIEW done — Swift inputs + Python methods + web TSDoc; 2 Python visual-parity fixes; map tag added to real impl |
 | `view/save-sheet` | 100 | 100 | 100 | ✓ | FULL REVIEW done — fixed web content drift (labels/placeholder/help text) + Python getter docstrings + web props TSDoc |
 | `view/settings` | 100 | — | 100 | ✓ | FULL REVIEW done — **web** content aligned to canonical (the divergent one); Swift stale DocC ×2; Python UI faithful (stub "Gore gap" was false) + map re-tag (UI symbol-tagged in monolith; store de-tagged). Python `—` = UI inline in the view/main monolith |
-| `view/* (UNREVIEWED)` | — | — | ~0 | — | spectrum-chart, spectrum-gestures, threshold-slider, guitar-summary — get docs during their own full review |
+| `view/threshold-slider` | 100 | 100 | 100 | ✓ | FULL REVIEW done — full content/behavior parity; Swift stale-path comment fixed; Python `paintEvent` + web props/component TSDoc |
+| `view/* (UNREVIEWED)` | — | — | ~0 | — | spectrum-chart, spectrum-gestures, guitar-summary — get docs during their own full review |
 
 **Status (2026-07-06): doc-parity back-fill COMPLETE for every ALREADY-REVIEWED slug** — all
 non-view slugs + the 5 reviewed view slugs (`analysis-metrics`, `comparison-results`, `help`,
@@ -88,7 +89,7 @@ phase). Re-run the tool per slug as the gate; flip a row to ✓ only when gate +
 | `view/settings` | ✓ | ✓ | ✓ | all 3 READ (full review; Swift 4-file split + Python inline `_show_settings` + web SettingsPanel). **Python UI is a faithful, complete port of Swift** (measurement type incl. Gore, display, analysis, audio all match) — the sibling stub's "Gore not rendered (item #10)" claim was **stale/false**; fixed. **Map fix:** `@parity view/settings` was mis-tagged on `AppSettings` (the QSettings STORE = Swift TapDisplaySettings) → symbol-tagged the real UI `_show_settings()` in the monolith; store de-tagged (awaits its own settings-store slug). **Swift:** stale DocC "max peaks; hysteresis margin" ×2 → actual analysis controls; +isCompact/init `///`. **Web (the divergent one):** aligned content to canonical — measurement-type description + footer, "Mode Frequency Ranges" (dropped extra Upper row), "Sample Dimensions", FLC label+desc, "Gore Target Thickness — Body Dimensions"+desc, "Body Length (a)/Lower Bout Width (b)", "Plate Vibrational Stiffness (f_vs)"/"Panel Type", brace "Height (tap direction)"+desc/"Width (breadth)", title "Tap Settings", "None (Uncalibrated)", "Audio Input Device"; + reordered plate to canonical (dims→FLC→Gore→f_vs); + SettingsPanelProps/component TSDoc. 5/5 · — · 2/2 |
 | `view/spectrum-chart` | ☐ | ☐ | ☐ |  |
 | `view/spectrum-gestures` | ☐ | ☐ | — |  |
-| `view/threshold-slider` | ☐ | ☐ | ☐ |  |
+| `view/threshold-slider` | ✓ | ✓ | ✓ | all 3 READ (full review). **Full content/behavior parity** — constants (peak-hold 0.5s, decay 20 dB/s, clip 10%, groove 14, handle 4×22), gradient (102,204,255→0,102,204→0,30,80), tick (61,140,61@0.7), amber peak dot (255,200,0 r3.5), red handle, click/drag-to-jump all match; web dark groove bg = THEME-SPEC convention (not drift). Swift: fixed stale path comment `views/widgets/`→`views/shared/`. Doc-parity: Python `paintEvent` docstring + web `ThresholdMeterProps`/component TSDoc → 100/100/100 |
 | `test/annotation-state` | ☐ | ☐ | — |  |
 | `test/brace` | ☐ | ☐ | ☐ |  |
 | `test/button-enablement` | ☐ | ☐ | — |  |
