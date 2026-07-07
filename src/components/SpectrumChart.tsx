@@ -5,6 +5,7 @@ import { renderSpectrum, chartGeometry, DARK_CHART } from '../presentation/spect
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { PeakMarker, AnnotationRect, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
 
+/** Props for {@link SpectrumChart} — spectrum data, axis range, overlays/markers, and interaction callbacks. */
 export interface SpectrumChartProps {
   spectrum: Spectrum | null
   /** Title shown top-left, e.g. "FFT Peaks — New" (mirrors Swift/Python chartTitle). */
@@ -63,6 +64,13 @@ const CONTROLS: [string, string][] = [
   ['⋯ menu / right-click', 'Reset axes (Chart Options)'],
 ]
 
+/**
+ * The interactive FFT spectrum chart — mirrors Swift `SpectrumView` / Python `FftCanvas`.
+ * Renders the magnitude curve, mode-boundary lines + labels, peak markers, draggable
+ * annotation badges, material/comparison overlay curves + legend, and a snap-to-bin
+ * crosshair readout, all custom-drawn on a canvas. Wheel/drag/pinch gestures (region-aware)
+ * emit view changes; a ⋯ / right-click menu resets the axes.
+ */
 export function SpectrumChart({
   spectrum,
   title,

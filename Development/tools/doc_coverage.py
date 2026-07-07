@@ -113,6 +113,7 @@ def analyze_swift(text: str):
     # are internal even though the member line itself has no access keyword.
     brace = 0
     private_open = None  # brace level at which the nearest private type opened
+    preview_open = None  # brace level at which a `#Preview {` block opened
     priv_re = re.compile(
         r"^\s*(?:@[\w()]+\s+)*(?:(?:public|internal|open|final|static)\s+)*"
         r"(?:private|fileprivate)\s+(?:final\s+)?(?:struct|class|enum|actor)\b"
@@ -120,14 +121,21 @@ def analyze_swift(text: str):
     for i, line in enumerate(lines):
         if private_open is None and priv_re.match(line):
             private_open = brace
+        if preview_open is None and line.lstrip().startswith("#Preview"):
+            preview_open = brace
         in_private = private_open is not None
+        in_preview = preview_open is not None
         # Update running brace depth AFTER checking this line's role.
         brace += line.count("{") - line.count("}")
         if private_open is not None and brace <= private_open:
             private_open = None
+        if preview_open is not None and brace <= preview_open:
+            preview_open = None
 
         m = SWIFT_DECL.match(line)
         if not m:
+            continue
+        if in_preview:  # preview scaffolding locals — not API
             continue
         if len(m.group("indent")) > 4:  # skip locals inside function bodies
             continue
