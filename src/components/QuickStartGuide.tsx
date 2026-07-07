@@ -1,8 +1,10 @@
-// In-app Quick Start Guide — the web port of Swift HelpView / Python HelpDialog
-// (window title "Quick Start Guide"). Same sectioned content, with the platform-specific
-// bits adapted for the browser: "Click" (not "Tap"), the toolbar Help button (no menu bar),
-// no keyboard shortcuts, and the always-live crosshair documented. The full online reference
-// is the separate User Manual (Help menu → User Manual).
+/**
+ * In-app Quick Start Guide — the web port of Swift `HelpView` / Python `HelpDialog`
+ * (window title "Quick Start Guide"). Same sectioned content, with the platform-specific
+ * bits adapted for the browser: "Click" (not "Tap"), the toolbar Help button (no menu bar),
+ * no keyboard shortcuts, and the always-live crosshair documented. The full online reference
+ * is the separate User Manual (Help menu → User Manual).
+ */
 // @parity view/help
 
 import {
@@ -67,11 +69,13 @@ const ICONS = {
 } as const
 type IconKey = keyof typeof ICONS
 
+/** One help entry: an optional bold title, a body paragraph, and an optional leading glyph. */
 export interface QSRow {
   title?: string
   body: string
   icon?: IconKey
 }
+/** A help section: a titled group of {@link QSRow}s with an optional intro and section glyph. */
 export interface QSSection {
   title: string
   intro?: string
@@ -79,10 +83,13 @@ export interface QSSection {
   rows: QSRow[]
 }
 
-// Content ported from the canonical source (Swift HelpView / Python HelpDialog), adapted for
-// the web: the desktop menu bar + keyboard shortcuts become the two toolbars (the web has no
-// shortcuts), the iPhone-only and "Re-analyze Peaks" notes are dropped (no web equivalent),
-// the selection-reset control is the "Auto" button, and the always-live crosshair is documented.
+/**
+ * The Quick Start Guide content, ported from the canonical source (Swift `HelpView` /
+ * Python `HelpDialog`), adapted for the web: the desktop menu bar + keyboard shortcuts
+ * become the two toolbars (the web has no shortcuts), the iPhone-only and "Re-analyze
+ * Peaks" notes are dropped (no web equivalent), the selection-reset control is the "Auto"
+ * button, and the always-live crosshair is documented.
+ */
 export const QUICK_START_SECTIONS: QSSection[] = [
   {
     title: 'What Guitar Tap Does',
@@ -485,6 +492,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
   },
 ]
 
+/** Renders the Quick Start Guide modal from {@link QUICK_START_SECTIONS}. */
 export function QuickStartGuide({ onClose }: { onClose: () => void }) {
   return (
     <div className="settings-overlay" role="dialog" aria-label="Quick Start Guide" onClick={onClose}>

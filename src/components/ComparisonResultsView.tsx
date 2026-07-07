@@ -1,8 +1,11 @@
-// Comparison results table — mirrors Swift/Python ComparisonResultsView.
-// One row per compared spectrum: a colored dot + label, then the resolved
-// Air / Top / Back mode frequencies. Reuses the multi-tap table styling.
+/**
+ * Comparison results table — mirrors Swift/Python `ComparisonResultsView`.
+ * One row per compared spectrum: a colored dot + label, then the resolved
+ * Air / Top / Back mode frequencies. Reuses the multi-tap table styling.
+ */
 // @parity view/comparison-results
 
+/** One compared spectrum's row: label + dot color + resolved Air/Top/Back frequencies (Hz). */
 export interface ComparisonRow {
   label: string
   color: string
@@ -13,6 +16,7 @@ export interface ComparisonRow {
 
 const hz = (n: number | null) => (n != null ? `${n.toFixed(1)} Hz` : '—')
 
+/** Renders the Air/Top/Back comparison grid, one row per {@link ComparisonRow}. */
 export function ComparisonResultsView({ rows }: { rows: ComparisonRow[] }) {
   return (
     <div className="multitap-table comparison-table">

@@ -217,6 +217,14 @@ const HINTS = {
   showAveraged: 'Show averaged result only',
 } as const
 
+/**
+ * Top-level app: the live-analysis orchestrator. Mirrors Swift `TapToneAnalysisView` /
+ * Python `TapToneAnalysisView` (MainWindow) — owns the {@link AudioEngine}, wires the
+ * spectrum chart, controls, threshold meter, results / peak cards, and the Settings /
+ * Metrics / Help / Save / Measurements modals, delegating chart, annotation, material,
+ * and engine concerns to the `useChartView` / `useAnnotations` / `useMaterialSession` /
+ * `useAudioEngine` hooks.
+ */
 export default function App() {
   const [captured, setCaptured] = useState<Spectrum | null>(null)
   // A loaded measurement's saved axis range — transient override of the persisted display

@@ -41,18 +41,19 @@ classes like `TapToneAnalyzer`).
 | `view/multi-tap-results` | (5/11) | (2/6) | 100 | ✓ | WEB-MTC-1; Swift/Python residual = private helpers at parity |
 | `audio/tap-analyzer` | 100 | 100 | 100 | ✓ | web engine+guitarFFT; Python `is_detecting`/`display_mode` getter docstrings |
 | `audio/realtime-analyzer` | 100 | 100 | — | ✓ | Swift `RealtimeFFTAnalyzer` class doc + 2 consts; Python `selected_input_device` getter |
-| `view/analysis-metrics` | (44) | 80 | 0 | ⚠ web | web `MetricsPanel` — VIEW LAYER (not started) |
-| `view/comparison-results` | (29) | 67 | 0 | ⚠ web | web — VIEW LAYER |
-| `view/help` | (0/2) | 83 | 0 | ⚠ web | web `QuickStartGuide` — VIEW LAYER |
-| `view/main` | 74 | 46 | 0 | ⚠ web | web `App.tsx` — VIEW LAYER |
-| `view/*` (remaining) | — | — | ~0 | ⚠ web | peak-card, save-sheet, settings, spectrum-chart, threshold-slider, guitar-summary |
+| `view/analysis-metrics` | (2/6) | 80 | 100 | ✓ web | web `MetricsPanel` done; Swift residual = internal SwiftUI subview helpers |
+| `view/comparison-results` | 100 | 100 | 100 | ✓ | web `ComparisonResultsView` done |
+| `view/help` | 100 | 100 | 100 | ✓ | web `QuickStartGuide` done |
+| `view/main` | (12/17) | (8/22) | 100 | ✓ web | web `App` orchestrator done; Swift internal helpers + Python monolith noise |
+| `view/* (UNREVIEWED)` | — | — | ~0 | — | peak-card, save-sheet, settings, spectrum-chart, spectrum-gestures, threshold-slider, guitar-summary — **NOT a doc-parity back-fill target; get docs during their own full review** |
 
-**Status (2026-07-06): DSP + model + audio doc-parity COMPLETE — every non-view slug is 100%
-across all three platforms** (setters/dunders/private helpers excluded per the definition). The
-tool now measures the public surface, skips multi-line signatures, and excludes property
-setters. Remaining: the **view-layer web components** (~0% TSDoc) — the larger remaining batch
-(next). Re-run the tool per slug as the gate; flip a row to ✓ only when the gate + a human read
-of the undoc list agree.
+**Status (2026-07-06): doc-parity back-fill COMPLETE for every ALREADY-REVIEWED slug** — all
+non-view slugs + the 5 reviewed view slugs (`analysis-metrics`, `comparison-results`, `help`,
+`main`, `multi-tap-results`) are at web 100%, Swift/Python documented at the public/type level.
+The tool measures the public surface, skips multi-line signatures, excludes property setters,
+and credits Swift file-top `///` banners. **The remaining view slugs are UNREVIEWED and are NOT
+doc-parity back-fill targets** — they get their docs as part of their own full review (next
+phase). Re-run the tool per slug as the gate; flip a row to ✓ only when gate + human read agree.
 
 | slug | Swift | Python | Web | notes |
 |---|---|---|---|---|

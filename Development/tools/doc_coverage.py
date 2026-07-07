@@ -104,6 +104,11 @@ def analyze_swift(text: str):
     total = documented = 0
     undoc: list[str] = []
     internal: list[str] = []
+    # Many view files carry a `/// # Type` banner at the very top, detached from the
+    # `struct`/`class` by the file-header `//` + `import`. DocC treats it as the type's
+    # doc; credit the file's first top-level type for it.
+    top_banner = any(l.strip().startswith("///") for l in lines[:20])
+    first_type_credited = False
     for i, line in enumerate(lines):
         m = SWIFT_DECL.match(line)
         if not m:
@@ -123,6 +128,12 @@ def analyze_swift(text: str):
                 break
             j -= 1
         has_doc = j >= 0 and lines[j].strip().startswith("///")
+        # Credit the first top-level type against a file-top banner.
+        if not has_doc and top_banner and not first_type_credited \
+                and len(m.group("indent")) == 0 \
+                and m.group("kind") in ("struct", "class", "enum", "protocol"):
+            has_doc = True
+            first_type_credited = True
         if _is_private_swift(line):  # internal — informational only
             if not has_doc:
                 internal.append(name)

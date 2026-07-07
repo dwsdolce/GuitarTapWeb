@@ -1,9 +1,12 @@
 // @parity view/analysis-metrics
-// FFT analysis metrics panel — mirrors the native FFTAnalysisMetricsView.
-// Three GroupBoxes (Analysis Configuration / Performance / Peak Detection) plus a
-// running/stopped status indicator. The values are computed in App from the live
-// engine + spectrum; this component only formats them.
+/**
+ * FFT analysis metrics panel — mirrors the native `FFTAnalysisMetricsView`.
+ * Three groups (Analysis Configuration / Performance / Peak Detection) plus a
+ * running/stopped status indicator. Values are computed in `App` from the live
+ * engine + spectrum; this component only formats them.
+ */
 
+/** The metric values displayed by {@link MetricsPanel} (nullable outside guitar/live mode). */
 export interface Metrics {
   /** Hz per FFT bin (sampleRate / FFT size). */
   frequencyResolution: number | null
@@ -29,6 +32,7 @@ export interface Metrics {
   isRunning: boolean
 }
 
+/** Props for {@link MetricsPanel}. */
 export interface MetricsPanelProps {
   metrics: Metrics
   onClose: () => void
@@ -53,6 +57,7 @@ function MetricRow({ label, value, subtitle }: { label: string; value: string; s
   )
 }
 
+/** Renders the analysis-metrics modal dialog. */
 export function MetricsPanel({ metrics: m, onClose }: MetricsPanelProps) {
   // CPU headroom: average processing time as a fraction of the available frame budget.
   const frameTimeMs = m.frameRate ? 1000 / m.frameRate : null
