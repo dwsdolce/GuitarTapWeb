@@ -141,3 +141,15 @@ magnitude-gradient hexes + light chrome values). Cells: ☐ todo · ◐ in progr
 
 Exports stay **light** on all three (§5). No DSP/oracle impact — presentation only. Effort:
 Swift Small, Web Medium, Python Large.
+
+### Log-frequency axis removal
+
+Spec: `LOG-FREQ-REMOVAL.md` (**PROPOSED**). Remove all logarithmic-frequency-axis support
+across Swift/Python/web — it's leftover dead code (unreachable everywhere: web `logFreq` never
+set true, Swift `isLogarithmic` always `.constant(false)`, Python live chart has no flag) and has
+repeatedly generated false review findings. **Two layers:** (A) the interactive/render log branches
+— delete on all three; (B) the `SpectrumSnapshot.isLogarithmic` **serialized format field** —
+decide **B1** keep pinned `false` (no format change, recommended) vs **B2** drop it (coordinated
+format change, tolerant reader + re-pin oracle). **Status: not started — blocked on the B1/B2
+decision + the Swift `AxisTickGenerator.logarithmic` audit.** No DSP/oracle impact. Effort: Swift
+Small, Python Small, Web Small.
