@@ -42,6 +42,12 @@ function Column({
   )
 }
 
+/**
+ * The live guitar-summary bar — Ring-Out + Tap Ratio side by side. Mirrors Swift
+ * `guitarAnalysisSummary` (TapAnalysisResultsView) / Python's inline guitar-summary. Always
+ * visible; shows "Waiting…" / "Need Air & Top" until measured, then the value + colored
+ * quality label (via the shared {@link decayQuality}/{@link tapToneRatioQuality} helpers).
+ */
 export function AnalysisResults({
   decayTime,
   ratio,

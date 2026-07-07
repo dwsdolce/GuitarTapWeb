@@ -110,6 +110,16 @@ caveat as §3.4, since Swift's source is adaptive).
 | 5 · teal | `#5ac8fa` | `#40c8e0` |
 | Averaged row | `#ffd900` | `#ffd900` | <!-- gold, fixed in both themes (Swift Color(1.0,0.85,0.0)) -->
 
+### 3.6 Analysis-quality labels (guitar-summary Ring-Out / Tap-Ratio)
+The Ring-Out (`decayQuality`) and Tap-Ratio (`tapToneRatioQuality`) quality labels are tinted by
+a third divergent color set: **Swift** uses **system colors** (`.gray/.orange/.yellow/.green/.blue`
+for decay; `.red/.orange/.green` for ratio — adaptive, no fixed hex), **Python** uses **Material**
+hexes (`#9E9E9E/#FF9800/#FFC107/#4CAF50` decay; `#F44336/#FF9800/#4CAF50` ratio), and **web** uses
+its **own tuned** hexes (`#8a8a8e/…` decay; `#d83a30/#e08a00/#2c9c3c` ratio). Same appearance-adaptive
+situation as §3.3–§3.5 — unify to explicit per-theme hex. (The quality **thresholds/labels** already
+match across platforms — this is colors only; the acoustic decay threshold drift found during the
+guitar-summary review was a separate value bug, fixed there.)
+
 ## 4. Per-platform implementation
 
 ### Swift — Small
