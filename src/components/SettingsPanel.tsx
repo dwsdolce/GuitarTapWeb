@@ -7,6 +7,7 @@ import {
   ANALYSIS_KEYS,
   DEFAULT_SETTINGS,
   DISPLAY_KEYS,
+  MEASUREMENT_DESCRIPTION,
   MEASUREMENT_FULL_NAME,
   MEASUREMENT_TYPES,
   STIFFNESS_LABEL,
@@ -21,6 +22,10 @@ import {
 import type { ChartView } from '../presentation/chartTypes'
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 
+/**
+ * Props for {@link SettingsPanel}. Display/analysis/measurement edits are buffered and
+ * applied on Done; the audio-input & calibration controls apply immediately.
+ */
 export interface SettingsPanelProps {
   settings: Settings
   sampleRate: number | null
@@ -126,6 +131,12 @@ function RangeField({
   )
 }
 
+/**
+ * The Tap Settings dialog — mirrors Swift `TapSettingsView`. Sections: Audio Input &
+ * Calibration (applies immediately), Measurement Type (guitar mode ranges / plate + Gore /
+ * brace dimensions), a collapsible Advanced group (Display + Analysis settings), and
+ * About & Help. Edits are buffered in a draft and committed on Done, discarded on Cancel.
+ */
 export function SettingsPanel({
   settings,
   sampleRate,
@@ -201,7 +212,7 @@ export function SettingsPanel({
     <div className="settings-overlay" role="dialog" aria-label="Settings" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-modal-head">
-          <h2>Settings</h2>
+          <h2>Tap Settings</h2>
           <div className="set-head-buttons">
             <button className="btn" onClick={onClose}>
               Cancel
@@ -217,7 +228,7 @@ export function SettingsPanel({
           <section>
             <h3>Audio Input &amp; Calibration</h3>
             <label className="set-field">
-              <span>Device</span>
+              <span>Audio Input Device</span>
               <select
                 className="set-input-select"
                 value={currentDeviceId ?? ''}
@@ -242,7 +253,7 @@ export function SettingsPanel({
                 value={activeCalibrationId ?? ''}
                 onChange={(e) => onSelectCalibration(e.target.value || null)}
               >
-                <option value="">None (flat)</option>
+                <option value="">None (Uncalibrated)</option>
                 {calibrations.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
@@ -291,20 +302,23 @@ export function SettingsPanel({
                 </option>
               ))}
             </select>
+            <p className="set-desc">{MEASUREMENT_DESCRIPTION[d.measurementType]}</p>
 
             {isGuitarType(d.measurementType) && (
               <>
-                <h4>Mode Ranges</h4>
+                <h4>Mode Frequency Ranges</h4>
                 <table className="mode-range-table">
                   <tbody>
-                    {modeBands(d.measurementType).map((b) => (
-                      <tr key={b.name}>
-                        <td>{MODE_DISPLAY_NAME[b.name]}</td>
-                        <td>
-                          {b.lo} – {b.hi} Hz
-                        </td>
-                      </tr>
-                    ))}
+                    {modeBands(d.measurementType)
+                      .filter((b) => b.name !== 'upper')
+                      .map((b) => (
+                        <tr key={b.name}>
+                          <td>{MODE_DISPLAY_NAME[b.name]}</td>
+                          <td>
+                            {b.lo} – {b.hi} Hz
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </>
@@ -312,7 +326,7 @@ export function SettingsPanel({
 
             {d.measurementType === 'plate' && (
               <>
-                <h4>Plate</h4>
+                <h4>Sample Dimensions</h4>
                 <NumberField label="Length (along grain)" unit="mm" value={d.plateLength} onChange={(v) => patch({ plateLength: v })} />
                 <NumberField label="Width (cross grain)" unit="mm" value={d.plateWidth} onChange={(v) => patch({ plateWidth: v })} />
                 <NumberField label="Thickness" unit="mm" value={d.plateThickness} step={0.1} onChange={(v) => patch({ plateThickness: v })} />
@@ -321,8 +335,25 @@ export function SettingsPanel({
                   Density <b>{densityGPerCm3(plateDims).toFixed(3)}</b> g/cm³
                 </div>
 
+                <label className="set-field check">
+                  <input type="checkbox" checked={d.measureFlc} onChange={(e) => patch({ measureFlc: e.target.checked })} />
+                  <span>Measure FLC (Diagonal Tap)</span>
+                </label>
+                <p className="set-desc">
+                  Add a 3rd tap: hold plate at midpoint of one long edge, tap near opposite corner. Measures
+                  shear stiffness for Gore target thickness.
+                </p>
+
+                <h4>Gore Target Thickness — Body Dimensions</h4>
+                <p className="set-desc">
+                  Finished guitar body dimensions used in Gore's Eq. 4.5-7 to calculate target plate thickness.
+                </p>
+                <NumberField label="Body Length (a)" unit="mm" value={d.guitarBodyLength} onChange={(v) => patch({ guitarBodyLength: v })} />
+                <NumberField label="Lower Bout Width (b)" unit="mm" value={d.guitarBodyWidth} onChange={(v) => patch({ guitarBodyWidth: v })} />
+
+                <h4>Plate Vibrational Stiffness (f_vs)</h4>
                 <label className="set-field">
-                  <span>Stiffness preset</span>
+                  <span>Panel Type</span>
                   <select
                     className="set-input-select"
                     value={d.plateStiffnessPreset}
@@ -336,32 +367,29 @@ export function SettingsPanel({
                   </select>
                 </label>
                 {d.plateStiffnessPreset === 'custom' && (
-                  <NumberField label="Custom stiffness" unit="" value={d.customPlateStiffness} onChange={(v) => patch({ customPlateStiffness: v })} />
+                  <NumberField label="Custom f_vs value" unit="" value={d.customPlateStiffness} onChange={(v) => patch({ customPlateStiffness: v })} />
                 )}
-
-                <label className="set-field check">
-                  <input type="checkbox" checked={d.measureFlc} onChange={(e) => patch({ measureFlc: e.target.checked })} />
-                  <span>Measure F_LC (shear modulus)</span>
-                </label>
-
-                <h4>Gore body dimensions</h4>
-                <NumberField label="Body length" unit="mm" value={d.guitarBodyLength} onChange={(v) => patch({ guitarBodyLength: v })} />
-                <NumberField label="Body width" unit="mm" value={d.guitarBodyWidth} onChange={(v) => patch({ guitarBodyWidth: v })} />
               </>
             )}
 
             {d.measurementType === 'brace' && (
               <>
-                <h4>Brace</h4>
-                <NumberField label="Length" unit="mm" value={d.braceLength} onChange={(v) => patch({ braceLength: v })} />
-                <NumberField label="Width" unit="mm" value={d.braceWidth} onChange={(v) => patch({ braceWidth: v })} />
-                <NumberField label="Thickness" unit="mm" value={d.braceThickness} step={0.1} onChange={(v) => patch({ braceThickness: v })} />
+                <h4>Brace Dimensions</h4>
+                <NumberField label="Length (along grain)" unit="mm" value={d.braceLength} onChange={(v) => patch({ braceLength: v })} />
+                <NumberField label="Width (breadth)" unit="mm" value={d.braceWidth} onChange={(v) => patch({ braceWidth: v })} />
+                <NumberField label="Height (tap direction)" unit="mm" value={d.braceThickness} step={0.1} onChange={(v) => patch({ braceThickness: v })} />
+                <p className="set-desc">Brace height when lying flat — this is the t dimension in the stiffness formula</p>
                 <NumberField label="Mass" unit="g" value={d.braceMass} step={0.1} onChange={(v) => patch({ braceMass: v })} />
                 <div className="set-readout">
                   Density <b>{densityGPerCm3(braceDims).toFixed(3)}</b> g/cm³
                 </div>
               </>
             )}
+            <p className="set-note">
+              {isGuitarType(d.measurementType)
+                ? 'Select your guitar type for accurate mode classification.'
+                : 'Enter the dimensions and mass of your rectangular wood sample. The app will calculate stiffness, speed of sound, and radiation ratio from the tap frequencies.'}
+            </p>
           </section>
 
           {/* ── Advanced (collapsible) ───────────────────────── */}

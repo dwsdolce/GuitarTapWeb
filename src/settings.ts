@@ -48,6 +48,16 @@ export const MEASUREMENT_SHORT_NAME: Record<MeasurementType, string> = {
   brace: 'Brace',
 }
 
+// Per-type one-line description shown under the picker. Mirrors Swift MeasurementType.description.
+export const MEASUREMENT_DESCRIPTION: Record<MeasurementType, string> = {
+  generic: 'Broad ranges covering all guitar types',
+  acoustic: 'Steel string, X-braced (Dreadnought, OM, etc.)',
+  classical: 'Nylon string, fan-braced, deep body',
+  flamenco: 'Nylon string, light bracing, shallow body',
+  plate: 'Rectangular wood plate for calculating stiffness and sound radiation',
+  brace: 'Brace strip — measures longitudinal stiffness (fL only)',
+}
+
 export const isGuitarType = (t: MeasurementType): t is GuitarTypeName =>
   t === 'generic' || t === 'acoustic' || t === 'classical' || t === 'flamenco'
 export const isMaterialType = (t: MeasurementType): t is 'plate' | 'brace' => t === 'plate' || t === 'brace'
