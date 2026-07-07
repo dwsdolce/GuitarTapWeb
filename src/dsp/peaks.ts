@@ -127,7 +127,7 @@ function makePeak(id: number, i: number, mags: Spectrum, freqs: Spectrum): Peak 
 }
 
 /**
- * Collapse near-coincident peaks: within {@link PEAK_PROXIMITY_HZ} of an existing
+ * Collapse near-coincident peaks: within `PEAK_PROXIMITY_HZ` of an existing
  * entry, keep the higher-magnitude one; otherwise append. First-seen order is preserved.
  * @param peaks Peaks to deduplicate.
  * @returns The deduplicated peaks.

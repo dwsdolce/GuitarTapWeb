@@ -19,7 +19,6 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
  * 5. Cents deviation — `cents = 1200 · log2(f_measured / f_nearest)`.
  *
  * @see https://www.johndcook.com/blog/2016/02/10/musical-pitch-notation/
- * @see Development/INVENTORY.md — "Pitch"
  */
 export class Pitch {
   /** Reference frequency of A4, in Hz (concert pitch 440; e.g. 432 / 415 for alternate tunings). */

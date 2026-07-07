@@ -33,8 +33,7 @@ export interface MultiTapRow extends TapModeFreqs {
  *
  * Mirrors Swift `TapToneAnalyzer.multiTapPalette` (`[.blue, .orange, .green, .purple, .teal]`).
  * These are the dark-appearance variants of those system colors, brightened for the
- * chart's dark background — the same convention as the mode colors. A light/dark
- * unification is tracked in THEME-SPEC.
+ * chart's dark background — the same convention as the mode colors.
  */
 export const MULTITAP_PALETTE = ['#0a84ff', '#ff9f0a', '#30d158', '#bf5af2', '#40c8e0']
 
@@ -54,10 +53,9 @@ function FreqCells({ m }: { m: TapModeFreqs }) {
 }
 
 /**
- * Renders the multi-tap comparison grid.
- *
- * @param taps - Per-tap rows in sequence order; the palette color is chosen by array index.
- * @param avg - The averaged mode frequencies shown in the final bold "Averaged" row.
+ * Renders the multi-tap comparison grid: one row per tap (`taps`, in sequence order — the
+ * palette color is chosen by array index) plus a final bold "Averaged" row (`avg`, the
+ * averaged mode frequencies).
  */
 export function MultiTapComparisonResultsView({ taps, avg }: { taps: MultiTapRow[]; avg: TapModeFreqs }) {
   return (

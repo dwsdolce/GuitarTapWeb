@@ -12,8 +12,6 @@
  * carry a `Sens Factor` and a reference SPL (`SESSION REF` / `SPL`); data lines are
  * `freq <tab|space|comma> correction`. Only points in the 1–24000 Hz range are
  * imported (matches Swift/Python).
- *
- * @see Development/INVENTORY.md — "Calibration"
  */
 // @parity dsp/calibration
 

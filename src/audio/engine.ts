@@ -124,7 +124,7 @@ interface ChunkMessage {
  *     freezes. New Tap simply re-arms a frozen result. Peak-finding/classification
  *     happen in the UI so Peak Min / guitar type re-analyze the frozen spectrum live.
  *
- * Sample rate is read from the live AudioContext ({@link EXPECTED_SAMPLE_RATE}, PLAN.md risk #1).
+ * Sample rate is read from the live AudioContext (see {@link EXPECTED_SAMPLE_RATE}).
  * Mirrors Swift `TapToneAnalyzer` / Python `tap_tone_analyzer`.
  */
 export class AudioEngine {

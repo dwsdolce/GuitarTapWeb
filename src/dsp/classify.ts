@@ -6,7 +6,7 @@ import type { Peak } from './peaks'
  * Mode classification, ported from `GuitarMode.classify` / `classifyAll`.
  * `classifyAll` is the context-aware claimer used by the Results panel's
  * `getPeak(for:)` — it disambiguates the Top/Back overlap that a naive per-peak
- * lookup cannot. See `Development/INVENTORY.md` "Mode Classification".
+ * lookup cannot.
  */
 
 /** A resolved mode name, or `'unknown'` when a peak falls outside every mode band. */

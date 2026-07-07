@@ -4,8 +4,7 @@ import type { ResolvedMode } from '../dsp/classify'
 /**
  * Per-mode annotation colors. Canonical GuitarMode hues (air cyan, top green, back
  * orange, dipole red, ring purple, upper gray), brightened for the dark chart
- * background — so shades differ from Swift/Python's RGB, but the hue per mode
- * matches. (Light/dark unification is tracked in THEME-SPEC §3.3.)
+ * background — so shades differ from Swift/Python's RGB, but the hue per mode matches.
  */
 export const MODE_COLOR: Record<ResolvedMode, string> = {
   air: '#4ea1ff',

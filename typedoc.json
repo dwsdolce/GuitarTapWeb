@@ -1,0 +1,21 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPointStrategy": "expand",
+  "entryPoints": ["src"],
+  "skipErrorChecking": true,
+  "emit": "none",
+  "readme": "none",
+  "excludePrivate": true,
+  "intentionallyNotExported": [
+    "JsonObj",
+    "Obj",
+    "Samples",
+    "Spectrum",
+    "AnnoMode",
+    "SaveOpts",
+    "UseAnnotationsArgs",
+    "UseAudioEngineArgs",
+    "UseChartViewArgs",
+    "UseMaterialSessionArgs"
+  ]
+}

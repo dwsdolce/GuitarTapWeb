@@ -30,8 +30,22 @@ are native. Numbers and formulas must match the code and the oracle.
 ## Cross-references
 - Keep each file's `@parity <slug>` tag (the machine cross-reference).
 - Doc/comment prose names the counterpart: "mirrors Swift `<Symbol>`".
-- Fix stale references (e.g. a moved doc path such as `INVENTORY.md` →
-  `Development/INVENTORY.md`).
+- **Never reference `Development/` planning docs from source** (INVENTORY.md, THEME-SPEC,
+  PLAN.md, VIEWS_STRUCTURE.md, etc.). Those are transient and can be deleted/moved, leaving a
+  dangling reference (and they break DocC/typedoc link resolution). If a fact matters to
+  understand the code, **inline it**; otherwise drop the pointer. Shipped/published docs (the
+  user manual, `Documentation/Manual/…`) and stable external URLs are fine.
+
+## Doc-correctness gates (build the docs, don't just count them)
+`doc_coverage.py` checks docs *exist*; it does **not** check they're *correct*. Building the docs
+is the authoritative correctness check — run these and require a clean result:
+- **Swift** — Xcode "Build Documentation" (DocC). Catches unresolved ``symbol`` links + missing/
+  duplicate/stale `- Parameter`s. **Backtick rule:** ``double backticks`` only for a real,
+  resolvable (non-`private`) Swift symbol; `single backticks` for `private` members, foreign
+  (Python) names, and code expressions — else DocC emits a broken-link warning.
+- **Web** — `npx typedoc` (config in `typedoc.json`, `emit: none`). Catches broken `{@link}`s.
+  Genuinely-internal types go in `intentionallyNotExported`.
+- **Python** — no doc build/linker; its cross-refs are human-verified prose.
 
 ## Depth
 Scale with the code: rich for algorithmic/DSP core (overview + formulas + params);

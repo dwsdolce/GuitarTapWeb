@@ -1,6 +1,5 @@
-// Single source of truth for user-facing date/time display (see
-// DATE-TIME-FORMAT-CONSISTENCY.md). Locale-aware, in the user's local time:
-// medium date + short time, e.g. en-US "Jun 25, 2026, 2:34 PM"; de-DE "25.06.2026, 14:34".
+// Single source of truth for user-facing date/time display. Locale-aware, in the user's
+// local time: medium date + short time, e.g. en-US "Jun 25, 2026, 2:34 PM"; de-DE "25.06.2026, 14:34".
 // NOTE: this is DISPLAY only. The .guitartap `timestamp` stays ISO-8601 UTC, and export
 // filenames keep their `<slug>-<unix>` form — neither goes through here.
 

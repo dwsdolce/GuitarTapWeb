@@ -10,8 +10,6 @@
  * and results are returned in Pa or GPa as noted per function. The free-free beam
  * eigenvalue βL² is `22.37` for plates and the more precise `22.37332` for braces —
  * a deliberate difference that matches both Swift and Python.
- *
- * @see Development/INVENTORY.md — "Material Property Formulas"
  */
 // @parity dsp/material-properties tests=test/brace,test/plate
 

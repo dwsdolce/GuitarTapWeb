@@ -1,7 +1,7 @@
 // Minimal RIFF/WAVE decoder. Returns mono (channel 0 only) float samples plus
 // the embedded sample rate — matching how the Swift/Python app feeds audio
-// (mono, channelData[0], the file's native rate). Phase 2 file-playback parity
-// requires decoding at the embedded rate with NO resampling (see PLAN.md risk #1).
+// (mono, channelData[0], the file's native rate). File-playback parity requires
+// decoding at the embedded rate with NO resampling.
 //
 // Supports the formats the app writes/reads: IEEE float32 (fmt 3) and PCM int16
 // (fmt 1); also WAVE_FORMAT_EXTENSIBLE (0xFFFE) by reading its sub-format tag.
