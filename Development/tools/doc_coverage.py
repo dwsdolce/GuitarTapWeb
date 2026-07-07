@@ -137,12 +137,19 @@ def analyze_swift(text: str):
         prev = lines[i - 1].strip() if i > 0 else ""
         if any(w in line for w in SWIFT_WRAPPERS) or any(prev.startswith(w) for w in SWIFT_WRAPPERS):
             continue
-        # Documented if a /// line sits above (past attribute-only lines).
+        # Documented if a /// line sits above (past attribute + #if/#else/#endif lines).
         j = i - 1
-        while j >= 0 and (lines[j].strip().startswith("@") or lines[j].strip() == ""):
-            if lines[j].strip() == "" and j < i - 1:
-                break
-            j -= 1
+        while j >= 0:
+            s = lines[j].strip()
+            if s.startswith("@") or s.startswith("#if") or s.startswith("#else") or s.startswith("#endif"):
+                j -= 1
+                continue
+            if s == "":
+                if j < i - 1:
+                    break
+                j -= 1
+                continue
+            break
         has_doc = j >= 0 and lines[j].strip().startswith("///")
         # Credit the first top-level type against a file-top banner.
         if not has_doc and top_banner and not first_type_credited \

@@ -156,6 +156,10 @@ export function SpectrumChart({
   }, [spectrum, markers, overlays, logFreq, title, guitarType, minHz, maxHz, minDb, maxDb, hover, frozen])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
+  // @parity view/spectrum-gestures — the web co-locates gestures with the chart
+  // (Swift splits them into SpectrumView+GestureHandlers.swift; Python inlines them in
+  // FftCanvas). Wheel/drag/pinch are region-aware and mirror the Swift modifier semantics
+  // (Shift=pan-freq, Alt/Option=pan-dB, Cmd/Ctrl=zoom-both, no-modifier=zoom by region).
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
