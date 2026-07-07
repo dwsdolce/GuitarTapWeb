@@ -34,24 +34,41 @@ const MODE_ICON: Record<ResolvedMode, () => JSX.Element> = {
   unknown: HelpIcon, // questionmark.circle
 }
 
+/** Props for {@link PeakCard}. */
 export interface PeakCardProps {
+  /** The resonant peak to display (frequency, magnitude, Q, bandwidth). */
   peak: Peak
+  /** Auto-classified mode — drives the range badge (mirrors Swift `analyzer.peakMode(for:)`). */
   mode: ResolvedMode
+  /** The displayed label: the auto mode's name, or a manual override. */
   effectiveLabel: string
+  /** Whether {@link effectiveLabel} is a manual override (shows italic + ✎). */
   isManualOverride: boolean
   /** true = in mode's ideal range, false = out, null = no indicator (unknown/upper). */
   inRange: boolean | null
+  /** Pitch note name (e.g. "A2"), or null to hide the pitch row (non-guitar). */
   note: string | null
+  /** Cents deviation from the note, or null. */
   cents: number | null
+  /** Whether this card's peak is the selected one. */
   selected: boolean
+  /** Toggle the peak's annotation on the chart (the star). */
   onToggle: () => void
+  /** Assign a mode label (a quick-pick name or custom text). */
   onSetLabel: (label: string) => void
+  /** Clear the override and revert to the auto-classified mode. */
   onResetLabel: () => void
 }
 
 const RESET = '__reset__'
 const CUSTOM = '__custom__'
 
+/**
+ * One resonant-peak card, mirroring Swift `CombinedPeakModeRowView`:
+ * `[star] [mode glyph + in-range badge] [mode label · freq / pitch / Q · BW · mag]`.
+ * The star toggles the chart annotation; the label is a dropdown that assigns a mode
+ * override (a manual override renders italic + ✎ and offers "Reset to Auto").
+ */
 export function PeakCard({
   peak,
   mode,

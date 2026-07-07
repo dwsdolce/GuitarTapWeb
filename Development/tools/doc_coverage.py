@@ -109,7 +109,23 @@ def analyze_swift(text: str):
     # doc; credit the file's first top-level type for it.
     top_banner = any(l.strip().startswith("///") for l in lines[:20])
     first_type_credited = False
+    # Track members of a `private`/`fileprivate` type via brace depth — their members
+    # are internal even though the member line itself has no access keyword.
+    brace = 0
+    private_open = None  # brace level at which the nearest private type opened
+    priv_re = re.compile(
+        r"^\s*(?:@[\w()]+\s+)*(?:(?:public|internal|open|final|static)\s+)*"
+        r"(?:private|fileprivate)\s+(?:final\s+)?(?:struct|class|enum|actor)\b"
+    )
     for i, line in enumerate(lines):
+        if private_open is None and priv_re.match(line):
+            private_open = brace
+        in_private = private_open is not None
+        # Update running brace depth AFTER checking this line's role.
+        brace += line.count("{") - line.count("}")
+        if private_open is not None and brace <= private_open:
+            private_open = None
+
         m = SWIFT_DECL.match(line)
         if not m:
             continue
@@ -134,7 +150,7 @@ def analyze_swift(text: str):
                 and m.group("kind") in ("struct", "class", "enum", "protocol"):
             has_doc = True
             first_type_credited = True
-        if _is_private_swift(line):  # internal — informational only
+        if _is_private_swift(line) or in_private:  # internal — informational only
             if not has_doc:
                 internal.append(name)
             continue
@@ -154,12 +170,19 @@ def analyze_python(text: str):
     total = documented = 0
     undoc: list[str] = []
     internal: list[str] = []
+    priv_class_indent = None  # indent of the nearest enclosing `class _Private:`
     for i, line in enumerate(lines):
         m = PY_DEF.match(line)
         if not m:
             continue
         indent = len(m.group("indent"))
         name = m.group("name")
+        # Track private (underscore) class scope: its members are internal.
+        if priv_class_indent is not None and indent <= priv_class_indent:
+            priv_class_indent = None
+        if m.group("kind") == "class" and name.startswith("_"):
+            priv_class_indent = indent
+        in_priv_class = priv_class_indent is not None and indent > priv_class_indent
         if name.startswith("__") and name.endswith("__"):  # dunders: trivial/conventional
             continue
         # Property setters/deleters conventionally share the getter's docstring — skip.
@@ -171,9 +194,9 @@ def analyze_python(text: str):
         depth = 0
         sig_end = i
         for k in range(i, min(i + 60, len(lines))):
-            t = lines[k]
-            depth += t.count("(") + t.count("[") - t.count(")") - t.count("]")
-            if depth <= 0 and t.rstrip().endswith(":"):
+            code = lines[k].split("#", 1)[0]  # ignore trailing comments (brackets, colon)
+            depth += code.count("(") + code.count("[") - code.count(")") - code.count("]")
+            if depth <= 0 and code.rstrip().endswith(":"):
                 sig_end = k
                 break
         body = None
@@ -183,7 +206,7 @@ def analyze_python(text: str):
             body = lines[k].strip()
             break
         has_doc = bool(body and re.match(r'^[rRbBuU]{0,2}("""|\'\'\'|"|\')', body))
-        if name.startswith("_"):  # internal helper — informational only
+        if name.startswith("_") or in_priv_class:  # internal helper — informational only
             if not has_doc:
                 internal.append(name)
             continue
