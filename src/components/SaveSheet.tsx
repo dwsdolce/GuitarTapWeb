@@ -1,9 +1,13 @@
 // @parity view/save-sheet
 import { useState } from 'react'
 
+/** Props for {@link SaveSheet}. */
 export interface SaveSheetProps {
+  /** Pre-fill for the measurement-name field (mirrors Swift's `@Binding` pre-fill). */
   defaultName?: string
+  /** Called with the entered name + notes when the user confirms Save. */
   onSave: (name: string, notes: string) => void
+  /** Dismiss the sheet (Cancel, backdrop click, or after a successful Save). */
   onClose: () => void
 }
 
@@ -33,19 +37,24 @@ export function SaveSheet({ defaultName = '', onSave, onClose }: SaveSheetProps)
         </div>
         <div className="settings-body">
           <label className="set-field">
-            <span>Name</span>
+            <span>Measurement Name</span>
             <input
               type="text"
               value={name}
               autoFocus
-              placeholder="e.g. Contreras Classical"
+              placeholder="e.g. Martin 000-28, Spruce Top"
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && save()}
             />
           </label>
           <label className="set-field col">
-            <span>Notes</span>
-            <textarea rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <span>Notes (Optional)</span>
+            <textarea
+              rows={4}
+              value={notes}
+              placeholder="Add any observations about this measurement"
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </label>
         </div>
       </div>
