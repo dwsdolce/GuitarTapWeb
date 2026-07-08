@@ -139,15 +139,15 @@ findings, pause between slugs.
 
 ## Separate efforts (feature work, not `@parity` comment-doc review)
 
-### Material Results — Phased (Stable) Display
+### ✅ Material Results — Phased (Stable) Display — DONE (2026-07-08, committed all 3)
 
-Spec: `MATERIAL-RESULTS-PHASED-DISPLAY.md` (**PROPOSED**). Surfaced during the `view/material-results`
+Spec: `MATERIAL-RESULTS-PHASED-DISPLAY.md`. Surfaced during the `view/material-results`
 review (item 5 ④, 2026-07-07). During a **live** plate/brace multi-phase capture the Analysis Results
-panel churns (live peak list) and the Measurement Process won't hold still — unreadable until complete.
+panel churned (live peak list) and the Measurement Process wouldn't hold still — unreadable until complete.
 **Target:** fixed L/C/(FLC) slot rows (dashes until each phase's peak is captured, layout identical to
 final), **Measurement Process always visible** beneath, **Plate/Brace Properties hidden until complete**.
 No change to loaded measurements or the PDF report. Cross-platform, **Swift canonical, lock-step**, no
-DSP/oracle impact. Effort: Swift M / Python M / Web S. **Status: IMPLEMENTED all 3, UNCOMMITTED (2026-07-08).** Swift `TapAnalysisResultsView` reviewed-GOOD; web (`MaterialResults`+`App`+CSS) + Python (`MaterialPeakListWidget` `_complete` flag) ported, compile-verified, awaiting user run-review. Design: live→fixed dashed L/C/(FLC or fL) slots; complete/loaded→existing layout; Properties hidden until complete; Process always shown. **Rode-along side-fixes (uncommitted):** Swift-only plate↔brace reset bug in `applySettings` (was `crossesBoundary`, missed material↔material; Python/web already correct); "Adjust"→"Redo" wording (all 3, peaks are auto-only). See memory `project_material_results_phased_display` for the 3-commit plan.
+DSP/oracle impact. Effort: Swift M / Python M / Web S. **Status: ✅ DONE — implemented + committed all 3 (2026-07-08),** user run-reviewed. Swift `TapAnalysisResultsView`, web (`MaterialResults`+`App`+CSS), Python (`MaterialPeakListWidget` `_complete` flag). Design: live→fixed dashed L/C/(FLC or fL) slots; complete/loaded→existing layout; Properties hidden until complete; Process always shown. **Rode-along side-fixes (committed):** Swift-only plate↔brace reset bug in `applySettings` (was `crossesBoundary`, missed material↔material; Python/web already correct); "Adjust"→"Redo" wording (all 3, peaks are auto-only). Web also dropped a leftover "Press New Tap to begin…" placeholder so the panel is stable from the first phase.
 
 ### Theme — Light / Dark / System
 

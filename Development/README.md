@@ -6,22 +6,12 @@ extracted from Swift), `PHASE2-DSP-HARNESS.md` (the headless DSP test plan),
 `PHASE3-UI.md` (the React UI & material-measurement build), and `PARITY-MAP.md`
 (web ↔ Swift ↔ Python module map).
 
-## Status — Phase 2 (headless DSP) ✅ COMPLETE
+## Status
 
-Pure-TypeScript DSP core in `src/dsp/`, validated headlessly against the parity
-oracle (40 tests). No UI yet (Phase 3).
-
-| Gate | What | Status |
-|---|---|---|
-| G0 | WAV decode (native rate, no resample) | ✅ 4/4 fixtures |
-| G1 | Gated FFT (GFFT1–5) | ✅ within ±1 dB (4 of 5 match Python <0.01 dB) |
-| G2 | Peak pick + parabolic interp | ✅ count/vertex/Q exact |
-| G3 | File playback (REG-G1/G2/B1/P1) | ✅ all 4 fixtures match (2–3+ dp) |
-| G4 | Classification · pitch · material | ✅ classify (Top/Back overlap), pitch (note/cents), moduli/Gore/quality — all vs Python |
-| G5 | Tap-detection decisions | ✅ level-crossing rules + onset indices + fixture tap counts |
-
-Every numeric output meets the `PLAN.md` parity bar (2–3 dp) and every categorical
-output (peak counts, mode labels, tap decisions, note names) matches exactly.
+**See [STATUS.md](STATUS.md) for the current open-work list.** The app is
+feature-complete through Phase 6 (everything but the 6-TEST test-suite
+normalization); Phases 2–5 and the full comment/doc-parity review are done.
+Per-phase detail (including the Phase 2 DSP gates) lives in the `PHASE*` docs.
 
 ## Run
 
@@ -66,14 +56,14 @@ Requirements & gotchas:
 - No SPA rewrite rules or special headers needed (single page, no routing, no
   `SharedArrayBuffer`/COOP-COEP).
 
-## Phase 3 (UI) — in progress
+## UI
 
 React + Vite. The tested `src/dsp/` core runs on the main thread; a minimal
-AudioWorklet (`public/spectrum-processor.js`) forwards mic chunks + RMS.
-First increment: **live spectrum** — `npm run dev`, click "Start microphone",
-tap the guitar. Spectrum refreshes ~every 1.4 s (65536-pt FFT, matching the app);
-the level meter updates per 1024-sample chunk. Next: tap detection → live peaks,
-controls, measurement-type modes, results panel.
+AudioWorklet (`public/spectrum-processor.js`) forwards mic chunks + RMS. The
+live spectrum refreshes ~every 1.4 s (65536-pt FFT, matching the app); the level
+meter updates per 1024-sample chunk. Full UI (tap detection, live peaks,
+controls, measurement-type modes, results, persistence, export) is built — see
+`PHASE3-UI.md` / `PHASE4-PERSISTENCE.md`.
 
 ## Layout
 
