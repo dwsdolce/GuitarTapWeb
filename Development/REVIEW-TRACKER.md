@@ -147,7 +147,7 @@ panel churns (live peak list) and the Measurement Process won't hold still — u
 **Target:** fixed L/C/(FLC) slot rows (dashes until each phase's peak is captured, layout identical to
 final), **Measurement Process always visible** beneath, **Plate/Brace Properties hidden until complete**.
 No change to loaded measurements or the PDF report. Cross-platform, **Swift canonical, lock-step**, no
-DSP/oracle impact. Effort: Swift M / Python M / Web S. **Status: not started — spec fully specified (no open decisions): empty freq/mag = em-dash `—`; bubbles always shown, selected only for found slots; brace same.**
+DSP/oracle impact. Effort: Swift M / Python M / Web S. **Status: IMPLEMENTED all 3, UNCOMMITTED (2026-07-08).** Swift `TapAnalysisResultsView` reviewed-GOOD; web (`MaterialResults`+`App`+CSS) + Python (`MaterialPeakListWidget` `_complete` flag) ported, compile-verified, awaiting user run-review. Design: live→fixed dashed L/C/(FLC or fL) slots; complete/loaded→existing layout; Properties hidden until complete; Process always shown. **Rode-along side-fixes (uncommitted):** Swift-only plate↔brace reset bug in `applySettings` (was `crossesBoundary`, missed material↔material; Python/web already correct); "Adjust"→"Redo" wording (all 3, peaks are auto-only). See memory `project_material_results_phased_display` for the 3-commit plan.
 
 ### Theme — Light / Dark / System
 

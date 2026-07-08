@@ -296,6 +296,12 @@
   padding: 0.3rem 0;
   border-bottom: 1px solid var(--line);
 }
+/* An uncaptured phase slot: dashes + unselected bubble, dimmed until its tap lands. */
+.mat-peak-row.pending .mat-peak-freq,
+.mat-peak-row.pending .mat-peak-mag,
+.mat-peak-row.pending .mat-peak-star {
+  opacity: 0.45;
+}
 .mat-peak-star {
   color: #0a84ff;
   font-size: 0.95rem;

@@ -1332,11 +1332,7 @@ export default function App() {
           {comparison ? (
             <ComparisonResultsView rows={comparisonRows} />
           ) : material ? (
-            matPhase === 'notStarted' ? (
-              <p className="empty">Press New Tap to begin the {brace ? 'brace' : 'plate'} measurement.</p>
-            ) : (
-              <MaterialResults type={brace ? 'brace' : 'plate'} settings={settings} peaks={matPeaks} />
-            )
+            <MaterialResults type={brace ? 'brace' : 'plate'} settings={settings} peaks={matPeaks} complete={matPhase === 'complete'} />
           ) : showMultiTap && multiTapAvailable ? (
             <MultiTapComparisonResultsView taps={tapRows} avg={avgModes} />
           ) : (

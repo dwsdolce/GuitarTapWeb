@@ -155,8 +155,8 @@ function phaseDescription(phase: MatPhase, brace: boolean, measureFlc: boolean):
       return 'FLC tap captured. Review the spectrum — press Accept to complete the measurement, or Redo to re-capture.'
     case 'complete':
       if (brace)
-        return 'fL captured! Review the fL (blue) peak selection in the Results panel. Adjust if the auto-selection isn’t correct.'
-      return `All modes captured! Review the L (blue), C (orange)${measureFlc ? ', and FLC (purple)' : ''} peak selections in the Results panel. Adjust if the auto-selection isn’t correct.`
+        return 'fL captured! Review the fL (blue) peak selection in the Results panel. Redo if the auto-selection isn’t correct.'
+      return `All modes captured! Review the L (blue), C (orange)${measureFlc ? ', and FLC (purple)' : ''} peak selections in the Results panel. Redo if the auto-selection isn’t correct.`
   }
 }
 

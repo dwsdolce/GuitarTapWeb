@@ -30,6 +30,8 @@ export interface MaterialResultsProps {
   type: 'plate' | 'brace'
   settings: Settings
   peaks: MaterialPeaks
+  /** All phases captured — gates the properties sections (hidden during live capture). */
+  complete: boolean
 }
 
 const f0 = (n: number) => Math.round(n).toString()
@@ -50,18 +52,20 @@ type Role = 'L' | 'C' | 'FLC'
 
 /** One row of the sorted peak list: star, frequency, magnitude, phase badges.
  *  Mirrors Swift MaterialPeakRowView (display-only in plate/brace mode). */
-function PeakRow({ peak, role, showCross, showFlc }: { peak: MaterialPeak; role: Role; showCross: boolean; showFlc: boolean }) {
+function PeakRow({ peak, role, showCross, showFlc }: { peak: MaterialPeak | null; role: Role; showCross: boolean; showFlc: boolean }) {
+  // Dashes + an unselected bubble until this phase's peak is captured.
+  const found = peak != null
   const badge = (label: Role, color: string) => (
-    <span className="mat-badge" style={role === label ? { background: color, color: '#fff' } : undefined}>
+    <span className="mat-badge" style={role === label && found ? { background: color, color: '#fff' } : undefined}>
       {label}
     </span>
   )
   return (
-    <div className="mat-peak-row">
-      <span className="mat-peak-star">★</span>
+    <div className={`mat-peak-row${found ? '' : ' pending'}`}>
+      <span className="mat-peak-star">{found ? '★' : '☆'}</span>
       <span className="mat-peak-info">
-        <span className="mat-peak-freq">{f1(peak.frequency)} Hz</span>
-        <span className="mat-peak-mag">{f1(peak.magnitude)} dB</span>
+        <span className="mat-peak-freq">{peak ? `${f1(peak.frequency)} Hz` : '—'}</span>
+        <span className="mat-peak-mag">{peak ? `${f1(peak.magnitude)} dB` : '—'}</span>
       </span>
       <span className="mat-badges">
         {badge('L', '#0a84ff')}
@@ -102,20 +106,20 @@ function ProcessSection({ type, measureFlc }: { type: 'plate' | 'brace'; measure
           {step('#ff9f0a', '2. Cross-grain (C) Tap', 'Rotate 90°. Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.')}
           {measureFlc &&
             step('#bf5af2', '3. FLC (Diagonal) Tap', 'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.')}
-          <p className="mat-process-foot">The strongest peak from each tap is auto-selected. Adjust selections above if needed.</p>
+          <p className="mat-process-foot">The strongest peak from each tap is auto-selected. Redo if needed.</p>
         </>
       ) : (
         <>
           <div className="mat-process-head">Single-Tap Measurement (fL only):</div>
           {step('#0a84ff', '1. Longitudinal (fL) Tap', 'Hold brace at 22% from one end along the length. Tap center.')}
-          <p className="mat-process-foot">The strongest peak is auto-selected. Adjust if needed.</p>
+          <p className="mat-process-foot">The strongest peak is auto-selected. Redo if needed.</p>
         </>
       )}
     </div>
   )
 }
 
-export function MaterialResults({ type, settings: s, peaks }: MaterialResultsProps) {
+export function MaterialResults({ type, settings: s, peaks, complete }: MaterialResultsProps) {
   const plate = type === 'plate'
   const dims: Dimensions = plate
     ? { lengthMm: s.plateLength, widthMm: s.plateWidth, thicknessMm: s.plateThickness, massG: s.plateMass }
@@ -128,32 +132,40 @@ export function MaterialResults({ type, settings: s, peaks }: MaterialResultsPro
   const fLC = peaks.flc?.frequency ?? null
   const showFlc = plate && s.measureFlc
 
-  // Sorted peak list (low → high), mirroring Swift's sortedPeaksWithModes.
-  const rows: { peak: MaterialPeak; role: Role }[] = []
-  if (peaks.longitudinal) rows.push({ peak: peaks.longitudinal, role: 'L' })
-  if (plate && peaks.cross) rows.push({ peak: peaks.cross, role: 'C' })
-  if (showFlc && peaks.flc) rows.push({ peak: peaks.flc, role: 'FLC' })
-  rows.sort((a, b) => a.peak.frequency - b.peak.frequency)
+  // Fixed per-phase slot rows (L, C, [FLC] for plate; fL for brace). The layout matches the
+  // final display, but each row shows a dash + unselected bubble until its phase is captured.
+  // See Development/MATERIAL-RESULTS-PHASED-DISPLAY.md.
+  const slots: { role: Role; peak: MaterialPeak | null }[] = plate
+    ? [
+        { role: 'L', peak: peaks.longitudinal },
+        { role: 'C', peak: peaks.cross },
+        ...(showFlc ? [{ role: 'FLC' as Role, peak: peaks.flc }] : []),
+      ]
+    : [{ role: 'L', peak: peaks.longitudinal }]
 
   const peakList = (
     <div className="mat-peaks">
-      {rows.map((r) => (
-        <PeakRow key={r.role} peak={r.peak} role={r.role} showCross={plate} showFlc={showFlc} />
+      {slots.map((sl) => (
+        <PeakRow key={sl.role} peak={sl.peak} role={sl.role} showCross={plate} showFlc={showFlc} />
       ))}
     </div>
   )
 
   const process = <ProcessSection type={type} measureFlc={s.measureFlc} />
 
+  // Properties are hidden until all phases are complete — during live capture only the
+  // fixed slot rows + Measurement Process show.
+  if (!complete || fL == null) {
+    return (
+      <div className="material-results">
+        {peakList}
+        {process}
+      </div>
+    )
+  }
+
   if (!plate) {
     // ── Brace Properties ────────────────────────────────────────────────────
-    if (fL == null)
-      return (
-        <div className="material-results">
-          {peakList}
-          {process}
-        </div>
-      )
     const eL = braceYoungsLongGPa(dims, fL)
     const smL = specificModulus(eL, rhoGcm3)
     const cL = speedOfSound(braceYoungsLongPa(dims, fL), rho)
@@ -185,7 +197,7 @@ export function MaterialResults({ type, settings: s, peaks }: MaterialResultsPro
   }
 
   // ── Plate Properties ──────────────────────────────────────────────────────
-  if (fL == null || fC == null)
+  if (fC == null)
     return (
       <div className="material-results">
         {peakList}
