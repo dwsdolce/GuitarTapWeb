@@ -367,7 +367,7 @@ function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
       subtitle: 'Top / Air',
       detail: a.ratioQuality ?? '',
       detailColor: a.ratioColor ? hexToRgb(a.ratioColor) : SECONDARY,
-      hint: 'Ideal: 1.9 – 2.1',
+      hint: 'Ideal: 1.9–2.1',
     })
   }
 

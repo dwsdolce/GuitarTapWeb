@@ -1,3 +1,4 @@
+// @parity view/measurements-list
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { listMeasurements, deleteMeasurement, saveMeasurement, clearMeasurements } from '../measurement/store'
@@ -20,8 +21,8 @@ export interface MeasurementsPanelProps {
 // single click = nothing (a no-op keeps double-press reliable; rows have no standalone
 // selected state here), and a right-aligned "⋯" menu (also opened by right-click on
 // desktop) holds the per-row actions. Row content mirrors the native MeasurementRowView.
-// In-scope actions for 4b: Load into View · Edit Name & Notes · Delete. View Details (4d),
-// Export Measurement/Spectrum/PDF (4c / Phase 5) slot into the same menu later.
+// ⋯ menu (mirrors the native row menu): Load into View · View Details · Edit Name & Notes ·
+// Export Measurement · Export Spectrum · Export PDF Report · Delete.
 
 /** "N peaks • Ratio: X.XX • Decay: X.XXs" — only the parts that apply. */
 function metaLine(m: TapToneMeasurementModel): string {
@@ -310,7 +311,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
           {items == null ? (
             <p className="empty">Loading…</p>
           ) : items.length === 0 ? (
-            <p className="empty">No saved measurements yet. Capture a tap, then Save.</p>
+            <p className="empty">No Saved Measurements. Tap the guitar and click Save to store measurements for comparison.</p>
           ) : (
             <>
               <p className="meas-total">

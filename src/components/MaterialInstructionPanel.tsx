@@ -3,6 +3,7 @@
 // `_build_material_instr_panel` / `_update_plate_phase_ui`: a card showing the current
 // phase (colored dot + short status + "Phase N/M"), an icon, a bold title, and a detailed
 // instruction body. All strings are replicated verbatim from the canonical Swift source.
+// @parity view/material-instructions
 
 import type { MatPhase } from '../hooks/useMaterialSession'
 
@@ -13,6 +14,7 @@ const PHASE_COLOR: Record<MatPhase, string> = {
   reviewingL: '#007aff',
   capturingC: '#ff9500',
   reviewingC: '#ff9500',
+  waitingForFlcTap: '#af52de',
   capturingFlc: '#af52de',
   reviewingFlc: '#af52de',
   complete: '#34c759',
@@ -25,12 +27,13 @@ const SHORT_STATUS: Record<MatPhase, string> = {
   reviewingL: 'Review L',
   capturingC: 'C tap...',
   reviewingC: 'Review C',
+  waitingForFlcTap: 'Tap for FLC',
   capturingFlc: 'FLC tap...',
   reviewingFlc: 'Review FLC',
   complete: 'Done',
 }
 
-type IconKind = 'handTap' | 'waveform' | 'check' | 'checkFill'
+type IconKind = 'handTap' | 'waveform' | 'check' | 'checkFill' | 'rotate'
 
 // Mirrors Swift materialPhaseIcon (SF Symbols hand.tap / waveform / checkmark.circle[.fill]).
 const PHASE_ICON: Record<MatPhase, IconKind> = {
@@ -39,6 +42,7 @@ const PHASE_ICON: Record<MatPhase, IconKind> = {
   reviewingL: 'check',
   capturingC: 'waveform',
   reviewingC: 'check',
+  waitingForFlcTap: 'rotate',
   capturingFlc: 'waveform',
   reviewingFlc: 'check',
   complete: 'checkFill',
@@ -75,6 +79,15 @@ function PhaseIcon({ kind, color }: { kind: IconKind; color: string }) {
           <path d="M8 12.5l2.5 2.5 5.5-6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       )
+    case 'rotate':
+      return (
+        <svg {...common} aria-hidden="true">
+          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+          <path d="M21 3v5h-5" />
+          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          <path d="M3 21v-5h5" />
+        </svg>
+      )
   }
 }
 
@@ -87,6 +100,7 @@ function phaseStep(phase: MatPhase, brace: boolean, measureFlc: boolean): number
     case 'capturingC':
     case 'reviewingC':
       return 2
+    case 'waitingForFlcTap':
     case 'capturingFlc':
     case 'reviewingFlc':
       return 3
@@ -107,6 +121,8 @@ function phaseTitle(phase: MatPhase, brace: boolean): string {
       return 'Step 2: Cross-grain (C) Mode'
     case 'reviewingC':
       return 'Review C Tap — Accept or Redo'
+    case 'waitingForFlcTap':
+      return 'C Captured — Prepare for Step 3'
     case 'capturingFlc':
       return 'Step 3: FLC (Diagonal) Mode'
     case 'reviewingFlc':
@@ -131,6 +147,8 @@ function phaseDescription(phase: MatPhase, brace: boolean, measureFlc: boolean):
       return 'Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.'
     case 'reviewingC':
       return 'C tap captured. Review the spectrum — press Accept to continue, or Redo to re-capture.'
+    case 'waitingForFlcTap':
+      return 'Cross-grain mode captured! Now hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both sides) for FLC.'
     case 'capturingFlc':
       return 'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.'
     case 'reviewingFlc':

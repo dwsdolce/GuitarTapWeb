@@ -22,6 +22,7 @@ export type MatPhase =
   | 'reviewingL'
   | 'capturingC'
   | 'reviewingC'
+  | 'waitingForFlcTap'
   | 'capturingFlc'
   | 'reviewingFlc'
   | 'complete'
@@ -29,6 +30,11 @@ export type MatPhase =
 export type MatSpectra = { longitudinal: Spectrum | null; cross: Spectrum | null; flc: Spectrum | null }
 export const EMPTY_MAT_SPECTRA: MatSpectra = { longitudinal: null, cross: null, flc: null }
 const EMPTY_MAT_PEAKS: MaterialPeaks = { longitudinal: null, cross: null, flc: null }
+
+// Swift tapCooldown (0.5 s): after the C tap is accepted, the FLC capture is held disarmed for
+// this long while the user repositions, so the repositioning bump can't be taken as the FLC tap.
+// Mirrors MaterialTapPhase.waitingForFlcTap (Swift acceptCurrentPhase / Python accept_current_phase).
+const FLC_COOLDOWN_MS = 500
 
 interface UseMaterialSessionArgs {
   engineRef: RefObject<AudioEngine | null>
@@ -121,9 +127,16 @@ export function useMaterialSession({
       engineRef.current?.armMaterial(matSearch('cross'))
     } else if (phase === 'reviewingC') {
       if (measureFlcRef.current) {
-        setMatPhase('capturingFlc')
-        engineRef.current?.checkpointSession() // FLC phase start
-        engineRef.current?.armMaterial(matSearch('flc'))
+        // Mirror Swift acceptCurrentPhase: show the FLC reposition prompt during a
+        // tapCooldown with detection DISARMED (waitingForFlcTap), so the plate-
+        // repositioning bump isn't taken as the FLC tap; then arm the FLC capture.
+        setMatPhase('waitingForFlcTap')
+        engineRef.current?.checkpointSession() // FLC phase start (so a redo can drop it)
+        setTimeout(() => {
+          if (matPhaseRef.current !== 'waitingForFlcTap') return // canceled (reset / measurement-type change)
+          setMatPhase('capturingFlc')
+          engineRef.current?.armMaterial(matSearch('flc'))
+        }, FLC_COOLDOWN_MS)
       } else {
         setMatPhase('complete')
         finishMaterialSession()

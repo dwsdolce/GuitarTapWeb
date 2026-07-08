@@ -1,3 +1,4 @@
+// @parity view/measurement-detail
 import { measurementTypeName, comparisonEntryModeFreqs, colorComponentsToCss } from '../measurement/fromLive'
 import { isComparison, type TapToneMeasurementModel, type ResonantPeakModel } from '../measurement'
 import { MODE_COLOR, MODE_DISPLAY_NAME, magnitudeColor } from '../presentation/modeColors'
@@ -9,7 +10,6 @@ import { formatDisplayDate } from '../format/date'
 // MeasurementDetailDialog. Opened from the Measurements ⋯ menu ("View Details"). A
 // lightweight inspector: identity + provenance + the *identified* (selected) results — not a
 // full data dump. All mutating actions (Load / Edit / Export / Delete) stay on the row menu.
-// Spec: MEASUREMENT-DETAILS-CONSISTENCY.md §7.
 
 export interface MeasurementDetailProps {
   measurement: TapToneMeasurementModel

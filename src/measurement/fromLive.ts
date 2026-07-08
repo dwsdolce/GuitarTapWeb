@@ -16,6 +16,7 @@ import {
   DEFAULT_SETTINGS,
   MEASUREMENT_FULL_NAME,
   MEASUREMENT_SHORT_NAME,
+  STIFFNESS_RAW_NAME,
   type MeasurementType,
   type Settings,
   type StiffnessPreset,
@@ -37,20 +38,10 @@ const GUITAR_TYPE_NAME_FROM_RAW: Record<string, GuitarTypeName> = {
 }
 
 // Snapshot `plateStiffnessPreset` raw values (Swift `PlateStiffnessPreset.rawValue`) ↔ web preset.
-const STIFFNESS_FROM_RAW: Record<string, StiffnessPreset> = {
-  'Steel String Top': 'steelStringTop',
-  'Steel String Back': 'steelStringBack',
-  'Classical Top': 'classicalTop',
-  'Classical Back': 'classicalBack',
-  Custom: 'custom',
-}
-const STIFFNESS_TO_RAW: Record<StiffnessPreset, string> = {
-  steelStringTop: 'Steel String Top',
-  steelStringBack: 'Steel String Back',
-  classicalTop: 'Classical Top',
-  classicalBack: 'Classical Back',
-  custom: 'Custom',
-}
+// Reverse of the store's STIFFNESS_RAW_NAME (dedupes what used to be a local copy of both maps).
+const STIFFNESS_FROM_RAW: Record<string, StiffnessPreset> = Object.fromEntries(
+  Object.entries(STIFFNESS_RAW_NAME).map(([preset, raw]) => [raw, preset as StiffnessPreset]),
+) as Record<string, StiffnessPreset>
 
 const uuid = (): string => crypto.randomUUID().toUpperCase()
 
@@ -475,7 +466,7 @@ export function buildMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasureme
         plateMass: a.settings.plateMass,
         guitarBodyLength: a.settings.guitarBodyLength,
         guitarBodyWidth: a.settings.guitarBodyWidth,
-        plateStiffnessPreset: STIFFNESS_TO_RAW[a.settings.plateStiffnessPreset],
+        plateStiffnessPreset: STIFFNESS_RAW_NAME[a.settings.plateStiffnessPreset],
         customPlateStiffness: a.settings.customPlateStiffness,
         measureFlc: a.settings.measureFlc,
       }

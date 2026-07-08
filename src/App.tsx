@@ -163,6 +163,8 @@ function materialBarStatus(
       return `C tap ${collected}/${total} captured. Tap again...`
     case 'reviewingC':
       return `fC: ${fHz(peaks.cross)} Hz — Accept to continue or Redo to re-tap`
+    case 'waitingForFlcTap':
+      return 'Set up for FLC tap, then tap'
     case 'capturingFlc':
       if (collected === 0) return 'Set up for FLC tap, then tap'
       return `FLC tap ${collected}/${total} captured. Tap again...`
