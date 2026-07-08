@@ -147,7 +147,7 @@ panel churns (live peak list) and the Measurement Process won't hold still — u
 **Target:** fixed L/C/(FLC) slot rows (dashes until each phase's peak is captured, layout identical to
 final), **Measurement Process always visible** beneath, **Plate/Brace Properties hidden until complete**.
 No change to loaded measurements or the PDF report. Cross-platform, **Swift canonical, lock-step**, no
-DSP/oracle impact. Effort: Swift M / Python M / Web S. **Status: not started — 4 open questions in the spec.**
+DSP/oracle impact. Effort: Swift M / Python M / Web S. **Status: not started — spec fully specified (no open decisions): empty freq/mag = em-dash `—`; bubbles always shown, selected only for found slots; brace same.**
 
 ### Theme — Light / Dark / System
 

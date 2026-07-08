@@ -153,6 +153,7 @@ export function removeDuplicatePeaks(peaks: Peak[]): Peak[] {
  * @param opts Guitar type, analysis range (`minHz`/`maxHz`), and magnitude gate.
  * @returns Detected peaks, sorted by descending magnitude.
  */
+// @parity dsp/peak-analysis
 export function findPeaks(mags: Spectrum, freqs: Spectrum, opts: FindPeaksOptions = {}): Peak[] {
   const n = mags.length
   if (n !== freqs.length) return []

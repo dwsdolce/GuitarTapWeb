@@ -64,11 +64,17 @@ including the just-captured peak during review.
   Properties gated on complete (already ~there). Effort: **Small**. (`MaterialInstructionPanel` = ③,
   unaffected.)
 
-## Open questions (resolve before implementing)
+## Resolved details (user, 2026-07-07 — spec fully specified, no open decisions)
 
-- Exact dash glyph for empty freq/mag (`—` em-dash vs `–`), and whether the badge/star still shows
-  in an empty slot (proposed: yes — the slot's L/C/FLC identity is always visible).
-- Brace: confirm the single fL row follows the same dashed-slot rule.
+- **Empty freq/mag → a dash** (em-dash `—`, the app's existing no-value glyph) until that slot's peak
+  is captured; then the slot shows the identified peak's freq + mag.
+- **Bubbles always show.** Each row carries its L/C/(FLC) bubbles (plate: 2, or 3 with FLC); a bubble
+  is **selected (filled) only for a slot whose peak has been found** — unfound slots show unselected
+  bubbles. So the full row scaffold (labels + bubbles) is present from the first phase; only the values
+  and the bubble selection fill in as taps are accepted.
+- **Brace: handled the same way** — its single fL row follows the identical dashed-value + found-selects rule.
+
+Ready to implement (Swift → Python → web, lock-step) when scheduled.
 
 ## Tracking
 

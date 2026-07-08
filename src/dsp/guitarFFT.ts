@@ -12,7 +12,7 @@ import type { GuitarTypeName } from './guitarModes'
  * dBFS with interior bins doubled (DC & Nyquist not). Distinct from the
  * Hann-windowed gated path used for plate/brace (`gatedFFT.ts`).
  *
- * This file hosts MORE THAN ONE @parity group — file-level tagging is too coarse
+ * This file hosts MORE THAN ONE parity group — file-level tagging is too coarse
  * to cross-check it, so each exported symbol carries its own tag:
  *   - `dftAnalRect`                → dsp/guitar-fft (the file's primary tag, above)
  *   - `averagePowerDb`             → dsp/spectrum-average
