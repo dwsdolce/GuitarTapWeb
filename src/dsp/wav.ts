@@ -3,8 +3,16 @@
 // (mono, channelData[0], the file's native rate). File-playback parity requires
 // decoding at the embedded rate with NO resampling.
 //
-// Supports the formats the app writes/reads: IEEE float32 (fmt 3) and PCM int16
-// (fmt 1); also WAVE_FORMAT_EXTENSIBLE (0xFFFE) by reading its sub-format tag.
+// @parity dsp/wav
+// Web-primitive: the browser has no `AVAudioFile`, so this hand-written decoder
+// stands in for the native platform libraries — Swift `AVAudioFile` /
+// `AVAudioPCMBuffer`, Python `soundfile` / `wave`. There is no line-by-line
+// Swift/Python counterpart; the native call sites are the file-playback readers
+// in the audio slugs (TapToneAnalyzer+SpectrumCapture / RealtimeFFTAnalyzer).
+//
+// The app itself writes/reads IEEE float32 (fmt 3) and reads PCM int16 (fmt 1);
+// the decoder is deliberately more permissive — it also tolerates 24/32-bit PCM
+// and float64, plus WAVE_FORMAT_EXTENSIBLE (0xFFFE) via its sub-format tag.
 
 export interface DecodedWav {
   /** Mono samples (channel 0), as float32 in roughly [-1, 1]. */

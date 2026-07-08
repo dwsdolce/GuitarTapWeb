@@ -4,6 +4,7 @@
 // per-type decay thresholds (GuitarType.decayThresholds) and the tapToneRatio
 // computation (TapToneMeasurement.tapToneRatio). Used by the PDF report's guitar
 // analysis section so the qualitative labels/colors match the native apps exactly.
+// @parity dsp/analysis-quality
 
 import type { GuitarTypeName } from './guitarModes'
 import { classifyAll, type ResolvedMode } from './classify'
