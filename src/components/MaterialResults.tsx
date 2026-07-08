@@ -17,7 +17,7 @@ import {
   type Dimensions,
 } from '../dsp/material'
 import type { MaterialPeak } from '../dsp/gatedCapture'
-import { effectiveStiffness, STIFFNESS_LABEL, type Settings } from '../settings'
+import { effectiveStiffness, STIFFNESS_RAW_NAME, type Settings } from '../settings'
 
 export interface MaterialPeaks {
   longitudinal: MaterialPeak | null
@@ -209,7 +209,7 @@ export function MaterialResults({ type, settings: s, peaks }: MaterialResultsPro
   const longCross = eC > 0 ? eL / eC : 0
 
   const fvs = effectiveStiffness(s)
-  const presetName = STIFFNESS_LABEL[s.plateStiffnessPreset].replace(/\s*\(\d+\)$/, '')
+  const presetName = STIFFNESS_RAW_NAME[s.plateStiffnessPreset]
   const fvsLine = s.plateStiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
 
   return (

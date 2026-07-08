@@ -118,11 +118,20 @@ phase). Re-run the tool per slug as the gate; flip a row to ✓ only when gate +
 
 _(none tagged yet)_
 
-## Deferred / untagged tail
+## Deferred / untagged tail — PLAN (2026-07-07)
 
-Files not yet in the `@parity` map (see PHASE6-PARITY.md §6-MAP deferred list):
-`signal.ts`, `wav.ts`, `analysisQuality.ts`, material/measurements panels, a few
-tests. Give these a lighter accuracy-only pass once the mapped groups are done.
+Files not yet in the `@parity` map. **Lighter accuracy-only pass** (tag + verify comments match
+code; no full doc-parity back-fill unless drift is found). Counterparts confirmed; agreed order
+is **1 → 2 → 3, then 5**; **4 is deferred to Task 3**. Each slug done Swift→Python→web, present
+findings, pause between slugs.
+
+| # | NEW slug | Web | Swift | Python | notes / status |
+|---|---|---|---|---|---|
+| 1 | `state/settings-store` | `src/settings.ts` | `Models/TapDisplaySettings.swift` | `models/tap_display_settings.py` | **✓ DONE (2026-07-07)** all 3 tagged + read. Every default VALUE + clamp logic matches (plate 500/200/3/100, brace 300/6/12/8, gore 490/390, stiffness 75/55/60/50, freq 75-350/20-200/30-1000, dB -100/0, analysis 30/2000, peakMin -60, tapDetect -40, freq clamp [20,20000]/10Hz, dB [-120,20]/10dB). **WEB-SS-1 (real, cat-1):** web `showUnknownModes` default was `false` vs Swift+Python `true` → fixed web→true. **SS-1/PY-SS-1 (doc):** Swift class/module doc + Python module docstring listed "max peaks"/"hysteresis" as store settings — neither exists (hysteresisMargin=3.0 is a hard-coded `TapToneAnalyzer` const; no max-peaks feature) → reworded to peak-min + tap-detection. **PY-SS-2 (dead code):** removed unused `DEFAULT_MAX_PEAKS`/`DEFAULT_HYSTERESIS_MARGIN` consts (referenced nowhere; Swift has none). **WEB-SS-2 (strict-parity label):** web conflated Swift's `shortName` "SS Top (75)" (picker) and `rawValue` "Steel String Top" (results) into one `STIFFNESS_LABEL` → split: `STIFFNESS_LABEL`→shortName, new `STIFFNESS_RAW_NAME`→rawValue; repointed MaterialResults + measurementImage results line (output unchanged "Steel String Top"). tsc 0 · typedoc 0/0 · py parses |
+| 2 | `dsp/analysis-quality` | `src/dsp/analysisQuality.ts` | `Views/Utilities/Extensions.swift` (`decayQuality`/`tapToneRatioQuality`+colors) + `GuitarType.decayThresholds` + `TapToneMeasurement.tapToneRatio` | `models/guitar_type.py` (`decay_quality`) + view files | ☐ Overlaps `view/guitar-summary` (GS-1 already confirmed the 0.75 acoustic/generic threshold). Web member is the PDF-report port — check labels/colors/ratio math vs canonical. |
+| 3 | `dsp/wav` (web-primitive) | `src/dsp/wav.ts` | `AVAudioFile` (no custom decoder) | wav library | ☐ Like `dsp/fft` (M2): browsers have no `AVAudioFile`, so no line-by-line mirror. Mark web-primitive; accuracy-only on web, note the platform-lib equivalents. |
+| 5 | material/measurements panels | `MeasurementsPanel.tsx`, `MeasurementDetail.tsx`, `MaterialResults.tsx`, `MaterialInstructionPanel.tsx` | material result views / measurements list | `views/measurements/*` | ☐ DO AFTER 1–3. Heavier than the utilities (real `view/*` components, entangled with the restructure) → own small view pass, not a "lighter" pass. **CARRIED FROM item 1 (WEB-SS-2):** `fromLive.ts` keeps private `STIFFNESS_TO_RAW` / `STIFFNESS_FROM_RAW` maps that duplicate the store's new exported `STIFFNESS_RAW_NAME` (settings.ts) — dedupe here (have `fromLive.ts` import the shared const). Not a behavior change; cleanup only. |
+| 4 | → fold into `test/gated-fft` | `src/dsp/signal.ts` (`makeToneSignal`/two-tone) | `GatedFFTParityTests.swift` (`makeTwoToneSignal`) | `tests/test_gated_fft_parity.py` (`_make_two_tone_signal`) | **DEFERRED to Task 3** (user-approved 2026-07-07). `signal.ts` lives in `src/dsp` but is a TEST-only helper; its real counterparts are the parity *tests*. Tag it to `test/gated-fft` and review WITH Task 3, not in this tail. |
 
 ## Separate efforts (feature work, not `@parity` comment-doc review)
 

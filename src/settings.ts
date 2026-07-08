@@ -1,5 +1,6 @@
 // App settings, mirroring the native TapDisplaySettings. Persisted to localStorage
 // (the web equivalent of UserDefaults / @AppStorage).
+// @parity state/settings-store
 
 import type { GuitarTypeName } from './dsp/guitarModes'
 
@@ -70,11 +71,21 @@ export const STIFFNESS_VALUE: Record<StiffnessPreset, number> = {
   classicalBack: 50,
   custom: 0,
 }
+// Compact label shown in the settings picker — mirrors Swift PlateStiffnessPreset.shortName.
 export const STIFFNESS_LABEL: Record<StiffnessPreset, string> = {
-  steelStringTop: 'Steel String Top (75)',
-  steelStringBack: 'Steel String Back (55)',
+  steelStringTop: 'SS Top (75)',
+  steelStringBack: 'SS Back (55)',
   classicalTop: 'Classical Top (60)',
   classicalBack: 'Classical Back (50)',
+  custom: 'Custom',
+}
+// Persisted / results preset NAME — mirrors Swift PlateStiffnessPreset.rawValue (shown in the
+// f_vs results line, distinct from the compact picker label above).
+export const STIFFNESS_RAW_NAME: Record<StiffnessPreset, string> = {
+  steelStringTop: 'Steel String Top',
+  steelStringBack: 'Steel String Back',
+  classicalTop: 'Classical Top',
+  classicalBack: 'Classical Back',
   custom: 'Custom',
 }
 
@@ -137,7 +148,7 @@ export const DEFAULT_SETTINGS: Settings = {
   displayRanges: {},
   minDb: -100,
   maxDb: 0,
-  showUnknownModes: false,
+  showUnknownModes: true,
   analysisMinHz: 30,
   analysisMaxHz: 2000,
   peakMinThreshold: -60,

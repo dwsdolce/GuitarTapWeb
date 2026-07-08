@@ -21,7 +21,7 @@ import {
 import {
   isGuitarType,
   MEASUREMENT_FULL_NAME,
-  STIFFNESS_LABEL,
+  STIFFNESS_RAW_NAME,
   effectiveStiffness,
   DEFAULT_SETTINGS,
   type Settings,
@@ -388,7 +388,7 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     const crossLong = eL > 0 ? eC / eL : 0
     const longCross = eC > 0 ? eL / eC : 0
     const fvs = effectiveStiffness(s)
-    const presetName = STIFFNESS_LABEL[s.plateStiffnessPreset].replace(/\s*\(\d+\)$/, '')
+    const presetName = STIFFNESS_RAW_NAME[s.plateStiffnessPreset]
     const fvsLine = s.plateStiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
 
     const freqs = [`fL: ${f1(fL ?? 0)} Hz`, `fC: ${f1(fC ?? 0)} Hz`]
