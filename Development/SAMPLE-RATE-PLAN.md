@@ -1,7 +1,9 @@
 # Plan: record & check capture sample rate (all 3 platforms)
 
-**Status:** Swift ✅ (verified in Xcode) · Python ✅ (368 tests pass) · Web ⏳ (Phase 4).
-Transient working doc — lives in GuitarTapWeb but the work spans
+**Status: ✅ COMPLETE all three (verified 2026-07-08).** Swift ✅ · Python ✅ (368 tests pass) ·
+Web ✅ — `sampleRate` `.guitartap` I/O + the tiered load-time warning (mic → calibration/rate) are
+implemented, and the orphaned `EXPECTED_SAMPLE_RATE` constant (+ its two stale comments) has been
+removed from `src/audio/engine.ts`. Transient working doc — lives in GuitarTapWeb but the work spans
 **Swift (canonical) → Python (mirror) → web**.
 
 ### Done in Swift + Python
@@ -29,9 +31,9 @@ troubleshooting rows for the load-time calibration/sample-rate warning and "a fr
 tap doesn't match a saved measurement."
 
 ### Remaining
-- **Web Phase 4** (next major step): `sampleRate` in `.guitartap` I/O + the tiered load
-  warning; remove the orphaned `EXPECTED_SAMPLE_RATE` constant.
-- Swift tiered-warning unit test (needs a mock input device — approach TBD; optional).
+- ~~**Web Phase 4:** `sampleRate` in `.guitartap` I/O + the tiered load warning; remove the
+  orphaned `EXPECTED_SAMPLE_RATE` constant.~~ **✅ DONE (2026-07-08).**
+- Swift tiered-warning unit test (needs a mock input device — approach TBD; **optional**, not blocking).
 
 ## Problem
 

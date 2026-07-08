@@ -102,14 +102,6 @@ const PEAK_HOLD_SECONDS = 2.0
 
 const CONFIRM_CHUNKS = 2
 
-/**
- * The rate the whole pipeline + oracle are defined at (Swift/Python run at 48 kHz).
- * We do NOT force it — the OS/Audio MIDI Setup defines the actual capture rate and we
- * let it flow through — but we WARN if the live AudioContext rate differs, since the
- * DSP results only match the canonical apps at 48 kHz.
- */
-export const EXPECTED_SAMPLE_RATE = 48000
-
 interface ChunkMessage {
   samples: Float32Array
   rms: number
@@ -124,8 +116,9 @@ interface ChunkMessage {
  *     freezes. New Tap simply re-arms a frozen result. Peak-finding/classification
  *     happen in the UI so Peak Min / guitar type re-analyze the frozen spectrum live.
  *
- * Sample rate is read from the live AudioContext (see {@link EXPECTED_SAMPLE_RATE}).
- * Mirrors Swift `TapToneAnalyzer` / Python `tap_tone_analyzer`.
+ * Sample rate is read from the live AudioContext (not forced — the OS/Audio MIDI
+ * Setup defines the actual capture rate). Mirrors Swift `TapToneAnalyzer` / Python
+ * `tap_tone_analyzer`.
  */
 export class AudioEngine {
   private context: AudioContext | null = null
@@ -529,7 +522,9 @@ export class AudioEngine {
     // system default; getCapabilities → device MAX), so we let the OS decide. The rate
     // is set in macOS Audio MIDI Setup (the AudioContext follows the default OUTPUT
     // device, so input AND output must be set to the same rate). The DSP reads the
-    // actual ctx.sampleRate; the UI warns if it isn't EXPECTED_SAMPLE_RATE.
+    // actual ctx.sampleRate — there is no forced/expected rate. (Provenance is
+    // recorded per measurement; a load-time warning compares a saved measurement's
+    // recorded rate against the current one — see measurement/fromLive.ts.)
     this.stream = await this.acquireStream(deviceId) // exact saved device, else default (Safari stale ids)
     const track = this.stream.getAudioTracks()[0]!
     this.watchTrack(track)
