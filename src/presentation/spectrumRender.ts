@@ -9,9 +9,6 @@ import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_COLOR, MODE_LABEL } from './modeColors'
 import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect } from './chartTypes'
 
-const FREQ_TICKS_LOG_ARR = [30, 50, 100, 200, 300, 500, 1000, 2000]
-export const FREQ_TICKS_LOG = FREQ_TICKS_LOG_ARR
-
 export function fmtFreq(hz: number): string {
   return hz >= 1000 ? `${(hz / 1000).toFixed(2)} kHz` : `${hz.toFixed(1)} Hz`
 }
@@ -88,7 +85,6 @@ export interface RenderOpts {
   markers?: PeakMarker[]
   overlays?: SpectrumOverlay[]
   view: ChartView
-  logFreq?: boolean
   /** Centered title above the plot. */
   title?: string
   /** Guitar type → mode-boundary lines + top labels (omit for material/comparison). */
@@ -122,7 +118,7 @@ function nearestIndex(sorted: ArrayLike<number>, target: number): number {
 
 /** Draw the spectrum chart into ctx over a W×H region (origin at 0,0). */
 export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: number, opts: RenderOpts): void {
-  const { spectrum, markers = [], overlays = [], logFreq = false, title, guitarType } = opts
+  const { spectrum, markers = [], overlays = [], title, guitarType } = opts
   const th = opts.theme ?? DARK_CHART
   const { minHz, maxHz, minDb, maxDb } = opts.view
   const { l: plotL, t: plotT, r: plotR, b: plotB } = chartGeometry(W, H)
@@ -142,14 +138,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.textAlign = 'left'
   }
 
-  const lo = Math.max(1, minHz)
-  const logLo = Math.log10(lo)
-  const logHi = Math.log10(maxHz)
-  const xFor = (hz: number) =>
-    plotL +
-    (logFreq
-      ? ((Math.log10(Math.max(hz, lo)) - logLo) / (logHi - logLo)) * plotW
-      : ((hz - minHz) / (maxHz - minHz)) * plotW)
+  const xFor = (hz: number) => plotL + ((hz - minHz) / (maxHz - minHz)) * plotW
   const yFor = (db: number) => plotB - ((db - minDb) / (maxDb - minDb)) * plotH
 
   // Gridlines + tick labels OUTSIDE the plot.
@@ -168,7 +157,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.fillText(`${db}`, plotL - 7, y + 4)
   }
   ctx.textAlign = 'center'
-  const ticks = logFreq ? FREQ_TICKS_LOG_ARR.filter((t) => t >= minHz && t <= maxHz) : niceLinearTicks(minHz, maxHz)
+  const ticks = niceLinearTicks(minHz, maxHz)
   for (const hz of ticks) {
     const x = xFor(hz)
     if (x < plotL || x > plotR) continue
@@ -284,9 +273,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   const ch = opts.crosshair
   if (ch && ch.x >= plotL && ch.x <= plotR && ch.y >= plotT && ch.y <= plotB) {
     // Inverse of xFor/yFor.
-    const hzAt = logFreq
-      ? Math.pow(10, logLo + ((ch.x - plotL) / plotW) * (logHi - logLo))
-      : minHz + ((ch.x - plotL) / plotW) * (maxHz - minHz)
+    const hzAt = minHz + ((ch.x - plotL) / plotW) * (maxHz - minHz)
     let dispHz = hzAt
     let dispDb = minDb + ((plotB - ch.y) / plotH) * (maxDb - minDb)
     let freqColor = th.crosshairFreq

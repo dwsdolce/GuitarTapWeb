@@ -1,9 +1,11 @@
 # Log-Frequency Axis Removal — Tracked Effort
 
-Status: **PROPOSED** (spec only — not started). Cross-platform cleanup, **lock-step parity**
-(remove once, on Swift + Python + web together). Surfaced repeatedly during the comment/doc
-review as dead code that generates false findings (most recently the withdrawn "log-mode
-gesture gap" in `view/spectrum-gestures`).
+Status: **✅ DONE (2026-07-08)** — removed lock-step on Swift + Python + web. **Decision: B1**
+(kept the `SpectrumSnapshot.isLogarithmic` format field pinned `false`; deleted all interactive/
+render log paths). Swift `AxisTickGenerator` log support removed too (its sole caller was the dead
+frequency axis). All suites green: Swift 315, Python 376, web 144; Swift builds, web `tsc` clean.
+Surfaced repeatedly during the comment/doc review as dead code that generated false findings
+(most recently the withdrawn "log-mode gesture gap" in `view/spectrum-gestures`).
 
 ## Decision & rationale
 
@@ -63,8 +65,11 @@ Recommendation: **B1** unless we're already opening the format for another reaso
 | 4. Apply the B1/B2 format decision | ☐ | ☐ | ☐ | B1: pin `false`; B2: tolerant read + drop write + re-pin oracle |
 | 5. Verify: parity tests + `.guitartap` round-trip + gate | — shared — | — shared — | — shared — | no DSP/oracle value change; format round-trip must hold |
 
-## Open decisions
-1. **B1 vs B2** for the `SpectrumSnapshot.isLogarithmic` field (recommend B1).
-2. Whether `AxisTickGenerator`'s `.logarithmic` case has any non-frequency caller (audit before deleting).
+## Open decisions — RESOLVED
+1. **B1 vs B2** → **B1** (user-confirmed 2026-07-08). Field kept, pinned `false`; its doc on all three
+   now marks it a legacy format-compatibility flag. No format change, no oracle re-pin.
+2. **`AxisTickGenerator.logarithmic`** → audit found the frequency axis was its **sole** caller, so the
+   `.logarithmic` case + `AxisScale` enum + log tick/label helpers were removed; `generateTicks`/
+   `formatTickLabel(s)` are linear-only. Linear logic preserved verbatim.
 
-No DSP / numeric-oracle impact — this is dead-interaction + optional-format cleanup only.
+No DSP / numeric-oracle impact — this was dead-interaction cleanup only; the format round-trip is unchanged.

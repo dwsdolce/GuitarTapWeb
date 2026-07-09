@@ -38,6 +38,8 @@ export interface SpectrumSnapshotModel {
   maxFreq: number
   minDB: number
   maxDB: number
+  /** Legacy field retained for .guitartap format compatibility; always false (the
+   *  frequency axis is linear on all platforms — log-axis support was removed). */
   isLogarithmic: boolean
   showUnknownModes?: boolean
   guitarType?: string

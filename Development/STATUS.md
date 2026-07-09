@@ -15,13 +15,14 @@ _Last updated: 2026-07-08._
 | 1 | **Task 3 / 6-TEST** — cross-platform test-suite normalization (major) | **Ready** — the only unblocked item | [PHASE6-PARITY.md](PHASE6-PARITY.md) § 6-TEST |
 | 2 | **Architectural-parity restructure** (view layer) | Planned post-review — needs its own spec before any code moves | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
 | 3 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes) | [THEME-SPEC.md](THEME-SPEC.md) |
-| 4 | **Log-frequency axis removal** | Blocked on the B1/B2 SpectrumSnapshot field decision | [LOG-FREQ-REMOVAL.md](LOG-FREQ-REMOVAL.md) |
 
 Notes:
 - The doc review's deferred `signal.ts` two-tone helper (item 4 of the `@parity`
   tail) **folds into #1** — it's a test-only helper reviewed with the parity tests.
-- Of the four: **#1** can start now; **#2** needs a spec written first; **#3/#4**
-  are waiting on decisions, not implementation time.
+- Of the three: **#1** can start now; **#2** needs a spec written first; **#3**
+  is waiting on decisions, not implementation time.
+- **Log-frequency axis removal — ✅ DONE (2026-07-08)** — removed lock-step all three (B1: kept the
+  format field pinned false). See [LOG-FREQ-REMOVAL.md](LOG-FREQ-REMOVAL.md).
 
 ## Done (for reference)
 
@@ -37,13 +38,13 @@ cleanup). The Material Results phased display shipped 2026-07-08.
 | [STATUS.md](STATUS.md) | *(this file)* the only open-work list |
 | [README.md](README.md) | repo overview, build, deploy |
 
-**Open-work detail docs** (the four items above)
+**Open-work detail docs** (the open items above)
 | Doc | Purpose |
 |---|---|
 | [PHASE6-PARITY.md](PHASE6-PARITY.md) | Phase 6 parity backlog — all done **except § 6-TEST** |
 | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) | view-layer restructure — raw material; spec still to be written |
 | [THEME-SPEC.md](THEME-SPEC.md) | Light/Dark/System theme spec — blocked on § 8 |
-| [LOG-FREQ-REMOVAL.md](LOG-FREQ-REMOVAL.md) | remove the dead log-frequency axis — blocked on B1/B2 |
+| [LOG-FREQ-REMOVAL.md](LOG-FREQ-REMOVAL.md) | remove the dead log-frequency axis — ✅ done 2026-07-08 (B1) |
 
 **Reference** (living — consult, don't complete)
 | Doc | Purpose |

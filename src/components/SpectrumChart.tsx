@@ -15,7 +15,6 @@ export interface SpectrumChartProps {
   overlays?: SpectrumOverlay[]
   /** Guitar type → mode-boundary lines + top labels on the plot (omit for material/comparison). */
   guitarType?: GuitarTypeName
-  logFreq?: boolean
   minHz?: number
   maxHz?: number
   minDb?: number
@@ -77,7 +76,6 @@ export function SpectrumChart({
   markers = [],
   overlays = [],
   guitarType,
-  logFreq = false,
   minHz = 30,
   maxHz = 2000,
   minDb = -100,
@@ -152,7 +150,6 @@ export function SpectrumChart({
       spectrum,
       markers,
       overlays,
-      logFreq,
       title,
       guitarType,
       theme: DARK_CHART,
@@ -161,7 +158,7 @@ export function SpectrumChart({
       crosshair: hover,
       frozen,
     })
-  }, [spectrum, markers, overlays, logFreq, title, guitarType, minHz, maxHz, minDb, maxDb, hover, frozen])
+  }, [spectrum, markers, overlays, title, guitarType, minHz, maxHz, minDb, maxDb, hover, frozen])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
   // @parity view/spectrum-gestures — the web co-locates gestures with the chart
@@ -227,7 +224,7 @@ export function SpectrumChart({
     }
 
     const onWheel = (e: WheelEvent) => {
-      if (!onViewChangeRef.current || logFreq) return
+      if (!onViewChangeRef.current) return
       e.preventDefault()
       const v = viewRef.current
       const rect = canvas.getBoundingClientRect()
@@ -303,7 +300,7 @@ export function SpectrumChart({
         return
       }
       setHover(null) // a press starts a pan/pinch/drag — hide the hover crosshair
-      if (!onViewChangeRef.current || logFreq || e.button !== 0) return
+      if (!onViewChangeRef.current || e.button !== 0) return
       const rect = canvas.getBoundingClientRect()
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       canvas.setPointerCapture(e.pointerId)
@@ -426,7 +423,8 @@ export function SpectrumChart({
       canvas.removeEventListener('pointercancel', onUp)
       canvas.removeEventListener('pointerleave', onLeave)
     }
-  }, [logFreq])
+    // Listeners read live state via refs, so bind once on mount.
+  }, [])
 
   const closeOverlays = () => {
     setMenu(null)

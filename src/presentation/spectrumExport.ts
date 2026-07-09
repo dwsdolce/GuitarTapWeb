@@ -18,7 +18,6 @@ export interface SpectrumImageOpts {
   overlays?: SpectrumOverlay[]
   markers?: PeakMarker[]
   view: ChartView
-  logFreq?: boolean
   measurementTypeName?: string
   guitarType?: GuitarTypeName
   date?: string
@@ -87,7 +86,6 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
     markers,
     overlays,
     view: opts.view,
-    logFreq: opts.logFreq,
     title: opts.title,
     guitarType: opts.guitarType,
     theme: th,
