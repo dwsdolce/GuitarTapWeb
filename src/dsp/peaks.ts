@@ -5,7 +5,7 @@
  * Mirrors the peak-finding algorithm in Swift `TapToneAnalyzer+PeakAnalysis.swift`
  * and Python `tap_tone_analyzer_peak_analysis.py`; the {@link Peak} shape mirrors
  * Swift `ResonantPeak`. Numeric output is pinned by oracle case G2
- * (`test/g2-peaks.test.ts`).
+ * (`test/peaks.test.ts`).
  */
 // @parity dsp/find-peaks tests=test/peaks
 import { modeBands, type GuitarTypeName } from './guitarModes'

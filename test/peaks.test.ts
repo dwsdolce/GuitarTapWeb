@@ -1,6 +1,8 @@
 // @parity test/peaks
 import { describe, it, expect } from 'vitest'
 import { findPeaks, removeDuplicatePeaks, type Peak } from '../src/dsp/peaks'
+import { averageSpectra } from '../src/dsp/spectrumAverage'
+import type { Spectrum } from '../src/dsp/guitarFFT'
 
 // Mirrors the Swift makeSpectrum helper: a Gaussian bump (a downward parabola in
 // dB) on a noise floor. Because the peak is a true parabola in frequency,
@@ -92,5 +94,34 @@ describe('G2 — peak finding', () => {
     expect(peaks[0]!.frequency).toBeCloseTo(350, 6)
     expect(peaks[0]!.bandwidth).toBeCloseTo(60, 6)
     expect(peaks[0]!.quality).toBeCloseTo(350 / 60, 4)
+  })
+})
+
+// Spectrum averaging lives with peak-finding to mirror Swift PeakFindingTests
+// (which holds the SpectrumAveraging suite) / Python test_peak_finding.
+const spec = (mags: number[]): Spectrum => ({ magnitudesDb: mags, frequencies: mags.map((_, i) => i * 10) })
+
+describe('averageSpectra — power averaging (mirrors Python average_spectra)', () => {
+  it('returns a single tap unchanged', () => {
+    const s = spec([-10, -20, -30])
+    expect(averageSpectra([s])).toBe(s)
+  })
+
+  it('averages identical spectra to the same dB', () => {
+    const r = averageSpectra([spec([-10, -40]), spec([-10, -40])])
+    expect(r.magnitudesDb[0]).toBeCloseTo(-10, 10)
+    expect(r.magnitudesDb[1]).toBeCloseTo(-40, 10)
+  })
+
+  it('power-averages differing bins: avg(-10,-20) = 10·log10((0.1+0.01)/2)', () => {
+    const r = averageSpectra([spec([-10]), spec([-20])])
+    const expected = 10 * Math.log10((0.1 + 0.01) / 2) // ≈ -12.596
+    expect(r.magnitudesDb[0]).toBeCloseTo(expected, 10)
+  })
+
+  it('falls back to the first tap on bin-count mismatch', () => {
+    const a = spec([-10, -20])
+    const r = averageSpectra([a, spec([-10])])
+    expect(r).toBe(a)
   })
 })

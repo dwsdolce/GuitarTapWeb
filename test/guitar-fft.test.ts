@@ -1,3 +1,6 @@
+// @parity test/guitar-fft
+// Web-extra DSP layer: guitar Air/Top/Back peak extraction via the guitar-FFT
+// path (non-gated), REG-G. Reconcile with Swift/Python in Phase 4.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { decodeWav } from '../src/dsp/wav'
