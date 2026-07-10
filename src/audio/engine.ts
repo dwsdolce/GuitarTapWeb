@@ -555,7 +555,9 @@ export class AudioEngine {
     this.source.connect(this.node)
     this.node.connect(ctx.destination) // processor emits no output → silent
 
-    this.arm() // listen immediately (GuitarTap is always-on; New Tap only re-arms a frozen result)
+    // Arming is driven by the caller after start resolves (App's armForCurrentType, via
+    // useAudioEngine's onStarted) so guitar and material go through one branch — mirrors
+    // Swift/Python start() → startTapSequence(). start() no longer self-arms guitar.
 
     // Baseline the device list + watch for hot-plug changes (attach → auto-select, unplug → fall back).
     this.knownDevices = (await this.listInputs()).map((d) => d.deviceId)

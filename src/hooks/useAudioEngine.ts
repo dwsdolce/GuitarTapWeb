@@ -15,7 +15,6 @@ import type { MutableRefObject } from 'react'
 import { AudioEngine, type EngineState, type EngineMetrics, type MaterialCaptureResult } from '../audio/engine'
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { Calibration } from '../dsp/calibration'
-import { isMaterialType, type MeasurementType } from '../settings'
 import {
   listCalibrations,
   saveCalibration,
@@ -32,8 +31,6 @@ import { parseCalibration } from '../dsp/calibration'
 interface UseAudioEngineArgs {
   engineRef: MutableRefObject<AudioEngine | null>
   calibrationRef: MutableRefObject<Calibration | null>
-  /** Current measurement type — start disarms guitar detection when loaded straight into material. */
-  measRef: MutableRefObject<MeasurementType>
   /** Tap-detection threshold for the engine's initial config. */
   tapThresholdRef: MutableRefObject<number>
   /** "Dump Capture Audio" diagnostic flag for the engine's initial config (gates session recording). */
@@ -44,6 +41,9 @@ interface UseAudioEngineArgs {
   onMaterialCapture: (r: MaterialCaptureResult) => void
   /** Continuous session WAV for the Dump-Capture-Audio diagnostic (one per measurement). STABLE. */
   onSessionAudio: (samples: Float32Array, sampleRate: number, label: string) => void
+  /** Engine came up — App arms a fresh sequence for the current measurement type (the web's
+   *  start() → startTapSequence() branch: guitar arms, plate/brace start the phase machine). STABLE. */
+  onStarted: () => void
 }
 
 export interface AudioEngineModel {
@@ -86,11 +86,11 @@ export interface AudioEngineModel {
 export function useAudioEngine({
   engineRef,
   calibrationRef,
-  measRef,
   tapThresholdRef,
   onGuitarCapture,
   onMaterialCapture,
   onSessionAudio,
+  onStarted,
   dumpCaptureRef,
 }: UseAudioEngineArgs): AudioEngineModel {
   const [running, setRunning] = useState(false)
@@ -232,8 +232,7 @@ export function useAudioEngine({
       setRunning(true)
       applyCalibrationForDevice(engine.inputDeviceId) // auto-apply the device's calibration
       void refreshDevices() // labels are available now that permission is granted
-      // If we loaded straight into a material type, don't leave guitar detection armed.
-      if (isMaterialType(measRef.current)) engine.disarm()
+      onStarted() // arm a fresh sequence for the current type (guitar or material) — one branch
     } catch (e) {
       // Categorize for the native-style alert: a blocked/denied mic → "Microphone Access
       // Required"; anything else (no device, engine failure) → "Audio Engine Error".
@@ -242,7 +241,7 @@ export function useAudioEngine({
       setErrorKind(denied ? 'permission' : 'engine')
       engineRef.current = null
     }
-  }, [engineRef, measRef, tapThresholdRef, dumpCaptureRef, onGuitarCapture, onMaterialCapture, onSessionAudio, applyCalibrationForDevice, refreshDevices])
+  }, [engineRef, tapThresholdRef, dumpCaptureRef, onGuitarCapture, onMaterialCapture, onSessionAudio, onStarted, applyCalibrationForDevice, refreshDevices])
 
   // Start listening automatically — GuitarTap has no Start button; the only
   // browser-mandated gate is the mic permission prompt itself.

@@ -42,6 +42,7 @@ import {
   ResultsIcon,
   RefreshIcon,
 } from './components/icons'
+import { buttonRule } from './state/buttonEnablement'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
@@ -109,6 +110,13 @@ const isReviewing = (p: MatPhase) => p === 'reviewingL' || p === 'reviewingC' ||
 // Swift TapToneAnalyzer / Python tap_tone_analyzer. The detailed per-phase instructions
 // live in the MaterialInstructionPanel; the bar carries the short capture status.
 
+// Resting "waiting for a tap" prompt. Swift/Python show a phase-specific string only for the
+// instant before warm-up ends, then the detection loop overwrites it with this type-agnostic
+// prompt (TapToneAnalyzer+TapDetection warm-up exit). The web has no warm-up, so this is the
+// steady-state message for guitar AND every armed material phase — the phase-specific guidance
+// lives in the instruction panel, not the status bar.
+const tapPrompt = (total: number) => (total === 1 ? 'Tap the guitar...' : `Tap the guitar ${total} times...`)
+
 function guitarBarStatus(
   state: EngineState,
   progress: { collected: number; total: number },
@@ -118,7 +126,7 @@ function guitarBarStatus(
   const { collected, total } = progress
   switch (state) {
     case 'listening':
-      if (collected === 0) return total === 1 ? 'Tap the guitar...' : `Tap the guitar ${total} times...`
+      if (collected === 0) return tapPrompt(total)
       return `Tap ${collected}/${total} captured. Tap again...`
     case 'capturing': {
       const prov = Math.min(collected + 1, total)
@@ -150,23 +158,23 @@ function materialBarStatus(
     case 'notStarted':
       return '' // the instruction panel carries "Press 'New Tap' to Begin"
     case 'capturingL':
-      if (collected === 0) {
-        if (brace) return total > 1 ? `Ready for fL tap (×${total})` : 'Ready for fL tap'
-        if (total > 1) return `Ready for L tap (×${total} each for ${measureFlc ? 'L, C, FLC' : 'L, C'})`
-        return 'Ready for L tap'
-      }
+      // Armed and waiting: the resting message is the type-agnostic tap prompt (mirrors the
+      // canonical warm-up-exit override). Phase guidance ("Hold brace at 22%…") is in the panel.
+      if (collected === 0) return tapPrompt(total)
       return `L tap ${collected}/${total} captured. Tap again...`
     case 'reviewingL':
       return `fL: ${fHz(peaks.longitudinal)} Hz — Accept to continue or Redo to re-tap`
     case 'capturingC':
-      if (collected === 0) return 'Rotate 90° and tap for C'
+      if (collected === 0) return tapPrompt(total)
       return `C tap ${collected}/${total} captured. Tap again...`
     case 'reviewingC':
       return `fC: ${fHz(peaks.cross)} Hz — Accept to continue or Redo to re-tap`
     case 'waitingForFlcTap':
+      // Detection is disarmed during the FLC-reposition cooldown, so no warm-up override fires —
+      // this phase keeps its specific prompt in canonical too.
       return 'Set up for FLC tap, then tap'
     case 'capturingFlc':
-      if (collected === 0) return 'Set up for FLC tap, then tap'
+      if (collected === 0) return tapPrompt(total)
       return `FLC tap ${collected}/${total} captured. Tap again...`
     case 'reviewingFlc':
       return `fLC: ${fHz(peaks.flc)} Hz — Accept to complete or Redo to re-tap`
@@ -372,10 +380,21 @@ export default function App() {
   useEffect(() => {
     comparisonRef.current = comparison != null
   }, [comparison])
-  // Switching measurement type resets the current result (mirrors the native
-  // measurementChanged reset across the guitar↔material boundary) and arms/disarms
-  // the always-on guitar detector accordingly. Skipped while loading a measurement,
-  // which sets the type and the restored result in the same commit.
+  // The web's startTapSequence()-equivalent: arm a fresh sequence for the CURRENT measurement
+  // type. Guitar arms the always-on detector; plate/brace start the phase machine straight into
+  // capturingLongitudinal + armed. There is no not-yet-started gate. One branch, and the single
+  // arming path for both engine-start (via useAudioEngine's onStarted) and a measurement-type
+  // switch — mirrors Swift/Python start() → startTapSequence() and onApply(measurementChanged)
+  // → startTapSequence(). Reads measRef so it always sees the live type (fires outside render).
+  const armForCurrentType = useCallback(() => {
+    const e = engineRef.current
+    if (!e?.running) return
+    if (isMaterialType(measRef.current)) startMaterial()
+    else e.arm()
+  }, [startMaterial])
+  // Switching measurement type resets the current result (mirrors the native measurementChanged
+  // reset across the guitar↔material boundary) then arms a fresh sequence for the new type.
+  // Skipped while loading a measurement, which sets the type and the restored result in the same commit.
   useEffect(() => {
     if (skipNextTypeResetRef.current) {
       skipNextTypeResetRef.current = false
@@ -391,11 +410,8 @@ export default function App() {
     setComparison(null)
     comparisonRef.current = false
     resetMaterial()
-    const e = engineRef.current
-    if (!e?.running) return
-    if (isMaterialType(settings.measurementType)) e.disarm()
-    else e.arm()
-  }, [settings.measurementType, resetMaterial])
+    armForCurrentType()
+  }, [settings.measurementType, resetMaterial, armForCurrentType])
 
   // Stable capture-result callbacks the engine's once-registered handlers delegate to.
   // Guitar tap (or averaged multi-tap): store the frozen result, superseding any loaded measurement.
@@ -434,7 +450,6 @@ export default function App() {
     clipping,
     deviceChanging,
     progress,
-    setProgress,
     engineMetrics,
     decayTime,
     pauseTap,
@@ -445,7 +460,7 @@ export default function App() {
     onSelectCalibration,
     onDeleteCalibration,
     retry,
-  } = useAudioEngine({ engineRef, calibrationRef, measRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onGuitarCapture, onMaterialCapture: recordCapture, onSessionAudio })
+  } = useAudioEngine({ engineRef, calibrationRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onGuitarCapture, onMaterialCapture: recordCapture, onSessionAudio, onStarted: armForCurrentType })
 
   // Play a recorded WAV through the live pipeline (Swift openAudioFile/startFromFile). Resets the
   // view like New Tap, applies an optional calibration for the playback, then pumps. Guitar arms a
@@ -513,15 +528,6 @@ export default function App() {
     engineRef.current?.arm()
   }, [])
 
-  // Cancel (mirror Swift cancelTapSequence) — engine owns the transition; we reset progress +
-  // material phase + the cancelled flag. Pause/Resume live in useAudioEngine.
-  const cancelTap = useCallback(() => {
-    engineRef.current?.cancel()
-    setProgress({ collected: 0, total: numberOfTaps })
-    if (isMaterialType(measRef.current)) resetMaterial()
-    setCancelled(true)
-  }, [numberOfTaps, resetMaterial])
-
   const changeTaps = useCallback((n: number) => {
     const v = Math.max(1, Math.min(10, n))
     setNumberOfTaps(v)
@@ -539,11 +545,23 @@ export default function App() {
     startMaterial()
   }, [startMaterial])
 
-  // Lock the stepper while a measurement is underway. Material: locked from the first phase until
-  // complete (the tap count applies to every phase, so it can't change mid-measurement). Guitar:
+  // Cancel is a restart (mirror Swift cancelTapSequence → startTapSequence): re-arm a fresh
+  // sequence exactly like New Tap. Only offered while a multi-step sequence is active; during a
+  // material review phase the Cancel button acts as Redo instead (see its onClick).
+  const cancelTap = useCallback(() => {
+    if (isMaterialType(measRef.current)) onMaterialNewTap()
+    else newTap()
+  }, [newTap, onMaterialNewTap])
+
+  // Lock the stepper once a tap has been captured mid-sequence, so the per-phase tap total can't
+  // change — mirrors Swift/Python: .disabled(currentTapCount > 0 && !isMeasurementComplete). It
+  // stays UNLOCKED while merely waiting for the first tap (material auto-arms into capturingL, so
+  // that initial wait must not lock it), and re-enables when the measurement completes. Guitar:
   // locked while capturing or once the multi-tap sequence has started.
   const tapsLocked = material
-    ? matPhase !== 'notStarted' && matPhase !== 'complete'
+    ? matPhase !== 'notStarted' &&
+      matPhase !== 'complete' &&
+      !(matPhase === 'capturingL' && progress.collected === 0)
     : engineState === 'capturing' ||
       ((engineState === 'listening' || engineState === 'paused') && progress.collected > 0)
 
@@ -745,7 +763,9 @@ export default function App() {
   const sbProgress = (() => {
     if (material && sbDetecting && matPhase.startsWith('capturing')) {
       const step = matPhase.startsWith('capturingC') ? 2 : matPhase.startsWith('capturingFlc') ? 3 : 1
-      if (brace) return numberOfTaps > 1 ? `Tap ${progress.collected}/${numberOfTaps}` : ''
+      // Brace uses the guitar-style tap counter (single OR multi-tap), like Swift's brace
+      // phaseLabel = "Tap currentTapCount/numberOfTaps". Plate uses the phase counter instead.
+      if (brace) return `Tap ${progress.collected}/${numberOfTaps}`
       const tapPart = numberOfTaps > 1 ? ` · Tap ${progress.collected}/${numberOfTaps}` : ''
       return `Phase ${step}/${settings.measureFlc ? 3 : 2}${tapPart}`
     }
@@ -1169,16 +1189,21 @@ export default function App() {
           const reviewing = material && isReviewing(matPhase)
           const paused = engineState === 'paused'
           const detecting = engineState === 'listening' || engineState === 'capturing'
-          // New Tap: guitar → only when idle/complete; material → always while running (start over).
-          const newTapDisabled = material ? !running : !running || engineState !== 'idle'
-          // Pause/Resume: enabled while detecting OR paused (or Accept in review).
-          const pauseEnabled = running && (reviewing || detecting || paused)
-          // Cancel: only while detecting (NOT paused); material aborts the whole sequence,
-          // guitar only mid multi-tap. Orange when enabled, grey (default disabled) otherwise —
-          // matches Python's `color: orange/gray` and Swift's `.foregroundStyle(.orange/.gray)`.
-          const cancelEnabled =
-            running &&
-            (reviewing || (detecting && (material ? true : numberOfTaps > 1 && progress.collected < numberOfTaps)))
+          // Enablement via the shared canonical rule (mirrors Swift `buttonRule` / Python
+          // `button_rule`; pinned by test/button-enablement). The measurement is "complete"
+          // when a guitar tap was captured, or the material phase machine reached `complete`.
+          // (Cancel now re-arms rather than completing, so there's no cancelled→complete term.)
+          const { newTapDisabled, pauseEnabled, cancelEnabled } = buttonRule({
+            isDetecting: detecting,
+            isDetectionPaused: paused,
+            isMeasurementComplete: material ? matPhase === 'complete' : captured != null,
+            fftIsRunning: running,
+            displayModeIsComparison: comparison != null,
+            measurementType: material ? (brace ? 'brace' : 'plate') : 'classical',
+            materialTapPhase: matPhase,
+            currentTapCount: progress.collected,
+            numberOfTaps,
+          })
           return (
             // No-wrap group so the trio never splits across rows, and each button has a fixed
             // min-width so relabeling (Pause→Resume, Cancel→Redo) can't change widths and reflow

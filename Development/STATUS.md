@@ -12,7 +12,7 @@ _Last updated: 2026-07-08._
 
 | # | Item | Status | Detail doc |
 |---|---|---|---|
-| 1 | **Task 3 / 6-TEST** — cross-platform test-suite normalization (major) | **In progress** — Phase 1 done; **Phase 2 structural moves done** (web files renamed to Swift spine + Python material split; web 144 · Python 376 green). Next: Phase 3 backfill + per-file name alignment | [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) (plan) · [PHASE6-PARITY.md](PHASE6-PARITY.md) § 6-TEST |
+| 1 | **Task 3 / 6-TEST** — cross-platform test-suite normalization (major) | **In progress** — Phases 1-2 done; **Phase 3 underway**: `TapSession` state machine + 5 behavioral suites built; **PC-1 (Cancel = restart, New Tap only when complete) code-complete + verified all 3** (Swift 317 · Python 378 · web 179 + build), **uncommitted, validation pending**. Next: PC-1 docs + run-review → PC-2/3/4 → `TapSession` state-ownership consolidation | [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) (plan + PC-1..4) · [PHASE6-PARITY.md](PHASE6-PARITY.md) § 6-TEST |
 | 2 | **Architectural-parity restructure** (view layer) | Planned post-review — needs its own spec before any code moves | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
 | 3 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes) | [THEME-SPEC.md](THEME-SPEC.md) |
 
@@ -42,7 +42,7 @@ cleanup). The Material Results phased display shipped 2026-07-08.
 | Doc | Purpose |
 |---|---|
 | [PHASE6-PARITY.md](PHASE6-PARITY.md) | Phase 6 parity backlog — all done **except § 6-TEST** |
-| [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) | 6-TEST analysis + coverage matrix + phased plan (Phase 1, awaiting review) |
+| [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) | 6-TEST analysis + coverage matrix + phased plan + PC-1..4 parity cleanup (Phase 3 in progress) |
 | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) | view-layer restructure — raw material; spec still to be written |
 | [THEME-SPEC.md](THEME-SPEC.md) | Light/Dark/System theme spec — blocked on § 8 |
 | [LOG-FREQ-REMOVAL.md](LOG-FREQ-REMOVAL.md) | remove the dead log-frequency axis — ✅ done 2026-07-08 (B1) |
