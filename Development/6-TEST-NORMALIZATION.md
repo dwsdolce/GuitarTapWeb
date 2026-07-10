@@ -18,20 +18,20 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
 - **Remaining Phase 2:** tag/place the still-untagged web files (`g0-wav`, `g3a-calibration`,
   `calibration-store`, `analysis-quality`, `g6/g7/g8/g9`) — these are the reverse-gap behaviors handled with
   Swift/Python in Phase 4; and per-file internal name alignment (Phase 3).
-- **Phase 3 (2026-07-09) — behavioral backfill + restructure, IN PROGRESS, UNCOMMITTED:**
+- **Phase 3 (2026-07-09) — behavioral backfill + parity cleanup, PC-1..PC-4 DONE + COMMITTED:**
   - Built web `src/state/tapSession.ts` (the web's TapToneAnalyzer-equivalent lifecycle state machine) +
     ported the 5 behavioral suites (button-enablement, state-invariants, scenario-trace, start-tap-race,
-    measurement-complete); extracted `src/state/buttonEnablement.ts` and wired it into `App.tsx`.
+    measurement-complete); extracted `src/state/buttonEnablement.ts`.
   - Discovery during that wiring surfaced **PC-1** (the Cancel-behavior parity bug) + PC-2/3/4; see the
-    "Parity cleanup" section. After a long design dialogue, the finalized rule was locked (see PC-1).
-  - **PC-1 CODE-COMPLETE + VERIFIED ALL 3 (uncommitted):** Swift 317 · Python 378 · web 179 + build. `cancel*`
-    re-arms via `start*TapSequence` everywhere; button rule → New Tap disabled ⟺ !complete, Cancel = review OR
-    active-multi-step, Pause unchanged; B-series B1-B12; scenario S4 + measurement-complete cancel updated to
-    re-arm. Web `App.tsx` `cancelTap` re-arms; button mapping dropped the `||cancelled` term.
-  - **NEXT:** PC-1 docs (web Quick-Start + shared manual) + **user run-review all 3** → PC-2 (statusMessage) /
-    PC-3 (instructionMessage) / PC-4 (web config-reset) → the full TapSession state-ownership consolidation
-    (`useSyncExternalStore`; App reads isMeasurementComplete/currentTapCount/isDetecting from the session) →
-    remaining pure gaps (frozen-peak-recalc, annotation-state guitar, import-persistence).
+    "Parity cleanup" section, where each is annotated with its shipped outcome. All validated by the user
+    (run-review) and committed 2026-07-09. Also surfaced **EG-1** (still open) — see the EG section.
+  - **NEXT = the TapSession state-ownership consolidation itself:** wire `src/state/tapSession.ts` into
+    `App.tsx` via `useSyncExternalStore` so App reads `isMeasurementComplete`/`currentTapCount`/`statusMessage`
+    from the session (owned imperatively, like Swift/Python) instead of deriving from engineState/matPhase/
+    progress — collapses the two-branch rules (tapsLocked, sbProgress) and structurally kills the
+    derived-value-went-stale bug class (PC-2/PC-4). Then remaining pure gaps (frozen-peak-recalc,
+    annotation-state guitar, import-persistence) + the orphan test back-ports (§2). PC-1 docs (web Quick-Start
+    + shared manual) still pending — slot in anytime. **Maintain @parity tags + regen PARITY-MAP.md on every change.**
 
 ## Goal
 
@@ -232,6 +232,10 @@ Surfaced by side-by-side platform testing during the Phase-3 `TapSession` consol
 three (improvements-go-to-all-three), Swift-master, pinning the testable pieces. Canonical = Swift **except
 PC-1, where the current Swift/Python/web behavior is itself wrong**.
 
+> **✅ PC-1..PC-4 ALL DONE + validated + committed (2026-07-09).** Each item below is annotated with its
+> shipped outcome (a couple shipped narrower than first planned — PC-3 Python-only, PC-4 web-only). **EG-1
+> (below) is the one discovered item still OPEN.** Next milestone = the `TapSession` consolidation itself.
+
 - **PC-1 — Cancel must behave like New Tap (WRONG on all 3).** Today all three *end* the sequence on Cancel:
   they require a New Tap press, show "Cancelled — press New Tap to start again", and Swift/Python show
   "Tap Detected!" + keep the last peaks while the web shows "Waiting for tap" + clears them. **Correct
@@ -254,16 +258,39 @@ PC-1, where the current Swift/Python/web behavior is itself wrong**.
     single-tap, for setting the threshold without capturing).
   - **Brace has no review/accept phase** — it auto-completes like guitar (single or multi-tap). Only plate
     is multi-phase.
+  - **✅ DONE + committed (all 3, 2026-07-09).** `cancel*` re-arms via `start*TapSequence`; button rule as
+    locked above (B1–B12 incl. brace B11/B12; S4 postCancel re-armed; measurement-complete cancel re-arms +
+    clears frozen). Swift 317 · Python 378 · web 179. Plus the **web fallout PC-1 exposed** (all committed):
+    unified arming `armForCurrentType()` (switch-to-material + launch-in-material no longer strand in a dead
+    notStarted gate); status bar rests at "Tap the guitar…" + brace "Tap X/N"; taps-lock = `currentTapCount>0
+    && !complete`.
 - **PC-2 — Status-bar text on completion.** Multi-tap completion: Swift/Python "Tap Detected!" vs web
   "Waiting for tap…". Target: Swift's "Tap Detected!" on web. Extract a pure `statusMessage(state)`
   mirroring Swift → new `test/status-message`.
+  - **✅ DONE + committed (web, 2026-07-09).** Extracted `src/state/statusMessage.ts` (`statusMessage(state)` +
+    `detectLabel`); "Tap Detected!" persists on completion; startup → "Tap the guitar to begin"; file playback →
+    "File: L complete, capturing C…"; dropped non-canonical web strings (Requesting-mic / Playing / Comparing /
+    mic-error — native uses initial-message / phase-messages / panels / modal). Removed dead `cancelled` flag.
+    `test/status-message` (21 tests). Symbol-tagged canonical anchors → `state/status-message` + `state/tap-session`
+    + `state/button-enablement` now 3-way @parity groups.
 - **PC-3 — Instruction text on New Tap (multi-tap material + generic).** Swift "Tap the guitar N times /
   Tap 0/N"; Python adds "Phase 1/1"; web "Ready for fL tap (×N)". Normalize to Swift on Python + web via a
   pure `instructionMessage(state)`. **Confirm** whether Swift's "guitar" wording is intentional for a brace
   before mirroring it.
+  - **✅ DONE + committed (Python-only, 2026-07-09).** Collapsed to one Python fix: `_plate_step_label` brace →
+    guitar-style "Tap X/N" (was "Phase 1/1"). **Web + Swift were already canonical** — web instruction panel
+    already hides Phase for brace and PC-2 fixed its status bar; the instruction *text* is already pure/verbatim
+    everywhere (web `MaterialInstructionPanel`, Python `MaterialTapPhase.instruction`). No `instructionMessage`
+    extraction needed. Confirmed "Tap the guitar…" wording is intentional for brace (canonical, from PC-2).
 - **PC-4 — Web reset bug on config change (web-only).** 3-tap brace → switch to Generic → set Taps = 1:
   the web stays in multi-tap mode until New Tap is pressed. A measurement-type / tap-count change must reset
   the sequence immediately. Fix via the session's config-change reset; add a test.
+  - **✅ DONE + committed (web-only + Swift map regen, 2026-07-09).** Real symptom: the derived status prompt
+    stuck at "Tap the guitar 4 times…" (unresettable — New Tap disabled-until-complete). Fix: `engine.setConfig`
+    re-fires `onProgress(collected, newTotal)` when numberOfTaps changes while armed (listening/paused); guarded
+    vs mid-capture/idle. `test/tap-count-change` (5 tests, headless engine). **Python/Swift needed NO change** —
+    they own `statusMessage` imperatively and already update the prompt on tap-count change (Swift
+    `numberOfTaps.didSet`, Python `set_tap_num`). Purely the web's derived-value gap.
 
 These are the payoff of the consolidation: PC-1 and PC-2/PC-4 ride directly on `TapSession` owning the
 lifecycle state; PC-3 is message normalization. All get fixed canonically, in one place, with tests.
@@ -291,10 +318,26 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
 - **Phase 2 — Web rewrite to the Swift spine (naming only).** Rename web `g#-*.test.ts` → behavior-slug
   filenames; align `describe`/`it` names to the Swift suite/test names for suites that already exist on
   web; add `@parity` markers. No coverage change. Verify: web suite still green.
-- **Phase 3 — Backfill web behavioral gaps.** Add the missing suites to web, one at a time, each mirrored
-  from its Swift/Python twin and driven by the same goldens: measurement-complete, state-invariants,
-  scenario-trace, start-tap-race, button-enablement, frozen-peak-recalc, annotation-state (guitar path),
-  import-persistence (library append).
+- **Phase 3 — Backfill web behavioral gaps + parity cleanup + state consolidation.** Sub-steps (each verified:
+  web suite green + parity map regenerated + `--check`):
+  - **3a — `TapSession` + 5 behavioral suites** — ✅ DONE + committed (2026-07-09). Built `src/state/tapSession.ts`
+    + `src/state/buttonEnablement.ts` (pure, testable); ported button-enablement, state-invariants, scenario-trace,
+    start-tap-race, measurement-complete from their Swift/Python twins, driven by the same goldens.
+  - **3b — Parity cleanup PC-1..PC-4** — ✅ DONE + validated + committed (2026-07-09). Surfaced during 3a's
+    side-by-side testing; see the "Parity cleanup" section above for each item's *shipped* outcome (PC-1 Cancel=restart
+    + button rule all 3 + web fallout; PC-2 web `statusMessage.ts`; PC-3 Python brace "Tap X/N"; PC-4 web `setConfig`
+    progress re-fire).
+  - **3c — `TapSession` state-ownership consolidation** — ⬜ **NEXT (needs a spec first).** Wire `tapSession.ts` into
+    `App.tsx` via `useSyncExternalStore` so App *reads* `isMeasurementComplete`/`currentTapCount`/`statusMessage` from
+    the session (owned imperatively, like Swift/Python) instead of deriving them from engineState/matPhase/progress;
+    move averaging up from the engine. Collapses the two-branch rules (`tapsLocked`, `sbProgress`) into one and
+    structurally kills the derived-value-went-stale bug class (PC-2/PC-4). **Draft `TAPSESSION-CONSOLIDATION.md`,
+    review, then implement** (largest/most-architectural step — no code before the spec is reviewed).
+  - **3d — Remaining pure-gap suites** — ⬜ TODO. The originally-listed backfill items not yet built:
+    frozen-peak-recalc, annotation-state (guitar path), import-persistence (library append). Independent of 3c.
+  - **3e — EG-1 (engine empty / no-peak failure path)** — ⬜ OPEN. Web-only engine-parity fix; see the EG section.
+  - **PC-1 docs** (web Quick-Start + shared manual: Cancel-as-restart, New-Tap-only-when-complete) — ⬜ pending, slot
+    in anytime.
 - **Phase 4 — Back-port web-only tests to Swift + Python.** calibration parse/interp, analysis-quality
   bands, and any measurement-bridge/provenance checks not already folded — as named suites matching the
   Swift convention.
