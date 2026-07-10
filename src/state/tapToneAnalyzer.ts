@@ -131,6 +131,81 @@ export class TapToneAnalyzer {
     this.frozenFrequencies = snapshot.frequencies
     this.isMeasurementComplete = true
   }
+
+  // ── React external-store seam (D2: immutable snapshot) ─────────────────────
+  // App subscribes via useSyncExternalStore(subscribe, getSnapshot). getSnapshot returns a frozen
+  // snapshot that is referentially stable until a mutation calls notify() (Object.is short-circuits
+  // React). Only the audio-driven setters below notify — the direct-field transitions above are used
+  // by the unit tests (which don't subscribe), and by later 3c phases which will route through here.
+  private listeners = new Set<() => void>()
+  private cachedSnapshot: TapToneSnapshot | null = null
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  getSnapshot = (): TapToneSnapshot => {
+    if (this.cachedSnapshot === null) {
+      this.cachedSnapshot = Object.freeze({
+        isDetecting: this.isDetecting,
+        isDetectionPaused: this.isDetectionPaused,
+        isMeasurementComplete: this.isMeasurementComplete,
+        currentTapCount: this.currentTapCount,
+        numberOfTaps: this.numberOfTaps,
+        materialTapPhase: this.materialTapPhase,
+        measurementType: this.measurementType,
+        isGuitar: this.isGuitar,
+      })
+    }
+    return this.cachedSnapshot
+  }
+
+  private notify(): void {
+    this.cachedSnapshot = null
+    this.listeners.forEach((l) => l())
+  }
+
+  // ── Audio-device-driven setters (the RealtimeFFTAnalyzer drives these; each notifies) ──────────
+  setNumberOfTaps(n: number): void {
+    this.numberOfTaps = n
+    this.notify()
+  }
+
+  setCurrentTapCount(n: number): void {
+    this.currentTapCount = n
+    this.notify()
+  }
+
+  setDetecting(detecting: boolean, paused: boolean): void {
+    this.isDetecting = detecting
+    this.isDetectionPaused = paused
+    this.notify()
+  }
+
+  setComplete(v: boolean): void {
+    this.isMeasurementComplete = v // uses the didSet (clears the loaded-settings warning)
+    this.notify()
+  }
+
+  setMeasurementTypeAndNotify(t: MeasurementType): void {
+    this.measurementType = t
+    this.notify()
+  }
+}
+
+/** Immutable view of the lifecycle facts App reads via useSyncExternalStore. */
+export interface TapToneSnapshot {
+  isDetecting: boolean
+  isDetectionPaused: boolean
+  isMeasurementComplete: boolean
+  currentTapCount: number
+  numberOfTaps: number
+  materialTapPhase: MaterialTapPhase
+  measurementType: MeasurementType
+  isGuitar: boolean
 }
 
 /**

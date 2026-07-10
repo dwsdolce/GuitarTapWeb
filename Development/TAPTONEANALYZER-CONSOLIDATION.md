@@ -138,12 +138,19 @@ analyzer + device and returns `useSyncExternalStore(analyzer.subscribe, analyzer
   suites); `@parity` slug `state/tap-session` → `state/tap-tone-analyzer` on the web file **and** the Swift +
   Python canonical anchors; map regenerated (63 groups, slug still 3-way). tsc clean · 205 tests. No behavior
   (analyzer still unwired — unit-tests only), so no run-review needed.
-- **3c-A — Wire `TapToneAnalyzer` as the state store (guitar path); device still drives via callbacks.** Add
-  subscribe/getSnapshot/notify + thin device-driven setters. Construct one analyzer in `useTapToneAnalyzer()`.
-  Route the device's `onProgress`/`onCapture`/`onState` → analyzer transitions. Replace App's guitar-path reads
-  (`captured != null`, `progress.collected`, `numberOfTaps`, engineState-as-isDetecting) in
-  `buttonRule`/`statusMessage`/`sbProgress`/`sbComplete` with `analyzer.*`. `changeTaps` → `analyzer.setNumberOfTaps`.
-  **Retires the PC-4 class.** (Device still averages for now; hands the result to a transition.)
+- **3c-A — Introduce the store + migrate the count facts** — ✅ DONE (2026-07-10). Split from the broader
+  original 3c-A because the derived rules are shared with the material path; the counts are the safe,
+  value-preserving first slice. Added the immutable-snapshot store seam (`subscribe`/`getSnapshot`/`notify` +
+  device-driven setters) to `TapToneAnalyzer`, a `useTapToneAnalyzer()` hook (useSyncExternalStore), and moved
+  **`numberOfTaps` + `currentTapCount`** onto the analyzer as the single source: the device's `onProgress`
+  drives `setCurrentTapCount` (the `progress` React state is removed); `changeTaps`/load drive
+  `setNumberOfTaps`; the derived rules (`tapsLocked`, `sbProgress`, `buttonRule`, `statusMessage`) read the
+  analyzer. **Retires the PC-4 class at the source** (no more `numberOfTaps` vs `progress.total` split). tsc ·
+  205 tests · build green. Run-review pending.
+- **3c-A2 — Migrate completion + detection facts.** Move `isMeasurementComplete` (guitar `captured != null`)
+  and `isDetecting`/`isDetectionPaused` (engineState) onto the analyzer, driven by `onGuitarCapture`/`newTap`
+  + `onState`; switch `sbComplete`/`buttonRule`/`statusMessage` to read them. (Material completion/detection
+  lands with 3c-B.)
 - **3c-B — Absorb the material phase machine into `TapToneAnalyzer`.** Move `matPhase` +
   `start/accept/redo/record/reset/restore` in (the `materialTapPhase` field already exists). Delete
   `useMaterialSession`; App reads `analyzer.materialTapPhase`.

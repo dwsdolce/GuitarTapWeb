@@ -17,9 +17,11 @@ _Last updated: 2026-07-09._
 | 3 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes) | [THEME-SPEC.md](THEME-SPEC.md) |
 
 Notes:
-- **Engine-parity gap EG-1 (web-only, found during PC-2):** the web gated capture has no empty/no-peak
-  failure path — a material tap with no resonance is silently accepted with a null peak instead of re-arming
-  + "No signal/resonance detected — tap again" like Swift/Python. Tracked in [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) § EG-1.
+- **Parity gaps EG-1 / EG-2 (web-only, tracked in [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) § EG):**
+  **EG-1** — the web gated capture has no empty/no-peak failure path (a no-resonance material tap is silently
+  accepted with a null peak instead of re-arming + "No signal/resonance detected — tap again"); EG-1 folds
+  into the 3c consolidation (3c-C). **EG-2** — material mode never shows the LIVE spectrum during capture
+  (guitar does; the material chart paints only captured phases), pre-existing view gap; fix separately.
 - The doc review's deferred `signal.ts` two-tone helper (item 4 of the `@parity`
   tail) **folds into #1** — it's a test-only helper reviewed with the parity tests.
 - Of the three: **#1** can start now; **#2** needs a spec written first; **#3**

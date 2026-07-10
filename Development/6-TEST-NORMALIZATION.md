@@ -309,6 +309,15 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
   failure branch to the engine (re-arm + surface the state); the two status strings then fall out of PC-2's
   `statusMessage(state)` table for free. **Not folded into PC-2** (the state doesn't exist to trigger them).
 
+- **EG-2 — Material mode shows no LIVE spectrum during capture (web-only view gap; surfaced during 3c-A
+  run-review, but pre-existing — NOT a 3c-A regression).** Guitar renders `displaySpectrum = captured ??
+  liveSpectrum` (App.tsx:616), so the chart updates live while waiting. Material renders `spectrum={null}` +
+  `overlays={matOverlays}` (App.tsx:1170/617), and `matOverlays` contains only the *captured* phase spectra —
+  `liveSpectrum` is never fed to the material chart. So while a plate/brace phase waits for a tap the chart is
+  static (last captured curve or empty), whereas Swift/Python paint the live signal during material capture.
+  Fix = feed `liveSpectrum` into the material chart (a live overlay, or clear + show live until a phase
+  captures), matching the guitar path. Separate item; do NOT fold into the consolidation phases.
+
 ## Plan — one phase at a time, each reviewed then verified (run the suite) before the next
 
 - **Phase 1 — Analysis + name map (THIS DOC).** Coverage matrix + canonical naming convention. *For review.*

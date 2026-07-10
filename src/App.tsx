@@ -44,6 +44,7 @@ import {
 } from './components/icons'
 import { buttonRule } from './state/buttonEnablement'
 import { statusMessage, detectLabel } from './state/statusMessage'
+import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
@@ -171,7 +172,12 @@ export default function App() {
   // Owned here (shared handle); the audio engine hook resolves + writes it.
   const calibrationRef = useRef<Calibration | null>(null)
 
-  const [numberOfTaps, setNumberOfTaps] = useState(1)
+  // The lifecycle-state owner (mirrors Swift/Python TapToneAnalyzer). App reads its immutable snapshot
+  // via useSyncExternalStore; the device + the handlers below drive it. 6-TEST 3c-A migrates the two
+  // count facts here (numberOfTaps, currentTapCount); completion/detection + material follow in 3c-A2/B.
+  const { analyzer, snapshot } = useTapToneAnalyzer()
+  const numberOfTaps = snapshot.numberOfTaps
+  const currentTapCount = snapshot.currentTapCount
   // Per-tap spectra from a multi-tap capture (or loaded measurement) + the comparison toggle.
   const [tapSpectra, setTapSpectra] = useState<Spectrum[]>([])
   const [showMultiTap, setShowMultiTap] = useState(false)
@@ -369,7 +375,6 @@ export default function App() {
     activeCalId,
     clipping,
     deviceChanging,
-    progress,
     engineMetrics,
     decayTime,
     pauseTap,
@@ -380,7 +385,7 @@ export default function App() {
     onSelectCalibration,
     onDeleteCalibration,
     retry,
-  } = useAudioEngine({ engineRef, calibrationRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onGuitarCapture, onMaterialCapture: recordCapture, onSessionAudio, onStarted: armForCurrentType })
+  } = useAudioEngine({ engineRef, calibrationRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onGuitarCapture, onMaterialCapture: recordCapture, onSessionAudio, onStarted: armForCurrentType, analyzer })
 
   // Play a recorded WAV through the live pipeline (Swift openAudioFile/startFromFile). Resets the
   // view like New Tap, applies an optional calibration for the playback, then pumps. Guitar arms a
@@ -448,7 +453,7 @@ export default function App() {
 
   const changeTaps = useCallback((n: number) => {
     const v = Math.max(1, Math.min(10, n))
-    setNumberOfTaps(v)
+    analyzer.setNumberOfTaps(v)
     engineRef.current?.setConfig({ numberOfTaps: v })
     setShowLoadedSettings(false) // user changed Taps → the loaded-settings banner no longer applies
   }, [])
@@ -478,9 +483,9 @@ export default function App() {
   const tapsLocked = material
     ? matPhase !== 'notStarted' &&
       matPhase !== 'complete' &&
-      !(matPhase === 'capturingL' && progress.collected === 0)
+      !(matPhase === 'capturingL' && currentTapCount === 0)
     : engineState === 'capturing' ||
-      ((engineState === 'listening' || engineState === 'paused') && progress.collected > 0)
+      ((engineState === 'listening' || engineState === 'paused') && currentTapCount > 0)
 
   // Live-tap path: re-analyze the frozen spectrum as Peak Min / guitar type change.
   // Loaded-measurement path: the saved peaks are authoritative — only filter them by
@@ -682,12 +687,12 @@ export default function App() {
       const step = matPhase.startsWith('capturingC') ? 2 : matPhase.startsWith('capturingFlc') ? 3 : 1
       // Brace uses the guitar-style tap counter (single OR multi-tap), like Swift's brace
       // phaseLabel = "Tap currentTapCount/numberOfTaps". Plate uses the phase counter instead.
-      if (brace) return `Tap ${progress.collected}/${numberOfTaps}`
-      const tapPart = numberOfTaps > 1 ? ` · Tap ${progress.collected}/${numberOfTaps}` : ''
+      if (brace) return `Tap ${currentTapCount}/${numberOfTaps}`
+      const tapPart = numberOfTaps > 1 ? ` · Tap ${currentTapCount}/${numberOfTaps}` : ''
       return `Phase ${step}/${settings.measureFlc ? 3 : 2}${tapPart}`
     }
     if (!material && sbDetecting && numberOfTaps > 1) {
-      return `Tap ${Math.min(progress.collected + (engineState === 'capturing' ? 1 : 0), numberOfTaps)}/${numberOfTaps}`
+      return `Tap ${Math.min(currentTapCount + (engineState === 'capturing' ? 1 : 0), numberOfTaps)}/${numberOfTaps}`
     }
     return ''
   })()
@@ -796,7 +801,7 @@ export default function App() {
         setLoadedName(m.measurementName ?? null)
         {
           const loadedTaps = m.numberOfTaps ?? 1
-          setNumberOfTaps(loadedTaps)
+          analyzer.setNumberOfTaps(loadedTaps)
           engineRef.current?.setConfig({ numberOfTaps: loadedTaps })
           setShowLoadedSettings(true)
         }
@@ -835,7 +840,7 @@ export default function App() {
       // Restore the measurement's Taps and show the loaded-settings banner (Swift parity).
       {
         const loadedTaps = m.numberOfTaps ?? 1
-        setNumberOfTaps(loadedTaps)
+        analyzer.setNumberOfTaps(loadedTaps)
         engineRef.current?.setConfig({ numberOfTaps: loadedTaps })
         setShowLoadedSettings(true)
       }
@@ -1118,7 +1123,7 @@ export default function App() {
             displayModeIsComparison: comparison != null,
             measurementType: material ? (brace ? 'brace' : 'plate') : 'classical',
             materialTapPhase: matPhase,
-            currentTapCount: progress.collected,
+            currentTapCount: currentTapCount,
             numberOfTaps,
           })
           return (
@@ -1380,7 +1385,7 @@ export default function App() {
             brace,
             measureFlc: settings.measureFlc,
             matPhase,
-            progress,
+            progress: { collected: currentTapCount, total: numberOfTaps },
             matPeaks,
             guitarPeakCount: displayPeaks.length,
             hasCapture: captured != null,

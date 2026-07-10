@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { AudioEngine, type EngineState, type EngineMetrics, type MaterialCaptureResult } from '../audio/engine'
+import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { Calibration } from '../dsp/calibration'
 import {
@@ -44,6 +45,8 @@ interface UseAudioEngineArgs {
   /** Engine came up — App arms a fresh sequence for the current measurement type (the web's
    *  start() → startTapSequence() branch: guitar arms, plate/brace start the phase machine). STABLE. */
   onStarted: () => void
+  /** The lifecycle-state owner. The device drives `currentTapCount` on it via onProgress (6-TEST 3c-A). */
+  analyzer: TapToneAnalyzer
 }
 
 export interface AudioEngineModel {
@@ -65,8 +68,6 @@ export interface AudioEngineModel {
   activeCalId: string | null
   clipping: boolean
   deviceChanging: boolean
-  progress: { collected: number; total: number }
-  setProgress: (p: { collected: number; total: number }) => void
   engineMetrics: EngineMetrics | null
   /** Live ring-out (decay) time in seconds, or null — for the Analysis Results panel. */
   decayTime: number | null
@@ -91,6 +92,7 @@ export function useAudioEngine({
   onMaterialCapture,
   onSessionAudio,
   onStarted,
+  analyzer,
   dumpCaptureRef,
 }: UseAudioEngineArgs): AudioEngineModel {
   const [running, setRunning] = useState(false)
@@ -111,7 +113,6 @@ export function useAudioEngine({
   // set on an automatic hardware change and cleared shortly after.
   const [deviceChanging, setDeviceChanging] = useState(false)
   const deviceChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [progress, setProgress] = useState({ collected: 0, total: 1 })
   const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
   const [decayTime, setDecayTime] = useState<number | null>(null)
 
@@ -200,7 +201,9 @@ export function useAudioEngine({
         onCapture: onGuitarCapture,
         onState: setEngineState,
         onClipping: setClipping,
-        onProgress: (collected, total) => setProgress({ collected, total }),
+        // The device reports per-sequence/per-phase tap progress; the analyzer owns currentTapCount
+        // (numberOfTaps is set separately via changeTaps → analyzer.setNumberOfTaps). 6-TEST 3c-A.
+        onProgress: (collected) => analyzer.setCurrentTapCount(collected),
         onMetrics: setEngineMetrics,
         onMaterialCapture,
         onSessionAudio,
@@ -274,8 +277,6 @@ export function useAudioEngine({
     activeCalId,
     clipping,
     deviceChanging,
-    progress,
-    setProgress,
     engineMetrics,
     decayTime,
     retry: start,
