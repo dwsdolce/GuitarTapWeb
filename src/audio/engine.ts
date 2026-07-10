@@ -245,7 +245,17 @@ export class AudioEngine {
   }
 
   setConfig(config: Partial<AudioEngineConfig>): void {
+    const prevTaps = this.config.numberOfTaps
     this.config = { ...this.config, ...config }
+    // A tap-count change while armed and waiting must immediately refresh the progress display so
+    // the status prompt ("Tap the guitar N times…") tracks the new count without needing a re-arm
+    // (New Tap is disabled until complete). Mirrors Swift numberOfTaps.didSet updating the prompt.
+    // Skipped mid-capture and when idle: the stepper is locked once a tap is captured, and on load
+    // the result is frozen (setConfig(loadedTaps) runs while idle).
+    if (this.config.numberOfTaps !== prevTaps && (this.state === 'listening' || this.state === 'paused')) {
+      const collected = this.captureKind === 'material' ? this.materialCollected.length : this.collected.length
+      this.callbacks.onProgress?.(collected, this.config.numberOfTaps)
+    }
   }
 
   /** Set (or clear) the active mic calibration for the continuous + guitar-capture paths.

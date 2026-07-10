@@ -207,6 +207,7 @@ brace/plate **physics** (currently untagged `g4b-material`) is what `test/brace`
 | g3d-guitar | guitar Air/Top/Back playback (REG-G) | fold → `test/file-playback` | already covered by Swift/Python file-playback |
 | g6-measurement-bridge, g7-measurement-4c, g8-material-load, g9-multitap | live↔model bridge, provenance warning, material load, multi-tap entries/PDF | **reconcile** | check whether Swift/Python cover these under existing suites (loadMeasurement paths, Codable, Comparison) before adding named suites |
 | status-message *(new, PC-2)* | canonical `statusMessage(state)` strings per state | `test/status-message` | **add** — Swift/Python cover statusMessage only indirectly (scenario-trace); back-port a dedicated suite so the slug is 3-way. Web currently the only tagger (orphan). |
+| tap-count-change *(new, PC-4)* | config-change re-fires progress with the new tap total (prompt tracks Taps immediately) | `test/tap-count-change` | **add** — Swift does this reactively via numberOfTaps.didSet (no unit test); back-port an assertion that the prompt/label updates on a tap-count change. Web-only tagger (orphan). |
 
 ### 3. impl→test links to populate (`tests=`, Phase 5)
 Every production `@parity` group gets a `tests=` pointing at its evidence group(s). Confirmed examples that
