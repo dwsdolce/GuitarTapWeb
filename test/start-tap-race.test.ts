@@ -6,10 +6,10 @@
 // complete) state. The web state machine is synchronous, so there is no
 // deferred housekeeping to clobber — these pin the same end states.
 import { describe, it, expect } from 'vitest'
-import { TapSession, type CapturedTap } from '../src/state/tapSession'
+import { TapToneAnalyzer, type CapturedTap } from '../src/state/tapToneAnalyzer'
 
-function makeSUT(numberOfTaps = 1): TapSession {
-  const s = new TapSession()
+function makeSUT(numberOfTaps = 1): TapToneAnalyzer {
+  const s = new TapToneAnalyzer()
   s.numberOfTaps = numberOfTaps
   s.measurementType = 'classical'
   return s

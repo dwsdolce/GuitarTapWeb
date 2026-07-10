@@ -5,10 +5,10 @@
 // mirroring the canonical analyzers exactly.
 //
 // State fields mirror the analyzer's published vars; transitions mirror its
-// methods. The React hooks own a TapSession and mirror its fields into render
-// state, delegating every transition to it.
+// methods. The React hooks own a TapToneAnalyzer and mirror its fields into
+// render state, delegating every transition to it.
 //
-// @parity state/tap-session  tests=test/state-invariants,test/scenario-trace,test/start-tap-race,test/measurement-complete
+// @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/start-tap-race,test/measurement-complete
 import { averageSpectra } from '../dsp/spectrumAverage'
 import { computeGatedFFT } from '../dsp/gatedFFT'
 import type { Spectrum } from '../dsp/guitarFFT'
@@ -39,7 +39,7 @@ export interface CapturedTap {
   captureTime: number
 }
 
-export class TapSession {
+export class TapToneAnalyzer {
   // ── Published-equivalent state (settable; the audio layer / tests mutate these directly) ──
   isDetecting = false
   isDetectionPaused = false
@@ -138,7 +138,7 @@ export class TapSession {
  * Returns null when all hold, or a string describing the first violation.
  * Mirrors Swift `stateInvariantViolation` (I1–I6).
  */
-export function stateInvariantViolation(s: TapSession): string | null {
+export function stateInvariantViolation(s: TapToneAnalyzer): string | null {
   const isGuitar = s.isGuitar
 
   // I1: guitar mode — isDetecting && isMeasurementComplete is illegal.

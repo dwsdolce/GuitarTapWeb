@@ -3,10 +3,10 @@
 // tests/test_state_invariants.py: the load-bearing state-machine invariants
 // (I1–I6) that must hold after any sequence of operations.
 import { describe, it, expect } from 'vitest'
-import { TapSession, stateInvariantViolation, type CapturedTap } from '../src/state/tapSession'
+import { TapToneAnalyzer, stateInvariantViolation, type CapturedTap } from '../src/state/tapToneAnalyzer'
 
-function makeSUT(numberOfTaps = 1): TapSession {
-  const s = new TapSession()
+function makeSUT(numberOfTaps = 1): TapToneAnalyzer {
+  const s = new TapToneAnalyzer()
   s.numberOfTaps = numberOfTaps
   s.measurementType = 'classical' // guitar mode (Swift uses .generic)
   return s

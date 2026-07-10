@@ -4,7 +4,7 @@
 // through end-to-end scenarios, not just the final outcome. The canonical
 // trace for each scenario is identical across all three platforms.
 import { describe, it, expect } from 'vitest'
-import { TapSession, type CapturedTap } from '../src/state/tapSession'
+import { TapToneAnalyzer, type CapturedTap } from '../src/state/tapToneAnalyzer'
 
 interface StateSnapshot {
   label: string
@@ -15,7 +15,7 @@ interface StateSnapshot {
   capturedTapsCount: number
 }
 
-function snap(label: string, s: TapSession): StateSnapshot {
+function snap(label: string, s: TapToneAnalyzer): StateSnapshot {
   return {
     label,
     isDetecting: s.isDetecting,
@@ -26,8 +26,8 @@ function snap(label: string, s: TapSession): StateSnapshot {
   }
 }
 
-function makeSUT(numberOfTaps = 1): TapSession {
-  const s = new TapSession()
+function makeSUT(numberOfTaps = 1): TapToneAnalyzer {
+  const s = new TapToneAnalyzer()
   s.numberOfTaps = numberOfTaps
   s.measurementType = 'classical'
   return s

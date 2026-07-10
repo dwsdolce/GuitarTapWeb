@@ -3,10 +3,10 @@
 // tests/test_measurement_complete_transitions.py: isMeasurementComplete must be
 // set true by every completion path and cleared/handled by every reset path.
 import { describe, it, expect } from 'vitest'
-import { TapSession, type CapturedTap } from '../src/state/tapSession'
+import { TapToneAnalyzer, type CapturedTap } from '../src/state/tapToneAnalyzer'
 
-function makeSUT(numberOfTaps = 1): TapSession {
-  const s = new TapSession()
+function makeSUT(numberOfTaps = 1): TapToneAnalyzer {
+  const s = new TapToneAnalyzer()
   s.numberOfTaps = numberOfTaps
   s.measurementType = 'classical'
   return s
