@@ -1,6 +1,6 @@
 // @parity view/main
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AudioEngine, type EngineState } from './audio/engine'
+import { AudioEngine } from './audio/engine'
 import { SpectrumChart } from './components/SpectrumChart'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
@@ -43,6 +43,7 @@ import {
   RefreshIcon,
 } from './components/icons'
 import { buttonRule } from './state/buttonEnablement'
+import { statusMessage, detectLabel } from './state/statusMessage'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
@@ -105,84 +106,6 @@ const MAT_FLC_COLOR = '#b07ad8'
 
 
 const isReviewing = (p: MatPhase) => p === 'reviewingL' || p === 'reviewingC' || p === 'reviewingFlc'
-
-// Bottom status-bar text — canonical `statusMessage` strings replicated verbatim from
-// Swift TapToneAnalyzer / Python tap_tone_analyzer. The detailed per-phase instructions
-// live in the MaterialInstructionPanel; the bar carries the short capture status.
-
-// Resting "waiting for a tap" prompt. Swift/Python show a phase-specific string only for the
-// instant before warm-up ends, then the detection loop overwrites it with this type-agnostic
-// prompt (TapToneAnalyzer+TapDetection warm-up exit). The web has no warm-up, so this is the
-// steady-state message for guitar AND every armed material phase — the phase-specific guidance
-// lives in the instruction panel, not the status bar.
-const tapPrompt = (total: number) => (total === 1 ? 'Tap the guitar...' : `Tap the guitar ${total} times...`)
-
-function guitarBarStatus(
-  state: EngineState,
-  progress: { collected: number; total: number },
-  peakCount: number,
-  hasCapture: boolean,
-): string {
-  const { collected, total } = progress
-  switch (state) {
-    case 'listening':
-      if (collected === 0) return tapPrompt(total)
-      return `Tap ${collected}/${total} captured. Tap again...`
-    case 'capturing': {
-      const prov = Math.min(collected + 1, total)
-      return prov < total ? `Tap ${prov}/${total} capturing...` : 'All taps captured. Processing...'
-    }
-    case 'paused':
-      return 'Detection paused – tap freely, then resume'
-    case 'idle':
-      return hasCapture ? `Analysis complete! ${peakCount} peaks identified (from ${total} averaged taps).` : ''
-  }
-}
-
-type MatBarPeaks = {
-  longitudinal: { frequency: number } | null
-  cross: { frequency: number } | null
-  flc: { frequency: number } | null
-}
-const fHz = (p: { frequency: number } | null) => (p ? p.frequency.toFixed(1) : '?')
-
-function materialBarStatus(
-  phase: MatPhase,
-  brace: boolean,
-  measureFlc: boolean,
-  progress: { collected: number; total: number },
-  peaks: MatBarPeaks,
-): string {
-  const { collected, total } = progress
-  switch (phase) {
-    case 'notStarted':
-      return '' // the instruction panel carries "Press 'New Tap' to Begin"
-    case 'capturingL':
-      // Armed and waiting: the resting message is the type-agnostic tap prompt (mirrors the
-      // canonical warm-up-exit override). Phase guidance ("Hold brace at 22%…") is in the panel.
-      if (collected === 0) return tapPrompt(total)
-      return `L tap ${collected}/${total} captured. Tap again...`
-    case 'reviewingL':
-      return `fL: ${fHz(peaks.longitudinal)} Hz — Accept to continue or Redo to re-tap`
-    case 'capturingC':
-      if (collected === 0) return tapPrompt(total)
-      return `C tap ${collected}/${total} captured. Tap again...`
-    case 'reviewingC':
-      return `fC: ${fHz(peaks.cross)} Hz — Accept to continue or Redo to re-tap`
-    case 'waitingForFlcTap':
-      // Detection is disarmed during the FLC-reposition cooldown, so no warm-up override fires —
-      // this phase keeps its specific prompt in canonical too.
-      return 'Set up for FLC tap, then tap'
-    case 'capturingFlc':
-      if (collected === 0) return tapPrompt(total)
-      return `FLC tap ${collected}/${total} captured. Tap again...`
-    case 'reviewingFlc':
-      return `fLC: ${fHz(peaks.flc)} Hz — Accept to complete or Redo to re-tap`
-    case 'complete':
-      if (!brace && !measureFlc) return `Complete — fL: ${fHz(peaks.longitudinal)} Hz, fC: ${fHz(peaks.cross)} Hz`
-      return 'Complete - check Results'
-  }
-}
 
 
 // "Dump Capture Audio" diagnostic: encode a captured buffer to a 32-bit-float WAV and silently
@@ -249,9 +172,6 @@ export default function App() {
   const calibrationRef = useRef<Calibration | null>(null)
 
   const [numberOfTaps, setNumberOfTaps] = useState(1)
-  // True after a Cancel until the next New Tap — drives the "Cancelled" status (mirrors
-  // Swift's "Cancelled — press New Tap to start again").
-  const [cancelled, setCancelled] = useState(false)
   // Per-tap spectra from a multi-tap capture (or loaded measurement) + the comparison toggle.
   const [tapSpectra, setTapSpectra] = useState<Spectrum[]>([])
   const [showMultiTap, setShowMultiTap] = useState(false)
@@ -487,7 +407,6 @@ export default function App() {
       setTapSpectra([])
       setShowMultiTap(false)
       setComparison(null)
-      setCancelled(false)
       comparisonRef.current = false
       setPlayingFileName(audio.name)
       if (isMaterialType(measRef.current)) {
@@ -523,7 +442,6 @@ export default function App() {
     setTapSpectra([])
     setShowMultiTap(false)
     setComparison(null)
-    setCancelled(false)
     comparisonRef.current = false // re-arm cleanly: don't absorb the next tap
     engineRef.current?.arm()
   }, [])
@@ -535,10 +453,9 @@ export default function App() {
     setShowLoadedSettings(false) // user changed Taps → the loaded-settings banner no longer applies
   }, [])
 
-  // New Tap in material mode: clear the cancelled flag + any dragged labels (Swift resets offsets on
-  // start), then start the phase machine (hooks/useMaterialSession).
+  // New Tap in material mode: clear any dragged labels (Swift resets offsets on start), then start
+  // the phase machine (hooks/useMaterialSession).
   const onMaterialNewTap = useCallback(() => {
-    setCancelled(false)
     setLoadedView(null) // new material measurement → drop the loaded transient range
     setShowLoadedSettings(false)
     resetLabelsRef.current()
@@ -1436,7 +1353,7 @@ export default function App() {
       <div className={`statusbar state-${engineState}`}>
         {/* LEFT — detection state: dot + Waiting/Detected + level (mirrors Swift order). */}
         <span className={`sb-state-dot${sbComplete ? ' complete' : ''}`} />
-        <span className="sb-detect">{engineState === 'capturing' ? 'Tap Detected!' : 'Waiting for tap...'}</span>
+        <span className="sb-detect">{detectLabel(sbComplete)}</span>
         <span className="sb-sep">•</span>
         {/* Swift: guitar shows peak magnitude here, material shows the input level. */}
         <span className="level">{(material ? level : (metrics.peakMagnitude ?? level)).toFixed(1)} dB</span>
@@ -1452,29 +1369,22 @@ export default function App() {
         )}
         <span className={`sb-active-dot${sbDetecting ? ' on' : ''}`} />
         <span className={`sb-msg${sbDetecting ? '' : ' idle'}`}>
-          {clipping
-            ? '⚠ Input clipping — reduce mic gain'
-            : deviceChanging
-            ? 'Audio device changed - reinitializing...'
-            : error
-            ? 'Microphone unavailable'
-            : !running
-            ? 'Requesting microphone…'
-            : playingFileName
-            ? `Playing ${playingFileName}…`
-            : comparison
-            ? `Comparing ${comparison.length} measurements`
-            : showMultiTap
-            ? `Tap comparison — ${tapSpectra.length} taps + averaged`
-            : cancelled && engineState === 'idle'
-            ? 'Cancelled — press New Tap to start again'
-            : loadedName && engineState === 'idle'
-            ? 'Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.'
-            : engineState === 'paused'
-            ? 'Detection paused – tap freely, then resume'
-            : material
-            ? materialBarStatus(matPhase, brace, settings.measureFlc, progress, matPeaks)
-            : guitarBarStatus(engineState, progress, displayPeaks.length, captured != null)}
+          {statusMessage({
+            clipping,
+            deviceChanging,
+            running,
+            playingFile: playingFileName != null,
+            engineState,
+            loadedName,
+            material,
+            brace,
+            measureFlc: settings.measureFlc,
+            matPhase,
+            progress,
+            matPeaks,
+            guitarPeakCount: displayPeaks.length,
+            hasCapture: captured != null,
+          })}
         </span>
         {sbProgress && <span className="sb-progress">{sbProgress}</span>}
       </div>

@@ -206,6 +206,7 @@ brace/plate **physics** (currently untagged `g4b-material`) is what `test/brace`
 | spectrum-average | power averaging | `test/spectrum-average` | Swift/Python fold into peaks; impl `dsp/spectrum-average` exists → split everywhere or document |
 | g3d-guitar | guitar Air/Top/Back playback (REG-G) | fold → `test/file-playback` | already covered by Swift/Python file-playback |
 | g6-measurement-bridge, g7-measurement-4c, g8-material-load, g9-multitap | live↔model bridge, provenance warning, material load, multi-tap entries/PDF | **reconcile** | check whether Swift/Python cover these under existing suites (loadMeasurement paths, Codable, Comparison) before adding named suites |
+| status-message *(new, PC-2)* | canonical `statusMessage(state)` strings per state | `test/status-message` | **add** — Swift/Python cover statusMessage only indirectly (scenario-trace); back-port a dedicated suite so the slug is 3-way. Web currently the only tagger (orphan). |
 
 ### 3. impl→test links to populate (`tests=`, Phase 5)
 Every production `@parity` group gets a `tests=` pointing at its evidence group(s). Confirmed examples that
@@ -265,6 +266,20 @@ PC-1, where the current Swift/Python/web behavior is itself wrong**.
 
 These are the payoff of the consolidation: PC-1 and PC-2/PC-4 ride directly on `TapSession` owning the
 lifecycle state; PC-3 is message normalization. All get fixed canonically, in one place, with tests.
+
+### Engine-parity gaps discovered during PC work (separate from the PC items)
+
+- **EG-1 — Web gated capture has no empty / no-peak failure path (web-only, discovered during PC-2).**
+  Swift/Python arm a gated capture on a level-crossing; if it times out with no samples, returns an empty
+  FFT, or `findDominantPeak` finds no peak, they set `statusMessage = "No signal detected — tap again"`
+  (or `"No resonance detected — tap again"` for the no-peak case) and **re-arm** for another tap
+  (`reEnableDetectionForNextPlateTap` / `scheduleGuitarReEnable`; SpectrumCapture.swift 429/481/537/576/871/935).
+  The web engine fills a **fixed-size** buffer and finishes when full — no timeout/empty case — and worse,
+  `findDominantPeak` at `engine.ts:887` can return **null** but the web passes the (possibly null) peak
+  straight to `onMaterialCapture` and treats the tap as successful. **Latent web bug:** a material tap that
+  produces no resonance is silently accepted instead of prompting "tap again." Fix = add the empty/no-peak
+  failure branch to the engine (re-arm + surface the state); the two status strings then fall out of PC-2's
+  `statusMessage(state)` table for free. **Not folded into PC-2** (the state doesn't exist to trigger them).
 
 ## Plan — one phase at a time, each reviewed then verified (run the suite) before the next
 

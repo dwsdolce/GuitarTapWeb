@@ -6,17 +6,20 @@ is either a detail doc for one of these items, living reference, or history —
 see the doc map at the bottom. Detail docs keep their own granular checkboxes;
 this file just points at them.
 
-_Last updated: 2026-07-08._
+_Last updated: 2026-07-09._
 
 ## Open work
 
 | # | Item | Status | Detail doc |
 |---|---|---|---|
-| 1 | **Task 3 / 6-TEST** — cross-platform test-suite normalization (major) | **In progress** — Phases 1-2 done; **Phase 3 underway**: `TapSession` state machine + 5 behavioral suites built; **PC-1 (Cancel = restart, New Tap only when complete) code-complete + verified all 3** (Swift 317 · Python 378 · web 179 + build), **uncommitted, validation pending**. Next: PC-1 docs + run-review → PC-2/3/4 → `TapSession` state-ownership consolidation | [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) (plan + PC-1..4) · [PHASE6-PARITY.md](PHASE6-PARITY.md) § 6-TEST |
+| 1 | **Task 3 / 6-TEST** — cross-platform test-suite normalization (major) | **In progress** — Phases 1-2 done; **Phase 3 underway**: `TapSession` + 5 behavioral suites built; **PC-1 (Cancel = restart, New Tap only when complete) DONE + validated + committed all 3** (2026-07-09; Swift 317 · Python 378 · web 179), incl. the web fallout it exposed (unified arming, "Tap the guitar…" status + brace counter, taps-lock rule). **Next: PC-2 (statusMessage)** → PC-3/4 → `TapSession` state-ownership consolidation (useSyncExternalStore); PC-1 docs pending | [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) (plan + PC-1..4) · [PHASE6-PARITY.md](PHASE6-PARITY.md) § 6-TEST |
 | 2 | **Architectural-parity restructure** (view layer) | Planned post-review — needs its own spec before any code moves | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
 | 3 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes) | [THEME-SPEC.md](THEME-SPEC.md) |
 
 Notes:
+- **Engine-parity gap EG-1 (web-only, found during PC-2):** the web gated capture has no empty/no-peak
+  failure path — a material tap with no resonance is silently accepted with a null peak instead of re-arming
+  + "No signal/resonance detected — tap again" like Swift/Python. Tracked in [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) § EG-1.
 - The doc review's deferred `signal.ts` two-tone helper (item 4 of the `@parity`
   tail) **folds into #1** — it's a test-only helper reviewed with the parity tests.
 - Of the three: **#1** can start now; **#2** needs a spec written first; **#3**
