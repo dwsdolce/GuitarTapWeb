@@ -1177,6 +1177,7 @@ export default function App() {
               title={`FFT Peaks — ${loadedName ?? 'New'}`}
               overlays={comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined}
               guitarType={material || comparison || showMultiTap ? undefined : guitarType}
+              peakMin={peakMin}
               markers={comparison || showMultiTap ? [] : chartMarkers}
               minHz={view.minHz}
               maxHz={view.maxHz}

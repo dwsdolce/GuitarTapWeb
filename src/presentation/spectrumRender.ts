@@ -89,6 +89,9 @@ export interface RenderOpts {
   title?: string
   /** Guitar type → mode-boundary lines + top labels (omit for material/comparison). */
   guitarType?: GuitarTypeName
+  /** Peak Min threshold (dB) → a horizontal "Peak: N dB" reference line (guitar only, live chart only —
+   *  omitted for exports, matching Swift). Drawn only when within the visible dB range. */
+  peakMin?: number
   theme?: ChartTheme
   /** When provided, the renderer pushes each drawn (keyed) badge's screen rect here for hit-testing. */
   badgeRectsOut?: AnnotationRect[]
@@ -257,6 +260,38 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.fill()
   }
   ctx.restore()
+
+  // Peak Min threshold line (guitar only) — a horizontal dashed green line at the Peak Min dB level,
+  // mirroring Swift's thresholdLinesContent RuleMark (.green.opacity(0.7), width 1.5, dash [8,3],
+  // "Peak: N dB" label top/trailing). Guitar-only (guitarType present) + within the visible dB range;
+  // omitted for material/comparison (no guitarType) and for exports (peakMin not passed).
+  const peakMin = opts.peakMin
+  if (guitarType && overlays.length === 0 && peakMin != null && peakMin > minDb && peakMin < maxDb) {
+    const y = yFor(peakMin)
+    ctx.save()
+    ctx.strokeStyle = 'rgba(52, 199, 89, 0.7)' // Swift .green.opacity(0.7) (systemGreen)
+    ctx.lineWidth = 1.5
+    ctx.setLineDash([8, 3])
+    ctx.beginPath()
+    ctx.moveTo(plotL, y)
+    ctx.lineTo(plotR, y)
+    ctx.stroke()
+    ctx.restore()
+    // "Peak: N dB" — green text on a light rounded background, at the top-right just above the line.
+    const label = `Peak: ${Math.round(peakMin)} dB`
+    ctx.font = '600 11px system-ui, sans-serif'
+    const lw = ctx.measureText(label).width + 10
+    const lx = plotR - lw - 4
+    const ly = y - 18
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+    ctx.beginPath()
+    ctx.roundRect(lx, ly, lw, 15, 4)
+    ctx.fill()
+    ctx.fillStyle = 'rgb(52, 199, 89)'
+    ctx.textAlign = 'center'
+    ctx.fillText(label, lx + lw / 2, ly + 11)
+    ctx.textAlign = 'left'
+  }
 
   // Annotation badges (drawn after restore so they may overflow the plot slightly).
   for (const m of markers) {

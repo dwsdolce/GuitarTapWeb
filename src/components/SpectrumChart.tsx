@@ -15,6 +15,8 @@ export interface SpectrumChartProps {
   overlays?: SpectrumOverlay[]
   /** Guitar type → mode-boundary lines + top labels on the plot (omit for material/comparison). */
   guitarType?: GuitarTypeName
+  /** Peak Min threshold (dB) → a horizontal "Peak: N dB" reference line (guitar only, in-range only). */
+  peakMin?: number
   minHz?: number
   maxHz?: number
   minDb?: number
@@ -76,6 +78,7 @@ export function SpectrumChart({
   markers = [],
   overlays = [],
   guitarType,
+  peakMin,
   minHz = 30,
   maxHz = 2000,
   minDb = -100,
@@ -152,13 +155,14 @@ export function SpectrumChart({
       overlays,
       title,
       guitarType,
+      peakMin,
       theme: DARK_CHART,
       view: { minHz, maxHz, minDb, maxDb },
       badgeRectsOut: badgeRectsRef.current,
       crosshair: hover,
       frozen,
     })
-  }, [spectrum, markers, overlays, title, guitarType, minHz, maxHz, minDb, maxDb, hover, frozen])
+  }, [spectrum, markers, overlays, title, guitarType, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
   // @parity view/spectrum-gestures — the web co-locates gestures with the chart
