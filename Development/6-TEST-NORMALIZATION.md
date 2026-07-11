@@ -37,7 +37,7 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
     analysis, not the view). **Peak-analysis P1 + P1b + P2 + selection-flicker fix (incl. C2b) ✅
     COMMITTED 2026-07-11 (run-reviewed "runs smoothly").** **3c consolidation ✅ COMPLETE 2026-07-12** (C3a/C3b material → analyzer; C4 imperative statusMessage + EG-1;
     C5 + 3c-D shrank useAudioEngine + collapsed tapsLocked/sbComplete — full record in TAPTONEANALYZER-CONSOLIDATION.md,
-    done). EG-1 + EG-3 ✅ done. **NEXT: EG-2** (material live spectrum) → remaining pure gaps (frozen-peak-recalc,
+    done). EG-1 + EG-2 + EG-3 ✅ done. **NEXT: remaining pure gaps** (frozen-peak-recalc,
     annotation-state guitar, import-persistence) → orphan test back-ports (§2) → PC-1 docs (web Quick-Start + shared
     manual) → P3 (selection/annotations by-frequency carry → RESTRUCTURE-NOTES.md). The 3 cross-platform parity gaps
     OUT-1/2/3 found during the 3c review are a **separate effort** → PLATFORM-PARITY-GAPS.md.
@@ -321,8 +321,11 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
   failure branch to the engine (re-arm + surface the state); the two status strings then fall out of PC-2's
   `statusMessage(state)` table for free. **Not folded into PC-2** (the state doesn't exist to trigger them).
 
-- **EG-2 — ⬜ NOW ACTIONABLE (was deferred until 3c complete; 3c done 2026-07-12) — the immediate NEXT step.**
-  Material mode shows no LIVE spectrum during capture (web-only view gap; pre-existing, NOT a 3c regression).
+- **EG-2 — ✅ DONE + committed 2026-07-12 (`5ca6fe1`).** The material chart now paints the LIVE spectrum while
+  capturing (primary line = `isMeasurementComplete ? null : liveSpectrum`, mirroring Swift `displaySpectrum`),
+  the renderer draws the base UNDER the phase overlays (was either/or), and the DARK primary curve is red
+  (`#e0584a`, matching Swift `.red`; was `#4ea1ff` = the L overlay, so the live line was invisible). Original gap
+  below. *Material mode showed no LIVE spectrum during capture (web-only view gap; pre-existing, NOT a 3c regression).*
   Guitar renders `displaySpectrum = captured ??
   liveSpectrum` (App.tsx:616), so the chart updates live while waiting. Material renders `spectrum={null}` +
   `overlays={matOverlays}` (App.tsx:1170/617), and `matOverlays` contains only the *captured* phase spectra —
