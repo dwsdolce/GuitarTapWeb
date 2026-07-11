@@ -37,9 +37,10 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
     analysis, not the view). **Peak-analysis P1 + P1b + P2 + selection-flicker fix (incl. C2b) ✅
     COMMITTED 2026-07-11 (run-reviewed "runs smoothly").** **3c consolidation ✅ COMPLETE 2026-07-12** (C3a/C3b material → analyzer; C4 imperative statusMessage + EG-1;
     C5 + 3c-D shrank useAudioEngine + collapsed tapsLocked/sbComplete — full record in TAPTONEANALYZER-CONSOLIDATION.md,
-    done). EG-1 + EG-2 + EG-3 ✅ done. **NEXT: remaining pure gaps** (frozen-peak-recalc,
-    annotation-state guitar, import-persistence) → orphan test back-ports (§2) → PC-1 docs (web Quick-Start + shared
-    manual) → P3 (selection/annotations by-frequency carry → RESTRUCTURE-NOTES.md). The 3 cross-platform parity gaps
+    done). EG-1 + EG-2 + EG-3 ✅ done. **frozen-peak-recalc engine half ✅ 3-way** (PR-A/PR2; selection remap
+    PR1/PR3–PR7 → P3). **NEXT: remaining pure gaps** (annotation-state guitar, import-persistence) → orphan test
+    back-ports (§2) → PC-1 docs (web Quick-Start + shared manual) → P3 (selection/annotations by-frequency carry →
+    RESTRUCTURE-NOTES.md). The 3 cross-platform parity gaps
     OUT-1/2/3 found during the 3c review are a **separate effort** → PLATFORM-PARITY-GAPS.md.
     **Maintain @parity tags + regen PARITY-MAP.md on every change.**
 
@@ -107,7 +108,7 @@ Legend: ✓ dedicated suite · ◐ folded/partial · ✗ absent · — n/a. Cell
 | 17 | button-enablement | ✓ | ✓ | ✗ | **web gap** |
 | **Annotation / persistence / settings** |
 | 18 | annotation-state | ✓ | ✓ | ◐ material-only in g8 | **web gap: guitar path** |
-| 19 | frozen-peak-recalc | ✓ | ✓ | ✗ (restore only) | **web gap** |
+| 19 | frozen-peak-recalc | ✓ | ✓ | ◐ engine half done (PR-A1..A5 + PR2 on `recalculatePeaks`); selection/annotation remap (PR1/PR3–PR7) → P3 | **engine ✅ / selection → P3** |
 | 20 | comparison | ✓ ComparisonModeTests | ✓ test_comparison_mode | ✓ g10-comparison | |
 | 21 | measurement-codable | ✓ | ✓ | ✓ g5-measurement-codable | |
 | 22 | import-persistence | ✓ | ✓ | ◐ round-trips only | **web gap: library append** |
@@ -187,7 +188,7 @@ names) · **TAG+RENAME** (web suite exists but untagged) · **MIS-TAG** (web tag
 | display-range | DisplayRangeTests | test_wi6 *(folded)* | settings-display-range | display-range.test.ts | RENAME; Python folds into wi6 |
 | dsp *(parabolic+Q)* | DSPTests | test_dsp | *(folded in g2-peaks)* | dsp.test.ts | **FOLD?** split out to match Swift, or document |
 | file-playback | FilePlaybackRegressionTests | test_file_playback_regression | g11 (+ g3b/g3c/g3d) | file-playback.test.ts | **CONSOLIDATE** — g3b/c/d = pure-DSP layer, g11 = engine layer |
-| frozen-peak-recalc | FrozenPeakRecalculationTests | test_frozen_peak_recalculation | — | frozen-peak-recalc.test.ts | **GAP** |
+| frozen-peak-recalc | FrozenPeakRecalculationTests | test_frozen_peak_recalculation | ✓ engine (PR-A/PR2) | frozen-peak-recalc.test.ts | **engine ✅ 3-way; PR1/PR3–PR7 selection remap → P3** |
 | gated-fft | GatedFFTParityTests | test_gated_fft_parity | g1-gated-fft | gated-fft.test.ts | RENAME |
 | import-persistence | ImportPersistenceTests | test_import_persistence | — | import-persistence.test.ts | **GAP** |
 | measurement-codable | MeasurementCodableTests | test_measurement_codable | g5-measurement-codable | measurement-codable.test.ts | RENAME |
