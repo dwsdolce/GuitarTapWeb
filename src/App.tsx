@@ -160,7 +160,7 @@ const HINTS = {
  * `useAudioEngine` hooks.
  */
 export default function App() {
-  const [captured, setCaptured] = useState<Spectrum | null>(null)
+  const [captured, setCapturedState] = useState<Spectrum | null>(null)
   // A loaded measurement's saved axis range — transient override of the persisted display
   // range (mirrors Swift loadedAxisRange). Set on load, cleared on any new measurement.
   const [loadedView, setLoadedView] = useState<ChartView | null>(null)
@@ -178,6 +178,16 @@ export default function App() {
   const { analyzer, snapshot } = useTapToneAnalyzer()
   const numberOfTaps = snapshot.numberOfTaps
   const currentTapCount = snapshot.currentTapCount
+  // Guitar completion lives on the analyzer: every set/clear of the frozen guitar spectrum also drives
+  // analyzer.isMeasurementComplete (= captured != null), so all call sites stay in sync automatically.
+  // Material completion stays on matPhase until 3c-B. 6-TEST 3c-A2.
+  const setCaptured = useCallback(
+    (s: Spectrum | null) => {
+      setCapturedState(s)
+      analyzer.setComplete(s != null)
+    },
+    [analyzer],
+  )
   // Per-tap spectra from a multi-tap capture (or loaded measurement) + the comparison toggle.
   const [tapSpectra, setTapSpectra] = useState<Spectrum[]>([])
   const [showMultiTap, setShowMultiTap] = useState(false)
@@ -681,7 +691,7 @@ export default function App() {
   }, [displaySpectrum, binHz, material, captured, sampleRate, engineMetrics, running])
 
   // Status-bar progress + frozen indicators (mirror Swift "Phase X/Y · Tap N/M" / "⏸ Complete").
-  const sbDetecting = engineState === 'listening' || engineState === 'capturing'
+  const sbDetecting = snapshot.isDetecting
   const sbProgress = (() => {
     if (material && sbDetecting && matPhase.startsWith('capturing')) {
       const step = matPhase.startsWith('capturingC') ? 2 : matPhase.startsWith('capturingFlc') ? 3 : 1
@@ -696,7 +706,7 @@ export default function App() {
     }
     return ''
   })()
-  const sbComplete = !sbDetecting && (material ? matPhase === 'complete' : captured != null)
+  const sbComplete = !sbDetecting && (material ? matPhase === 'complete' : snapshot.isMeasurementComplete)
 
   // ── Library (Phase 4b): save the frozen guitar result, load one back in ───
   // Build a TapToneMeasurementModel from the CURRENT frozen result — the one place that
@@ -1109,8 +1119,8 @@ export default function App() {
           //   isDetecting is FALSE while paused, so Cancel is disabled (greyed) while paused —
           //   but every button stays VISIBLE; both apps enable/disable, never hide.
           const reviewing = material && isReviewing(matPhase)
-          const paused = engineState === 'paused'
-          const detecting = engineState === 'listening' || engineState === 'capturing'
+          const paused = snapshot.isDetectionPaused
+          const detecting = snapshot.isDetecting
           // Enablement via the shared canonical rule (mirrors Swift `buttonRule` / Python
           // `button_rule`; pinned by test/button-enablement). The measurement is "complete"
           // when a guitar tap was captured, or the material phase machine reached `complete`.
@@ -1118,7 +1128,7 @@ export default function App() {
           const { newTapDisabled, pauseEnabled, cancelEnabled } = buttonRule({
             isDetecting: detecting,
             isDetectionPaused: paused,
-            isMeasurementComplete: material ? matPhase === 'complete' : captured != null,
+            isMeasurementComplete: material ? matPhase === 'complete' : snapshot.isMeasurementComplete,
             fftIsRunning: running,
             displayModeIsComparison: comparison != null,
             measurementType: material ? (brace ? 'brace' : 'plate') : 'classical',
@@ -1388,7 +1398,7 @@ export default function App() {
             progress: { collected: currentTapCount, total: numberOfTaps },
             matPeaks,
             guitarPeakCount: displayPeaks.length,
-            hasCapture: captured != null,
+            hasCapture: snapshot.isMeasurementComplete,
           })}
         </span>
         {sbProgress && <span className="sb-progress">{sbProgress}</span>}

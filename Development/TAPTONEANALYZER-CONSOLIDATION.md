@@ -147,10 +147,13 @@ analyzer + device and returns `useSyncExternalStore(analyzer.subscribe, analyzer
   `setNumberOfTaps`; the derived rules (`tapsLocked`, `sbProgress`, `buttonRule`, `statusMessage`) read the
   analyzer. **Retires the PC-4 class at the source** (no more `numberOfTaps` vs `progress.total` split). tsc ·
   205 tests · build green. Run-review pending.
-- **3c-A2 — Migrate completion + detection facts.** Move `isMeasurementComplete` (guitar `captured != null`)
-  and `isDetecting`/`isDetectionPaused` (engineState) onto the analyzer, driven by `onGuitarCapture`/`newTap`
-  + `onState`; switch `sbComplete`/`buttonRule`/`statusMessage` to read them. (Material completion/detection
-  lands with 3c-B.)
+- **3c-A2 — Migrate completion + detection facts** — ✅ DONE (2026-07-10). `isDetecting`/`isDetectionPaused`
+  driven from the device `onState` (one place); `isMeasurementComplete` driven by wrapping `setCaptured` so
+  every set/clear also calls `analyzer.setComplete(s != null)` (no per-site divergence). Switched
+  `sbDetecting`/`sbComplete`/`buttonRule`/`statusMessage.hasCapture` to read the analyzer. `engineState`
+  stays for the raw-state reads (className, `tapsLocked`, `statusMessage` switch, `sbProgress`) — those
+  migrate in 3c-C/3c-D. `captured` stays as the frozen *spectrum* (display); the analyzer owns the
+  completion *fact*. Value-preserving; tsc · 205 tests · build green. Run-review pending.
 - **3c-B — Absorb the material phase machine into `TapToneAnalyzer`.** Move `matPhase` +
   `start/accept/redo/record/reset/restore` in (the `materialTapPhase` field already exists). Delete
   `useMaterialSession`; App reads `analyzer.materialTapPhase`.
@@ -198,5 +201,6 @@ analyzer + device and returns `useSyncExternalStore(analyzer.subscribe, analyzer
 (align with canonical; folds in EG-1 + the PC-2 transient gaps) · **D4 = device split required** · slug renamed
 `state/tap-session` → `state/tap-tone-analyzer` · EG-1 in scope (lands in 3c-C with the device failure path).
 
-*Sequencing:* 3c-0 ✅ done → **3c-A next** (wire `TapToneAnalyzer` as the guitar-path store) → 3c-B → 3c-C → 3c-D.
-No remaining open decisions — 3c-A is the next reviewed diff.
+*Sequencing:* 3c-0 ✅ committed → 3c-A (count facts) ✅ committed → 3c-A2 (completion + detection) ✅ done →
+**3c-B next** (absorb the material phase machine) → 3c-C (device split + `AudioEngine`→`RealtimeFFTAnalyzer` +
+EG-1) → 3c-D (collapse the two-branch rules). No remaining open decisions.

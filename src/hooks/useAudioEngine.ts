@@ -199,7 +199,11 @@ export function useAudioEngine({
         onLevel: setLevel,
         onSpectrum: setLiveSpectrum,
         onCapture: onGuitarCapture,
-        onState: setEngineState,
+        onState: (s) => {
+          setEngineState(s)
+          // The analyzer owns isDetecting/isDetectionPaused (mirrors the device state). 6-TEST 3c-A2.
+          analyzer.setDetecting(s === 'listening' || s === 'capturing', s === 'paused')
+        },
         onClipping: setClipping,
         // The device reports per-sequence/per-phase tap progress; the analyzer owns currentTapCount
         // (numberOfTaps is set separately via changeTaps → analyzer.setNumberOfTaps). 6-TEST 3c-A.
