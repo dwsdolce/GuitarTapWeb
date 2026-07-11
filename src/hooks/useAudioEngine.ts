@@ -66,7 +66,6 @@ export interface AudioEngineModel {
   calibrations: StoredCalibration[]
   activeCalId: string | null
   clipping: boolean
-  deviceChanging: boolean
   engineMetrics: EngineMetrics | null
   /** Live ring-out (decay) time in seconds, or null — for the Analysis Results panel. */
   decayTime: number | null
@@ -107,9 +106,8 @@ export function useAudioEngine({
   const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
   const [activeCalId, setActiveCalId] = useState<string | null>(null)
   const [clipping, setClipping] = useState(false)
-  // Transient "Audio device changed - reinitializing…" flag (Swift route-change status),
-  // set on an automatic hardware change and cleared shortly after.
-  const [deviceChanging, setDeviceChanging] = useState(false)
+  // Route-change settle timer: on an automatic hardware change the analyzer shows "Audio device changed
+  // - reinitializing…" then restores the prompt after this fires (6-TEST 3c-C4 — status is analyzer-owned).
   const deviceChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
   const [decayTime, setDecayTime] = useState<number | null>(null)
@@ -205,10 +203,16 @@ export function useAudioEngine({
         onGuitarComplete: () => onGuitarCapture(),
         onState: (s) => {
           setEngineState(s)
-          // The analyzer owns isDetecting/isDetectionPaused (mirrors the device state). 6-TEST 3c-A2.
-          analyzer.setDetecting(s === 'listening' || s === 'capturing', s === 'paused')
+          // The analyzer owns isDetecting/isDetectionPaused AND the guitar status strings, derived from
+          // the engine-state transitions (the device owns the guitar detection loop). 6-TEST 3c-A2/C4.
+          analyzer.setEngineState(s)
         },
-        onClipping: setClipping,
+        // Edge-triggered clipping drives BOTH the threshold-slider red zone (React state) and the
+        // analyzer's status override/restore (Swift `fftAnalyzer.$isClipping` sink). 6-TEST 3c-C4.
+        onClipping: (c) => {
+          setClipping(c)
+          analyzer.setClipping(c)
+        },
         // The device reports per-sequence/per-phase tap progress; the analyzer owns currentTapCount
         // (numberOfTaps is set separately via changeTaps → analyzer.setNumberOfTaps). 6-TEST 3c-A.
         // collected === 0 marks a fresh sequence / material phase armed at 0 taps → clear the
@@ -218,11 +222,10 @@ export function useAudioEngine({
           analyzer.setCurrentTapCount(collected)
         },
         onMetrics: setEngineMetrics,
-        // The analyzer owns the material phase machine (6-TEST 3c-C3): each raw gated tap accumulates
-        // (recordMaterialTap), and on phase completion the analyzer averages + finds the peak + advances
-        // (recordMaterialPhaseComplete). 3c-C3b moved the averaging/peak-find up from the device.
+        // The analyzer owns the whole material capture flow (6-TEST 3c-C4 Option C): each raw gated tap
+        // → recordMaterialTap runs the per-tap validity gate, counts, re-arms (armMaterial), and advances
+        // the L→C→FLC phases (review live / auto-advance when playing). The device just emits + disarms.
         onMaterialTap: (spectrum) => analyzer.recordMaterialTap(spectrum),
-        onMaterialPhaseComplete: (phase) => analyzer.recordMaterialPhaseComplete(phase),
         onSessionAudio,
         // A mic was attached (auto-selected) or the active one was unplugged (fell back): re-sync the
         // device + RELOAD that device's calibration (None if it has none). Mirrors Swift's didSet.
@@ -233,10 +236,11 @@ export function useAudioEngine({
           if (deviceId) setSavedInputDeviceId(deviceId) // remember the now-active device (Swift persists it)
           applyCalibrationForDevice(deviceId)
           void refreshDevices()
-          // Briefly surface "Audio device changed - reinitializing…" (mirrors Swift route change).
-          setDeviceChanging(true)
+          // Briefly surface "Audio device changed - reinitializing…" then restore the resting prompt
+          // (mirrors Swift route change). The analyzer owns the status field now (6-TEST 3c-C4).
+          analyzer.handleDeviceChange(true)
           if (deviceChangeTimer.current) clearTimeout(deviceChangeTimer.current)
-          deviceChangeTimer.current = setTimeout(() => setDeviceChanging(false), 1500)
+          deviceChangeTimer.current = setTimeout(() => analyzer.handleDeviceChange(false), 1500)
         },
         onDecay: setDecayTime,
       },
@@ -294,7 +298,6 @@ export function useAudioEngine({
     calibrations,
     activeCalId,
     clipping,
-    deviceChanging,
     engineMetrics,
     decayTime,
     retry: start,

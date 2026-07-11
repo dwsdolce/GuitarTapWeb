@@ -436,3 +436,156 @@ aligns onto the analyzer's `audio/tap-analyzer` group (Swift `TapToneAnalyzer+Sp
 **Risk / run-review (heavy):** full plate L→C→FLC, brace, accept/redo, the FLC reposition cooldown, file-playback
 material (engine auto-advance), load a saved material measurement, cancel, dump-audio. No material-orchestration
 unit coverage → run-review is the gate. Acceptance bar: no behavior change.
+
+## 12. 3c-C4 — Imperative `statusMessage` field (D3) + EG-1 (Option C)
+
+**Status: IMPLEMENTED + RUN-REVIEWED 2026-07-12 (Option C, single commit) — all gates green (tsc · lint 0 ·
+200 tests · build · parity 63 groups/0 platform-specific), READY TO COMMIT.** Step-by-step Swift↔web review
+complete (see §12a): 2 fixes folded in (RF-1 Peak readout, RF-2 level rate), 3 outstanding cross-platform items
+tracked (OUT-1/2/3 in §12a + STATUS) for the next effort. Material flow + strings verified against current Swift. `statusMessage.ts` deleted; the analyzer
+owns the imperative field. `test/status-message` reworked to drive transitions on a real analyzer + assert the
+field (+ clipping override/restore, device-change, EG-1, playback File: transitions). `file-playback` `playMaterial`
+rewired to Option C (REG-B1/P1 pass = value-preserving). Device is now a pure gated-FFT emitter for material
+(`materialTapCount`/`onMaterialPhaseComplete`/`materialSession` removed; `armMaterial` = re-arm-on-command).
+Canonical `statusMessage`/`_set_clipping`
+structure re-traced against BOTH Swift + Python 2026-07-12 (exhaustive transition-string lists + the empty/no-peak
+failure paths). This step makes `statusMessage` an imperative notified field on `TapToneAnalyzer` set at every
+transition (D3), routes device clipping through the analyzer's override/restore layer, and closes **EG-1** — and
+because EG-1's per-tap peak-gate must sit on the analyzer to be structurally faithful, it **completes the material
+device/analyzer split** (Option C, below), pulling the material count + file-playback auto-advance up off the
+device. Absorbs the functional `state/statusMessage.ts` module.
+
+**Canonical shape (Swift `TapToneAnalyzer.swift` / Python `tap_tone_analyzer_control.py`, identical behavior):**
+- Field `statusMessage`, initial `"Tap the guitar to begin"`; a `latestRealStatus` stash (same initial); a constant
+  `clippingWarningStatus = "⚠ Input clipping — reduce mic gain"` (leading `⚠` U+26A0, em-dash U+2014).
+- **Two behaviors.** (1) Every *real* write stashes `latestRealStatus = msg` and displays it **unless clipping is
+  active** (Python `_set_status_message`; Swift the `$statusMessage` sink). (2) A clipping toggle overrides the
+  display to the warning and, when it clears, **restores `latestRealStatus`** (Python `_set_clipping`; Swift the
+  `$isClipping` sink). Both are edge-triggered.
+- The web mirrors **Python's helper form** (cleaner in TS than Swift's two Combine sinks, same result): a private
+  `setStatusMessage(msg)` + a public `setClipping(bool)`. Clipping reaches the analyzer from the device's existing
+  `onClipping` (device `detectClipping`, peak ≥ 0.99 or RMS ≥ 0 dBFS, 1.5 s hold) — routed to `analyzer.setClipping`
+  instead of React state.
+
+**Two failure strings (EG-1) — canonical has TWO, not one:**
+- `"No signal detected — tap again"` — empty samples / empty spectrum (guitar **and** material). In the web the
+  guitar case can't occur (the device always fills its capture buffer and `dftAnalRect` always returns a spectrum;
+  canonical's own guitar empty-FFT branch sets no message anyway), so this string is **material-only** in practice.
+- `"No resonance detected — tap again"` — spectrum present but `findDominantPeak` found no peak in the phase band
+  (**material only**). This is the live EG-1 case.
+
+**Option C (the both-consistent choice — behaviorally AND structurally faithful).** In Swift/Python the analyzer
+owns the *whole* gated-capture orchestration: per-tap FFT (calling the FFT layer only for the primitive), the
+per-tap `findDominantPeak` **validity gate**, the tap **count** (`captured`), the **re-arm**
+(`reEnableDetectionForNextPlateTap`), the phase-end average + peak, the **status**, AND the file-playback L→C→FLC
+**auto-advance** (`isPlayingFile`). The web had put the count, the re-arm decision, and the playback auto-advance in
+the *device* (`materialTapCount` / `onMaterialPhaseComplete` / the `materialSession` plan). Option C moves all of
+that up so the device becomes: *detect crossing → fill gated window → compute FFT → emit the raw tap → re-arm on
+command*. (Option A — device gates per-tap, only status goes up — is behaviorally right but structurally split;
+Option B — check on the phase average — diverges for multi-tap material. Rejected.)
+
+**What moves (material path):**
+- Device material `finishCapture`: compute the gated spectrum (gated FFT + calibration, unchanged) → call
+  `analyzer.recordMaterialTap(spectrum)` → **disarm** and wait. No count, no re-arm, no phase-complete signal in the
+  device. `materialTapCount`, `onMaterialPhaseComplete`, and the `materialSession` auto-advance are removed from the
+  device; the device gains a `rearmMaterialPhase()`-style re-arm-on-command (analyzer calls `armMaterial(search)`).
+- Analyzer `recordMaterialTap(spectrum)` becomes the per-tap orchestrator (mirrors canonical `finishGatedFFTCapture`
+  + `handle{L,C,Flc}GatedProgress`): run `findDominantPeak` on THIS tap using `matSearch(phase)`; if null →
+  `setStatusMessage("No resonance detected — tap again")` + re-arm the same phase, **no count, no buffer**; else
+  buffer it + increment the analyzer-owned material count, then either re-arm the same phase (`"L/C/FLC tap X/N
+  captured. Tap again..."`) or, at `count == total`, `averageSpectra` + `findDominantPeak` on the average → store
+  `matSpectra`/`matPeaks` → advance (review when live; auto-advance to the next phase when `device.playingFile`,
+  arming it via `matSearch` + setting the `"File: L complete, capturing C..."` string). The analyzer already owns
+  `matSearch(phase)`, so it arms any phase itself — the device's session plan is no longer needed for advance.
+- `recordMaterialPhaseComplete` is retired (its averaging/advance logic folds into `recordMaterialTap` at
+  `count == total`). The `file-playback` `playMaterial` harness rewires to the new contract; **REG-B1/P1/P2 must stay
+  green** (value-preserving — same averaging + `findDominantPeak`, just relocated).
+- **Guitar is unchanged** (C2a left its count in the device; guitar has no validity gate — canonical guitar never
+  rejects a peakless tap. Guitar's device/analyzer count-duplication is a separate C5 residual, not touched here.)
+
+**`statusMessage` set-points (imperative — absorb `statusMessage.ts`).** Set the field at each transition the
+analyzer owns/observes, using the **exact canonical string**. Where the web currently over-generalizes to the
+type-agnostic prompt, **adopt canonical's phase-specific string** (align-don't-defer):
+- Guitar start (`startTapSequence`) / material L arm: `"Tap the guitar..."` / `"Tap the guitar N times..."` — this
+  IS canonical's post-warm-up steady state (the web has no warm-up, so no `"Initializing... (Ns)"` and no rich
+  `"Ready for L tap (×N each for L, C, FLC)"` start flash — those are overwritten instantly in canonical).
+- **Material C arm (`acceptMaterial` L→C):** `"Rotate 90° and tap for C"` — *upgrade* (web currently shows the
+  generic prompt for `capturingC`).
+- **Material FLC:** `"Set up for FLC tap, then tap"` for `waitingForFlcTap` **and** `capturingFlc` — *upgrade*
+  (web currently shows the generic prompt once `capturingFlc` arms).
+- Redo: `"Ready for L/C/FLC tap — tap again"` (canonical Control:457/476/495) — *upgrade* (web reuses the generic
+  prompt); Accept-C: `"Set up for FLC tap, then tap"`.
+- Per-tap progress (already matched): guitar `"Tap X/N captured. Tap again..."` / `"Tap X/N capturing..."` /
+  `"All taps captured. Processing..."`; material `"L/C/FLC tap X/N captured. Tap again..."`.
+- Reviews (already matched): `"fL/fC/fLC: N Hz — Accept to continue/complete or Redo to re-tap"`.
+- Complete: `"Complete — fL: … Hz, fC: … Hz"` (plate no-FLC) / `"Complete - check Results"` (plate+FLC, brace).
+- Guitar completion: `"Analysis complete! N peaks identified (from M averaged taps)."` — set in `recalculatePeaks`
+  (that's where the web knows the peak count), NOT in `processMultipleTaps` (peaks not computed yet there). Set
+  **ONCE** at completion via an `analysisAnnounced` latch (reset on New Tap / start / load), so **N is frozen** at
+  completion and later Peak-Min slider recalcs don't re-announce — matching Swift/Python, which set it only in the
+  guitar processing path (verified: `recalculateFrozenPeaksIfNeeded` / the frozen-peak recalc never writes the
+  status). Gated on `capturedTaps.length > 0` (a fresh capture); `loadMeasurement` clears `capturedTaps` (Swift
+  doesn't restore them), so a loaded measurement keeps its `"Loaded measurement (frozen)"` string — this also
+  fixed a latent bug where a load after a fresh capture could show "Analysis complete".
+- Paused `"Detection paused – tap freely, then resume"` (en-dash U+2013); device/route change
+  `"Audio device changed - reinitializing..."` (device → analyzer); load
+  `"Loaded measurement (frozen). Press 'New Tap' to start a new measurement."` (curly quotes); pre-running default
+  `"Tap the guitar to begin"`.
+
+**Test impact:** rework `test/status-message` from a pure-function assertion to **drive transitions on a real
+analyzer and assert the `statusMessage` field** (how Swift/Python test it) — retires the `test/status-message`
+tracked orphan and makes the suite a natural Swift/Python back-port. Add EG-1 coverage: a material tap whose gated
+spectrum has no in-band peak sets `"No resonance detected — tap again"` and does not advance the phase/count.
+Maintain `@parity` (`state/status-message` moves onto the analyzer's anchor; the device loses its material
+count/complete callbacks — reconcile the map). REG-B1/P1/P2 (`file-playback`) + all state/scenario suites green.
+
+**Risk / run-review (heavy — behavior DOES change for EG-1 + the upgraded strings):** every status string (guitar +
+material, all phases, resume/redo/accept, device-change, load, paused, clipping override/restore), the no-resonance
+re-tap (tap the plate off-band → re-prompt, no count), full plate L→C→FLC + brace + accept/redo + FLC cooldown,
+file-playback material auto-advance, load a saved material measurement, cancel. **NEXT after C4 = C5** (shrink
+`useAudioEngine`; also resolves the guitar count-duplication) → 3c-D (collapse two-branch rules).
+
+### 12a. Run-review log (2026-07-12, step-by-step Swift↔web) — IN PROGRESS (review barely begun; hold the
+cross-platform fixes until the review is complete, then roll the outstanding items into STATUS)
+
+**Fixed in the C4 web commit:**
+- **RF-1 — status-bar / Metrics "Peak" readout reads `liveSpectrum`, not `displaySpectrum`.** Swift's
+  `fft.peakFrequency`/`peakMagnitude` are the LIVE FFT peak (always). The web read `displaySpectrum`, which is null
+  during material capture (matSpectra empty) → a bogus "Starting…". Now computed from `liveSpectrum` (App `metrics`
+  useMemo). Pre-existing, not a C4 regression.
+- **RF-2 — status-bar level readout updates at the FFT-frame rate, holding -100 until the first frame.** Swift
+  `displayLevelDB` = `inputLevelDB` published at the graph rate (not the fast per-chunk level, which drives the
+  threshold meter). Added `EngineMetrics.displayLevelDB` (device samples the level into the FFT-frame `onMetrics`);
+  the readout is `material ? (engineMetrics?.displayLevelDB ?? -100) : (metrics.peakMagnitude ?? -100)` — both
+  default to -100 pre-first-frame (Swift `displayLevelDB`/`peakMagnitude` initial), so no fast flicker at startup.
+**Outstanding cross-platform items (fix AFTER the review completes — do NOT start yet per user 2026-07-12):**
+- **OUT-1 — phase-guidance-through-warmup (Swift + Python).** See the DECISION below (Option B). Web already
+  conformant. Canonical detection-loop change + parity tests lock-step + Swift release. **The full dead-string set
+  the fix must make visible (each set right before a warm-up restart that overwrites it → "Tap the guitar…"):**
+  - Accept L→C: `"Rotate 90° and tap for C"` (Swift Control:344 restart + :347 msg).
+  - Accept C→FLC: `"Set up for FLC tap, then tap"` — shows during the disarmed cooldown, but does the armed
+    `capturingFlc` keep it or go generic? (verify during review; Swift Control:353 + :360 restart).
+  - Redo L / C / FLC: `"Ready for L/C/FLC tap — tap again"` (Swift Control:454/473/492 restart + :457/476/495 msg) —
+    **confirmed on current Swift: goes to "Tap the guitar…"** (user run-review 2026-07-12).
+  - (Also the resume strings Control:278-282 "Ready for fL/L/C/FLC tap" if resume restarts warm-up — verify.)
+- **OUT-2 — status-bar tap PROGRESS BAR is Swift-only.** Swift renders a visual tap/phase progress **bar** in the
+  bottom status bar; the **web shows only the text** (`sbProgress`: "Phase X/Y" / "Tap N/M") and **Python has
+  neither**. Fix = add the progress bar to **Python + web** (Swift canonical; "improvements go to all three").
+  Cross-platform UI-parity item, independent of the statusMessage work.
+- **OUT-3 — Metrics "Bin Count" is blank ("-") for plate/brace in the web** (Swift + Python show 32,768). Web-only:
+  the App `metrics` useMemo gates `binCount: !material && captured ? captured.frequencies.length : null`, so material
+  → null. Fix = show the FFT bin count for material too (from the live/continuous FFT — `GUITAR_FFT_SIZE`-based, the
+  ~32,768 bins Swift/Python report). Swift/Python already correct.
+
+- **DECISION — material phase status strings: OPTION B (make them live in ALL THREE), NOT revert.** The phase
+  strings the web shows (`capturingC` "Rotate 90° and tap for C", redo "Ready for … tap — tap again", the FLC
+  prompt) are the INTENDED canonical messages — Swift Control:344-347 / Python control:830-833 SET them — but
+  they're **dead in Swift/Python**: the phase-arm **restarts the warm-up** (`analyzerStartTime = Date()`, purposeful
+  — suppresses false triggers while the plate is repositioned), and the detection loop overwrites the message with
+  "Initializing… (Ns)" → "Tap the guitar…", so the user never sees them (confirmed on current Swift build 374 +
+  run-review). Swift and Python AGREE (no canonical inconsistency); the web was the outlier only because it has no
+  warm-up to overwrite them. **User decision (run-review): make the phase guidance VISIBLE in all three** rather than
+  hide it — a separate cross-platform effort: Swift + Python show the phase message through the phase-arm warm-up
+  (keeping the warm-up), web already conformant (C4 NOT reverted). Requires a Swift release; parity tests updated
+  lock-step. **Design deferred until the review has catalogued every phase transition** so they're all made live
+  together. Tracked in STATUS as its own item.

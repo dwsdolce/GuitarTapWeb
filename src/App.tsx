@@ -43,7 +43,6 @@ import {
   RefreshIcon,
 } from './components/icons'
 import { buttonRule } from './state/buttonEnablement'
-import { statusMessage, detectLabel } from './state/statusMessage'
 import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults } from './components/MaterialResults'
@@ -70,7 +69,7 @@ import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData, multiTa
 import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfReport'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
 import { MODE_DISPLAY_NAME } from './presentation/modeColors'
-import { GUITAR_FFT_SIZE, type Spectrum } from './dsp/guitarFFT'
+import { GUITAR_FFT_SIZE } from './dsp/guitarFFT'
 import {
   MultiTapComparisonResultsView,
   MULTITAP_PALETTE,
@@ -211,8 +210,6 @@ export default function App() {
   // and Python _open_user_manual.
   const userManualUrl = `https://www.dolcesfogato.com/guitar_tap/manual/GuitarTap-User-Manual-${__APP_VERSION__}.html`
   const [showPlayFile, setShowPlayFile] = useState(false)
-  // Name of the file currently playing through the pipeline (drives the status bar), or null.
-  const [playingFileName, setPlayingFileName] = useState<string | null>(null)
   const [showMetrics, setShowMetrics] = useState(false)
   const [showSave, setShowSave] = useState(false)
   const [showMeasurements, setShowMeasurements] = useState(false)
@@ -379,7 +376,6 @@ export default function App() {
     calibrations,
     activeCalId,
     clipping,
-    deviceChanging,
     engineMetrics,
     decayTime,
     pauseTap,
@@ -417,7 +413,6 @@ export default function App() {
       setShowMultiTap(false)
       setComparison(null)
       comparisonRef.current = false
-      setPlayingFileName(audio.name)
       if (isMaterialType(measRef.current)) {
         // Material: fresh phase machine (no arm — the engine owns the L→C→(FLC) auto-advance session).
         resetLabelsRef.current() // a fresh capture starts with un-dragged labels (Swift resets offsets on start)
@@ -430,8 +425,6 @@ export default function App() {
       }
     } catch (e) {
       setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setPlayingFileName(null)
     }
   }, [analyzer, setError])
 
@@ -654,7 +647,11 @@ export default function App() {
 
   // ── Metrics panel inputs (FFTAnalysisMetricsView) ─────────────────────────
   const metrics = useMemo<Metrics>(() => {
-    const sp = displaySpectrum
+    // The Peak readout (status bar + Metrics panel) is LIVE telemetry — the current mic frame's loudest
+    // bin — mirroring Swift `fft.peakFrequency`/`peakMagnitude` (always the live FFT analyzer's peak,
+    // independent of what's displayed/frozen). Reading `displaySpectrum` here left it null during material
+    // capture (matSpectra empty) → a bogus "Starting…"; the live spectrum is the correct source.
+    const sp = liveSpectrum
     let peakFrequency: number | null = null
     let peakMagnitude: number | null = null
     if (sp) {
@@ -684,7 +681,7 @@ export default function App() {
       peakMagnitude,
       isRunning: running,
     }
-  }, [displaySpectrum, binHz, material, captured, sampleRate, engineMetrics, running])
+  }, [liveSpectrum, binHz, material, captured, sampleRate, engineMetrics, running])
 
   // Status-bar progress + frozen indicators (mirror Swift "Phase X/Y · Tap N/M" / "⏸ Complete").
   const sbDetecting = snapshot.isDetecting
@@ -1366,10 +1363,17 @@ export default function App() {
       <div className={`statusbar state-${engineState}`}>
         {/* LEFT — detection state: dot + Waiting/Detected + level (mirrors Swift order). */}
         <span className={`sb-state-dot${sbComplete ? ' complete' : ''}`} />
-        <span className="sb-detect">{detectLabel(sbComplete)}</span>
+        {/* Swift: isMeasurementComplete ? "Tap Detected!" : "Waiting for tap...". */}
+        <span className="sb-detect">{sbComplete ? 'Tap Detected!' : 'Waiting for tap...'}</span>
         <span className="sb-sep">•</span>
         {/* Swift: guitar shows peak magnitude here, material shows the input level. */}
-        <span className="level">{(material ? level : (metrics.peakMagnitude ?? level)).toFixed(1)} dB</span>
+        {/* Swift Controls: guitar shows fft.peakMagnitude, material shows fft.displayLevelDB — both at the
+            FFT-frame rate (engineMetrics), NOT the fast per-chunk level (which drives the threshold meter).
+            Before the first complete frame both default to -100 in Swift (fft.peakMagnitude / displayLevelDB),
+            so fall back to -100 here too — not the fast `level` — to hold -100 dB until the first frame. */}
+        <span className="level">
+          {(material ? (engineMetrics?.displayLevelDB ?? -100) : (metrics.peakMagnitude ?? -100)).toFixed(1)} dB
+        </span>
         <span className="spacer" />
         {/* RIGHT — complete badge + peak + active dot + statusMessage + progress. */}
         {sbComplete && <span className="sb-frozen">⏸ Complete</span>}
@@ -1381,24 +1385,7 @@ export default function App() {
           </span>
         )}
         <span className={`sb-active-dot${sbDetecting ? ' on' : ''}`} />
-        <span className={`sb-msg${sbDetecting ? '' : ' idle'}`}>
-          {statusMessage({
-            clipping,
-            deviceChanging,
-            running,
-            playingFile: playingFileName != null,
-            engineState,
-            loadedName,
-            material,
-            brace,
-            measureFlc: settings.measureFlc,
-            matPhase,
-            progress: { collected: currentTapCount, total: numberOfTaps },
-            matPeaks,
-            guitarPeakCount: displayPeaks.length,
-            hasCapture: snapshot.isMeasurementComplete,
-          })}
-        </span>
+        <span className={`sb-msg${sbDetecting ? '' : ' idle'}`}>{snapshot.statusMessage}</span>
         {sbProgress && <span className="sb-progress">{sbProgress}</span>}
       </div>
 

@@ -16,7 +16,7 @@ import { findPeaks, type Peak } from '../dsp/peaks'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { PLATE_PHASES, BRACE_PHASE, findDominantPeak } from '../dsp/gatedCapture'
-import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialPhaseName } from '../audio/realtimeFFTAnalyzer'
+import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialPhaseName, EngineState } from '../audio/realtimeFFTAnalyzer'
 import type { MaterialPeaks } from '../components/MaterialResults'
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
@@ -43,6 +43,17 @@ export interface MatSpectra {
 }
 export const EMPTY_MAT_SPECTRA: MatSpectra = { longitudinal: null, cross: null, flc: null }
 const EMPTY_MAT_PEAKS: MaterialPeaks = { longitudinal: null, cross: null, flc: null }
+
+/** The clipping-override warning (Swift `TapToneAnalyzer.clippingWarningStatus` / Python
+ *  `_set_clipping`). Displayed while the input clips, then the real status is restored. */
+const CLIPPING_WARNING = '⚠ Input clipping — reduce mic gain'
+
+/** A material phase peak's frequency, 1 dp, or '?' when none — for the status-bar review/complete strings. */
+const fHz = (p: { frequency: number } | null): string => (p ? p.frequency.toFixed(1) : '?')
+/** Loaded-measurement (frozen) status — curly quotes around New Tap match Swift/Python. */
+const LOADED_STATUS = 'Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.'
+/** Short phase label for the "L/C/FLC tap X/N captured" progress strings. */
+const matPhaseLabel = (ph: MaterialPhaseName): string => (ph === 'cross' ? 'C' : ph === 'flc' ? 'FLC' : 'L')
 
 // Swift tapCooldown (0.5 s): after the C tap is accepted, the FLC capture is held disarmed for this
 // long while the user repositions the plate, so the repositioning bump can't be taken as the FLC tap.
@@ -95,6 +106,24 @@ export class TapToneAnalyzer {
   measurementType: MeasurementType = 'classical'
   showLoadedSettingsWarning = false
 
+  // ── Status-bar message (imperative field — mirrors Swift @Published `statusMessage` / Python
+  // `status_message`, set at every transition; 6-TEST 3c-C4 D3). `latestRealStatus` stashes the last
+  // analyzer-set string so the clipping override can restore it (Swift `latestRealStatus` / Python
+  // `_latest_real_status`). Written only through `setStatusMessage` / `setClipping`.
+  // @parity state/status-message  tests=test/status-message
+  statusMessage = 'Tap the guitar to begin'
+  private latestRealStatus = 'Tap the guitar to begin'
+  private isClipping = false
+  // Mirror of the device's engine state (idle/listening/capturing/paused), forwarded via setEngineState.
+  // The device owns the guitar detection loop, so the guitar status strings derive from these transitions
+  // (the web equivalent of Swift's TapToneAnalyzer+TapDetection setting statusMessage in the loop).
+  private engineState: EngineState = 'idle'
+  // The "Analysis complete! N peaks…" string is set ONCE at completion (Swift/Python set it in the guitar
+  // processing path, NOT in the peak recalc — so N is frozen at completion, not updated by the Peak-Min
+  // slider). The web computes peaks in recalculatePeaks (App-driven), so this flag makes the first
+  // post-completion recalc announce and later recalcs (slider moves) leave the status alone. 6-TEST 3c-C4.
+  private analysisAnnounced = false
+
   // isMeasurementComplete has a didSet side-effect, mirroring Swift: setting it
   // true clears the loaded-settings warning.
   private _isMeasurementComplete = false
@@ -126,6 +155,10 @@ export class TapToneAnalyzer {
     this.frozenMagnitudes = []
     this.frozenFrequencies = []
     this.isMeasurementComplete = false
+    this.analysisAnnounced = false
+    // Guitar resting prompt (canonical post-warm-up steady state). In the app the device's arm →
+    // setEngineState('listening') also sets this; here it covers the direct/test path.
+    this.setStatusMessage(this.tapPrompt())
   }
 
   /** Begin a fresh guitar tap accumulation (the device armed at 0 taps): drop any prior per-tap
@@ -189,7 +222,10 @@ export class TapToneAnalyzer {
     this.frozenMagnitudes = snapshot.magnitudes
     this.frozenFrequencies = snapshot.frequencies
     this.tapEntries = (snapshot.taps ?? []).map((sp, i) => ({ tapIndex: i + 1, spectrum: sp, peaks: [] }))
+    this.capturedTaps = [] // a loaded measurement has no raw taps (Swift doesn't restore them) — keeps
+    this.analysisAnnounced = false // the "Analysis complete" guard off so load shows "Loaded measurement (frozen)"
     this.isMeasurementComplete = true
+    this.setStatusMessage(LOADED_STATUS)
     this.notify()
   }
 
@@ -201,6 +237,7 @@ export class TapToneAnalyzer {
     this.frozenFrequencies = []
     this.tapEntries = []
     this.capturedTaps = []
+    this.analysisAnnounced = false
     this.isMeasurementComplete = false // setter also clears the loaded-settings warning
     this.notify()
   }
@@ -256,6 +293,17 @@ export class TapToneAnalyzer {
         }),
       }))
     }
+    // Guitar completion string — set ONCE at completion, matching Swift/Python (which set it in the guitar
+    // processing path, not in the peak recalc — so N is FROZEN at completion, unaffected by later Peak-Min
+    // slider moves). The web computes peaks here (App-driven), so the first post-completion recalc announces
+    // (analysisAnnounced latch) and later recalcs leave the status alone. Only a freshly-captured, complete
+    // guitar result: a loaded measurement has no capturedTaps, so it keeps its "Loaded measurement (frozen)".
+    if (!p.material && this.isMeasurementComplete && this.capturedTaps.length > 0 && !this.analysisAnnounced) {
+      this.setStatusMessage(
+        `Analysis complete! ${peaks.length} peaks identified (from ${this.capturedTaps.length} averaged taps).`,
+      )
+      this.analysisAnnounced = true
+    }
     this.notify()
   }
 
@@ -308,19 +356,24 @@ export class TapToneAnalyzer {
     this.device?.finishSessionRecording(label)
   }
 
-  /** Begin a fresh L→C→FLC capture. `arm` false for file playback (the device arms its own session). */
+  /** Begin a fresh L→C→FLC capture. `arm` false for file playback (playFile arms phase L on the device;
+   *  the analyzer then auto-advances L→C→FLC as taps arrive — 3c-C4 Option C). */
   startMaterial(arm = true): void {
     this.clearFlcCooldown()
     this.matPeaks = EMPTY_MAT_PEAKS
     this.matSpectra = EMPTY_MAT_SPECTRA
     this.materialBuffer = []
     this.materialTapPhase = 'capturingL'
+    this.currentTapCount = 0 // the analyzer owns the material tap count now (Option C)
+    this.analysisAnnounced = false
     if (arm) {
       // startSessionRecording seeds checkpoint [0] (the L-phase truncation anchor), so no explicit
       // checkpoint is needed here.
       this.device?.startSessionRecording()
       this.device?.armMaterial(this.matSearch('longitudinal'))
     }
+    // capturingL resting prompt = the generic tap prompt (canonical post-warm-up steady state).
+    this.setStatusMessage(this.tapPrompt())
     this.notify()
   }
 
@@ -329,8 +382,11 @@ export class TapToneAnalyzer {
     const phase = this.materialTapPhase
     if (phase === 'reviewingL') {
       this.materialTapPhase = 'capturingC'
+      this.currentTapCount = 0
+      this.materialBuffer = []
       this.device?.checkpointSession() // C phase start (so a redo can drop it)
       this.device?.armMaterial(this.matSearch('cross'))
+      this.setStatusMessage('Rotate 90° and tap for C')
       this.notify()
     } else if (phase === 'reviewingC') {
       if (this.measureFlc) {
@@ -338,23 +394,29 @@ export class TapToneAnalyzer {
         // detection DISARMED (waitingForFlcTap) so the plate-repositioning bump isn't taken as the FLC
         // tap; then arm the FLC capture.
         this.materialTapPhase = 'waitingForFlcTap'
+        this.currentTapCount = 0
+        this.materialBuffer = []
         this.device?.checkpointSession() // FLC phase start (so a redo can drop it)
+        this.setStatusMessage('Set up for FLC tap, then tap')
         this.notify()
         this.flcCooldownTimer = setTimeout(() => {
           this.flcCooldownTimer = null
           if (this.materialTapPhase !== 'waitingForFlcTap') return // canceled (reset / type change)
           this.materialTapPhase = 'capturingFlc'
           this.device?.armMaterial(this.matSearch('flc'))
+          this.setStatusMessage('Set up for FLC tap, then tap') // capturingFlc resting = same prompt
           this.notify()
         }, FLC_COOLDOWN_MS)
       } else {
         this.materialTapPhase = 'complete'
         this.finishMaterialSession()
+        this.setStatusMessage(this.materialCompleteString())
         this.notify()
       }
     } else if (phase === 'reviewingFlc') {
       this.materialTapPhase = 'complete'
       this.finishMaterialSession()
+      this.setStatusMessage(this.materialCompleteString())
       this.notify()
     }
   }
@@ -363,42 +425,34 @@ export class TapToneAnalyzer {
   redoMaterial(): void {
     const phase = this.materialTapPhase
     this.device?.redoSession() // drop the rejected phase's audio from the session WAV
+    this.currentTapCount = 0
+    this.materialBuffer = []
     if (phase === 'reviewingL') {
       this.materialTapPhase = 'capturingL'
       this.device?.armMaterial(this.matSearch('longitudinal'))
+      this.setStatusMessage('Ready for L tap — tap again')
     } else if (phase === 'reviewingC') {
       this.materialTapPhase = 'capturingC'
       this.device?.armMaterial(this.matSearch('cross'))
+      this.setStatusMessage('Ready for C tap — tap again')
     } else if (phase === 'reviewingFlc') {
       this.materialTapPhase = 'capturingFlc'
       this.device?.armMaterial(this.matSearch('flc'))
+      this.setStatusMessage('Ready for FLC tap — tap again')
     }
     this.notify()
   }
 
-  /** Device onMaterialTap: accumulate one raw gated tap into the current phase's buffer (6-TEST 3c-C3b). */
+  /** Device onMaterialTap: one raw gated tap for the current phase (3c-C4 Option C — the analyzer owns the
+   *  per-tap validity gate + count + re-arm + phase advance, mirroring Swift `finishGatedFFTCapture` +
+   *  `handle{L,C,Flc}GatedProgress`; the device is now just a gated-FFT emitter that re-arms on command).
+   *  Runs the per-tap `findDominantPeak` validity check: a tap with no in-band resonance is rejected
+   *  (EG-1: "No resonance detected — tap again", re-arm the same phase, no count). A valid tap is buffered
+   *  and counted; when the phase's tap count is reached, its taps are averaged + the peak found on the
+   *  average, then the phase advances (review when live; auto-advance to the next phase when playing). */
   recordMaterialTap(spectrum: Spectrum): void {
-    this.materialBuffer.push(spectrum)
-  }
-
-  /** Device onMaterialPhaseComplete: the phase's tap count was reached — average its buffered taps and
-   *  find the dominant peak ON THE AVERAGED spectrum within the phase's search range (Swift
-   *  handle{Longitudinal,Cross,Flc}GatedProgress), then store it + advance the phase. `phase` is set
-   *  during file playback (the device owns the L→C→FLC auto-advance); for LIVE capture it's undefined
-   *  and we derive it from the current phase. During playback we only reflect progress in the phase
-   *  (the device re-arms); live, the user advances via Accept (acceptMaterial). 6-TEST 3c-C3b. */
-  recordMaterialPhaseComplete(phase?: MaterialPhaseName): void {
-    const playing = this.device?.playingFile ?? false
     const ph: MaterialPhaseName =
-      phase ??
-      (this.materialTapPhase === 'capturingC'
-        ? 'cross'
-        : this.materialTapPhase === 'capturingFlc'
-          ? 'flc'
-          : 'longitudinal')
-    // Average the phase's raw taps + read the dominant peak off the averaged spectrum (same search
-    // range the device gated with — matSearch rebuilds it, incl. the device's active calibration).
-    const spectrum = averageSpectra(this.materialBuffer)
+      this.materialTapPhase === 'capturingC' ? 'cross' : this.materialTapPhase === 'capturingFlc' ? 'flc' : 'longitudinal'
     const search = this.matSearch(ph)
     const peak = findDominantPeak(
       spectrum.magnitudesDb,
@@ -407,25 +461,88 @@ export class TapToneAnalyzer {
       search.maxHz,
       search.preferLowestSignificant,
     )
+    // EG-1: no detectable resonance in the phase band → reject the tap and re-arm the SAME phase (no
+    // count, no buffer). Mirrors Swift/Python `finishGatedFFTCapture`'s `dominantPeak == nil` branch.
+    if (peak == null) {
+      this.setStatusMessage('No resonance detected — tap again')
+      this.device?.armMaterial(search)
+      this.notify()
+      return
+    }
+    this.materialBuffer.push(spectrum)
+    this.currentTapCount = this.materialBuffer.length
+    const total = this.numberOfTaps
+    if (this.materialBuffer.length < total) {
+      // More taps for this phase — re-arm the same phase (Swift reEnableDetectionForNextPlateTap).
+      this.setStatusMessage(`${matPhaseLabel(ph)} tap ${this.materialBuffer.length}/${total} captured. Tap again...`)
+      this.device?.armMaterial(search)
+      this.notify()
+      return
+    }
+    // Phase complete: average the phase's taps + read the dominant peak off the AVERAGED spectrum (the
+    // stored result value — value-preserving vs the C3b phase-end averaging; REG-B1/P1/P2).
+    const avg = averageSpectra(this.materialBuffer)
+    const avgPeak = findDominantPeak(
+      avg.magnitudesDb,
+      avg.frequencies,
+      search.minHz,
+      search.maxHz,
+      search.preferLowestSignificant,
+    )
     this.materialBuffer = []
+    this.advanceAfterPhase(ph, avg, avgPeak)
+    this.notify()
+  }
+
+  /** Store a completed phase's averaged spectrum + peak, then advance: to review when live (the user
+   *  Accepts/Redos), or auto-advance to the next phase when playing a file (arming it — the analyzer owns
+   *  the L→C→FLC auto-advance, Swift `isPlayingFile`). Sets the phase's status string. 3c-C4 Option C. */
+  private advanceAfterPhase(ph: MaterialPhaseName, avg: Spectrum, avgPeak: MaterialPeaks['longitudinal']): void {
+    const playing = this.device?.playingFile ?? false
     if (ph === 'longitudinal') {
-      this.matSpectra = { ...this.matSpectra, longitudinal: spectrum }
-      this.matPeaks = { ...this.matPeaks, longitudinal: peak }
+      this.matSpectra = { ...this.matSpectra, longitudinal: avg }
+      this.matPeaks = { ...this.matPeaks, longitudinal: avgPeak }
       if (this.measurementType === 'brace') {
         this.materialTapPhase = 'complete'
         this.finishMaterialSession() // brace = single phase → session done
-      } else this.materialTapPhase = playing ? 'capturingC' : 'reviewingL'
+        this.setStatusMessage(this.materialCompleteString())
+      } else if (playing) {
+        this.materialTapPhase = 'capturingC'
+        this.currentTapCount = 0
+        this.setStatusMessage('File: L complete, capturing C...')
+        this.device?.armMaterial(this.matSearch('cross'))
+      } else {
+        this.materialTapPhase = 'reviewingL'
+        this.setStatusMessage(`fL: ${fHz(avgPeak)} Hz — Accept to continue or Redo to re-tap`)
+      }
     } else if (ph === 'cross') {
-      this.matSpectra = { ...this.matSpectra, cross: spectrum }
-      this.matPeaks = { ...this.matPeaks, cross: peak }
-      if (playing) this.materialTapPhase = this.measureFlc ? 'capturingFlc' : 'complete'
-      else this.materialTapPhase = 'reviewingC'
+      this.matSpectra = { ...this.matSpectra, cross: avg }
+      this.matPeaks = { ...this.matPeaks, cross: avgPeak }
+      if (playing) {
+        if (this.measureFlc) {
+          this.materialTapPhase = 'capturingFlc'
+          this.currentTapCount = 0
+          this.setStatusMessage('File: C complete, capturing FLC...')
+          this.device?.armMaterial(this.matSearch('flc'))
+        } else {
+          this.materialTapPhase = 'complete'
+          this.setStatusMessage(this.materialCompleteString())
+        }
+      } else {
+        this.materialTapPhase = 'reviewingC'
+        this.setStatusMessage(`fC: ${fHz(avgPeak)} Hz — Accept to continue or Redo to re-tap`)
+      }
     } else {
-      this.matSpectra = { ...this.matSpectra, flc: spectrum }
-      this.matPeaks = { ...this.matPeaks, flc: peak }
-      this.materialTapPhase = playing ? 'complete' : 'reviewingFlc'
+      this.matSpectra = { ...this.matSpectra, flc: avg }
+      this.matPeaks = { ...this.matPeaks, flc: avgPeak }
+      if (playing) {
+        this.materialTapPhase = 'complete'
+        this.setStatusMessage(this.materialCompleteString())
+      } else {
+        this.materialTapPhase = 'reviewingFlc'
+        this.setStatusMessage(`fLC: ${fHz(avgPeak)} Hz — Accept to complete or Redo to re-tap`)
+      }
     }
-    this.notify()
   }
 
   /** Back to notStarted + cleared (measurement-type change, cancel). */
@@ -444,6 +561,7 @@ export class TapToneAnalyzer {
     this.matSpectra = m.matSpectra
     this.matPeaks = m.matPeaks
     this.materialTapPhase = 'complete'
+    this.setStatusMessage(LOADED_STATUS)
     this.notify()
   }
 
@@ -495,6 +613,7 @@ export class TapToneAnalyzer {
         modeByPeak: this.modeByPeak,
         matSpectra: this.matSpectra,
         matPeaks: this.matPeaks,
+        statusMessage: this.statusMessage,
       })
     }
     return this.cachedSnapshot
@@ -505,9 +624,64 @@ export class TapToneAnalyzer {
     this.listeners.forEach((l) => l())
   }
 
+  // ── Status-message helpers (mirror Python `_set_status_message` / `_set_clipping`) ─────────────
+  // Every real status write goes through setStatusMessage: it stashes `latestRealStatus` and displays
+  // the message UNLESS clipping is active (then the warning stays pinned). setClipping swaps the display
+  // to the warning and, when it clears, restores `latestRealStatus`. Callers notify (setStatusMessage
+  // does not) so multi-field transitions render once. 3c-C4 D3.
+  private setStatusMessage(msg: string): void {
+    this.latestRealStatus = msg
+    this.statusMessage = this.isClipping ? CLIPPING_WARNING : msg
+  }
+
+  /** The device forwards edge-triggered input clipping here (Swift `fftAnalyzer.$isClipping` sink /
+   *  Python `clippingChanged` → `_set_clipping`). Overrides the status with the warning, restores on clear. */
+  setClipping(clipping: boolean): void {
+    if (clipping === this.isClipping) return
+    this.isClipping = clipping
+    this.statusMessage = clipping ? CLIPPING_WARNING : this.latestRealStatus
+    this.notify()
+  }
+
+  /** The guitar resting prompt (canonical post-warm-up steady state). */
+  private tapPrompt(): string {
+    return this.numberOfTaps === 1 ? 'Tap the guitar...' : `Tap the guitar ${this.numberOfTaps} times...`
+  }
+
+  /** The resting "waiting for a tap" prompt for the current mode/phase (used on resume + tap-count change). */
+  private restingPrompt(): string {
+    if (this.isGuitar) {
+      return this.currentTapCount === 0
+        ? this.tapPrompt()
+        : `Tap ${this.currentTapCount}/${this.numberOfTaps} captured. Tap again...`
+    }
+    switch (this.materialTapPhase) {
+      case 'capturingC':
+        return 'Rotate 90° and tap for C'
+      case 'waitingForFlcTap':
+      case 'capturingFlc':
+        return 'Set up for FLC tap, then tap'
+      default:
+        return this.tapPrompt() // capturingL / notStarted
+    }
+  }
+
+  /** Material completion string: plate without FLC shows fL + fC; otherwise a generic complete. */
+  private materialCompleteString(): string {
+    if (this.measurementType !== 'brace' && !this.measureFlc) {
+      return `Complete — fL: ${fHz(this.matPeaks.longitudinal)} Hz, fC: ${fHz(this.matPeaks.cross)} Hz`
+    }
+    return 'Complete - check Results'
+  }
+
   // ── Audio-device-driven setters (the RealtimeFFTAnalyzer drives these; each notifies) ──────────
   setNumberOfTaps(n: number): void {
     this.numberOfTaps = n
+    // A tap-count change while armed and waiting for the first tap refreshes the prompt ("Tap the
+    // guitar N times…"), mirroring Swift numberOfTaps.didSet. (No-op mid-capture / when complete.)
+    if (!this.isMeasurementComplete && this.isDetecting && this.currentTapCount === 0) {
+      this.setStatusMessage(this.restingPrompt())
+    }
     this.notify()
   }
 
@@ -516,10 +690,37 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  setDetecting(detecting: boolean, paused: boolean): void {
-    this.isDetecting = detecting
-    this.isDetectionPaused = paused
+  /** The device forwards its engine-state transitions here (was setDetecting). Drives isDetecting/
+   *  isDetectionPaused AND the guitar status strings (the device owns the guitar detection loop, so the
+   *  guitar "capturing…/captured…" strings derive from these transitions — Swift's TapDetection loop).
+   *  Pause applies to both modes; resume restores the resting prompt; material status is otherwise owned
+   *  by the material transitions (recordMaterialTap / accept / redo), so it is left untouched here. */
+  setEngineState(s: EngineState): void {
+    const prev = this.engineState
+    this.engineState = s
+    this.isDetecting = s === 'listening' || s === 'capturing'
+    this.isDetectionPaused = s === 'paused'
+    if (s === 'paused') {
+      this.setStatusMessage('Detection paused – tap freely, then resume')
+    } else if (prev === 'paused' && (s === 'listening' || s === 'capturing')) {
+      this.setStatusMessage(this.restingPrompt()) // resume → restore the mode/phase prompt
+    } else if (this.isGuitar) {
+      this.setGuitarStatus(s)
+    }
     this.notify()
+  }
+
+  /** Guitar status derived from the engine state (listening/capturing). `idle` is left to
+   *  recalculatePeaks (the completion string) or the pre-arm default. */
+  private setGuitarStatus(s: EngineState): void {
+    const total = this.numberOfTaps
+    const count = this.currentTapCount
+    if (s === 'listening') {
+      this.setStatusMessage(count === 0 ? this.tapPrompt() : `Tap ${count}/${total} captured. Tap again...`)
+    } else if (s === 'capturing') {
+      const prov = Math.min(count + 1, total)
+      this.setStatusMessage(prov < total ? `Tap ${prov}/${total} capturing...` : 'All taps captured. Processing...')
+    }
   }
 
   setComplete(v: boolean): void {
@@ -529,6 +730,13 @@ export class TapToneAnalyzer {
 
   setMeasurementTypeAndNotify(t: MeasurementType): void {
     this.measurementType = t
+    this.notify()
+  }
+
+  /** A hardware input change: show "Audio device changed - reinitializing…" while settling, then restore
+   *  the resting prompt (Swift route-change status). The device layer drives both edges. */
+  handleDeviceChange(settling: boolean): void {
+    this.setStatusMessage(settling ? 'Audio device changed - reinitializing...' : this.restingPrompt())
     this.notify()
   }
 }
@@ -555,6 +763,8 @@ export interface TapToneSnapshot {
   matSpectra: MatSpectra
   /** Material (plate/brace) per-phase located peaks. */
   matPeaks: MaterialPeaks
+  /** The imperative status-bar message (set at every transition; clipping override applied). */
+  statusMessage: string
 }
 
 /**

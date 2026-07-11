@@ -52,14 +52,11 @@ export interface RealtimeFFTAnalyzerCallbacks {
   onProgress?: (collected: number, total: number) => void
   /** Edge-triggered input clipping (peak ≥ 0.99 or RMS ≥ 0 dBFS, 1.5 s hold). */
   onClipping?: (clipping: boolean) => void
-  /** One captured material gated tap's spectrum, delivered RAW (6-TEST 3c-C3b). The device no longer
-   *  averages material taps or finds the peak — the TapToneAnalyzer accumulates these per phase +
-   *  averages + findDominantPeak. Fires once per tap into the current phase's buffer. */
+  /** One raw gated material tap's spectrum (3c-C4 Option C). The device is now purely a gated-FFT
+   *  emitter for material: it computes the per-tap gated spectrum, delivers it here, and DISARMS — the
+   *  TapToneAnalyzer owns the per-tap validity gate, the tap count, the re-arm (via armMaterial), and
+   *  the L→C→FLC phase advance (mirroring Swift `finishGatedFFTCapture` + `handle*GatedProgress`). */
   onMaterialTap?: (spectrum: Spectrum) => void
-  /** A material phase finished (its tap count was reached) — the analyzer averages the accumulated
-   *  taps + finds the phase peak. `phase` is set during file-playback auto-advance (the device owns the
-   *  L→C→FLC plan), undefined for live capture (the analyzer derives it). Pairs with onMaterialTap. */
-  onMaterialPhaseComplete?: (phase?: MaterialPhaseName) => void
   /** Continuous session recording for the "Dump Capture Audio" diagnostic — fired ONCE at the end of a
    *  measurement with every chunk that flowed through the pipeline while recording (minus paused
    *  segments and redone phases), so replaying it reproduces the session. `label` identifies the
@@ -84,6 +81,10 @@ export interface EngineMetrics {
   avgProcessingMs: number
   /** Continuous FFT calculations per second (sampleRate / FFT size; 0% overlap). */
   frameRate: number
+  /** Input level (dBFS) sampled at the FFT-frame rate — the status-bar / Metrics readout updates at the
+   *  same cadence as the spectrum + Peak, mirroring Swift `displayLevelDB` (inputLevelDB gated by the
+   *  graph publish rate), NOT the fast per-chunk `onLevel` (which drives the responsive threshold meter). */
+  displayLevelDB: number
 }
 
 /** Tunable engine settings the caller can change while running (threshold, tap count, diagnostics). */
@@ -143,9 +144,6 @@ export class RealtimeFFTAnalyzer {
   /** Test seam: when true, the pure pipeline (playFile/arm/capture) runs without a browser
    *  AudioContext (no mic). The web equivalent of Swift TapToneAnalyzer.forTesting(). */
   private headless = false
-  /** Active material file-playback session: the engine auto-advances these phases (L→C→FLC),
-   *  mirroring Swift's isPlayingFile auto-advance. null during live capture (App drives phases). */
-  private materialSession: { phases: { name: MaterialPhaseName; search: MaterialSearch }[]; idx: number } | null = null
   /** Applied mic-track settings (AGC/EC/NS etc.) — for diagnosing capture gain. */
   audioSettings: MediaTrackSettings | null = null
   /** Label of the active input device (track.label), for the Settings panel. */
@@ -208,10 +206,6 @@ export class RealtimeFFTAnalyzer {
   private captureIdx = 0
   private captureKind: 'guitar' | 'material' = 'guitar'
   private materialSearch: MaterialSearch | null = null
-  // Material per-phase tap counter (6-TEST 3c-C3b — the device no longer accumulates/averages material
-  // spectra; the TapToneAnalyzer does). Kept only to know when a phase's tap count is reached (re-arm
-  // vs phase-complete), exactly like guitarTapCount.
-  private materialTapCount = 0
 
   // Guitar tap counter. The device no longer accumulates per-tap spectra (6-TEST 3c-C2a — the
   // TapToneAnalyzer owns accumulation + averaging); it keeps only this lightweight count to know
@@ -221,6 +215,8 @@ export class RealtimeFFTAnalyzer {
   // Clipping detection.
   private lastClipTime: number | null = null
   private clipState = false
+  // Latest per-chunk input level (dBFS), sampled into the FFT-frame metrics as displayLevelDB.
+  private lastLevelDb = -100
 
   // Buffer-delivery watchdog (mirrors Swift RealtimeFFTAnalyzer+Watchdog / Python).
   // Recovers from a silently-starved mic stream: the worklet stops posting chunks with
@@ -262,10 +258,14 @@ export class RealtimeFFTAnalyzer {
     // the status prompt ("Tap the guitar N times…") tracks the new count without needing a re-arm
     // (New Tap is disabled until complete). Mirrors Swift numberOfTaps.didSet updating the prompt.
     // Skipped mid-capture and when idle: the stepper is locked once a tap is captured, and on load
-    // the result is frozen (setConfig(loadedTaps) runs while idle).
-    if (this.config.numberOfTaps !== prevTaps && (this.state === 'listening' || this.state === 'paused')) {
-      const collected = this.captureKind === 'material' ? this.materialTapCount : this.guitarTapCount
-      this.callbacks.onProgress?.(collected, this.config.numberOfTaps)
+    // the result is frozen (setConfig(loadedTaps) runs while idle). Guitar only — material progress +
+    // its "Tap N times…" prompt are owned by the analyzer now (3c-C4 Option C: analyzer.setNumberOfTaps).
+    if (
+      this.config.numberOfTaps !== prevTaps &&
+      this.captureKind === 'guitar' &&
+      (this.state === 'listening' || this.state === 'paused')
+    ) {
+      this.callbacks.onProgress?.(this.guitarTapCount, this.config.numberOfTaps)
     }
   }
 
@@ -315,16 +315,17 @@ export class RealtimeFFTAnalyzer {
     this.setState('listening')
   }
 
-  /** Arm a gated material phase (a fresh L/C/FLC phase, or a redo of one) with its search range. */
+  /** Arm (or re-arm) a gated material phase with its search range — the analyzer's re-arm-on-command
+   *  (3c-C4 Option C). Used for a fresh phase, the next tap of a multi-tap phase, a redo, and the
+   *  file-playback auto-advance; the analyzer owns the tap count + progress, so this only resets the
+   *  level-crossing warm-up and re-arms. Called after finishCapture has disarmed (state 'idle'). */
   armMaterial(search: MaterialSearch): void {
     if (!this.running || this.state === 'capturing') return
     this.captureKind = 'material'
     this.materialSearch = search
     this.capture = this.materialCapture
-    this.materialTapCount = 0 // a new (or redone) phase starts counting from zero
     this.prevAbove = true
     this.consecutive = 0
-    this.callbacks.onProgress?.(0, this.config.numberOfTaps) // per-phase tap progress starts at 0
     this.setState('listening')
   }
 
@@ -358,7 +359,6 @@ export class RealtimeFFTAnalyzer {
    *  captures, and return to idle so New Tap re-arms. Mirrors Swift `cancelTapSequence()`. */
   cancel(): void {
     this.guitarTapCount = 0
-    this.materialTapCount = 0
     this.materialSearch = null
     this.captureKind = 'guitar'
     this.capture = this.guitarCapture
@@ -672,6 +672,7 @@ export class RealtimeFFTAnalyzer {
   // so a played file runs the exact same level-crossing + FFT + capture path as the mic.
   private processChunk(s: Float32Array, rms: number): void {
     const db = 20 * Math.log10(Math.max(rms, 1e-10))
+    this.lastLevelDb = db // sampled into the FFT-frame metrics (displayLevelDB) at the graph rate
     this.callbacks.onLevel?.(db)
     this.detectClipping(s, db)
 
@@ -737,24 +738,16 @@ export class RealtimeFFTAnalyzer {
     this.guitarTapCount = 0
     this.prevAbove = true
     this.consecutive = 0
-    this.materialSession = null
     if (opts?.material) {
-      // Material: build the phase plan (L, C, [FLC] for plate; L for brace) and arm phase L.
-      // finishCapture auto-advances through the plan as each tap is captured.
+      // Material (3c-C4 Option C): arm phase L; the TapToneAnalyzer auto-advances L→C→FLC as each tap
+      // arrives (its recordMaterialTap sees playingFile → arms the next phase via armMaterial). Set the
+      // device calibration to the file's material calibration so the analyzer's matSearch (which reads
+      // `activeCalibration`) gates every phase with the right corrections; restored after the loop.
       const cal = opts.material.calibration ?? null
-      const plate = [
-        { name: 'longitudinal' as const, search: { ...PLATE_PHASES[0], calibration: cal } },
-        { name: 'cross' as const, search: { ...PLATE_PHASES[1], calibration: cal } },
-        ...(opts.material.measureFlc
-          ? [{ name: 'flc' as const, search: { ...PLATE_PHASES[2], calibration: cal } }]
-          : []),
-      ]
-      const phases = opts.material.brace
-        ? [{ name: 'longitudinal' as const, search: { ...BRACE_PHASE, calibration: cal } }]
-        : plate
-      this.materialSession = { phases, idx: 0 }
+      this.setCalibration(cal)
+      const lSearch = opts.material.brace ? { ...BRACE_PHASE, calibration: cal } : { ...PLATE_PHASES[0], calibration: cal }
       this.captureKind = 'material'
-      this.materialSearch = phases[0]!.search
+      this.materialSearch = lSearch
       this.capture = this.materialCapture
       this.setState('listening')
     } else {
@@ -782,7 +775,6 @@ export class RealtimeFFTAnalyzer {
       this.finishCapture()
     }
     // Restore live state; the mic worklet kept running, so clearing the flag resumes it.
-    this.materialSession = null
     this.sampleRate = saved.rate
     this.preroll = saved.preroll
     this.prerollSamples = saved.prerollSamples
@@ -831,6 +823,7 @@ export class RealtimeFFTAnalyzer {
           processingMs: this.processingMs,
           avgProcessingMs: this.avgProcessingMs,
           frameRate: this.sampleRate / GUITAR_FFT_SIZE,
+          displayLevelDB: this.lastLevelDb,
         })
         this.accumIdx = 0
       }
@@ -888,47 +881,16 @@ export class RealtimeFFTAnalyzer {
 
   private finishCapture(): void {
     if (this.captureKind === 'material') {
-      // Material: the device computes each per-tap gated spectrum (gatedCaptureResult — gated FFT +
-      // calibration, unchanged) and delivers it RAW; the TapToneAnalyzer accumulates the phase's taps
-      // and averages them + findDominantPeak. The device keeps only a lightweight per-phase counter —
-      // it no longer averages material or finds the peak (6-TEST 3c-C3b).
+      // Material (3c-C4 Option C): the device computes this tap's gated spectrum (gatedCaptureResult —
+      // gated FFT + calibration, unchanged), DISARMS, and hands the raw spectrum up. The TapToneAnalyzer
+      // owns the per-tap validity gate, the tap count, the re-arm (armMaterial → back to 'listening'),
+      // and the L→C→FLC phase advance — so the device no longer counts, re-arms, or auto-advances.
+      // Disarm BEFORE the callback so the analyzer's re-arm (armMaterial, guarded on state!=='capturing')
+      // isn't blocked; during file playback the analyzer arms the next phase synchronously from here.
       const { magnitudesDb, frequencies } = gatedCaptureResult(this.capture, this.sampleRate, this.materialSearch!)
       this.captureIdx = 0
-      this.materialTapCount += 1
-      const sess = this.materialSession
-      const phaseName = sess ? sess.phases[sess.idx]?.name : undefined
-      this.callbacks.onMaterialTap?.({ magnitudesDb, frequencies })
-
-      const total = this.config.numberOfTaps
-      if (this.materialTapCount < total) {
-        // Need more taps for THIS phase — re-arm the same phase (Swift reEnableDetectionForNextPlateTap).
-        this.prevAbove = true
-        this.consecutive = 0
-        this.callbacks.onProgress?.(this.materialTapCount, total)
-        this.setState('listening')
-        return
-      }
-
-      this.materialTapCount = 0
-      this.callbacks.onProgress?.(total, total)
       this.setState('idle')
-      this.callbacks.onMaterialPhaseComplete?.(phaseName) // analyzer averages the phase's taps + finds the peak
-      // File-playback material session: auto-advance to the next phase (Swift isPlayingFile),
-      // re-arming so the next tap is captured. arm/prevAbove reset requires a falling edge first
-      // (Swift isAboveThreshold=true) so the prior tap's ring-out can't fire a bogus onset.
-      if (sess) {
-        sess.idx += 1
-        const next = sess.phases[sess.idx]
-        if (next) {
-          this.materialSearch = next.search
-          this.capture = this.materialCapture
-          this.prevAbove = true
-          this.consecutive = 0
-          this.setState('listening')
-        } else {
-          this.materialSession = null
-        }
-      }
+      this.callbacks.onMaterialTap?.({ magnitudesDb, frequencies })
       return
     }
 

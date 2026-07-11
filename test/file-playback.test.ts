@@ -1,7 +1,7 @@
 // @parity test/file-playback
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { RealtimeFFTAnalyzer, type MaterialCaptureResult } from '../src/audio/realtimeFFTAnalyzer'
+import { RealtimeFFTAnalyzer, type MaterialCaptureResult, type MaterialPhaseName } from '../src/audio/realtimeFFTAnalyzer'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { decodeWav } from '../src/dsp/wav'
 import { parseCalibration, type Calibration } from '../src/dsp/calibration'
@@ -79,9 +79,9 @@ async function playGuitar(
 }
 
 /** Run a plate/brace session through engine.playFile (headless), wired to a real TapToneAnalyzer as the
- *  app wires them (6-TEST 3c-C3b): the device delivers each per-phase gated tap RAW; the analyzer
- *  accumulates + averages them + findDominantPeak. Collects one result per phase off the analyzer as the
- *  engine auto-advances L→C→(FLC). */
+ *  app wires them (6-TEST 3c-C4 Option C): the device emits each raw gated tap; the analyzer owns the
+ *  per-tap validity gate, the tap count, the re-arm, and the L→C→FLC auto-advance (recordMaterialTap),
+ *  averaging + findDominantPeak at each phase end. One result per completed phase is read off the analyzer. */
 async function playMaterial(
   reg: { fixture: string; calibration: string | null; settings: RegSettings },
   brace: boolean,
@@ -90,24 +90,28 @@ async function playMaterial(
   const analyzer = new TapToneAnalyzer()
   analyzer.measurementType = brace ? 'brace' : 'plate'
   analyzer.measureFlc = reg.settings.measureFlc ?? false
-  const caps: MaterialCaptureResult[] = []
+  analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1) // analyzer owns the material tap count now
   const engine = new RealtimeFFTAnalyzer(
-    {
-      onMaterialTap: (spectrum) => analyzer.recordMaterialTap(spectrum),
-      onMaterialPhaseComplete: (phase) => {
-        analyzer.recordMaterialPhaseComplete(phase)
-        const ph = phase! // set during file playback (device owns the L→C→FLC auto-advance)
-        caps.push({ spectrum: analyzer.matSpectra[ph]!, peak: analyzer.matPeaks[ph], phase: ph })
-      },
-    },
+    { onMaterialTap: (spectrum) => analyzer.recordMaterialTap(spectrum) },
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
   engine.initForTesting()
   analyzer.setDevice(engine)
+  analyzer.startMaterial(false) // arm the analyzer's phase machine (playFile arms the device for playback)
   await engine.playFile(wav.samples, wav.sampleRate, {
     material: { brace, measureFlc: reg.settings.measureFlc ?? false, calibration: loadCal(reg.calibration) },
     pace: false,
   })
+  // Collect one result per completed phase off the analyzer (the engine auto-advanced L→C→(FLC)).
+  const phases: MaterialPhaseName[] = brace
+    ? ['longitudinal']
+    : reg.settings.measureFlc
+      ? ['longitudinal', 'cross', 'flc']
+      : ['longitudinal', 'cross']
+  const caps: MaterialCaptureResult[] = []
+  for (const ph of phases) {
+    if (analyzer.matSpectra[ph]) caps.push({ spectrum: analyzer.matSpectra[ph]!, peak: analyzer.matPeaks[ph], phase: ph })
+  }
   return caps
 }
 

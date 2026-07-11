@@ -33,6 +33,16 @@ Notes:
   is waiting on decisions, not implementation time.
 - **Log-frequency axis removal — ✅ DONE (2026-07-08)** — removed lock-step all three (B1: kept the
   format field pinned false). See [LOG-FREQ-REMOVAL.md](LOG-FREQ-REMOVAL.md).
+- **C4 run-review parity gaps (2026-07-12) — OUT-1/2/3, fix after C4 commits; detail in
+  [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md) §12a:**
+  **OUT-1** — phase-guidance-through-warmup (**Swift + Python**): the material phase status strings
+  ("Rotate 90° and tap for C", redo "Ready for L/C/FLC tap — tap again", the FLC prompt) are set then
+  immediately overwritten by the per-phase warm-up ("Initializing…" → "Tap the guitar…"), so they're never
+  seen. **Decision (Option B): make them visible in all three** (canonical detection-loop change keeping the
+  warm-up for false-trigger suppression; parity tests lock-step; Swift release). Web already shows them (C4).
+  **OUT-2** — status-bar tap **progress bar** is Swift-only; add to **Python + web** (text-only today).
+  **OUT-3** — Metrics **Bin Count** blank ("-") for plate/brace in the **web** (Swift/Python show 32,768);
+  web-only. These are the "next effort" after C4 lands — OUT-1 designed-then-reviewed before editing canonical.
 
 ## Done (for reference)
 
