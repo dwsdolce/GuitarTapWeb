@@ -57,14 +57,16 @@ describe('StartTapSequenceRace', () => {
     expect(s.isDetectionPaused).toBe(false)
   })
 
-  // R4: audio-queue gated-capture path — finishGuitarGatedCapture clears isDetecting
-  it('R4 — finishGuitarGatedCapture clears isDetecting', () => {
+  // R4: per-tap record path — recordGuitarTap accumulates the device-delivered spectrum; the
+  // idle transition (device state event) clears isDetecting, so processMultipleTaps completes
+  // without stranding the analyzer in detecting && complete (6-TEST 3c-C2a).
+  it('R4 — recordGuitarTap path settles complete, not detecting', () => {
     const s = makeSUT(1)
     s.startTapSequence()
-    expect(s.isDetecting).toBe(true) // armed, no handleTapDetection on this path
-    const samples = new Float32Array(4096) // synthetic buffer
-    s.finishGuitarGatedCapture(samples, 48000)
-    expect(s.isDetecting).toBe(false)
+    expect(s.isDetecting).toBe(true) // armed
+    const t = fakeTap()
+    s.recordGuitarTap({ magnitudesDb: t.magnitudes, frequencies: t.frequencies }) // device delivered a per-tap spectrum
+    s.isDetecting = false // the device's idle transition clears detection
     s.processMultipleTaps()
     expect(s.isMeasurementComplete).toBe(true)
     expect(s.isDetecting).toBe(false)

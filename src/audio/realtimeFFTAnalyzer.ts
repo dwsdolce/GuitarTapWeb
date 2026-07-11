@@ -42,9 +42,13 @@ export type EngineState = 'idle' | 'listening' | 'capturing' | 'paused'
 export interface RealtimeFFTAnalyzerCallbacks {
   onSpectrum?: (spectrum: Spectrum) => void
   onLevel?: (db: number) => void
-  /** Frozen result. For a multi-tap capture, `taps` holds each tap's individual
-   *  spectrum (in order) so the caller can build the multi-tap comparison view. */
-  onCapture?: (spectrum: Spectrum, taps?: Spectrum[]) => void
+  /** One captured guitar tap's spectrum, delivered RAW as soon as its window fills. The device no
+   *  longer averages (6-TEST 3c-C2a); the TapToneAnalyzer accumulates these + averages them into the
+   *  frozen result. Fires once per tap, in order, for both single- and multi-tap sequences. */
+  onGuitarTap?: (spectrum: Spectrum) => void
+  /** The guitar tap sequence finished (the requested tap count was reached). The analyzer averages
+   *  the accumulated taps and freezes the result. Pairs with onGuitarTap. */
+  onGuitarComplete?: () => void
   onState?: (state: EngineState) => void
   /** Multi-tap progress: taps collected so far / total requested. */
   onProgress?: (collected: number, total: number) => void
@@ -204,8 +208,10 @@ export class RealtimeFFTAnalyzer {
   // exactly as guitar averages `collected` (Swift materialCapturedTaps + handleLongitudinalGatedProgress).
   private materialCollected: Spectrum[] = []
 
-  // Multi-tap accumulation.
-  private collected: Spectrum[] = []
+  // Guitar tap counter. The device no longer accumulates per-tap spectra (6-TEST 3c-C2a — the
+  // TapToneAnalyzer owns accumulation + averaging); it keeps only this lightweight count to know
+  // when the sequence is done (re-arm vs complete) and to label the session WAV.
+  private guitarTapCount = 0
 
   // Clipping detection.
   private lastClipTime: number | null = null
@@ -253,7 +259,7 @@ export class RealtimeFFTAnalyzer {
     // Skipped mid-capture and when idle: the stepper is locked once a tap is captured, and on load
     // the result is frozen (setConfig(loadedTaps) runs while idle).
     if (this.config.numberOfTaps !== prevTaps && (this.state === 'listening' || this.state === 'paused')) {
-      const collected = this.captureKind === 'material' ? this.materialCollected.length : this.collected.length
+      const collected = this.captureKind === 'material' ? this.materialCollected.length : this.guitarTapCount
       this.callbacks.onProgress?.(collected, this.config.numberOfTaps)
     }
   }
@@ -287,7 +293,7 @@ export class RealtimeFFTAnalyzer {
     if (!this.running || this.state === 'capturing') return
     this.captureKind = 'guitar'
     this.capture = this.guitarCapture
-    this.collected = []
+    this.guitarTapCount = 0
     this.prevAbove = true
     this.consecutive = 0
     this.decay.reset() // New Tap → drop any prior ring-out (the next tap re-seeds it)
@@ -340,7 +346,7 @@ export class RealtimeFFTAnalyzer {
   /** Abort the current sequence (guitar multi-tap or material), discarding any partial
    *  captures, and return to idle so New Tap re-arms. Mirrors Swift `cancelTapSequence()`. */
   cancel(): void {
-    this.collected = []
+    this.guitarTapCount = 0
     this.materialCollected = []
     this.materialSearch = null
     this.captureKind = 'guitar'
@@ -717,7 +723,7 @@ export class RealtimeFFTAnalyzer {
     this.prerollIdx = 0
     this.prerollFilled = 0
     this.captureIdx = 0
-    this.collected = []
+    this.guitarTapCount = 0
     this.prevAbove = true
     this.consecutive = 0
     this.materialSession = null
@@ -929,28 +935,30 @@ export class RealtimeFFTAnalyzer {
       return
     }
 
+    // Guitar: the device computes each per-tap spectrum (its FFT + calibration, unchanged) and
+    // delivers it RAW; the TapToneAnalyzer accumulates the taps and averages them into the frozen
+    // result (processMultipleTaps). The device keeps only a lightweight tap counter — it no longer
+    // owns averaging (6-TEST 3c-C2a).
     const spectrum = this.applyCal(dftAnalRect(this.capture, this.sampleRate, GUITAR_FFT_SIZE))
     this.captureIdx = 0
-    this.collected.push(spectrum)
+    this.guitarTapCount += 1
+    this.callbacks.onGuitarTap?.(spectrum)
 
     const total = this.config.numberOfTaps
-    if (this.collected.length < total) {
-      // Need more taps — re-arm for the next without clearing the accumulation.
+    if (this.guitarTapCount < total) {
+      // Need more taps — re-arm for the next.
       this.prevAbove = true
       this.consecutive = 0
-      this.callbacks.onProgress?.(this.collected.length, total)
+      this.callbacks.onProgress?.(this.guitarTapCount, total)
       this.setState('listening')
       return
     }
 
-    const result = averageSpectra(this.collected)
-    // Retain each tap's spectrum for the multi-tap comparison view (>1 tap only).
-    const taps = total > 1 ? this.collected : undefined
-    this.collected = []
+    this.guitarTapCount = 0
     this.callbacks.onProgress?.(total, total)
     this.finishSessionRecording(`Guitar_${total}tap`) // write the continuous session WAV (dump-gated)
     this.setState('idle')
-    this.callbacks.onCapture?.(result, taps)
+    this.callbacks.onGuitarComplete?.() // sequence done — the analyzer averages the accumulated taps
   }
 
   async stop(): Promise<void> {
@@ -968,7 +976,7 @@ export class RealtimeFFTAnalyzer {
     this.context = null
     this.accumIdx = 0
     this.captureIdx = 0
-    this.collected = []
+    this.guitarTapCount = 0
     this.cancelSessionRecording()
     this.lastClipTime = null
     this.clipState = false

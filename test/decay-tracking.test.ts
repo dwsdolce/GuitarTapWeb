@@ -95,7 +95,7 @@ describe('G4d — REG-G ring-out (file playback)', () => {
       new Uint8Array(readFileSync(new URL('./fixtures/Recording 5.wav', import.meta.url))),
       { downmix: true },
     )
-    const engine = new RealtimeFFTAnalyzer({ onCapture: () => {} }, { tapDetectionThreshold: -40, numberOfTaps: 1 })
+    const engine = new RealtimeFFTAnalyzer({}, { tapDetectionThreshold: -40, numberOfTaps: 1 })
     engine.initForTesting()
     await engine.playFile(wav.samples, wav.sampleRate, { pace: false })
     expect(engine.decayTime, 'no ring-out measured').not.toBeNull()

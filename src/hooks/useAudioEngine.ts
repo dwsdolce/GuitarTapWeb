@@ -198,7 +198,20 @@ export function useAudioEngine({
       {
         onLevel: setLevel,
         onSpectrum: setLiveSpectrum,
-        onCapture: onGuitarCapture,
+        // Guitar capture is split (6-TEST 3c-C2a): the device delivers each per-tap spectrum RAW; the
+        // analyzer accumulates + averages. On completion, bridge the analyzer's averaged frozen result
+        // + per-tap spectra to App via the existing capture callback — display code is untouched (C2b
+        // migrates the reads onto the snapshot).
+        onGuitarTap: (spectrum) => analyzer.recordGuitarTap(spectrum),
+        onGuitarComplete: () => {
+          analyzer.processMultipleTaps() // power-average the accumulated taps → frozen spectrum
+          const spectrum: Spectrum = { magnitudesDb: analyzer.frozenMagnitudes, frequencies: analyzer.frozenFrequencies }
+          const taps =
+            analyzer.capturedTaps.length > 1
+              ? analyzer.capturedTaps.map((t) => ({ magnitudesDb: t.magnitudes, frequencies: t.frequencies }))
+              : undefined
+          onGuitarCapture(spectrum, taps)
+        },
         onState: (s) => {
           setEngineState(s)
           // The analyzer owns isDetecting/isDetectionPaused (mirrors the device state). 6-TEST 3c-A2.
@@ -207,7 +220,12 @@ export function useAudioEngine({
         onClipping: setClipping,
         // The device reports per-sequence/per-phase tap progress; the analyzer owns currentTapCount
         // (numberOfTaps is set separately via changeTaps → analyzer.setNumberOfTaps). 6-TEST 3c-A.
-        onProgress: (collected) => analyzer.setCurrentTapCount(collected),
+        // collected === 0 marks a fresh sequence / material phase armed at 0 taps → clear the
+        // analyzer's per-tap accumulation so the next recordGuitarTap starts clean (6-TEST 3c-C2a).
+        onProgress: (collected) => {
+          if (collected === 0) analyzer.beginGuitarAccumulation()
+          analyzer.setCurrentTapCount(collected)
+        },
         onMetrics: setEngineMetrics,
         onMaterialCapture,
         onSessionAudio,

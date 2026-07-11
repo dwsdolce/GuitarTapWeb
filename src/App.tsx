@@ -283,7 +283,7 @@ export default function App() {
   // these refs suppress the one-shot "reset on change" effects so the restore isn't clobbered.
   const skipNextTypeResetRef = useRef(false)
   // While a comparison is frozen, a tap-capture already in flight (started before Compare)
-  // must not clobber it — onCapture checks this ref. Kept in sync with `comparison` below.
+  // must not clobber it — onGuitarCapture checks this ref. Kept in sync with `comparison` below.
   const comparisonRef = useRef(false)
   // Peaks from a loaded measurement are authoritative: while set, Peak Min only FILTERS
   // them by magnitude — findPeaks is never re-run on the loaded spectrum (matches Swift

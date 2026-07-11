@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { RealtimeFFTAnalyzer, type MaterialCaptureResult } from '../src/audio/realtimeFFTAnalyzer'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { decodeWav } from '../src/dsp/wav'
 import { parseCalibration, type Calibration } from '../src/dsp/calibration'
 import { modePeaksFromSpectrum, type Spectrum } from '../src/dsp/guitarFFT'
@@ -43,19 +44,38 @@ interface PeakRef {
   q?: number
 }
 
-/** Run a guitar recording through engine.playFile (headless) → averaged spectrum + per-tap spectra. */
+/** Run a guitar recording through engine.playFile (headless), wired to a real TapToneAnalyzer exactly
+ *  as the app wires them (6-TEST 3c-C2a): the device delivers each per-tap spectrum RAW; the analyzer
+ *  accumulates + power-averages them into the frozen result. Mirrors Swift's TapToneAnalyzer.forTesting()
+ *  driving playFileForTesting → the averaged spectrum + per-tap spectra come from the analyzer. */
 async function playGuitar(
   reg: { fixture: string; calibration: string | null; settings: RegSettings },
 ): Promise<{ spectrum: Spectrum; taps?: Spectrum[] } | null> {
   const wav = loadWav(reg.fixture)
-  let captured: { spectrum: Spectrum; taps?: Spectrum[] } | null = null
+  const analyzer = new TapToneAnalyzer()
+  let complete = false
   const engine = new RealtimeFFTAnalyzer(
-    { onCapture: (spectrum, taps) => (captured = { spectrum, taps }) },
+    {
+      onProgress: (collected) => {
+        if (collected === 0) analyzer.beginGuitarAccumulation()
+      },
+      onGuitarTap: (spectrum) => analyzer.recordGuitarTap(spectrum),
+      onGuitarComplete: () => {
+        analyzer.processMultipleTaps()
+        complete = true
+      },
+    },
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
   engine.initForTesting()
   await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration), pace: false })
-  return captured
+  if (!complete) return null
+  const spectrum: Spectrum = { magnitudesDb: analyzer.frozenMagnitudes, frequencies: analyzer.frozenFrequencies }
+  const taps =
+    analyzer.capturedTaps.length > 1
+      ? analyzer.capturedTaps.map((t) => ({ magnitudesDb: t.magnitudes, frequencies: t.frequencies }))
+      : undefined
+  return { spectrum, taps }
 }
 
 /** Run a plate/brace session through engine.playFile (headless) → one capture per phase (the engine

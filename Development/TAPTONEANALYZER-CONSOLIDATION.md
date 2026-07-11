@@ -195,12 +195,24 @@ only `test/start-tap-race`; the device is 978 lines, `useAudioEngine` 295, `useM
     Native has the analyzer *pull* the FFT via the device method; the web has the device *push* the spectrum —
     functionally identical. *(The analyzer's `finishGuitarGatedCapture(samples)` uses the wrong (gated) FFT and
     is replaced by a spectrum-accumulate method; the 2 state-only tests that use it feed a spectrum instead.)*
-  - **3c-C2a — averaging/accumulation up, BRIDGED.** Device stops averaging (drops `collected`/`averageSpectra`);
-    emits each per-tap spectrum raw; keeps a lightweight counter for its own re-arm/idle + `finishSessionRecording`.
-    Analyzer accumulates `capturedTaps` + averages → frozen. The result still flows to App via the **existing**
-    `captured`/`tapSpectra` path (bridged from the analyzer on completion), so display code is untouched. This is
-    the "device no longer owns averaging" change. **Riskiest diff** — run-review guitar single + multi-tap, the
-    multi-tap comparison view, and the oracle regressions (`file-playback`/`gated-capture`/`guitar-fft`).
+  - **3c-C2a — averaging/accumulation up, BRIDGED — ✅ IMPLEMENTED (2026-07-10; tsc · 205 tests · build green;
+    run-review pending).** Device stopped averaging: dropped the `collected: Spectrum[]` accumulator for a
+    lightweight `guitarTapCount`; the guitar `finishCapture` branch now emits each per-tap spectrum RAW via a new
+    `onGuitarTap(spectrum)` callback and signals `onGuitarComplete()` at the end (the single `onCapture` callback
+    is gone). FFT + calibration in the device are **unchanged** → zero numeric drift. The analyzer gained
+    `recordGuitarTap(spectrum)` (accumulate a tap) + `beginGuitarAccumulation()` (clear at a fresh arm), replacing
+    the old test-only `finishGuitarGatedCapture(samples)` (which used the WRONG gated FFT); `processMultipleTaps`
+    does the real averaging. The bridge lives in `useAudioEngine`: `onGuitarTap`→`recordGuitarTap`,
+    `onGuitarComplete`→`processMultipleTaps` then feed the analyzer's frozen average + per-tap spectra to App's
+    existing `onGuitarCapture` (so `captured`/`tapSpectra` React state + all display code are untouched);
+    `onProgress(0)`→`beginGuitarAccumulation`. **Tests:** `start-tap-race` R4 rewritten to `recordGuitarTap`
+    (mirrors R2/R3 — the idle transition, not the record, clears `isDetecting`); **`file-playback` guitar helper
+    now drives a real `TapToneAnalyzer`** through the device's per-tap emissions and reads the averaged result off
+    `processMultipleTaps` — stronger + mirrors Swift's `forTesting()` analyzer shape; `measurement-complete`
+    unchanged (already feeds `capturedTaps` directly); `decay-tracking` dropped its `onCapture` placeholder. No
+    file moves → `@parity` tags unchanged (map regen = 63 groups, same 4 tracked orphans). **Run-review:** guitar
+    single + multi-tap, the multi-tap comparison view, cancel mid-multi-tap, pause/resume, play-file guitar, and
+    the oracle regressions.
   - **3c-C2b — Decision-2 alignment.** Move the frozen spectrum + per-tap spectra onto the analyzer, exposed via
     the snapshot; retire `captured`/`tapSpectra` React state; `displaySpectrum`/`peaks`/multi-tap view read the
     analyzer. Broad display-read migration; run-review the display across guitar/load/compare/multi-tap.
@@ -274,8 +286,9 @@ go/no-go before C2.
 `state/tap-session` → `state/tap-tone-analyzer` · EG-1 in scope (lands in 3c-C with the device failure path).
 
 *Sequencing:* 3c-0 ✅ → 3c-A ✅ → 3c-A2 ✅ → 3c-B ✅ → **3c-C in progress**: C1 (rename `AudioEngine`→
-`RealtimeFFTAnalyzer`) ✅ committed → **C2a next** (guitar averaging/accumulation up, bridged) → C2b (result
-data onto snapshot; retire `captured`/`tapSpectra`) → C3 (absorb material transitions, delete `useMaterialSession`)
+`RealtimeFFTAnalyzer`) ✅ committed → C2a (guitar averaging/accumulation up, bridged) ✅ implemented (run-review
+pending) → **C2b next** (result data onto snapshot; retire `captured`/`tapSpectra`) → C3 (absorb material
+transitions, delete `useMaterialSession`)
 → C4 (imperative `statusMessage` D3 + EG-1) → C5 (shrink `useAudioEngine`) → 3c-D (collapse two-branch rules).
 All lifecycle *facts* live on the analyzer; 3c-C moves the *mechanics*. **Decisions settled:** device computes
 FFT + delivers per-tap spectrum, analyzer accumulates spectra + averages (D1); analyzer owns the result spectra

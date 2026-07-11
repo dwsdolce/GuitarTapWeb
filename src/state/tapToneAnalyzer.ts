@@ -11,7 +11,6 @@
 // @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/start-tap-race,test/measurement-complete
 // @parity audio/tap-analyzer  tests=test/tap-decisions
 import { averageSpectra } from '../dsp/spectrumAverage'
-import { computeGatedFFT } from '../dsp/gatedFFT'
 import type { Spectrum } from '../dsp/guitarFFT'
 
 export type MeasurementType = 'acoustic' | 'classical' | 'flamenco' | 'plate' | 'brace'
@@ -87,11 +86,20 @@ export class TapToneAnalyzer {
     this.isMeasurementComplete = false
   }
 
-  /** Merge point for both capture paths: clear detection, append the captured tap. */
-  finishGuitarGatedCapture(samples: Float32Array | Float64Array | number[], sampleRate: number): void {
-    this.isDetecting = false
-    const spec = computeGatedFFT(samples, sampleRate)
-    this.capturedTaps.push({ magnitudes: spec.magnitudesDb, frequencies: spec.frequencies, captureTime: 0 })
+  /** Begin a fresh guitar tap accumulation (the device armed at 0 taps): drop any prior per-tap
+   *  spectra so the next recordGuitarTap starts clean. Only the accumulation — detection / pause /
+   *  completion are driven by the device's state events (6-TEST 3c-C2a). */
+  beginGuitarAccumulation(): void {
+    this.capturedTaps = []
+  }
+
+  /** Record one captured guitar tap's spectrum (computed + delivered raw by the device) and advance
+   *  the count. processMultipleTaps() later power-averages the accumulated taps into the frozen
+   *  spectrum, mirroring the canonical analyzer accumulating spectra (Swift capturedTaps /
+   *  process_multiple_taps). Replaces the old finishGuitarGatedCapture(samples) — computing the FFT
+   *  is the device's job now (D1: RealtimeFFTAnalyzer delivers the spectrum, TapToneAnalyzer averages). */
+  recordGuitarTap(spectrum: Spectrum): void {
+    this.capturedTaps.push({ magnitudes: spectrum.magnitudesDb, frequencies: spectrum.frequencies, captureTime: 0 })
     this.currentTapCount = this.capturedTaps.length
   }
 
