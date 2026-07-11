@@ -4,8 +4,10 @@
 Peak-analysis effort** (3c-0/A/A2/B/C1/C2a committed 2026-07-10; C2b + P1 + P1b + P2 + selection-flicker fix
 committed 2026-07-11, folding C2b). **3c-C3a + C3b ✅ committed 2026-07-12** (material phase
 machine → analyzer + `useMaterialSession` deleted + analyzer holds the device (C3a); material averaging + peak-find
-up, device now a pure emitter (C3b); §11). **NEXT = C4** (imperative statusMessage + EG-1) → C5 (shrink
-useAudioEngine) → 3c-D. **EG-2** (material live spectrum) deferred until 3c complete. See §5/§5b/§10/§11 for status.
+up, device now a pure emitter (C3b); §11). **3c-C4 ✅ committed 2026-07-12 (`e98d4da`)** — imperative statusMessage
+field (D3) + EG-1 via Option C + run-review (§12/§12a). **NEXT = OUT-1** (Swift+Python phase-guidance-through-warmup)
+→ OUT-2/OUT-3 → C5 (shrink useAudioEngine) → 3c-D. **EG-2** (material live spectrum) deferred until 3c complete.
+See §5/§5b/§10/§11/§12 for status.
 (Supersedes the earlier `TAPSESSION-CONSOLIDATION.md` draft — renamed because the class it was named after is
 being renamed to the canonical `TapToneAnalyzer`.)
 
@@ -439,10 +441,11 @@ unit coverage → run-review is the gate. Acceptance bar: no behavior change.
 
 ## 12. 3c-C4 — Imperative `statusMessage` field (D3) + EG-1 (Option C)
 
-**Status: IMPLEMENTED + RUN-REVIEWED 2026-07-12 (Option C, single commit) — all gates green (tsc · lint 0 ·
-200 tests · build · parity 63 groups/0 platform-specific), READY TO COMMIT.** Step-by-step Swift↔web review
-complete (see §12a): 2 fixes folded in (RF-1 Peak readout, RF-2 level rate), 3 outstanding cross-platform items
-tracked (OUT-1/2/3 in §12a + STATUS) for the next effort. Material flow + strings verified against current Swift. `statusMessage.ts` deleted; the analyzer
+**Status: ✅ COMMITTED 2026-07-12 (`e98d4da`, Option C, single commit) — run-reviewed.** All gates green (tsc ·
+lint 0 · 200 tests · build · parity 63 groups/0 platform-specific). Step-by-step Swift↔web review complete
+(see §12a): 2 fixes folded in (RF-1 Peak readout, RF-2 level rate), 3 outstanding cross-platform items tracked
+(OUT-1/2/3 in §12a + STATUS). **NEXT = OUT-1** (Swift+Python phase-guidance-through-warmup — design for review
+first) → OUT-2/OUT-3 → then resume the 3c spine (C5 → 3c-D). `statusMessage.ts` deleted; the analyzer
 owns the imperative field. `test/status-message` reworked to drive transitions on a real analyzer + assert the
 field (+ clipping override/restore, device-change, EG-1, playback File: transitions). `file-playback` `playMaterial`
 rewired to Option C (REG-B1/P1 pass = value-preserving). Device is now a pure gated-FFT emitter for material
@@ -504,17 +507,19 @@ Option B — check on the phase average — diverges for multi-tap material. Rej
   rejects a peakless tap. Guitar's device/analyzer count-duplication is a separate C5 residual, not touched here.)
 
 **`statusMessage` set-points (imperative — absorb `statusMessage.ts`).** Set the field at each transition the
-analyzer owns/observes, using the **exact canonical string**. Where the web currently over-generalizes to the
-type-agnostic prompt, **adopt canonical's phase-specific string** (align-don't-defer):
+analyzer owns/observes, using the **exact canonical string**.
 - Guitar start (`startTapSequence`) / material L arm: `"Tap the guitar..."` / `"Tap the guitar N times..."` — this
   IS canonical's post-warm-up steady state (the web has no warm-up, so no `"Initializing... (Ns)"` and no rich
   `"Ready for L tap (×N each for L, C, FLC)"` start flash — those are overwritten instantly in canonical).
-- **Material C arm (`acceptMaterial` L→C):** `"Rotate 90° and tap for C"` — *upgrade* (web currently shows the
-  generic prompt for `capturingC`).
-- **Material FLC:** `"Set up for FLC tap, then tap"` for `waitingForFlcTap` **and** `capturingFlc` — *upgrade*
-  (web currently shows the generic prompt once `capturingFlc` arms).
-- Redo: `"Ready for L/C/FLC tap — tap again"` (canonical Control:457/476/495) — *upgrade* (web reuses the generic
-  prompt); Accept-C: `"Set up for FLC tap, then tap"`.
+- **⚠ CORRECTION (run-review 2026-07-12) — the material phase-arm strings below are NOT canonical alignment;
+  they were a MISREAD.** The web C4 sets `capturingC` → `"Rotate 90° and tap for C"`, `capturingFlc` →
+  `"Set up for FLC tap, then tap"`, and redo → `"Ready for L/C/FLC tap — tap again"`. Swift/Python DO set these
+  same strings (Control:347/353/457/476/495) but **immediately overwrite them** via the per-phase warm-up restart
+  ("Initializing…" → "Tap the guitar…"), so **the user never sees them** (confirmed on current Swift). So the web
+  is currently AHEAD of canonical (a divergence), NOT aligned. **Making them visible in all three is OUT-1
+  (Option B) — OUTSTANDING, not part of the C4 commit** (§12a). `waitingForFlcTap` (disarmed cooldown) → `"Set up
+  for FLC tap, then tap"` IS shown in canonical; whether armed `capturingFlc` keeps it or goes generic is UNVERIFIED
+  (OUT-1). C4 only implemented the web side of the eventual Option-B state.
 - Per-tap progress (already matched): guitar `"Tap X/N captured. Tap again..."` / `"Tap X/N capturing..."` /
   `"All taps captured. Processing..."`; material `"L/C/FLC tap X/N captured. Tap again..."`.
 - Reviews (already matched): `"fL/fC/fLC: N Hz — Accept to continue/complete or Redo to re-tap"`.
@@ -545,10 +550,10 @@ re-tap (tap the plate off-band → re-prompt, no count), full plate L→C→FLC 
 file-playback material auto-advance, load a saved material measurement, cancel. **NEXT after C4 = C5** (shrink
 `useAudioEngine`; also resolves the guitar count-duplication) → 3c-D (collapse two-branch rules).
 
-### 12a. Run-review log (2026-07-12, step-by-step Swift↔web) — IN PROGRESS (review barely begun; hold the
-cross-platform fixes until the review is complete, then roll the outstanding items into STATUS)
+### 12a. Run-review log (2026-07-12, step-by-step Swift↔web) — ✅ COMPLETE. 2 fixes folded into the C4 commit
+(RF-1/RF-2); 3 outstanding cross-platform items (OUT-1/2/3) are the NEXT effort, mirrored into STATUS.
 
-**Fixed in the C4 web commit:**
+**Fixed in the C4 web commit (`e98d4da`):**
 - **RF-1 — status-bar / Metrics "Peak" readout reads `liveSpectrum`, not `displaySpectrum`.** Swift's
   `fft.peakFrequency`/`peakMagnitude` are the LIVE FFT peak (always). The web read `displaySpectrum`, which is null
   during material capture (matSpectra empty) → a bogus "Starting…". Now computed from `liveSpectrum` (App `metrics`
@@ -558,7 +563,9 @@ cross-platform fixes until the review is complete, then roll the outstanding ite
   threshold meter). Added `EngineMetrics.displayLevelDB` (device samples the level into the FFT-frame `onMetrics`);
   the readout is `material ? (engineMetrics?.displayLevelDB ?? -100) : (metrics.peakMagnitude ?? -100)` — both
   default to -100 pre-first-frame (Swift `displayLevelDB`/`peakMagnitude` initial), so no fast flicker at startup.
-**Outstanding cross-platform items (fix AFTER the review completes — do NOT start yet per user 2026-07-12):**
+
+**Outstanding cross-platform items — NOT part of the C4 commit; the next effort now the review is complete
+(OUT-1 first, design-for-review before editing canonical):**
 - **OUT-1 — phase-guidance-through-warmup (Swift + Python).** See the DECISION below (Option B). Web already
   conformant. Canonical detection-loop change + parity tests lock-step + Swift release. **The full dead-string set
   the fix must make visible (each set right before a warm-up restart that overwrites it → "Tap the guitar…"):**
