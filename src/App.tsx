@@ -1169,7 +1169,19 @@ export default function App() {
         <div className="chart-pane">
           <div className="chart-wrap">
             <SpectrumChart
-              spectrum={comparison || material || showMultiTap ? null : displaySpectrum}
+              // The primary line = isMeasurementComplete ? frozen : live, matching Swift's displaySpectrum
+              // (SpectrumViews.swift) for guitar AND material. Material's frozen base is intentionally empty
+              // (the per-phase spectra are matOverlays), so material paints the LIVE spectrum while capturing
+              // (EG-2 fix — was `null`) and no base once complete. Comparison/multi-tap suppress the base.
+              spectrum={
+                comparison || showMultiTap
+                  ? null
+                  : material
+                    ? snapshot.isMeasurementComplete
+                      ? null
+                      : liveSpectrum
+                    : displaySpectrum
+              }
               title={`FFT Peaks — ${loadedName ?? 'New'}`}
               overlays={comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined}
               guitarType={material || comparison || showMultiTap ? undefined : guitarType}

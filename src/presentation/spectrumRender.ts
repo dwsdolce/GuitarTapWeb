@@ -42,7 +42,10 @@ export const DARK_CHART: ChartTheme = {
   border: '#2a3543',
   axis: '#8a97a6',
   title: '#dfe4ea',
-  curve: '#4ea1ff',
+  // The primary spectrum line is RED, matching Swift `spectrumLineContent` (.foregroundStyle(.red)) for guitar
+  // AND material live/frozen — and distinct from the material Longitudinal overlay (blue #4ea1ff = MAT_L_COLOR).
+  // (Was #4ea1ff, which collided with the L overlay and hid the live spectrum during material capture.)
+  curve: '#e0584a',
   badgeBg: 'rgba(20, 25, 33, 0.92)',
   crosshairLine: 'rgba(150, 160, 170, 0.55)',
   crosshairFreq: '#dc6464',
@@ -248,8 +251,11 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     }
     ctx.stroke()
   }
-  if (overlays.length) for (const ov of overlays) drawCurve(ov.frequencies, ov.magnitudesDb, ov.color)
-  else if (spectrum) drawCurve(spectrum.frequencies, spectrum.magnitudesDb, th.curve)
+  // Draw the primary (live/frozen) spectrum FIRST, then any overlays on top — matching Swift's
+  // SpectrumView (primary line + materialSpectra together). Material capture paints the live base under
+  // the captured-phase overlays; comparison/multi-tap pass spectrum=null so only overlays draw (EG-2).
+  if (spectrum) drawCurve(spectrum.frequencies, spectrum.magnitudesDb, th.curve)
+  for (const ov of overlays) drawCurve(ov.frequencies, ov.magnitudesDb, ov.color)
 
   // Peak dots.
   for (const m of markers) {
