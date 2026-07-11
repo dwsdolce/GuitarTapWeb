@@ -87,6 +87,14 @@ divergence** surfaced that belongs to this restructure, not the state/audio cons
 - **P1 + P2** (main peaks + `tapEntries`-with-peaks into the analyzer) are done first, in the analyzer
   consolidation — **spec: [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md) § Peak analysis.**
   P3 picks up the selection/annotation remainder here.
+- **Two 6-TEST parity suites ride on P3** (they exercise exactly this subsystem; testing them against the
+  view-side hook now would be thrown away when it moves to the analyzer — rescheduled here 2026-07-12):
+  - `frozen-peak-recalc` **selection half** — Swift PR1/PR3–PR7 (`applyFrozenPeakState` by-frequency remap of
+    selection / mode-overrides / annotation-offsets). The engine half (PR-A/PR2 on `recalculatePeaks`) already
+    shipped 3-way (`ad0487d`); P3 appends the selection tests to that suite.
+  - `annotation-state` (whole suite — D1–D8 offsets/selection/visibility/overrides, PS1–PS6 plate-peak selection,
+    D3b `userHasModifiedPeakSelection`/`resetToAutoSelection`, `AnnotationStateTests.swift`). Web-only gap until P3.
+  When P3 lands, build both suites against the analyzer (mirroring Swift), so both slugs go 3-way.
 
 ## Open questions for the spec (later)
 - Which fan-outs earn their keep vs. should consolidate? (case-by-case, not a blanket rule)

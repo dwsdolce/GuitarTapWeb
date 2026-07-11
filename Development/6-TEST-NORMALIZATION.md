@@ -38,7 +38,7 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
     COMMITTED 2026-07-11 (run-reviewed "runs smoothly").** **3c consolidation ✅ COMPLETE 2026-07-12** (C3a/C3b material → analyzer; C4 imperative statusMessage + EG-1;
     C5 + 3c-D shrank useAudioEngine + collapsed tapsLocked/sbComplete — full record in TAPTONEANALYZER-CONSOLIDATION.md,
     done). EG-1 + EG-2 + EG-3 ✅ done. **frozen-peak-recalc engine half ✅ 3-way** (PR-A/PR2; selection remap
-    PR1/PR3–PR7 → P3); import-persistence ✅ 3-way (IP1–IP3, fake-indexeddb). **NEXT: remaining pure gap** (annotation-state guitar) → orphan test
+    PR1/PR3–PR7 → P3); import-persistence ✅ 3-way (IP1–IP3, fake-indexeddb). annotation-state = entirely the selection/override/offset subsystem → **rescheduled under P3** (view-side today; testing now = throwaway). **NEXT: orphan test
     back-ports (§2) → PC-1 docs (web Quick-Start + shared manual) → P3 (selection/annotations by-frequency carry →
     RESTRUCTURE-NOTES.md). The 3 cross-platform parity gaps
     OUT-1/2/3 found during the 3c review are a **separate effort** → PLATFORM-PARITY-GAPS.md.
@@ -107,7 +107,7 @@ Legend: ✓ dedicated suite · ◐ folded/partial · ✗ absent · — n/a. Cell
 | 16 | start-tap-race | ✓ | ✓ | ✗ | **web gap** |
 | 17 | button-enablement | ✓ | ✓ | ✗ | **web gap** |
 | **Annotation / persistence / settings** |
-| 18 | annotation-state | ✓ | ✓ | ◐ material-only in g8 | **web gap: guitar path** |
+| 18 | annotation-state | ✓ | ✓ | ◐ material-only in g8 | **→ P3** (selection/override/offset subsystem is view-side; lands 3-way when P3 moves it to the analyzer) |
 | 19 | frozen-peak-recalc | ✓ | ✓ | ◐ engine half done (PR-A1..A5 + PR2 on `recalculatePeaks`); selection/annotation remap (PR1/PR3–PR7) → P3 | **engine ✅ / selection → P3** |
 | 20 | comparison | ✓ ComparisonModeTests | ✓ test_comparison_mode | ✓ g10-comparison | |
 | 21 | measurement-codable | ✓ | ✓ | ✓ g5-measurement-codable | |
@@ -179,7 +179,7 @@ names) · **TAG+RENAME** (web suite exists but untagged) · **MIS-TAG** (web tag
 ### 1. The 21 canonical behaviors (Swift master → Python → web)
 | slug (`test/…`) | Swift file (master) | Python file | Web current | Web → target file | Web status |
 |---|---|---|---|---|---|
-| annotation-state | AnnotationStateTests | test_annotation_state | (partial in g8-material-load) | annotation-state.test.ts | **GAP** — guitar path absent; g8 = material offsets only |
+| annotation-state | AnnotationStateTests | test_annotation_state | (partial in g8-material-load) | annotation-state.test.ts | **→ P3** — the whole suite (D1–D8/PS1–PS6) is the selection/override/offset subsystem, view-side today; lands 3-way with P3 |
 | brace *(physics)* | BracePropertiesTests | test_material_properties | g4b-material *(untagged)* | brace.test.ts | **TAG+RENAME**; `g3b` is mis-tagged (see below) |
 | button-enablement | ButtonEnablementTests | test_button_enablement | — | button-enablement.test.ts | **GAP** |
 | classify | GuitarModeTests | test_guitar_mode | g4c-classify | classify.test.ts | RENAME |
@@ -395,8 +395,10 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
     useAudioEngine + collapsed tapsLocked/sbComplete (rooted in material completion setting isMeasurementComplete).
     **✅ 3c COMPLETE 2026-07-12.** **P3** (selection/annotations → analyzer, incl. by-frequency carry) →
     RESTRUCTURE-NOTES.md. (EG-2 material live spectrum — was deferred until 3c complete, NOW actionable.)
-  - **3d — Remaining pure-gap suites** — ⬜ TODO. The originally-listed backfill items not yet built:
-    frozen-peak-recalc, annotation-state (guitar path), import-persistence (library append). Independent of 3c.
+  - **3d — Pure-gap suites** — ✅ frozen-peak-recalc (engine half — PR-A/PR2 — `ad0487d`) + import-persistence
+    (IP1–IP3, `fake-indexeddb`) shipped 3-way 2026-07-12. **annotation-state → P3** (it is entirely the
+    selection/override/offset subsystem, view-side today — testing it now = throwaway when P3 moves it to the
+    analyzer; lands 3-way with P3, together with frozen-peak-recalc's PR1/PR3–PR7 selection half).
   - **3e — EG-1 (engine empty / no-peak failure path)** — ✅ DONE (shipped in 3c-C4 via Option C, `e98d4da`).
   - **PC-1 docs** (web Quick-Start + shared manual: Cancel-as-restart, New-Tap-only-when-complete) — ⬜ pending, slot
     in anytime.
