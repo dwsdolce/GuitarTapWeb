@@ -33,12 +33,12 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
     rename) · **3c-C2a** (guitar averaging moved to the analyzer — device delivers per-tap spectra raw via
     `onGuitarTap`/`onGuitarComplete`, `recordGuitarTap`+`processMultipleTaps` average, bridged to App's display,
     zero numeric drift). The analyzer now owns all lifecycle facts. **C2b** (frozen + per-tap onto the snapshot)
-    implemented but NOT committed — folded into the **Peak-analysis effort** (§10; user: "do what Swift does" —
-    the analyzer owns peak analysis, not the view). **Peak-analysis P1 + P1b + P2 IMPLEMENTED + green 2026-07-11
-    (P1/P1b run-reviewed OK, P2 pending); commit C2b+P1+P1b+P2 together after P2 review (plan b).** **NEXT after
-    commit = 3c-C3** (absorb material transitions, delete useMaterialSession) → C4 (imperative statusMessage +
-    EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse two-branch rules tapsLocked/sbProgress). (P3
-    selection/annotations → RESTRUCTURE-NOTES.md; EG-3 Peak Min chart line deferred.) Then remaining pure gaps (frozen-peak-recalc, annotation-state
+    was folded into the **Peak-analysis effort** (§10; user: "do what Swift does" — the analyzer owns peak
+    analysis, not the view). **Peak-analysis P1 + P1b + P2 + selection-flicker fix (incl. C2b) ✅
+    COMMITTED 2026-07-11 (run-reviewed "runs smoothly").** **NEXT = 3c-C3** (absorb material transitions,
+    delete useMaterialSession) → C4 (imperative statusMessage + EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse
+    two-branch rules tapsLocked/sbProgress). (P3 selection/annotations by-frequency carry → RESTRUCTURE-NOTES.md;
+    EG-3 Peak Min chart line deferred.) Then remaining pure gaps (frozen-peak-recalc, annotation-state
     guitar, import-persistence) + the orphan test back-ports (§2). PC-1 docs (web Quick-Start + shared manual)
     still pending — slot in anytime. **Maintain @parity tags + regen PARITY-MAP.md on every change.**
 
@@ -371,10 +371,10 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
     so the web moves peak-finding out of the view into the analyzer instead of keeping `tapSpectra` (spectra-only).
     Spec = TAPTONEANALYZER-CONSOLIDATION.md §10. **P1 (main peaks + classification into the analyzer, absorbs
     C2b) + P1b (live peaks while waiting, Swift analyzeMagnitudes) + P2 (`tapEntries` with peaks, replaces
-    tapSpectra) IMPLEMENTED + green 2026-07-11; P1/P1b run-reviewed OK, P2 pending. Commit C2b+P1+P1b+P2 together
-    after P2 review (plan b).** **NEXT after commit = 3c-C3** (material transitions, delete
+    tapSpectra) + selection-flicker fix (effective selection derived synchronously, Swift applyFrozenPeakState) ✅
+    COMMITTED 2026-07-11 (folds C2b; run-reviewed).** **NEXT = 3c-C3** (material transitions, delete
     useMaterialSession) → C4 (imperative statusMessage + EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse the
-    two-branch rules). **P3** (selection/annotations → analyzer) → RESTRUCTURE-NOTES.md. Each sub-step: tsc + suite
+    two-branch rules). **P3** (selection/annotations → analyzer, incl. by-frequency carry) → RESTRUCTURE-NOTES.md. Each sub-step: tsc + suite
     green + parity regen + run-review + commit.
   - **3d — Remaining pure-gap suites** — ⬜ TODO. The originally-listed backfill items not yet built:
     frozen-peak-recalc, annotation-state (guitar path), import-persistence (library append). Independent of 3c.

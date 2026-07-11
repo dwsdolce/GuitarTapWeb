@@ -302,13 +302,12 @@ go/no-go before C2.
 `state/tap-session` → `state/tap-tone-analyzer` · EG-1 in scope (lands in 3c-C with the device failure path).
 
 *Sequencing:* 3c-0 ✅ → 3c-A ✅ → 3c-A2 ✅ → 3c-B ✅ → **3c-C in progress**: C1 (rename `AudioEngine`→
-`RealtimeFFTAnalyzer`) ✅ committed → C2a (guitar averaging/accumulation up, bridged) ✅ committed → C2b
-(frozen + per-tap onto snapshot) — implemented but **NOT committed; folded into the Peak-analysis effort (§10)**
-per the user (2026-07-11), so the interim `tapSpectra` name never lands and `tapEntries` (carrying peaks)
-arrives whole. **NEXT = §10 P1** (main peaks into the analyzer, absorbing C2b) → §10 P2 (`tapEntries` with
-peaks) → C3 (absorb material transitions, delete `useMaterialSession`) → C4 (imperative `statusMessage` D3 +
-EG-1) → C5 (shrink `useAudioEngine`) → 3c-D (collapse two-branch rules). (§10 P3 = selection/annotations →
-analyzer, tracked in RESTRUCTURE-NOTES.md.)
+`RealtimeFFTAnalyzer`) ✅ committed → C2a (guitar averaging/accumulation up, bridged) ✅ committed → **§10
+Peak-analysis effort — C2b (frozen + per-tap onto snapshot) + P1 + P1b + P2 + selection fix ✅ committed
+2026-07-11 as ONE commit** (folded C2b per the user 2026-07-11 so the interim `tapSpectra` name never landed and
+`tapEntries` carrying peaks arrived whole). **NEXT = 3c-C3** (absorb material transitions, delete
+`useMaterialSession`) → C4 (imperative `statusMessage` D3 + EG-1) → C5 (shrink `useAudioEngine`) → 3c-D (collapse
+two-branch rules). (§10 P3 = selection/annotations → analyzer, tracked in RESTRUCTURE-NOTES.md.)
 All lifecycle *facts* live on the analyzer; 3c-C moves the *mechanics*. **Decisions settled:** device computes
 FFT + delivers per-tap spectrum, analyzer accumulates spectra + averages (D1); analyzer owns the result spectra
 via the snapshot (D2 align); imperative statusMessage (D3); device split required (D4).
@@ -335,9 +334,9 @@ own effort: peak-finding location is the single largest, most-interconnected vie
 holds spectra only (C2b).
 
 **Phases** (each: tsc + suite green + parity regen + **run-review** + commit; loaded-peaks-authoritative tests
-stay green throughout). **Status: P1 + P1b + P2 all implemented + green 2026-07-11 (tsc · 205 · build), P1 & P1b
-user-run-reviewed OK, P2 run-review pending; commit C2b+P1+P1b+P2 TOGETHER after P2 review (plan b → `tapSpectra`
-never lands).**
+stay green throughout). **Status: ✅ P1 + P1b + P2 + selection-flicker fix COMMITTED 2026-07-11** (single commit `refactor(6-test): 3c §10
+P1/P2 — peak analysis moves into the analyzer`, folding the previously-uncommitted C2b so `tapSpectra` never
+landed; run-reviewed "runs smoothly"; tsc · 205 · build · parity 63). **NEXT = 3c-C3.**
 - **P1 — main peaks + classification into the analyzer — ✅ implemented + run-reviewed.** `analyzer.recalculatePeaks()`
   mirrors `recalculateFrozenPeaksIfNeeded` (loaded-authoritative filter vs live findPeaks; classification). App
   drives it from a `useLayoutEffect` on Peak Min / guitar type / analysis-range / frozen; the analyzer exposes
@@ -347,22 +346,27 @@ never lands).**
   spectrum when not complete (frozen once complete), so the peak list + annotations track each live FFT frame,
   mirroring Swift `analyzeMagnitudes`. (Closed a pre-existing web divergence surfaced during P1 review; the live
   spectrum is gated off after completion to avoid recomputing frozen peaks every frame.)
-- **P2 — `tapEntries` with peaks — ✅ implemented, run-review pending.** Replaced `tapSpectra` with
+- **P2 — `tapEntries` with peaks — ✅ committed.** Replaced `tapSpectra` with
   `tapEntries: TapEntry[]` (`{tapIndex, spectrum, peaks}`), built at completion, recomputed on Peak Min inside
   `recalculatePeaks` (Swift `recalculateTapEntryPeaks`), restored on load from the file's per-tap spectra (peaks
   re-found, as Swift does). `tapRows` / multi-tap overlays / save (`fromLive`) read `analyzer.tapEntries`;
   per-tap peaks stay value-identical (findPeaks default range + `resolvedModePeaks` == the old
   `modePeaksFromSpectrum`). Per-mode selection is derived on demand (read-only table), not stored. Lands the
   name + content alignment the user flagged.
-- **P3 — selection / overrides / annotation offsets → analyzer** (Swift's by-frequency preservation). **Tracked
-  in [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md)** (user, 2026-07-11) — it's the most view-entangled slice and
-  belongs with the view-layer restructure.
+- **Selection-flicker fix — ✅ committed with the P1/P2 batch.** In "selected" annotation mode, dragging Peak Min
+  flickered the annotations because `useAnnotations.selectedIds` (React state) lagged `autoIds` by an effect while
+  the peak ids churned. Fixed: the effective selection is now derived synchronously (`userModified ? selectedIds
+  : autoIds`), mirroring Swift `applyFrozenPeakState` setting `selectedPeakIDs` in the same pass as `currentPeaks`.
+- **P3 — selection / overrides / annotation offsets → analyzer** (Swift's by-frequency preservation, incl.
+  carrying a MANUAL selection across Peak Min id-churn — `applyFrozenPeakState` lines 608-629). **Tracked in
+  [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md)** (user, 2026-07-11) — the most view-entangled slice, belongs with
+  the view-layer restructure.
 
 **Risks:** loaded-peaks-authoritative (its own invariant + tests + [[project_loaded_peaks_authoritative]]) — the
 analyzer must own "filter, never re-find"; Peak Min / guitar type / analysis-range reactivity becomes
 analyzer-triggered (App wires the triggers); annotation peak-IDs; multi-tap table + PDF. Largest behavioral
 surface in the consolidation → phased + heavy run-review; no behavior change is the bar.
 
-**C2b status:** implemented + green but **NOT committed** — folded here (user chose this so `tapSpectra` never
-lands). Its frozen-spectrum + snapshot plumbing carries into P1; its `tapSpectra` is replaced by P2's `tapEntries`.
-The uncommitted C2b diff is WIP that P1 builds on.
+**C2b status: ✅ committed 2026-07-11 as part of this effort's single commit** — folded in (user chose this so
+`tapSpectra` never landed). Its frozen-spectrum + snapshot plumbing became part of P1; its `tapSpectra` was
+replaced by P2's `tapEntries`.
