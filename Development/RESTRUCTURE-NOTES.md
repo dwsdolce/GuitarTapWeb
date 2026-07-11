@@ -70,6 +70,24 @@ restructure: it's a **code-organization** job (split Python's monolith, reconcil
 decomposition), **not** a content-reconciliation job — low risk of behavioural change if the content
 is preserved verbatim while the file/component boundaries move.
 
+## Peak-selection & annotation ownership → analyzer (P3, from the analyzer consolidation)
+
+Captured here per the user (2026-07-11): while aligning the analyzer with Swift, a **model↔view boundary
+divergence** surfaced that belongs to this restructure, not the state/audio consolidation.
+
+- **Swift:** `TapToneAnalyzer` OWNS the whole peak-selection subsystem — `selectedPeakIDs`, `peakModeOverrides`,
+  `peakAnnotationOffsets`, `selectedPeakFrequencies`, `userHasModifiedPeakSelection` — and preserves them
+  **by frequency** across the UUID churn `findPeaks` causes (`recalculateFrozenPeaksIfNeeded` /
+  `applyFrozenPeakState`). Selection + annotation state is analyzer state.
+- **Web:** this lives in the **view** — the `useAnnotations` hook (selection, mode overrides, dragged label
+  offsets) + the App `peaks` memo. A port-time view-side choice, same class as the component-granularity
+  divergence above.
+- **P3 = move that subsystem onto the analyzer** with Swift's by-frequency preservation. It's the most
+  view-entangled slice, so it rides with the view-layer restructure rather than the analyzer consolidation.
+- **P1 + P2** (main peaks + `tapEntries`-with-peaks into the analyzer) are done first, in the analyzer
+  consolidation — **spec: [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md) § Peak analysis.**
+  P3 picks up the selection/annotation remainder here.
+
 ## Open questions for the spec (later)
 - Which fan-outs earn their keep vs. should consolidate? (case-by-case, not a blanket rule)
 - Does consolidating hurt React testability enough to matter here? (probably not — DSP is already

@@ -1,6 +1,7 @@
 # TapToneAnalyzer / RealtimeFFTAnalyzer Consolidation (6-TEST step 3c)
 
-**Status:** SPEC — for review. No code until the remaining open decisions (§9) are settled. Created 2026-07-10.
+**Status:** APPROVED — IN PROGRESS. All §9 decisions settled. Created 2026-07-10. Committed through **3c-C2a**
+(3c-0/A/A2/B/C1/C2a); **NEXT = 3c-C2b**. See §5/§5b for the per-sub-step status.
 (Supersedes the earlier `TAPSESSION-CONSOLIDATION.md` draft — renamed because the class it was named after is
 being renamed to the canonical `TapToneAnalyzer`.)
 
@@ -195,8 +196,8 @@ only `test/start-tap-race`; the device is 978 lines, `useAudioEngine` 295, `useM
     Native has the analyzer *pull* the FFT via the device method; the web has the device *push* the spectrum —
     functionally identical. *(The analyzer's `finishGuitarGatedCapture(samples)` uses the wrong (gated) FFT and
     is replaced by a spectrum-accumulate method; the 2 state-only tests that use it feed a spectrum instead.)*
-  - **3c-C2a — averaging/accumulation up, BRIDGED — ✅ IMPLEMENTED (2026-07-10; tsc · 205 tests · build green;
-    run-review pending).** Device stopped averaging: dropped the `collected: Spectrum[]` accumulator for a
+  - **3c-C2a — averaging/accumulation up, BRIDGED — ✅ DONE + run-reviewed + COMMITTED (2026-07-10; tsc · 205
+    tests · build green).** Device stopped averaging: dropped the `collected: Spectrum[]` accumulator for a
     lightweight `guitarTapCount`; the guitar `finishCapture` branch now emits each per-tap spectrum RAW via a new
     `onGuitarTap(spectrum)` callback and signals `onGuitarComplete()` at the end (the single `onCapture` callback
     is gone). FFT + calibration in the device are **unchanged** → zero numeric drift. The analyzer gained
@@ -213,9 +214,24 @@ only `test/start-tap-race`; the device is 978 lines, `useAudioEngine` 295, `useM
     file moves → `@parity` tags unchanged (map regen = 63 groups, same 4 tracked orphans). **Run-review:** guitar
     single + multi-tap, the multi-tap comparison view, cancel mid-multi-tap, pause/resume, play-file guitar, and
     the oracle regressions.
-  - **3c-C2b — Decision-2 alignment.** Move the frozen spectrum + per-tap spectra onto the analyzer, exposed via
-    the snapshot; retire `captured`/`tapSpectra` React state; `displaySpectrum`/`peaks`/multi-tap view read the
-    analyzer. Broad display-read migration; run-review the display across guitar/load/compare/multi-tap.
+  - **3c-C2b — Decision-2 alignment — ✅ IMPLEMENTED (2026-07-11; tsc · 205 tests · build green; run-review
+    pending).** The analyzer now owns the frozen guitar spectrum (`frozenMagnitudes/Frequencies`, already there)
+    **and** a `tapSpectra` field mirroring **Swift `tapEntries`** — the per-tap DISPLAY spectra, built from
+    `capturedTaps` at completion (>1 tap), **restored on load**, cleared on reset; distinct from the raw
+    `capturedTaps` (not restored on load), exactly like Swift's tapEntries-vs-capturedTaps split (confirmed by
+    reading Swift `loadMeasurement:784` + Python). Both are exposed on `TapToneSnapshot`
+    (`frozenSpectrum: Spectrum | null` ref-cached on the `frozenMagnitudes` ref so downstream memos don't churn;
+    `tapSpectra: Spectrum[]`). New/changed analyzer transitions: `processMultipleTaps` also builds `tapSpectra`
+    + notifies; `loadMeasurement({magnitudes, frequencies, taps})` restores per-tap + notifies; new
+    `clearResult()` clears frozen + per-tap + `capturedTaps` + completion + notifies. App retired the
+    `captured`/`tapSpectra` `useState` + the `setCaptured` wrapper; reads them through two snapshot **aliases**
+    (`const captured = snapshot.frozenSpectrum`, `const tapSpectra = snapshot.tapSpectra`) so ALL ~12 downstream
+    reads are unchanged; the ~8 writers route to `clearResult` (New Tap / type-switch / play-file / comparison /
+    material-load / compare), `loadMeasurement` (guitar load), or `processMultipleTaps` (capture completion, run
+    in App's `onGuitarCapture` after the comparison guard). The hook's `onGuitarComplete` now just calls
+    `onGuitarCapture()` (no spectrum payload). No `@parity` changes. **Run-review:** guitar single + multi-tap
+    (+ the per-tap comparison view + its PDF), load a saved single- and multi-tap measurement, comparison, and
+    play-file.
 
 - **3c-C3 — Absorb the MATERIAL transitions; delete `useMaterialSession`.** Move `startMaterial` / `accept` /
   `redo` / `record` / `reset` / `restore` + `matSearch` (calibration ranges) + `finishMaterialSession` + the
@@ -286,10 +302,67 @@ go/no-go before C2.
 `state/tap-session` → `state/tap-tone-analyzer` · EG-1 in scope (lands in 3c-C with the device failure path).
 
 *Sequencing:* 3c-0 ✅ → 3c-A ✅ → 3c-A2 ✅ → 3c-B ✅ → **3c-C in progress**: C1 (rename `AudioEngine`→
-`RealtimeFFTAnalyzer`) ✅ committed → C2a (guitar averaging/accumulation up, bridged) ✅ implemented (run-review
-pending) → **C2b next** (result data onto snapshot; retire `captured`/`tapSpectra`) → C3 (absorb material
-transitions, delete `useMaterialSession`)
-→ C4 (imperative `statusMessage` D3 + EG-1) → C5 (shrink `useAudioEngine`) → 3c-D (collapse two-branch rules).
+`RealtimeFFTAnalyzer`) ✅ committed → C2a (guitar averaging/accumulation up, bridged) ✅ committed → C2b
+(frozen + per-tap onto snapshot) — implemented but **NOT committed; folded into the Peak-analysis effort (§10)**
+per the user (2026-07-11), so the interim `tapSpectra` name never lands and `tapEntries` (carrying peaks)
+arrives whole. **NEXT = §10 P1** (main peaks into the analyzer, absorbing C2b) → §10 P2 (`tapEntries` with
+peaks) → C3 (absorb material transitions, delete `useMaterialSession`) → C4 (imperative `statusMessage` D3 +
+EG-1) → C5 (shrink `useAudioEngine`) → 3c-D (collapse two-branch rules). (§10 P3 = selection/annotations →
+analyzer, tracked in RESTRUCTURE-NOTES.md.)
 All lifecycle *facts* live on the analyzer; 3c-C moves the *mechanics*. **Decisions settled:** device computes
 FFT + delivers per-tap spectrum, analyzer accumulates spectra + averages (D1); analyzer owns the result spectra
 via the snapshot (D2 align); imperative statusMessage (D3); device split required (D4).
+
+## 10. Peak analysis into the analyzer (SPEC — for review; folds C2b)
+
+**Goal:** the analyzer owns peak analysis, mirroring Swift `TapToneAnalyzer+PeakAnalysis` / Python — moving it
+out of the view (the App `peaks` useMemo, `classifyAll`/`modeByPeak`, `tapRows`, and — for P3 — `useAnnotations`).
+This is what the user meant by "do what Swift does": Swift's per-tap `TapEntry` carries **peaks**, so the web's
+per-tap field must too (closing the `tapSpectra`≠`tapEntries` name-**and**-content mismatch). Reason this is its
+own effort: peak-finding location is the single largest, most-interconnected view↔model surface in the port.
+
+**Swift reference (read + verified 2026-07-11, `TapToneAnalyzer+PeakAnalysis.swift`):**
+- `recalculateFrozenPeaksIfNeeded` — the ONE reactive recompute (Peak Min / guitar-type change). **Loaded-
+  authoritative:** when `loadedMeasurementPeaks` is set it FILTERS them by threshold and never re-runs findPeaks
+  (saved peaks may not reproduce); the live path runs findPeaks on the frozen spectrum. Preserves
+  selection / annotation offsets / mode overrides **by frequency** across findPeaks' UUID churn (`applyFrozenPeakState`).
+- `recalculateTapEntryPeaks` — re-runs findPeaks on each stored `TapEntry.snapshot` at the current threshold.
+- `reclassifyPeaks` / `guitarModeSelectedPeakIDs` — classification + auto per-mode selection.
+- `reanalyzePeaks` — clears loaded peaks, re-runs on the frozen spectrum (the Re-analyze button; web already has this).
+
+**Web today:** all of the above is view-side — the `peaks` useMemo (findPeaks + `loadedPeaks` filter),
+`classifyAll`, `tapRows`, and the `useAnnotations` hook (selection / overrides / dragged offsets). The analyzer
+holds spectra only (C2b).
+
+**Phases** (each: tsc + suite green + parity regen + **run-review** + commit; loaded-peaks-authoritative tests
+stay green throughout). **Status: P1 + P1b + P2 all implemented + green 2026-07-11 (tsc · 205 · build), P1 & P1b
+user-run-reviewed OK, P2 run-review pending; commit C2b+P1+P1b+P2 TOGETHER after P2 review (plan b → `tapSpectra`
+never lands).**
+- **P1 — main peaks + classification into the analyzer — ✅ implemented + run-reviewed.** `analyzer.recalculatePeaks()`
+  mirrors `recalculateFrozenPeaksIfNeeded` (loaded-authoritative filter vs live findPeaks; classification). App
+  drives it from a `useLayoutEffect` on Peak Min / guitar type / analysis-range / frozen; the analyzer exposes
+  `peaks` + `modeByPeak` on the snapshot; the view reads them via aliases (the `peaks`/`modeByPeak` useMemos are
+  gone). **Absorbs the uncommitted C2b.**
+- **P1b — live peaks while waiting — ✅ implemented + run-reviewed.** `recalculatePeaks` also runs on the LIVE
+  spectrum when not complete (frozen once complete), so the peak list + annotations track each live FFT frame,
+  mirroring Swift `analyzeMagnitudes`. (Closed a pre-existing web divergence surfaced during P1 review; the live
+  spectrum is gated off after completion to avoid recomputing frozen peaks every frame.)
+- **P2 — `tapEntries` with peaks — ✅ implemented, run-review pending.** Replaced `tapSpectra` with
+  `tapEntries: TapEntry[]` (`{tapIndex, spectrum, peaks}`), built at completion, recomputed on Peak Min inside
+  `recalculatePeaks` (Swift `recalculateTapEntryPeaks`), restored on load from the file's per-tap spectra (peaks
+  re-found, as Swift does). `tapRows` / multi-tap overlays / save (`fromLive`) read `analyzer.tapEntries`;
+  per-tap peaks stay value-identical (findPeaks default range + `resolvedModePeaks` == the old
+  `modePeaksFromSpectrum`). Per-mode selection is derived on demand (read-only table), not stored. Lands the
+  name + content alignment the user flagged.
+- **P3 — selection / overrides / annotation offsets → analyzer** (Swift's by-frequency preservation). **Tracked
+  in [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md)** (user, 2026-07-11) — it's the most view-entangled slice and
+  belongs with the view-layer restructure.
+
+**Risks:** loaded-peaks-authoritative (its own invariant + tests + [[project_loaded_peaks_authoritative]]) — the
+analyzer must own "filter, never re-find"; Peak Min / guitar type / analysis-range reactivity becomes
+analyzer-triggered (App wires the triggers); annotation peak-IDs; multi-tap table + PDF. Largest behavioral
+surface in the consolidation → phased + heavy run-review; no behavior change is the bar.
+
+**C2b status:** implemented + green but **NOT committed** — folded here (user chose this so `tapSpectra` never
+lands). Its frozen-spectrum + snapshot plumbing carries into P1; its `tapSpectra` is replaced by P2's `tapEntries`.
+The uncommitted C2b diff is WIP that P1 builds on.

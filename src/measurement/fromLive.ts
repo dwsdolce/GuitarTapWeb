@@ -3,8 +3,9 @@
 // to build a measurement from the current frozen guitar result and to restore one back
 // into the view. Guitar measurements only for now (material persistence is a follow-up).
 
-import { modePeaksFromSpectrum, type Spectrum } from '../dsp/guitarFFT'
+import { type Spectrum } from '../dsp/guitarFFT'
 import type { Peak } from '../dsp/peaks'
+import type { TapEntry } from '../state/tapToneAnalyzer'
 import type { MaterialPeak } from '../dsp/gatedCapture'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
@@ -67,8 +68,8 @@ export interface BuildMeasurementArgs {
   view: ChartView
   settings: Settings
   numberOfTaps: number
-  /** Per-tap spectra (multi-tap capture) → tapEntries for the comparison view. */
-  tapSpectra?: Spectrum[]
+  /** Per-tap entries (multi-tap capture) — spectrum + peaks — saved as the measurement's tapEntries. */
+  tapEntries?: TapEntry[]
   sampleRate: number | null
   deviceLabel: string
   /** Active input deviceId + calibration name at capture time (provenance for the Details pane). */
@@ -137,22 +138,25 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
   // each tap's spectrum snapshot + its peaks + the auto-selected per-mode peak IDs.
   const guitarTypeName = GUITAR_TYPE_NAME_FROM_RAW[guitarTypeRaw] ?? 'generic'
   const tapEntries: TapEntryModel[] | undefined =
-    a.tapSpectra && a.tapSpectra.length > 1
-      ? a.tapSpectra.map((sp, i) => {
-          const mp = modePeaksFromSpectrum(sp, { guitarType: guitarTypeName, peakMinThreshold: a.settings.peakMinThreshold })
+    a.tapEntries && a.tapEntries.length > 1
+      ? a.tapEntries.map((entry) => {
+          // Peaks were already found on the entry by the analyzer (at the current Peak Min); save those
+          // and resolve the auto-selected per-mode peaks — identical to the old per-spectrum recompute.
+          const modes = resolvedModePeaks(entry.peaks, guitarTypeName)
           const idByNumeric = new Map<number, string>()
-          const tapPeaks: ResonantPeakModel[] = mp.peaks.map((p) => {
+          const tapPeaks: ResonantPeakModel[] = entry.peaks.map((p) => {
             const id = uuid()
             idByNumeric.set(p.id, id)
             return { id, frequency: p.frequency, magnitude: p.magnitude, quality: p.quality, bandwidth: p.bandwidth, timestamp }
           })
-          const selectedPeakIDs = [mp.air, mp.top, mp.back]
+          const selectedPeakIDs = (['air', 'top', 'back'] as const)
+            .map((mode) => modes.get(mode))
             .filter((p): p is Peak => p != null)
             .map((p) => idByNumeric.get(p.id)!)
           return {
             id: uuid(),
-            tapIndex: i + 1,
-            snapshot: { ...snapshot, frequencies: sp.frequencies, magnitudes: sp.magnitudesDb },
+            tapIndex: entry.tapIndex,
+            snapshot: { ...snapshot, frequencies: entry.spectrum.frequencies, magnitudes: entry.spectrum.magnitudesDb },
             peaks: tapPeaks,
             selectedPeakIDs,
           }

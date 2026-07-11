@@ -6,22 +6,27 @@ is either a detail doc for one of these items, living reference, or history —
 see the doc map at the bottom. Detail docs keep their own granular checkboxes;
 this file just points at them.
 
-_Last updated: 2026-07-09._
+_Last updated: 2026-07-10._
 
 ## Open work
 
 | # | Item | Status | Detail doc |
 |---|---|---|---|
-| 1 | **Task 3 / 6-TEST** — cross-platform test-suite normalization (major) | **In progress** — Phases 1-2 done; **Phase 3: PC-1..PC-4 ALL done + validated + committed** (2026-07-09). PC-1 Cancel=restart + button rule (all 3) + web fallout (arming, status, taps-lock); PC-2 web `statusMessage.ts` extraction; PC-3 Python brace "Tap X/N"; PC-4 web `setConfig` progress re-fire (Python/Swift already correct). **3c consolidation UNDERWAY** (spec [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md); goal = align web arch to canonical, names+responsibilities): 3c-0/A/A2/B/C1 ✅ committed 2026-07-10 (analyzer owns all lifecycle facts; AudioEngine→RealtimeFFTAnalyzer renamed). **Next = 3c-C2a** (guitar averaging/accumulation up, bridged) → C2b (result spectra onto snapshot) → C3 (absorb material, del useMaterialSession) → C4 (imperative statusMessage + EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse rules). Then pure gaps + orphan back-ports; PC-1 docs + EG-2 pending | [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) (plan + PC-1..4 + EG) · [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md) |
+| 1 | **Task 3 / 6-TEST** — cross-platform test-suite normalization (major) | **In progress** — Phases 1-2 done; **Phase 3: PC-1..PC-4 ALL done + validated + committed** (2026-07-09). PC-1 Cancel=restart + button rule (all 3) + web fallout (arming, status, taps-lock); PC-2 web `statusMessage.ts` extraction; PC-3 Python brace "Tap X/N"; PC-4 web `setConfig` progress re-fire (Python/Swift already correct). **3c consolidation UNDERWAY** (spec [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md); goal = align web arch to canonical, names+responsibilities): 3c-0/A/A2/B/C1/C2a ✅ committed 2026-07-10. **C2b implemented 2026-07-11 but NOT committed — folded into the new Peak-analysis effort** (user 2026-07-11: "do what Swift does"): Swift's per-tap `TapEntry` carries peaks, so the web analyzer must own peak analysis, not the view. **Peak-analysis P1 + P1b + P2 IMPLEMENTED + green 2026-07-11 (tsc · 205 tests · build), NOT yet committed:** P1 = main peaks + classification into the analyzer (absorbs C2b); P1b = live peaks track the spectrum while waiting for a tap (Swift `analyzeMagnitudes`); P2 = `tapEntries` carrying peaks (`recalculateTapEntryPeaks`), superseding `tapSpectra` (name+content alignment). P1 & P1b user-run-reviewed OK; **P2 run-review pending**. Per plan (b) commit **C2b + P1 + P1b + P2 together** after P2 review, so `tapSpectra` never lands. **NEXT after commit = resume 3c-C3** (absorb material, del useMaterialSession) → C4 (imperative statusMessage + EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse rules). **P3** (selection/overrides/annotation offsets → analyzer) captured in [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md). **EG-3** (Peak Min chart line) deferred. Spec: [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md) §10. Then pure gaps + orphan back-ports; PC-1 docs + EG-2 pending | [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) (plan + PC-1..4 + EG) · [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md) |
 | 2 | **Architectural-parity restructure** (view layer) | Planned post-review — needs its own spec before any code moves | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
 | 3 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes) | [THEME-SPEC.md](THEME-SPEC.md) |
 
 Notes:
-- **Parity gaps EG-1 / EG-2 (web-only, tracked in [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) § EG):**
+- **Parity gaps EG-1 / EG-2 / EG-3 (web-only, tracked in [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) § EG):**
   **EG-1** — the web gated capture has no empty/no-peak failure path (a no-resonance material tap is silently
   accepted with a null peak instead of re-arming + "No signal/resonance detected — tap again"); EG-1 folds
   into the 3c consolidation (3c-C). **EG-2** — material mode never shows the LIVE spectrum during capture
   (guitar does; the material chart paints only captured phases), pre-existing view gap; fix separately.
+  **EG-3 (OPEN, deferred — user 2026-07-11)** — Swift/Python draw a horizontal **Peak Min threshold line** on the
+  spectrum chart; the web doesn't. Small independent view/chart feature (a reference line at `peakMin` dB on
+  `SpectrumChart`), not part of the analyzer/peak refactor; do it after the peak effort.
+  _(A related pre-existing gap — guitar peak list/annotations not updating on the LIVE spectrum while waiting for
+  a tap — was **fixed in 3c §10 P1b**, 2026-07-11: `recalculatePeaks` now runs on the live spectrum during detection.)_
 - The doc review's deferred `signal.ts` two-tone helper (item 4 of the `@parity`
   tail) **folds into #1** — it's a test-only helper reviewed with the parity tests.
 - Of the three: **#1** can start now; **#2** needs a spec written first; **#3**

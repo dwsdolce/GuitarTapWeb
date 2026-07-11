@@ -87,19 +87,23 @@ export function useAnnotations({ peaks, guitarType, captured, material }: UseAnn
     setAnnotationOffsets(new Map())
   }, [captured, material])
 
-  useEffect(() => {
-    if (!userModified) setSelectedIds(autoIds)
-  }, [autoIds, userModified])
+  // The EFFECTIVE selection: while the user hasn't touched it, it IS `autoIds` — computed
+  // synchronously from the current peaks, so it never lags a Peak Min change (which regenerates the
+  // numeric peak ids). Mirrors Swift applyFrozenPeakState setting selectedPeakIDs in the same pass as
+  // currentPeaks. Only a manual change parks the choice in `selectedIds` state (userModified). NOTE:
+  // manual selection is still keyed by id, so it doesn't yet survive Peak Min id-churn by frequency —
+  // that by-frequency carry is P3 (RESTRUCTURE-NOTES.md).
+  const effectiveSelectedIds = userModified ? selectedIds : autoIds
 
   const toggleSelect = useCallback((id: number) => {
+    // Seed from the current auto-selection on the first manual change, so toggling adds/removes
+    // relative to what's shown rather than a stale/empty stored set.
+    const next = new Set(userModified ? selectedIds : autoIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setSelectedIds(next)
     setUserModified(true)
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
+  }, [userModified, selectedIds, autoIds])
   const selectAll = useCallback(() => {
     setUserModified(true)
     setSelectedIds(new Set(peaks.map((p) => p.id)))
@@ -142,7 +146,7 @@ export function useAnnotations({ peaks, guitarType, captured, material }: UseAnn
   }, [])
 
   return {
-    selectedIds,
+    selectedIds: effectiveSelectedIds,
     overrides,
     annotationOffsets,
     userModified,

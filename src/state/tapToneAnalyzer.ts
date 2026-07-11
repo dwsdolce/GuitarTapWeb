@@ -12,6 +12,9 @@
 // @parity audio/tap-analyzer  tests=test/tap-decisions
 import { averageSpectra } from '../dsp/spectrumAverage'
 import type { Spectrum } from '../dsp/guitarFFT'
+import { findPeaks, type Peak } from '../dsp/peaks'
+import { classifyAll, type ResolvedMode } from '../dsp/classify'
+import type { GuitarTypeName } from '../dsp/guitarModes'
 
 export type MeasurementType = 'acoustic' | 'classical' | 'flamenco' | 'plate' | 'brace'
 
@@ -39,6 +42,15 @@ export interface CapturedTap {
   captureTime: number
 }
 
+/** One per-tap entry for the multi-tap comparison view: its spectrum + the peaks found on it (at the
+ *  current Peak Min). Mirrors Swift `TapEntry` (snapshot + peaks). The web derives per-mode selection
+ *  on demand (the multi-tap table is read-only) rather than storing selectedPeakIDs. */
+export interface TapEntry {
+  tapIndex: number
+  spectrum: Spectrum
+  peaks: Peak[]
+}
+
 export class TapToneAnalyzer {
   // ── Published-equivalent state (settable; the audio layer / tests mutate these directly) ──
   isDetecting = false
@@ -49,6 +61,16 @@ export class TapToneAnalyzer {
   capturedTaps: CapturedTap[] = []
   frozenMagnitudes: number[] = []
   frozenFrequencies: number[] = []
+  // Per-tap entries for the multi-tap comparison view (spectrum + peaks). Mirrors Swift `tapEntries`.
+  // Built from capturedTaps at completion (>1 tap), restored on load, cleared on reset — distinct from
+  // the raw `capturedTaps` (which are NOT restored on load), exactly like Swift's tapEntries vs
+  // capturedTaps split. Each entry's peaks are (re)found by recalculatePeaks at the current Peak Min.
+  tapEntries: TapEntry[] = []
+  // Main peaks detected on the frozen spectrum (or filtered from a loaded measurement's authoritative
+  // peaks) + their mode classification. Owned by the analyzer, mirroring Swift `currentPeaks` /
+  // `identifiedModes` (recomputed by recalculatePeaks — the web's recalculateFrozenPeaksIfNeeded). 3c §10 P1.
+  peaks: Peak[] = []
+  modeByPeak: Map<number, ResolvedMode> = new Map()
   materialTapPhase: MaterialTapPhase = 'notStarted'
   measurementType: MeasurementType = 'classical'
   showLoadedSettingsWarning = false
@@ -103,8 +125,9 @@ export class TapToneAnalyzer {
     this.currentTapCount = this.capturedTaps.length
   }
 
-  /** Complete the measurement: power-average the captured taps into the frozen
-   *  spectrum and set isMeasurementComplete. No-op when no taps were captured. */
+  /** Complete the measurement: power-average the captured taps into the frozen spectrum, build the
+   *  per-tap display spectra (>1 tap only, mirroring Swift processMultipleTaps building tapEntries),
+   *  and set isMeasurementComplete. No-op when no taps were captured. */
   processMultipleTaps(): void {
     if (this.capturedTaps.length === 0) return // guard: nothing to freeze (MC6)
     const spectra: Spectrum[] = this.capturedTaps.map((t) => ({
@@ -114,7 +137,12 @@ export class TapToneAnalyzer {
     const avg = averageSpectra(spectra)
     this.frozenMagnitudes = avg.magnitudesDb
     this.frozenFrequencies = avg.frequencies
+    // Per-tap entries only for a genuine multi-tap capture (Swift tapEntries gate: count > 1). Peaks
+    // start empty and are filled by recalculatePeaks (App drives it right after completion).
+    this.tapEntries =
+      this.capturedTaps.length > 1 ? spectra.map((sp, i) => ({ tapIndex: i + 1, spectrum: sp, peaks: [] })) : []
     this.isMeasurementComplete = true
+    this.notify()
   }
 
   /** Cancel the sequence by restarting it: re-arm a fresh sequence (≡ New Tap), NOT
@@ -134,11 +162,81 @@ export class TapToneAnalyzer {
     this.isDetectionPaused = false
   }
 
-  /** Load a saved measurement: freeze its spectrum and mark complete. */
-  loadMeasurement(snapshot: { magnitudes: number[]; frequencies: number[] }): void {
+  /** Load a saved measurement: freeze its spectrum, restore its per-tap display spectra (for the
+   *  multi-tap comparison view), and mark complete. Mirrors Swift loadMeasurement restoring both
+   *  frozenMagnitudes/Frequencies and tapEntries (the raw capturedTaps are NOT restored). */
+  loadMeasurement(snapshot: { magnitudes: number[]; frequencies: number[]; taps?: Spectrum[] }): void {
     this.frozenMagnitudes = snapshot.magnitudes
     this.frozenFrequencies = snapshot.frequencies
+    this.tapEntries = (snapshot.taps ?? []).map((sp, i) => ({ tapIndex: i + 1, spectrum: sp, peaks: [] }))
     this.isMeasurementComplete = true
+    this.notify()
+  }
+
+  /** Clear the frozen result (New Tap / measurement-type switch / play-file / comparison / load-reset):
+   *  drop the frozen spectrum, the per-tap display spectra, the raw tap accumulation, and completion.
+   *  Mirrors Swift startTapSequence's result reset (frozen + tapEntries + capturedTaps + complete). */
+  clearResult(): void {
+    this.frozenMagnitudes = []
+    this.frozenFrequencies = []
+    this.tapEntries = []
+    this.capturedTaps = []
+    this.isMeasurementComplete = false // setter also clears the loaded-settings warning
+    this.notify()
+  }
+
+  /** Recompute the guitar peaks + their mode classification from the current analysis settings.
+   *  Mirrors Swift `recalculateFrozenPeaksIfNeeded`: material has no guitar peaks; a loaded
+   *  measurement's saved peaks are authoritative (FILTER by threshold, never re-run findPeaks); a
+   *  live/frozen guitar spectrum runs findPeaks. The web's analysis settings live in the persisted
+   *  settings store, so they are passed in per recompute (App drives this on any of them changing —
+   *  the web's equivalent of TapDisplaySettings.didSet). 3c §10 P1. */
+  recalculatePeaks(p: {
+    material: boolean
+    loadedPeaks: Peak[] | null
+    /** The current live-FFT spectrum, so peaks track it while waiting/detecting (null once frozen). */
+    liveSpectrum: Spectrum | null
+    guitarType: GuitarTypeName
+    minHz: number
+    maxHz: number
+    peakMin: number
+  }): void {
+    let peaks: Peak[]
+    if (p.material) {
+      peaks = [] // peaks are guitar-only; material uses matPeaks
+    } else if (p.loadedPeaks) {
+      peaks = p.loadedPeaks.filter((pk) => pk.magnitude >= p.peakMin) // loaded peaks are authoritative
+    } else {
+      // Peaks follow the DISPLAYED spectrum: the frozen result once complete, otherwise the live
+      // spectrum while waiting/detecting — so the list + annotations update on each live FFT frame,
+      // mirroring Swift analyzeMagnitudes running continuously during detection.
+      const frozen = this.frozenMagnitudes.length > 0
+      const mags = frozen ? this.frozenMagnitudes : p.liveSpectrum?.magnitudesDb
+      const freqs = frozen ? this.frozenFrequencies : p.liveSpectrum?.frequencies
+      peaks =
+        mags && freqs && mags.length > 0
+          ? findPeaks(mags, freqs, {
+              guitarType: p.guitarType,
+              minHz: p.minHz,
+              maxHz: p.maxHz,
+              peakMinThreshold: p.peakMin,
+            })
+          : []
+    }
+    this.peaks = peaks
+    this.modeByPeak = classifyAll(peaks, p.guitarType)
+    // Per-tap peaks (Swift recalculateTapEntryPeaks): re-find each entry's peaks at the current Peak Min.
+    // Guitar-only, and the default findPeaks range (matches the multi-tap table's modePeaksFromSpectrum).
+    if (!p.material && this.tapEntries.length > 0) {
+      this.tapEntries = this.tapEntries.map((e) => ({
+        ...e,
+        peaks: findPeaks(e.spectrum.magnitudesDb, e.spectrum.frequencies, {
+          guitarType: p.guitarType,
+          peakMinThreshold: p.peakMin,
+        }),
+      }))
+    }
+    this.notify()
   }
 
   // ── React external-store seam (D2: immutable snapshot) ─────────────────────
@@ -148,12 +246,28 @@ export class TapToneAnalyzer {
   // by the unit tests (which don't subscribe), and by later 3c phases which will route through here.
   private listeners = new Set<() => void>()
   private cachedSnapshot: TapToneSnapshot | null = null
+  // Referentially-stable frozen spectrum: rebuilt only when frozenMagnitudes is reassigned (never
+  // mutated in place), so downstream memos keyed on snapshot.frozenSpectrum don't churn on unrelated
+  // notifies (e.g. currentTapCount ticks during live detection). tapSpectra is likewise reassigned-only.
+  private frozenSrc: number[] | null = null
+  private frozenSpectrumCache: Spectrum | null = null
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
     }
+  }
+
+  private frozenSpectrum(): Spectrum | null {
+    if (this.frozenMagnitudes !== this.frozenSrc) {
+      this.frozenSrc = this.frozenMagnitudes
+      this.frozenSpectrumCache =
+        this.frozenMagnitudes.length > 0
+          ? { magnitudesDb: this.frozenMagnitudes, frequencies: this.frozenFrequencies }
+          : null
+    }
+    return this.frozenSpectrumCache
   }
 
   getSnapshot = (): TapToneSnapshot => {
@@ -167,6 +281,10 @@ export class TapToneAnalyzer {
         materialTapPhase: this.materialTapPhase,
         measurementType: this.measurementType,
         isGuitar: this.isGuitar,
+        frozenSpectrum: this.frozenSpectrum(),
+        tapEntries: this.tapEntries,
+        peaks: this.peaks,
+        modeByPeak: this.modeByPeak,
       })
     }
     return this.cachedSnapshot
@@ -220,6 +338,14 @@ export interface TapToneSnapshot {
   materialTapPhase: MaterialTapPhase
   measurementType: MeasurementType
   isGuitar: boolean
+  /** Frozen guitar result (averaged capture or loaded measurement); null while live/not complete. */
+  frozenSpectrum: Spectrum | null
+  /** Per-tap entries (spectrum + peaks) for the multi-tap comparison view ([] unless a multi-tap result). */
+  tapEntries: TapEntry[]
+  /** Guitar peaks (findPeaks on the frozen spectrum, or a loaded measurement's filtered peaks). */
+  peaks: Peak[]
+  /** Mode classification for `peaks`, keyed by peak id. */
+  modeByPeak: Map<number, ResolvedMode>
 }
 
 /**

@@ -13,6 +13,11 @@ const spectrum = { frequencies: [100, 200, 300], magnitudesDb: [-50, -40, -60] }
 const tap1 = { frequencies: [100, 200, 300], magnitudesDb: [-48, -38, -62] }
 const tap2 = { frequencies: [100, 200, 300], magnitudesDb: [-52, -42, -58] }
 const peaks: Peak[] = [{ id: 1, frequency: 200, magnitude: -40, quality: 20, bandwidth: 10 }]
+// Per-tap entries now carry their own peaks (found by the analyzer), mirroring Swift tapEntries.
+const peaks1: Peak[] = [{ id: 1, frequency: 200, magnitude: -38, quality: 20, bandwidth: 10 }]
+const peaks2: Peak[] = [{ id: 2, frequency: 200, magnitude: -42, quality: 20, bandwidth: 10 }]
+const entry1 = { tapIndex: 1, spectrum: tap1, peaks: peaks1 }
+const entry2 = { tapIndex: 2, spectrum: tap2, peaks: peaks2 }
 
 const args = {
   name: 'Multi', notes: '',
@@ -23,7 +28,7 @@ const args = {
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'generic' as const },
   numberOfTaps: 2,
-  tapSpectra: [tap1, tap2],
+  tapEntries: [entry1, entry2],
   sampleRate: 48000,
   deviceLabel: 'Mic',
 }
@@ -39,7 +44,7 @@ describe('buildGuitarMeasurement — multi-tap entries', () => {
   })
 
   it('omits tapEntries for a single-tap capture', () => {
-    const m = buildGuitarMeasurement({ ...args, numberOfTaps: 1, tapSpectra: [tap1] })
+    const m = buildGuitarMeasurement({ ...args, numberOfTaps: 1, tapEntries: [entry1] })
     expect(m.tapEntries).toBeUndefined()
   })
 

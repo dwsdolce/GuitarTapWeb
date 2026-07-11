@@ -25,13 +25,22 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
   - Discovery during that wiring surfaced **PC-1** (the Cancel-behavior parity bug) + PC-2/3/4; see the
     "Parity cleanup" section, where each is annotated with its shipped outcome. All validated by the user
     (run-review) and committed 2026-07-09. Also surfaced **EG-1** (still open) — see the EG section.
-  - **NEXT = the TapSession state-ownership consolidation itself:** wire `src/state/tapSession.ts` into
-    `App.tsx` via `useSyncExternalStore` so App reads `isMeasurementComplete`/`currentTapCount`/`statusMessage`
-    from the session (owned imperatively, like Swift/Python) instead of deriving from engineState/matPhase/
-    progress — collapses the two-branch rules (tapsLocked, sbProgress) and structurally kills the
-    derived-value-went-stale bug class (PC-2/PC-4). Then remaining pure gaps (frozen-peak-recalc,
-    annotation-state guitar, import-persistence) + the orphan test back-ports (§2). PC-1 docs (web Quick-Start
-    + shared manual) still pending — slot in anytime. **Maintain @parity tags + regen PARITY-MAP.md on every change.**
+  - **3c consolidation UNDERWAY (spec: [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md)).**
+    The state-ownership consolidation named here as NEXT now has its own spec and is in progress. `tapSession.ts`
+    was renamed `tapToneAnalyzer.ts` (class `TapSession`→`TapToneAnalyzer`) and wired into `App.tsx` via
+    `useSyncExternalStore`. **DONE + committed 2026-07-10:** 3c-0 (rename) · 3c-A (store seam + count facts) ·
+    3c-A2 (completion + detection facts) · 3c-B (materialTapPhase fact) · 3c-C1 (`AudioEngine`→`RealtimeFFTAnalyzer`
+    rename) · **3c-C2a** (guitar averaging moved to the analyzer — device delivers per-tap spectra raw via
+    `onGuitarTap`/`onGuitarComplete`, `recordGuitarTap`+`processMultipleTaps` average, bridged to App's display,
+    zero numeric drift). The analyzer now owns all lifecycle facts. **C2b** (frozen + per-tap onto the snapshot)
+    implemented but NOT committed — folded into the **Peak-analysis effort** (§10; user: "do what Swift does" —
+    the analyzer owns peak analysis, not the view). **Peak-analysis P1 + P1b + P2 IMPLEMENTED + green 2026-07-11
+    (P1/P1b run-reviewed OK, P2 pending); commit C2b+P1+P1b+P2 together after P2 review (plan b).** **NEXT after
+    commit = 3c-C3** (absorb material transitions, delete useMaterialSession) → C4 (imperative statusMessage +
+    EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse two-branch rules tapsLocked/sbProgress). (P3
+    selection/annotations → RESTRUCTURE-NOTES.md; EG-3 Peak Min chart line deferred.) Then remaining pure gaps (frozen-peak-recalc, annotation-state
+    guitar, import-persistence) + the orphan test back-ports (§2). PC-1 docs (web Quick-Start + shared manual)
+    still pending — slot in anytime. **Maintain @parity tags + regen PARITY-MAP.md on every change.**
 
 ## Goal
 
@@ -318,6 +327,18 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
   Fix = feed `liveSpectrum` into the material chart (a live overlay, or clear + show live until a phase
   captures), matching the guitar path. Separate item; do NOT fold into the consolidation phases.
 
+- **EG-3 — Peak Min threshold line on the spectrum chart (web-only view gap; user-reported 2026-07-11, on the
+  released web version — pre-existing, NOT introduced by the 3c/peak work).** Swift/Python draw a horizontal
+  reference line on the spectrum graph at the current **Peak Min** dB level; the web draws none. **OPEN,
+  deferred** (user: "do item 2 later"). It's a small, independent `SpectrumChart` addition (a horizontal
+  threshold line at `peakMin`), not part of the analyzer/peak-ownership refactor — do it after the peak effort.
+
+- **Live guitar peaks while waiting (Swift `analyzeMagnitudes`) — ✅ FIXED in 3c §10 P1b (2026-07-11).**
+  User-reported alongside EG-3: guitar peak list + annotations didn't update on the live spectrum while waiting
+  for a tap (the web only found peaks on the frozen result). `TapToneAnalyzer.recalculatePeaks` now runs
+  `findPeaks` on the live spectrum during detection (frozen once complete), driven by the App layout effect —
+  peaks/annotations track each live FFT frame, matching Swift/Python.
+
 ## Plan — one phase at a time, each reviewed then verified (run the suite) before the next
 
 - **Phase 1 — Analysis + name map (THIS DOC).** Coverage matrix + canonical naming convention. *For review.*
@@ -336,12 +357,25 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
     side-by-side testing; see the "Parity cleanup" section above for each item's *shipped* outcome (PC-1 Cancel=restart
     + button rule all 3 + web fallout; PC-2 web `statusMessage.ts`; PC-3 Python brace "Tap X/N"; PC-4 web `setConfig`
     progress re-fire).
-  - **3c — `TapSession` state-ownership consolidation** — ⬜ **NEXT (needs a spec first).** Wire `tapSession.ts` into
-    `App.tsx` via `useSyncExternalStore` so App *reads* `isMeasurementComplete`/`currentTapCount`/`statusMessage` from
-    the session (owned imperatively, like Swift/Python) instead of deriving them from engineState/matPhase/progress;
-    move averaging up from the engine. Collapses the two-branch rules (`tapsLocked`, `sbProgress`) into one and
-    structurally kills the derived-value-went-stale bug class (PC-2/PC-4). **Draft `TAPSESSION-CONSOLIDATION.md`,
-    review, then implement** (largest/most-architectural step — no code before the spec is reviewed).
+  - **3c — `TapToneAnalyzer` / `RealtimeFFTAnalyzer` consolidation** — 🔶 **IN PROGRESS.** Spec reviewed +
+    approved: **[TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md)** (the detail doc for this
+    step; carries the per-sub-step breakdown + decisions). Wired `tapToneAnalyzer.ts` (renamed from `tapSession.ts`)
+    into `App.tsx` via `useSyncExternalStore` so App *reads* the lifecycle facts from the analyzer instead of
+    deriving them; moving averaging + material orchestration up from the device. Collapses the two-branch rules
+    (`tapsLocked`, `sbProgress`) and structurally kills the derived-value-went-stale bug class (PC-2/PC-4).
+    **Committed 2026-07-10:** 3c-0 (rename) · 3c-A (store seam + counts) · 3c-A2 (completion + detection) · 3c-B
+    (materialTapPhase) · 3c-C1 (`AudioEngine`→`RealtimeFFTAnalyzer`) · **3c-C2a** (guitar averaging → analyzer;
+    device delivers per-tap spectra raw, bridged, zero drift). **3c-C2b** implemented 2026-07-11 but **NOT
+    committed — folded into the new Peak-analysis effort** (user: "do what Swift does"): Swift's per-tap `TapEntry`
+    carries peaks and Swift's analyzer owns peak analysis (`recalculateFrozenPeaksIfNeeded` / `recalculateTapEntryPeaks`),
+    so the web moves peak-finding out of the view into the analyzer instead of keeping `tapSpectra` (spectra-only).
+    Spec = TAPTONEANALYZER-CONSOLIDATION.md §10. **P1 (main peaks + classification into the analyzer, absorbs
+    C2b) + P1b (live peaks while waiting, Swift analyzeMagnitudes) + P2 (`tapEntries` with peaks, replaces
+    tapSpectra) IMPLEMENTED + green 2026-07-11; P1/P1b run-reviewed OK, P2 pending. Commit C2b+P1+P1b+P2 together
+    after P2 review (plan b).** **NEXT after commit = 3c-C3** (material transitions, delete
+    useMaterialSession) → C4 (imperative statusMessage + EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse the
+    two-branch rules). **P3** (selection/annotations → analyzer) → RESTRUCTURE-NOTES.md. Each sub-step: tsc + suite
+    green + parity regen + run-review + commit.
   - **3d — Remaining pure-gap suites** — ⬜ TODO. The originally-listed backfill items not yet built:
     frozen-peak-recalc, annotation-state (guitar path), import-persistence (library append). Independent of 3c.
   - **3e — EG-1 (engine empty / no-peak failure path)** — ⬜ OPEN. Web-only engine-parity fix; see the EG section.

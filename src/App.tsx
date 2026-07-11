@@ -1,5 +1,5 @@
 // @parity view/main
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { RealtimeFFTAnalyzer } from './audio/realtimeFFTAnalyzer'
 import { SpectrumChart } from './components/SpectrumChart'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
@@ -70,7 +70,7 @@ import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData, multiTa
 import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfReport'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
 import { MODE_DISPLAY_NAME } from './presentation/modeColors'
-import { GUITAR_FFT_SIZE, modePeaksFromSpectrum, type Spectrum } from './dsp/guitarFFT'
+import { GUITAR_FFT_SIZE, type Spectrum } from './dsp/guitarFFT'
 import {
   MultiTapComparisonResultsView,
   MULTITAP_PALETTE,
@@ -78,8 +78,8 @@ import {
   type MultiTapRow,
   type TapModeFreqs,
 } from './components/MultiTapComparisonResultsView'
-import { findPeaks, type Peak } from './dsp/peaks'
-import { classifyAll, resolvedModePeaks, type ResolvedMode } from './dsp/classify'
+import { type Peak } from './dsp/peaks'
+import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
 import { modeBands, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
 import {
@@ -160,7 +160,6 @@ const HINTS = {
  * `useAudioEngine` hooks.
  */
 export default function App() {
-  const [captured, setCapturedState] = useState<Spectrum | null>(null)
   // A loaded measurement's saved axis range — transient override of the persisted display
   // range (mirrors Swift loadedAxisRange). Set on load, cleared on any new measurement.
   const [loadedView, setLoadedView] = useState<ChartView | null>(null)
@@ -178,18 +177,12 @@ export default function App() {
   const { analyzer, snapshot } = useTapToneAnalyzer()
   const numberOfTaps = snapshot.numberOfTaps
   const currentTapCount = snapshot.currentTapCount
-  // Guitar completion lives on the analyzer: every set/clear of the frozen guitar spectrum also drives
-  // analyzer.isMeasurementComplete (= captured != null), so all call sites stay in sync automatically.
-  // Material completion stays on matPhase until 3c-B. 6-TEST 3c-A2.
-  const setCaptured = useCallback(
-    (s: Spectrum | null) => {
-      setCapturedState(s)
-      analyzer.setComplete(s != null)
-    },
-    [analyzer],
-  )
-  // Per-tap spectra from a multi-tap capture (or loaded measurement) + the comparison toggle.
-  const [tapSpectra, setTapSpectra] = useState<Spectrum[]>([])
+  // The frozen guitar result + per-tap comparison spectra now live on the analyzer (mirrors Swift
+  // frozenMagnitudes/Frequencies + tapEntries), exposed via the snapshot. App reads them through
+  // these aliases (all downstream reads unchanged); writes go through analyzer transitions
+  // (processMultipleTaps on completion, loadMeasurement on load, clearResult on reset). 6-TEST 3c-C2b.
+  const captured = snapshot.frozenSpectrum
+  const tapEntries = snapshot.tapEntries
   const [showMultiTap, setShowMultiTap] = useState(false)
   // Active comparison overlay (created from a selection or loaded). Non-null = comparison mode.
   const [comparison, setComparison] = useState<ComparisonEntryModel[] | null>(null)
@@ -338,32 +331,32 @@ export default function App() {
       return
     }
     setLoadedPeaks(null)
-    setCaptured(null)
+    analyzer.clearResult() // drop the frozen guitar spectrum + per-tap comparison spectra
     setLoadedName(null)
     setLoadedView(null) // a new measurement context drops the loaded measurement's transient range
     setShowLoadedSettings(false)
-    setTapSpectra([])
     setShowMultiTap(false)
     setComparison(null)
     comparisonRef.current = false
     resetMaterial()
     armForCurrentType()
-  }, [settings.measurementType, resetMaterial, armForCurrentType])
+  }, [analyzer, settings.measurementType, resetMaterial, armForCurrentType])
 
-  // Stable capture-result callbacks the engine's once-registered handlers delegate to.
-  // Guitar tap (or averaged multi-tap): store the frozen result, superseding any loaded measurement.
-  const onGuitarCapture = useCallback((s: Spectrum, taps?: Spectrum[]) => {
-    if (comparisonRef.current) return // a frozen comparison absorbs in-flight captures
+  // Stable capture-result callback the engine's once-registered handler delegates to. The guitar tap
+  // sequence finished: average the analyzer's accumulated taps into the frozen result (which also
+  // builds the per-tap comparison spectra + marks complete), superseding any loaded measurement. A
+  // frozen comparison absorbs an in-flight capture (guard) so processMultipleTaps doesn't run.
+  const onGuitarCapture = useCallback(() => {
+    if (comparisonRef.current) return
     setLoadedPeaks(null)
     setLoadWarning(null)
     setLoadedName(null)
     setLoadedView(null) // a live capture supersedes the loaded measurement's transient range
     setShowLoadedSettings(false)
-    setCaptured(s)
-    setTapSpectra(taps ?? []) // per-tap spectra for the multi-tap comparison view
     setShowMultiTap(false)
     setComparison(null)
-  }, [])
+    analyzer.processMultipleTaps() // average capturedTaps → frozen + per-tap (notifies the snapshot)
+  }, [analyzer])
   // Continuous session WAV (one per measurement) — the engine already gated it on the dump setting.
   const onSessionAudio = useCallback((samples: Float32Array, sr: number, label: string) => {
     dumpCaptureWav(samples, sr, `session_${label}`)
@@ -419,8 +412,7 @@ export default function App() {
       setLoadedName(null)
       setLoadedView(null) // playing a file starts a new measurement — drop any loaded range
       setShowLoadedSettings(false)
-      setCaptured(null)
-      setTapSpectra([])
+      analyzer.clearResult()
       setShowMultiTap(false)
       setComparison(null)
       comparisonRef.current = false
@@ -454,8 +446,7 @@ export default function App() {
     setLoadedName(null)
     setLoadedView(null) // new tap → drop the loaded measurement's transient range
     setShowLoadedSettings(false)
-    setCaptured(null)
-    setTapSpectra([])
+    analyzer.clearResult()
     setShowMultiTap(false)
     setComparison(null)
     comparisonRef.current = false // re-arm cleanly: don't absorb the next tap
@@ -503,22 +494,23 @@ export default function App() {
   // magnitude, never re-run findPeaks on the loaded spectrum (the spectrum is stored
   // for display only and may not reproduce the saved peaks). Mirrors Swift/Python
   // recalculateFrozenPeaksIfNeeded.
-  const peaks = useMemo(() => {
-    if (material) return []
-    if (loadedPeaks) return loadedPeaks.filter((p) => p.magnitude >= peakMin)
-    if (!captured) return []
-    return findPeaks(captured.magnitudesDb, captured.frequencies, {
-      guitarType,
-      minHz: analysisMinHz,
-      maxHz: analysisMaxHz,
-      peakMinThreshold: peakMin,
-    })
-  }, [captured, material, loadedPeaks, guitarType, analysisMinHz, analysisMaxHz, peakMin])
+  // Peaks + classification now live on the analyzer (mirrors Swift currentPeaks / identifiedModes),
+  // recomputed by recalculatePeaks whenever the frozen spectrum, loaded peaks, or the analysis settings
+  // (Peak Min / guitar type / range) change — the web's TapDisplaySettings.didSet. Driven here via a
+  // layout effect (recompute before paint, no stale flash), read via the snapshot. 3c §10 P1.
+  // While detecting, peaks track the live spectrum (Swift analyzeMagnitudes per frame); once frozen
+  // (complete) they use the frozen result, so gate the live spectrum off after completion to avoid
+  // recomputing frozen peaks on every continuous FFT frame.
+  const liveForPeaks = snapshot.isMeasurementComplete ? null : liveSpectrum
+  useLayoutEffect(() => {
+    analyzer.recalculatePeaks({ material, loadedPeaks, liveSpectrum: liveForPeaks, guitarType, minHz: analysisMinHz, maxHz: analysisMaxHz, peakMin })
+  }, [analyzer, material, loadedPeaks, liveForPeaks, guitarType, analysisMinHz, analysisMaxHz, peakMin, captured])
+  const peaks = snapshot.peaks
+  const modeByPeak = snapshot.modeByPeak
 
   const sortedPeaks = useMemo(() => [...peaks].sort((a, b) => a.frequency - b.frequency), [peaks])
   // Live tap-tone ratio (f_Top / f_Air) for the Analysis Results panel — same fn the PDF uses.
   const tapRatio = useMemo(() => (material ? null : tapToneRatio(peaks, guitarType)), [material, peaks, guitarType])
-  const modeByPeak = useMemo(() => classifyAll(peaks, guitarType), [peaks, guitarType])
   const displayPeaks = useMemo(
     () =>
       showUnknownModes
@@ -594,14 +586,16 @@ export default function App() {
   // ── Multi-tap comparison (guitar, >1 tap) ───────────────────────────────────
   // Per-tap mode peaks are (re)found from each tap spectrum at the current Peak Min,
   // mirroring Swift TapEntry recomputing on threshold change.
-  const multiTapAvailable = !material && !!captured && tapSpectra.length > 1
+  const multiTapAvailable = !material && !!captured && tapEntries.length > 1
   const tapRows = useMemo<MultiTapRow[]>(
     () =>
-      tapSpectra.map((sp, i) => {
-        const mp = modePeaksFromSpectrum(sp, { guitarType, peakMinThreshold: peakMin })
-        return { tapIndex: i + 1, air: mp.air?.frequency ?? null, top: mp.top?.frequency ?? null, back: mp.back?.frequency ?? null }
+      tapEntries.map((e) => {
+        // Per-tap peaks live on the entry (found by the analyzer at the current Peak Min); resolve
+        // the strongest per mode — identical to the old modePeaksFromSpectrum(sp).air/top/back.
+        const m = resolvedModePeaks(e.peaks, guitarType)
+        return { tapIndex: e.tapIndex, air: m.get('air')?.frequency ?? null, top: m.get('top')?.frequency ?? null, back: m.get('back')?.frequency ?? null }
       }),
-    [tapSpectra, guitarType, peakMin],
+    [tapEntries, guitarType],
   )
   // Averaged row uses the displayed peaks (respects loaded-authoritative peaks).
   const avgModes = useMemo<TapModeFreqs>(() => {
@@ -609,15 +603,15 @@ export default function App() {
     return { air: m.get('air')?.frequency ?? null, top: m.get('top')?.frequency ?? null, back: m.get('back')?.frequency ?? null }
   }, [peaks, guitarType])
   const multiTapOverlays = useMemo<SpectrumOverlay[]>(() => {
-    const out: SpectrumOverlay[] = tapSpectra.map((sp, i) => ({
-      magnitudesDb: sp.magnitudesDb,
-      frequencies: sp.frequencies,
+    const out: SpectrumOverlay[] = tapEntries.map((e, i) => ({
+      magnitudesDb: e.spectrum.magnitudesDb,
+      frequencies: e.spectrum.frequencies,
       color: MULTITAP_PALETTE[i % MULTITAP_PALETTE.length]!,
-      label: `Tap ${i + 1}`,
+      label: `Tap ${e.tapIndex}`,
     }))
     if (captured) out.push({ magnitudesDb: captured.magnitudesDb, frequencies: captured.frequencies, color: MULTITAP_AVG_COLOR, label: 'Averaged' })
     return out
-  }, [tapSpectra, captured])
+  }, [tapEntries, captured])
 
   const binHz = sampleRate ? sampleRate / GUITAR_FFT_SIZE : null
   // For auto-dB / metrics, use the primary material spectrum; the chart itself draws all
@@ -743,14 +737,14 @@ export default function App() {
         view,
         settings,
         numberOfTaps,
-        tapSpectra,
+        tapEntries,
         sampleRate,
         deviceLabel,
         microphoneUID: currentDeviceId ?? undefined,
         calibrationName: calibrationRef.current?.name,
       })
     },
-    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, loadedDecayTime, view, settings, numberOfTaps, tapSpectra, sampleRate, deviceLabel, currentDeviceId],
+    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, loadedDecayTime, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId],
   )
 
   const onSaveMeasurement = useCallback(
@@ -788,8 +782,7 @@ export default function App() {
         setComparison(m.comparisonEntries)
         setShowLoadedSettings(false) // comparison isn't a settings-load (Swift gates on !isSavedComparison)
         setLoadedPeaks(null)
-        setCaptured(null)
-        setTapSpectra([])
+        analyzer.clearResult()
         setShowMultiTap(false)
         setLoadWarning(null)
         setLoadedName(m.measurementName ?? null)
@@ -804,7 +797,7 @@ export default function App() {
         updateSettings(mat.settingsPatch)
         setLoadedView(mat.view) // transient loaded axis range (Swift loadedAxisRange)
         setLoadedPeaks(null)
-        setCaptured(null)
+        analyzer.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
         setComparison(null)
         restoreMaterial({ matSpectra: mat.matSpectra, matPeaks: mat.matPeaks })
         restoreMaterialOffsets(mat.annotationOffsetsByFreq) // dragged L/C/FLC label positions (shared store)
@@ -816,7 +809,6 @@ export default function App() {
           engineRef.current?.setConfig({ numberOfTaps: loadedTaps })
           setShowLoadedSettings(true)
         }
-        setTapSpectra([]) // material has no per-tap entries
         setShowMultiTap(false)
         setShowMeasurements(false)
         return
@@ -834,11 +826,17 @@ export default function App() {
       setLoadedView(live.view)
       setLoadedPeaks(live.loadedPeaks) // authoritative saved peaks (Peak Min filters them)
       setLoadedDecayTime(m.decayTime ?? null) // show the FILE's stored ring-out, not the live engine's
-      setCaptured(live.captured)
+      // Freeze the loaded spectrum + restore per-tap comparison spectra on the analyzer (mirrors Swift
+      // loadMeasurement restoring frozenMagnitudes/Frequencies + tapEntries).
+      analyzer.loadMeasurement({
+        magnitudes: live.captured.magnitudesDb,
+        frequencies: live.captured.frequencies,
+        taps: (m.tapEntries ?? []).map((e) => ({ magnitudesDb: e.snapshot.magnitudes, frequencies: e.snapshot.frequencies })),
+      })
       setComparison(null)
       setView(live.view)
       // Restore selection + overrides + dragged label positions (sets the loading guard so this
-      // survives the fresh-capture reset that setCaptured triggers).
+      // survives the fresh-capture reset that loading triggers).
       restoreAnnotations({
         overridesByFreq: live.overridesByFreq,
         annotationOffsetsByFreq: live.annotationOffsetsByFreq,
@@ -855,8 +853,6 @@ export default function App() {
         engineRef.current?.setConfig({ numberOfTaps: loadedTaps })
         setShowLoadedSettings(true)
       }
-      // Restore per-tap spectra so the multi-tap comparison view is available.
-      setTapSpectra((m.tapEntries ?? []).map((e) => ({ magnitudesDb: e.snapshot.magnitudes, frequencies: e.snapshot.frequencies })))
       setShowMultiTap(false)
       setComparison(null)
       setShowMeasurements(false)
@@ -873,8 +869,7 @@ export default function App() {
     if (range) setView(range)
     setComparison(entries)
     setLoadedPeaks(null)
-    setCaptured(null)
-    setTapSpectra([])
+    analyzer.clearResult()
     setShowMultiTap(false)
     setLoadWarning(null)
     setLoadedName(null)

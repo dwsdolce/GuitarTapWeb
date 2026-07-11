@@ -36,8 +36,9 @@ interface UseAudioEngineArgs {
   tapThresholdRef: MutableRefObject<number>
   /** "Dump Capture Audio" diagnostic flag for the engine's initial config (gates session recording). */
   dumpCaptureRef: MutableRefObject<boolean>
-  /** A guitar tap (or averaged multi-tap) was captured — App stores the frozen result. STABLE. */
-  onGuitarCapture: (spectrum: Spectrum, taps?: Spectrum[]) => void
+  /** The guitar tap sequence finished — App averages the analyzer's accumulated taps into the frozen
+   *  result (unless a comparison is frozen) and clears the loaded-measurement state. STABLE. */
+  onGuitarCapture: () => void
   /** A gated material phase was captured — the material session records + advances. STABLE. */
   onMaterialCapture: (r: MaterialCaptureResult) => void
   /** Continuous session WAV for the Dump-Capture-Audio diagnostic (one per measurement). STABLE. */
@@ -198,20 +199,13 @@ export function useAudioEngine({
       {
         onLevel: setLevel,
         onSpectrum: setLiveSpectrum,
-        // Guitar capture is split (6-TEST 3c-C2a): the device delivers each per-tap spectrum RAW; the
-        // analyzer accumulates + averages. On completion, bridge the analyzer's averaged frozen result
-        // + per-tap spectra to App via the existing capture callback — display code is untouched (C2b
-        // migrates the reads onto the snapshot).
+        // Guitar capture is split (6-TEST 3c-C2a/C2b): the device delivers each per-tap spectrum RAW
+        // into the analyzer's accumulation (recordGuitarTap); on completion App averages them into the
+        // analyzer's frozen result (processMultipleTaps) — gated by App's comparison guard, so an
+        // in-flight capture doesn't clobber a frozen comparison. Frozen + per-tap live on the analyzer
+        // snapshot now; there is no spectrum payload to hand back.
         onGuitarTap: (spectrum) => analyzer.recordGuitarTap(spectrum),
-        onGuitarComplete: () => {
-          analyzer.processMultipleTaps() // power-average the accumulated taps → frozen spectrum
-          const spectrum: Spectrum = { magnitudesDb: analyzer.frozenMagnitudes, frequencies: analyzer.frozenFrequencies }
-          const taps =
-            analyzer.capturedTaps.length > 1
-              ? analyzer.capturedTaps.map((t) => ({ magnitudesDb: t.magnitudes, frequencies: t.frequencies }))
-              : undefined
-          onGuitarCapture(spectrum, taps)
-        },
+        onGuitarComplete: () => onGuitarCapture(),
         onState: (s) => {
           setEngineState(s)
           // The analyzer owns isDetecting/isDetectionPaused (mirrors the device state). 6-TEST 3c-A2.
