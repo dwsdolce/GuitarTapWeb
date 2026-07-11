@@ -17,14 +17,14 @@ _Last updated: 2026-07-10._
 | 3 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes) | [THEME-SPEC.md](THEME-SPEC.md) |
 
 Notes:
-- **Parity gaps EG-1 / EG-2 / EG-3 (web-only, tracked in [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) § EG):**
+- **Parity gaps EG-1 / EG-2 (web-only, open; tracked in [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) § EG):**
   **EG-1** — the web gated capture has no empty/no-peak failure path (a no-resonance material tap is silently
   accepted with a null peak instead of re-arming + "No signal/resonance detected — tap again"); EG-1 folds
   into the 3c consolidation (3c-C). **EG-2** — material mode never shows the LIVE spectrum during capture
   (guitar does; the material chart paints only captured phases), pre-existing view gap; fix separately.
-  **EG-3 (OPEN, deferred — user 2026-07-11)** — Swift/Python draw a horizontal **Peak Min threshold line** on the
-  spectrum chart; the web doesn't. Small independent view/chart feature (a reference line at `peakMin` dB on
-  `SpectrumChart`), not part of the analyzer/peak refactor; do it after the peak effort.
+  **EG-3 ✅ DONE + committed 2026-07-11** — the web now draws the **Peak Min threshold line** on `SpectrumChart`
+  (horizontal dashed green "Peak: N dB", guitar-only, in-range, live chart only), matching Swift; Python was also
+  aligned to Swift (dashed + right-aligned label). All three consistent.
   _(A related pre-existing gap — guitar peak list/annotations not updating on the LIVE spectrum while waiting for
   a tap — was **fixed in 3c §10 P1b**, 2026-07-11: `recalculatePeaks` now runs on the live spectrum during detection.)_
 - The doc review's deferred `signal.ts` two-tone helper (item 4 of the `@parity`

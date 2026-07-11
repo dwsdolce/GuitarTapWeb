@@ -38,7 +38,7 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
     COMMITTED 2026-07-11 (run-reviewed "runs smoothly").** **NEXT = 3c-C3** (absorb material transitions,
     delete useMaterialSession) → C4 (imperative statusMessage + EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse
     two-branch rules tapsLocked/sbProgress). (P3 selection/annotations by-frequency carry → RESTRUCTURE-NOTES.md;
-    EG-3 Peak Min chart line deferred.) Then remaining pure gaps (frozen-peak-recalc, annotation-state
+    EG-3 Peak Min chart line ✅ done + committed 2026-07-11, web + Python aligned to Swift.) Then remaining pure gaps (frozen-peak-recalc, annotation-state
     guitar, import-persistence) + the orphan test back-ports (§2). PC-1 docs (web Quick-Start + shared manual)
     still pending — slot in anytime. **Maintain @parity tags + regen PARITY-MAP.md on every change.**
 
@@ -327,11 +327,13 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
   Fix = feed `liveSpectrum` into the material chart (a live overlay, or clear + show live until a phase
   captures), matching the guitar path. Separate item; do NOT fold into the consolidation phases.
 
-- **EG-3 — Peak Min threshold line on the spectrum chart (web-only view gap; user-reported 2026-07-11, on the
-  released web version — pre-existing, NOT introduced by the 3c/peak work).** Swift/Python draw a horizontal
-  reference line on the spectrum graph at the current **Peak Min** dB level; the web draws none. **OPEN,
-  deferred** (user: "do item 2 later"). It's a small, independent `SpectrumChart` addition (a horizontal
-  threshold line at `peakMin`), not part of the analyzer/peak-ownership refactor — do it after the peak effort.
+- **EG-3 — Peak Min threshold line on the spectrum chart — ✅ DONE + committed 2026-07-11.** The web now draws a
+  horizontal **dashed green "Peak: N dB"** reference line on `SpectrumChart` at the current Peak Min dB, matching
+  Swift `thresholdLinesContent` (green .7 / width 1.5 / dash [8,3], label .top/.trailing): guitar-only, only when
+  within the visible dB range, live chart only (not the PNG/PDF export — Swift's `ExportableSpectrumChart` omits
+  it). Threaded via a `peakMin` prop App → SpectrumChart → renderSpectrum. **Python was also aligned to Swift**
+  the same day (its line was solid with a left label → dashed `[8,3]` + right-aligned label). Swift/Python/web
+  now consistent.
 
 - **Live guitar peaks while waiting (Swift `analyzeMagnitudes`) — ✅ FIXED in 3c §10 P1b (2026-07-11).**
   User-reported alongside EG-3: guitar peak list + annotations didn't update on the live spectrum while waiting
