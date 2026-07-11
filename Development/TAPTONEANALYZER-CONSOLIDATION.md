@@ -2,9 +2,9 @@
 
 **Status:** APPROVED — IN PROGRESS. All §9 decisions settled. Created 2026-07-10. Committed through the **§10
 Peak-analysis effort** (3c-0/A/A2/B/C1/C2a committed 2026-07-10; C2b + P1 + P1b + P2 + selection-flicker fix
-committed 2026-07-11, folding C2b). **NEXT = 3c-C3** — material orchestration into the analyzer + delete
-`useMaterialSession`; spec in **§11** (approved to split into C3a/C3b), awaiting go-ahead to code. See
-§5/§5b/§10/§11 for per-sub-step status.
+committed 2026-07-11, folding C2b). **3c-C3a ✅ committed 2026-07-12** (material phase
+machine → analyzer, `useMaterialSession` deleted, analyzer holds the device; §11). **NEXT = EG-2** (material
+live spectrum) → **C3b** (material averaging up) → C4 → C5 → 3c-D. See §5/§5b/§10/§11 for per-sub-step status.
 (Supersedes the earlier `TAPSESSION-CONSOLIDATION.md` draft — renamed because the class it was named after is
 being renamed to the canonical `TapToneAnalyzer`.)
 
@@ -374,7 +374,16 @@ surface in the consolidation → phased + heavy run-review; no behavior change i
 `tapSpectra` never landed). Its frozen-spectrum + snapshot plumbing became part of P1; its `tapSpectra` was
 replaced by P2's `tapEntries`.
 
-## 11. 3c-C3 — Material orchestration into the analyzer (SPEC — for review; approved to split)
+## 11. 3c-C3 — Material orchestration into the analyzer
+
+**Status: C3a ✅ committed 2026-07-12** (run-reviewed — full plate L/C/FLC, brace, accept/redo, play-file,
+load, type-switch, calibration all work). **NEXT = C3b** (material averaging + peak-find up). **EG-2** (feed
+liveSpectrum into the material chart — a pre-existing gap, NOT a C3a regression, surfaced during C3a review) is
+**deferred until 3c is complete** (user 2026-07-12: keep the 3c spine focused; side-tracks don't survive compaction). Two divergences were corrected during C3a: (1) an initial pure pass-through `useCallback`
+wrapper layer in App (user caught it — Swift/Python call the analyzer directly, so App now does too); (2) a
+latent bug — `analyzer.measurementType` was NEVER synced (`setMeasurementTypeAndNotify` had no callers) and
+`MeasurementType` was DUPLICATED on the analyzer (its copy even dropped `'generic'`) — reconciled to the single
+settings type + wired the sync effect.
 
 **Goal:** move the plate/brace phase machine onto `TapToneAnalyzer` and delete `useMaterialSession`, mirroring
 Swift — whose `TapToneAnalyzer` owns `handle{Longitudinal,Cross,Flc}GatedProgress` + `materialCapturedTaps` +

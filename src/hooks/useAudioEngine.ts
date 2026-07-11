@@ -218,9 +218,11 @@ export function useAudioEngine({
           analyzer.setCurrentTapCount(collected)
         },
         onMetrics: setEngineMetrics,
-        // The analyzer owns the material phase machine (6-TEST 3c-C3): a gated phase capture flows
-        // straight to it (store the spectrum/peak, advance the phase).
-        onMaterialCapture: (r) => analyzer.recordMaterialCapture(r),
+        // The analyzer owns the material phase machine (6-TEST 3c-C3): each raw gated tap accumulates
+        // (recordMaterialTap), and on phase completion the analyzer averages + finds the peak + advances
+        // (recordMaterialPhaseComplete). 3c-C3b moved the averaging/peak-find up from the device.
+        onMaterialTap: (spectrum) => analyzer.recordMaterialTap(spectrum),
+        onMaterialPhaseComplete: (phase) => analyzer.recordMaterialPhaseComplete(phase),
         onSessionAudio,
         // A mic was attached (auto-selected) or the active one was unplugged (fell back): re-sync the
         // device + RELOAD that device's calibration (None if it has none). Mirrors Swift's didSet.

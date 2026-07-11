@@ -78,19 +78,32 @@ async function playGuitar(
   return { spectrum, taps }
 }
 
-/** Run a plate/brace session through engine.playFile (headless) → one capture per phase (the engine
- *  auto-advances L→C→FLC). */
+/** Run a plate/brace session through engine.playFile (headless), wired to a real TapToneAnalyzer as the
+ *  app wires them (6-TEST 3c-C3b): the device delivers each per-phase gated tap RAW; the analyzer
+ *  accumulates + averages them + findDominantPeak. Collects one result per phase off the analyzer as the
+ *  engine auto-advances L→C→(FLC). */
 async function playMaterial(
   reg: { fixture: string; calibration: string | null; settings: RegSettings },
   brace: boolean,
 ) {
   const wav = loadWav(reg.fixture)
+  const analyzer = new TapToneAnalyzer()
+  analyzer.measurementType = brace ? 'brace' : 'plate'
+  analyzer.measureFlc = reg.settings.measureFlc ?? false
   const caps: MaterialCaptureResult[] = []
   const engine = new RealtimeFFTAnalyzer(
-    { onMaterialCapture: (r) => caps.push(r) },
+    {
+      onMaterialTap: (spectrum) => analyzer.recordMaterialTap(spectrum),
+      onMaterialPhaseComplete: (phase) => {
+        analyzer.recordMaterialPhaseComplete(phase)
+        const ph = phase! // set during file playback (device owns the L→C→FLC auto-advance)
+        caps.push({ spectrum: analyzer.matSpectra[ph]!, peak: analyzer.matPeaks[ph], phase: ph })
+      },
+    },
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
   engine.initForTesting()
+  analyzer.setDevice(engine)
   await engine.playFile(wav.samples, wav.sampleRate, {
     material: { brace, measureFlc: reg.settings.measureFlc ?? false, calibration: loadCal(reg.calibration) },
     pace: false,

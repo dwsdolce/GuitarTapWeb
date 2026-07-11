@@ -1,11 +1,9 @@
 // @parity audio/realtime-analyzer
 import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
-import { averageSpectra } from '../dsp/spectrumAverage'
 import { DecayTracker } from '../dsp/decay'
 import {
   gatedCaptureResult,
-  findDominantPeak,
   GATED_CAPTURE_DURATION,
   PLATE_PHASES,
   BRACE_PHASE,
@@ -54,8 +52,14 @@ export interface RealtimeFFTAnalyzerCallbacks {
   onProgress?: (collected: number, total: number) => void
   /** Edge-triggered input clipping (peak ≥ 0.99 or RMS ≥ 0 dBFS, 1.5 s hold). */
   onClipping?: (clipping: boolean) => void
-  /** A gated material tap was captured (one phase of a plate/brace measurement). */
-  onMaterialCapture?: (result: MaterialCaptureResult) => void
+  /** One captured material gated tap's spectrum, delivered RAW (6-TEST 3c-C3b). The device no longer
+   *  averages material taps or finds the peak — the TapToneAnalyzer accumulates these per phase +
+   *  averages + findDominantPeak. Fires once per tap into the current phase's buffer. */
+  onMaterialTap?: (spectrum: Spectrum) => void
+  /** A material phase finished (its tap count was reached) — the analyzer averages the accumulated
+   *  taps + finds the phase peak. `phase` is set during file-playback auto-advance (the device owns the
+   *  L→C→FLC plan), undefined for live capture (the analyzer derives it). Pairs with onMaterialTap. */
+  onMaterialPhaseComplete?: (phase?: MaterialPhaseName) => void
   /** Continuous session recording for the "Dump Capture Audio" diagnostic — fired ONCE at the end of a
    *  measurement with every chunk that flowed through the pipeline while recording (minus paused
    *  segments and redone phases), so replaying it reproduces the session. `label` identifies the
@@ -204,9 +208,10 @@ export class RealtimeFFTAnalyzer {
   private captureIdx = 0
   private captureKind: 'guitar' | 'material' = 'guitar'
   private materialSearch: MaterialSearch | null = null
-  // Gated spectra collected for the CURRENT material phase — averaged when numberOfTaps is reached,
-  // exactly as guitar averages `collected` (Swift materialCapturedTaps + handleLongitudinalGatedProgress).
-  private materialCollected: Spectrum[] = []
+  // Material per-phase tap counter (6-TEST 3c-C3b — the device no longer accumulates/averages material
+  // spectra; the TapToneAnalyzer does). Kept only to know when a phase's tap count is reached (re-arm
+  // vs phase-complete), exactly like guitarTapCount.
+  private materialTapCount = 0
 
   // Guitar tap counter. The device no longer accumulates per-tap spectra (6-TEST 3c-C2a — the
   // TapToneAnalyzer owns accumulation + averaging); it keeps only this lightweight count to know
@@ -259,7 +264,7 @@ export class RealtimeFFTAnalyzer {
     // Skipped mid-capture and when idle: the stepper is locked once a tap is captured, and on load
     // the result is frozen (setConfig(loadedTaps) runs while idle).
     if (this.config.numberOfTaps !== prevTaps && (this.state === 'listening' || this.state === 'paused')) {
-      const collected = this.captureKind === 'material' ? this.materialCollected.length : this.guitarTapCount
+      const collected = this.captureKind === 'material' ? this.materialTapCount : this.guitarTapCount
       this.callbacks.onProgress?.(collected, this.config.numberOfTaps)
     }
   }
@@ -316,7 +321,7 @@ export class RealtimeFFTAnalyzer {
     this.captureKind = 'material'
     this.materialSearch = search
     this.capture = this.materialCapture
-    this.materialCollected = [] // a new (or redone) phase starts averaging from zero
+    this.materialTapCount = 0 // a new (or redone) phase starts counting from zero
     this.prevAbove = true
     this.consecutive = 0
     this.callbacks.onProgress?.(0, this.config.numberOfTaps) // per-phase tap progress starts at 0
@@ -353,7 +358,7 @@ export class RealtimeFFTAnalyzer {
    *  captures, and return to idle so New Tap re-arms. Mirrors Swift `cancelTapSequence()`. */
   cancel(): void {
     this.guitarTapCount = 0
-    this.materialCollected = []
+    this.materialTapCount = 0
     this.materialSearch = null
     this.captureKind = 'guitar'
     this.capture = this.guitarCapture
@@ -883,45 +888,31 @@ export class RealtimeFFTAnalyzer {
 
   private finishCapture(): void {
     if (this.captureKind === 'material') {
-      const search = this.materialSearch!
-      // Each material phase averages `numberOfTaps` taps, exactly like guitar (Swift
-      // handleLongitudinalGatedProgress: collect materialCapturedTaps, then averageSpectra).
-      const { magnitudesDb, frequencies } = gatedCaptureResult(this.capture, this.sampleRate, search)
-      this.materialCollected.push({ magnitudesDb, frequencies })
+      // Material: the device computes each per-tap gated spectrum (gatedCaptureResult — gated FFT +
+      // calibration, unchanged) and delivers it RAW; the TapToneAnalyzer accumulates the phase's taps
+      // and averages them + findDominantPeak. The device keeps only a lightweight per-phase counter —
+      // it no longer averages material or finds the peak (6-TEST 3c-C3b).
+      const { magnitudesDb, frequencies } = gatedCaptureResult(this.capture, this.sampleRate, this.materialSearch!)
       this.captureIdx = 0
+      this.materialTapCount += 1
+      const sess = this.materialSession
+      const phaseName = sess ? sess.phases[sess.idx]?.name : undefined
+      this.callbacks.onMaterialTap?.({ magnitudesDb, frequencies })
 
       const total = this.config.numberOfTaps
-      if (this.materialCollected.length < total) {
+      if (this.materialTapCount < total) {
         // Need more taps for THIS phase — re-arm the same phase (Swift reEnableDetectionForNextPlateTap).
         this.prevAbove = true
         this.consecutive = 0
-        this.callbacks.onProgress?.(this.materialCollected.length, total)
+        this.callbacks.onProgress?.(this.materialTapCount, total)
         this.setState('listening')
         return
       }
 
-      // Phase complete: average the phase's taps and find the dominant peak ON THE AVERAGED spectrum
-      // (within the phase's search range) — the whole point of averaging is to read the peak off the
-      // averaged waveform, exactly as guitar multi-tap does (Swift processMultipleTaps findPeaks on the
-      // average). NB: Swift/Python material historically used the LAST tap's peak (a UUID-hack
-      // side-effect in buildAllPeaks) — that was a latent bug; all three now use the averaged peak.
-      const averaged = averageSpectra(this.materialCollected)
-      const peak = findDominantPeak(
-        averaged.magnitudesDb,
-        averaged.frequencies,
-        search.minHz,
-        search.maxHz,
-        search.preferLowestSignificant,
-      )
-      this.materialCollected = []
+      this.materialTapCount = 0
       this.callbacks.onProgress?.(total, total)
       this.setState('idle')
-      const sess = this.materialSession
-      this.callbacks.onMaterialCapture?.({
-        spectrum: averaged,
-        peak,
-        phase: sess ? sess.phases[sess.idx]?.name : undefined,
-      })
+      this.callbacks.onMaterialPhaseComplete?.(phaseName) // analyzer averages the phase's taps + finds the peak
       // File-playback material session: auto-advance to the next phase (Swift isPlayingFile),
       // re-arming so the next tap is captured. arm/prevAbove reset requires a falling edge first
       // (Swift isAboveThreshold=true) so the prior tap's ring-out can't fire a bogus onset.

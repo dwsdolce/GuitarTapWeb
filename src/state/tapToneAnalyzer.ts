@@ -15,13 +15,8 @@ import type { Spectrum } from '../dsp/guitarFFT'
 import { findPeaks, type Peak } from '../dsp/peaks'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import { PLATE_PHASES, BRACE_PHASE } from '../dsp/gatedCapture'
-import type {
-  RealtimeFFTAnalyzer,
-  MaterialSearch,
-  MaterialCaptureResult,
-  MaterialPhaseName,
-} from '../audio/realtimeFFTAnalyzer'
+import { PLATE_PHASES, BRACE_PHASE, findDominantPeak } from '../dsp/gatedCapture'
+import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialPhaseName } from '../audio/realtimeFFTAnalyzer'
 import type { MaterialPeaks } from '../components/MaterialResults'
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
@@ -271,6 +266,9 @@ export class TapToneAnalyzer {
   // each phase's taps + finds the peak, emitting onMaterialCapture; C3b moves that up).
   private device: RealtimeFFTAnalyzer | null = null
   private flcCooldownTimer: ReturnType<typeof setTimeout> | null = null
+  // Raw gated taps accumulated for the CURRENT material phase (6-TEST 3c-C3b — the device now delivers
+  // each per-tap spectrum raw; the analyzer averages them + findDominantPeak at phase completion).
+  private materialBuffer: Spectrum[] = []
 
   /** Set the audio device this analyzer drives (useAudioEngine calls this on creation). */
   setDevice(device: RealtimeFFTAnalyzer | null): void {
@@ -315,6 +313,7 @@ export class TapToneAnalyzer {
     this.clearFlcCooldown()
     this.matPeaks = EMPTY_MAT_PEAKS
     this.matSpectra = EMPTY_MAT_SPECTRA
+    this.materialBuffer = []
     this.materialTapPhase = 'capturingL'
     if (arm) {
       // startSessionRecording seeds checkpoint [0] (the L-phase truncation anchor), so no explicit
@@ -377,11 +376,18 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  /** Device onMaterialCapture: `phase` is set during file playback (the device owns the L→C→FLC
-   *  auto-advance); for LIVE capture it's undefined and we derive it from the current phase. During
-   *  playback we only reflect progress in the phase (the device re-arms); live, the user advances via
-   *  Accept (acceptMaterial). */
-  recordMaterialCapture({ spectrum, peak, phase }: MaterialCaptureResult): void {
+  /** Device onMaterialTap: accumulate one raw gated tap into the current phase's buffer (6-TEST 3c-C3b). */
+  recordMaterialTap(spectrum: Spectrum): void {
+    this.materialBuffer.push(spectrum)
+  }
+
+  /** Device onMaterialPhaseComplete: the phase's tap count was reached — average its buffered taps and
+   *  find the dominant peak ON THE AVERAGED spectrum within the phase's search range (Swift
+   *  handle{Longitudinal,Cross,Flc}GatedProgress), then store it + advance the phase. `phase` is set
+   *  during file playback (the device owns the L→C→FLC auto-advance); for LIVE capture it's undefined
+   *  and we derive it from the current phase. During playback we only reflect progress in the phase
+   *  (the device re-arms); live, the user advances via Accept (acceptMaterial). 6-TEST 3c-C3b. */
+  recordMaterialPhaseComplete(phase?: MaterialPhaseName): void {
     const playing = this.device?.playingFile ?? false
     const ph: MaterialPhaseName =
       phase ??
@@ -390,6 +396,18 @@ export class TapToneAnalyzer {
         : this.materialTapPhase === 'capturingFlc'
           ? 'flc'
           : 'longitudinal')
+    // Average the phase's raw taps + read the dominant peak off the averaged spectrum (same search
+    // range the device gated with — matSearch rebuilds it, incl. the device's active calibration).
+    const spectrum = averageSpectra(this.materialBuffer)
+    const search = this.matSearch(ph)
+    const peak = findDominantPeak(
+      spectrum.magnitudesDb,
+      spectrum.frequencies,
+      search.minHz,
+      search.maxHz,
+      search.preferLowestSignificant,
+    )
+    this.materialBuffer = []
     if (ph === 'longitudinal') {
       this.matSpectra = { ...this.matSpectra, longitudinal: spectrum }
       this.matPeaks = { ...this.matPeaks, longitudinal: peak }
@@ -416,6 +434,7 @@ export class TapToneAnalyzer {
     this.materialTapPhase = 'notStarted'
     this.matPeaks = EMPTY_MAT_PEAKS
     this.matSpectra = EMPTY_MAT_SPECTRA
+    this.materialBuffer = []
     this.device?.cancelSessionRecording() // abandon any partial session WAV
     this.notify()
   }
