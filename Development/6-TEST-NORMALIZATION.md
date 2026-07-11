@@ -38,7 +38,7 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
     COMMITTED 2026-07-11 (run-reviewed "runs smoothly").** **3c consolidation ✅ COMPLETE 2026-07-12** (C3a/C3b material → analyzer; C4 imperative statusMessage + EG-1;
     C5 + 3c-D shrank useAudioEngine + collapsed tapsLocked/sbComplete — full record in TAPTONEANALYZER-CONSOLIDATION.md,
     done). EG-1 + EG-2 + EG-3 ✅ done. **frozen-peak-recalc engine half ✅ 3-way** (PR-A/PR2; selection remap
-    PR1/PR3–PR7 → P3). **NEXT: remaining pure gaps** (annotation-state guitar, import-persistence) → orphan test
+    PR1/PR3–PR7 → P3); import-persistence ✅ 3-way (IP1–IP3, fake-indexeddb). **NEXT: remaining pure gap** (annotation-state guitar) → orphan test
     back-ports (§2) → PC-1 docs (web Quick-Start + shared manual) → P3 (selection/annotations by-frequency carry →
     RESTRUCTURE-NOTES.md). The 3 cross-platform parity gaps
     OUT-1/2/3 found during the 3c review are a **separate effort** → PLATFORM-PARITY-GAPS.md.
@@ -111,7 +111,7 @@ Legend: ✓ dedicated suite · ◐ folded/partial · ✗ absent · — n/a. Cell
 | 19 | frozen-peak-recalc | ✓ | ✓ | ◐ engine half done (PR-A1..A5 + PR2 on `recalculatePeaks`); selection/annotation remap (PR1/PR3–PR7) → P3 | **engine ✅ / selection → P3** |
 | 20 | comparison | ✓ ComparisonModeTests | ✓ test_comparison_mode | ✓ g10-comparison | |
 | 21 | measurement-codable | ✓ | ✓ | ✓ g5-measurement-codable | |
-| 22 | import-persistence | ✓ | ✓ | ◐ round-trips only | **web gap: library append** |
+| 22 | import-persistence | ✓ | ✓ | ✓ (IP1–IP3 + append/persist; fake-indexeddb) | **✅ 3-way** |
 | 23 | display-range | ✓ DisplayRangeTests | ◐ wi6 | ✓ settings-display-range | |
 | 24 | measurement-bridge / provenance | ◐ in loadMeasurement | ◐ | ✓ g6, g7 | reverse gap: web has explicit units |
 | 25 | file-playback (end-to-end) | ✓ FilePlaybackRegressionTests | ✓ test_file_playback_regression | ✓ g3b/c/d + g11 | numeric backbone |
@@ -190,7 +190,7 @@ names) · **TAG+RENAME** (web suite exists but untagged) · **MIS-TAG** (web tag
 | file-playback | FilePlaybackRegressionTests | test_file_playback_regression | g11 (+ g3b/g3c/g3d) | file-playback.test.ts | **CONSOLIDATE** — g3b/c/d = pure-DSP layer, g11 = engine layer |
 | frozen-peak-recalc | FrozenPeakRecalculationTests | test_frozen_peak_recalculation | ✓ engine (PR-A/PR2) | frozen-peak-recalc.test.ts | **engine ✅ 3-way; PR1/PR3–PR7 selection remap → P3** |
 | gated-fft | GatedFFTParityTests | test_gated_fft_parity | g1-gated-fft | gated-fft.test.ts | RENAME |
-| import-persistence | ImportPersistenceTests | test_import_persistence | — | import-persistence.test.ts | **GAP** |
+| import-persistence | ImportPersistenceTests | test_import_persistence | ✓ (IP1–IP3) | import-persistence.test.ts | **✅ 3-way** |
 | measurement-codable | MeasurementCodableTests | test_measurement_codable | g5-measurement-codable | measurement-codable.test.ts | RENAME |
 | measurement-complete | MeasurementCompleteTransitionTests | test_measurement_complete_transitions | (implicit in g11) | measurement-complete.test.ts | **GAP** |
 | peaks | PeakFindingTests | test_peak_finding | g2-peaks | peaks.test.ts | RENAME (also holds folded dsp + spectrum-average) |
