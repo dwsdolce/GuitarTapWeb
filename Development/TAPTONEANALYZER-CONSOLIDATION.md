@@ -5,9 +5,9 @@ Peak-analysis effort** (3c-0/A/A2/B/C1/C2a committed 2026-07-10; C2b + P1 + P1b 
 committed 2026-07-11, folding C2b). **3c-C3a + C3b ✅ committed 2026-07-12** (material phase
 machine → analyzer + `useMaterialSession` deleted + analyzer holds the device (C3a); material averaging + peak-find
 up, device now a pure emitter (C3b); §11). **3c-C4 ✅ committed 2026-07-12 (`e98d4da`)** — imperative statusMessage
-field (D3) + EG-1 via Option C + run-review (§12/§12a). **NEXT = OUT-1** (Swift+Python phase-guidance-through-warmup)
-→ OUT-2/OUT-3 → C5 (shrink useAudioEngine) → 3c-D. **EG-2** (material live spectrum) deferred until 3c complete.
-See §5/§5b/§10/§11/§12 for status.
+field (D3) + EG-1 via Option C + run-review (§12/§12a). **NEXT = C5 (shrink useAudioEngine) → 3c-D — to FINISH
+3c.** The 3 run-review parity gaps (OUT-1/2/3) are **spun out to their own backlog** (STATUS) — not consolidation
+work, don't gate 3c. **EG-2** (material live spectrum) deferred until 3c complete. See §5/§5b/§10/§11/§12 for status.
 (Supersedes the earlier `TAPSESSION-CONSOLIDATION.md` draft — renamed because the class it was named after is
 being renamed to the canonical `TapToneAnalyzer`.)
 
@@ -444,8 +444,9 @@ unit coverage → run-review is the gate. Acceptance bar: no behavior change.
 **Status: ✅ COMMITTED 2026-07-12 (`e98d4da`, Option C, single commit) — run-reviewed.** All gates green (tsc ·
 lint 0 · 200 tests · build · parity 63 groups/0 platform-specific). Step-by-step Swift↔web review complete
 (see §12a): 2 fixes folded in (RF-1 Peak readout, RF-2 level rate), 3 outstanding cross-platform items tracked
-(OUT-1/2/3 in §12a + STATUS). **NEXT = OUT-1** (Swift+Python phase-guidance-through-warmup — design for review
-first) → OUT-2/OUT-3 → then resume the 3c spine (C5 → 3c-D). `statusMessage.ts` deleted; the analyzer
+(OUT-1/2/3 in §12a + STATUS). **NEXT = C5 → 3c-D to FINISH 3c.** OUT-1/2/3 are **spun out to their own backlog**
+(STATUS "Parity gaps found during 3c review") — they surfaced during the review but are **not** consolidation
+work, so they don't gate 3c; do them after. `statusMessage.ts` deleted; the analyzer
 owns the imperative field. `test/status-message` reworked to drive transitions on a real analyzer + assert the
 field (+ clipping override/restore, device-change, EG-1, playback File: transitions). `file-playback` `playMaterial`
 rewired to Option C (REG-B1/P1 pass = value-preserving). Device is now a pure gated-FFT emitter for material
@@ -564,8 +565,9 @@ file-playback material auto-advance, load a saved material measurement, cancel. 
   the readout is `material ? (engineMetrics?.displayLevelDB ?? -100) : (metrics.peakMagnitude ?? -100)` — both
   default to -100 pre-first-frame (Swift `displayLevelDB`/`peakMagnitude` initial), so no fast flicker at startup.
 
-**Outstanding cross-platform items — NOT part of the C4 commit; the next effort now the review is complete
-(OUT-1 first, design-for-review before editing canonical):**
+**Outstanding cross-platform items — found during the review but NOT consolidation work.** Spun out to their own
+backlog (STATUS "Parity gaps found during 3c review"); they do NOT gate 3c — **finish 3c (C5 → 3c-D) first**, then
+do these (OUT-1 design-for-review before editing canonical):
 - **OUT-1 — phase-guidance-through-warmup (Swift + Python).** See the DECISION below (Option B). Web already
   conformant. Canonical detection-loop change + parity tests lock-step + Swift release. **The full dead-string set
   the fix must make visible (each set right before a warm-up restart that overwrites it → "Tap the guitar…"):**
@@ -575,9 +577,14 @@ file-playback material auto-advance, load a saved material measurement, cancel. 
   - Redo L / C / FLC: `"Ready for L/C/FLC tap — tap again"` (Swift Control:454/473/492 restart + :457/476/495 msg) —
     **confirmed on current Swift: goes to "Tap the guitar…"** (user run-review 2026-07-12).
   - (Also the resume strings Control:278-282 "Ready for fL/L/C/FLC tap" if resume restarts warm-up — verify.)
-- **OUT-2 — status-bar tap PROGRESS BAR is Swift-only.** Swift renders a visual tap/phase progress **bar** in the
-  bottom status bar; the **web shows only the text** (`sbProgress`: "Phase X/Y" / "Tap N/M") and **Python has
-  neither**. Fix = add the progress bar to **Python + web** (Swift canonical; "improvements go to all three").
+- **OUT-2 — status-bar progress: bar missing + `sbProgress` text divergences.** (a) Swift renders a visual
+  tap/phase progress **bar** (`ProgressView(value: tapProgress)`, Controls:420) in the bottom status bar; the
+  **web shows only the text** and **Python has neither** → add the bar to **Python + web**. (b) The `sbProgress`
+  TEXT also diverges from Swift (Controls:405-413, verified 3c-D run-review): the web GUITAR branch shows a
+  provisional `currentTapCount + (capturing ? 1 : 0)` — Swift shows raw `currentTapCount` (no +1); and the web
+  gates guitar on `numberOfTaps > 1` while Swift gates on `currentTapCount > 0`. (Plate/brace text matches Swift;
+  the two-branch structure IS canonical — Swift branches plate vs brace/guitar too, so it is NOT a 3c-D collapse
+  target.) Align the guitar text to Swift (or, if the provisional +1 is judged better, apply to all three).
   Cross-platform UI-parity item, independent of the statusMessage work.
 - **OUT-3 — Metrics "Bin Count" is blank ("-") for plate/brace in the web** (Swift + Python show 32,768). Web-only:
   the App `metrics` useMemo gates `binCount: !material && captured ? captured.frequencies.length : null`, so material

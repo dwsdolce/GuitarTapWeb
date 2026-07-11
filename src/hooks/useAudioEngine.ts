@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import { RealtimeFFTAnalyzer, type EngineState, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
+import { RealtimeFFTAnalyzer, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
 import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { Calibration } from '../dsp/calibration'
@@ -50,7 +50,6 @@ interface UseAudioEngineArgs {
 
 export interface AudioEngineModel {
   running: boolean
-  engineState: EngineState
   level: number
   liveSpectrum: Spectrum | null
   sampleRate: number | null
@@ -65,7 +64,6 @@ export interface AudioEngineModel {
   currentDeviceId: string | null
   calibrations: StoredCalibration[]
   activeCalId: string | null
-  clipping: boolean
   engineMetrics: EngineMetrics | null
   /** Live ring-out (decay) time in seconds, or null — for the Analysis Results panel. */
   decayTime: number | null
@@ -93,7 +91,6 @@ export function useAudioEngine({
   dumpCaptureRef,
 }: UseAudioEngineArgs): AudioEngineModel {
   const [running, setRunning] = useState(false)
-  const [engineState, setEngineState] = useState<EngineState>('idle')
   const [level, setLevel] = useState(-100)
   const [liveSpectrum, setLiveSpectrum] = useState<Spectrum | null>(null)
   const [sampleRate, setSampleRate] = useState<number | null>(null)
@@ -105,7 +102,6 @@ export function useAudioEngine({
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null)
   const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
   const [activeCalId, setActiveCalId] = useState<string | null>(null)
-  const [clipping, setClipping] = useState(false)
   // Route-change settle timer: on an automatic hardware change the analyzer shows "Audio device changed
   // - reinitializing…" then restores the prompt after this fires (6-TEST 3c-C4 — status is analyzer-owned).
   const deviceChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -201,18 +197,13 @@ export function useAudioEngine({
         // snapshot now; there is no spectrum payload to hand back.
         onGuitarTap: (spectrum) => analyzer.recordGuitarTap(spectrum),
         onGuitarComplete: () => onGuitarCapture(),
-        onState: (s) => {
-          setEngineState(s)
-          // The analyzer owns isDetecting/isDetectionPaused AND the guitar status strings, derived from
-          // the engine-state transitions (the device owns the guitar detection loop). 6-TEST 3c-A2/C4.
-          analyzer.setEngineState(s)
-        },
-        // Edge-triggered clipping drives BOTH the threshold-slider red zone (React state) and the
-        // analyzer's status override/restore (Swift `fftAnalyzer.$isClipping` sink). 6-TEST 3c-C4.
-        onClipping: (c) => {
-          setClipping(c)
-          analyzer.setClipping(c)
-        },
+        // The analyzer owns isDetecting/isDetectionPaused, the guitar status strings, AND the engineState
+        // fact (idle/listening/capturing/paused) that App reads off the snapshot — no duplicate React state
+        // (3c-C5). The device owns the guitar detection loop; the analyzer mirrors its transitions.
+        onState: (s) => analyzer.setEngineState(s),
+        // Edge-triggered clipping → the analyzer's status override/restore AND the snapshot's isClipping
+        // (which drives the threshold-slider red zone). One source now (3c-C5). Swift `$isClipping` sink.
+        onClipping: (c) => analyzer.setClipping(c),
         // The device reports per-sequence/per-phase tap progress; the analyzer owns currentTapCount
         // (numberOfTaps is set separately via changeTaps → analyzer.setNumberOfTaps). 6-TEST 3c-A.
         // collected === 0 marks a fresh sequence / material phase armed at 0 taps → clear the
@@ -284,7 +275,6 @@ export function useAudioEngine({
 
   return {
     running,
-    engineState,
     level,
     liveSpectrum,
     sampleRate,
@@ -297,7 +287,6 @@ export function useAudioEngine({
     currentDeviceId,
     calibrations,
     activeCalId,
-    clipping,
     engineMetrics,
     decayTime,
     retry: start,

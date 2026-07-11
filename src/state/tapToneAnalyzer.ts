@@ -366,6 +366,7 @@ export class TapToneAnalyzer {
     this.materialTapPhase = 'capturingL'
     this.currentTapCount = 0 // the analyzer owns the material tap count now (Option C)
     this.analysisAnnounced = false
+    this.isMeasurementComplete = false // a fresh plate/brace clears any prior completion (Swift startTapSequence)
     if (arm) {
       // startSessionRecording seeds checkpoint [0] (the L-phase truncation anchor), so no explicit
       // checkpoint is needed here.
@@ -409,12 +410,14 @@ export class TapToneAnalyzer {
         }, FLC_COOLDOWN_MS)
       } else {
         this.materialTapPhase = 'complete'
+        this.isMeasurementComplete = true // material completion flips the shared flag (Swift finalisePlate*)
         this.finishMaterialSession()
         this.setStatusMessage(this.materialCompleteString())
         this.notify()
       }
     } else if (phase === 'reviewingFlc') {
       this.materialTapPhase = 'complete'
+      this.isMeasurementComplete = true
       this.finishMaterialSession()
       this.setStatusMessage(this.materialCompleteString())
       this.notify()
@@ -504,6 +507,7 @@ export class TapToneAnalyzer {
       this.matPeaks = { ...this.matPeaks, longitudinal: avgPeak }
       if (this.measurementType === 'brace') {
         this.materialTapPhase = 'complete'
+        this.isMeasurementComplete = true // Swift brace complete sets isMeasurementComplete (SpectrumCapture:1217)
         this.finishMaterialSession() // brace = single phase → session done
         this.setStatusMessage(this.materialCompleteString())
       } else if (playing) {
@@ -526,6 +530,7 @@ export class TapToneAnalyzer {
           this.device?.armMaterial(this.matSearch('flc'))
         } else {
           this.materialTapPhase = 'complete'
+          this.isMeasurementComplete = true
           this.setStatusMessage(this.materialCompleteString())
         }
       } else {
@@ -537,6 +542,7 @@ export class TapToneAnalyzer {
       this.matPeaks = { ...this.matPeaks, flc: avgPeak }
       if (playing) {
         this.materialTapPhase = 'complete'
+        this.isMeasurementComplete = true
         this.setStatusMessage(this.materialCompleteString())
       } else {
         this.materialTapPhase = 'reviewingFlc'
@@ -552,6 +558,7 @@ export class TapToneAnalyzer {
     this.matPeaks = EMPTY_MAT_PEAKS
     this.matSpectra = EMPTY_MAT_SPECTRA
     this.materialBuffer = []
+    this.isMeasurementComplete = false // clearing the material measurement clears its completion flag
     this.device?.cancelSessionRecording() // abandon any partial session WAV
     this.notify()
   }
@@ -561,6 +568,7 @@ export class TapToneAnalyzer {
     this.matSpectra = m.matSpectra
     this.matPeaks = m.matPeaks
     this.materialTapPhase = 'complete'
+    this.isMeasurementComplete = true // a loaded material measurement is complete (Swift loadMeasurement)
     this.setStatusMessage(LOADED_STATUS)
     this.notify()
   }
@@ -614,6 +622,8 @@ export class TapToneAnalyzer {
         matSpectra: this.matSpectra,
         matPeaks: this.matPeaks,
         statusMessage: this.statusMessage,
+        engineState: this.engineState,
+        isClipping: this.isClipping,
       })
     }
     return this.cachedSnapshot
@@ -765,6 +775,11 @@ export interface TapToneSnapshot {
   matPeaks: MaterialPeaks
   /** The imperative status-bar message (set at every transition; clipping override applied). */
   statusMessage: string
+  /** The device engine state (idle/listening/capturing/paused) mirrored on the analyzer — the single
+   *  source for the status-bar className + the capturing/waiting distinction (3c-C5). */
+  engineState: EngineState
+  /** Input clipping (drives the threshold-slider red zone; the status override reads the private field). */
+  isClipping: boolean
 }
 
 /**

@@ -176,6 +176,10 @@ export default function App() {
   const { analyzer, snapshot } = useTapToneAnalyzer()
   const numberOfTaps = snapshot.numberOfTaps
   const currentTapCount = snapshot.currentTapCount
+  // Engine state + clipping are analyzer facts now (no duplicate React state in useAudioEngine) — the
+  // status-bar className / capturing distinction and the threshold-slider red zone read the snapshot (3c-C5).
+  const engineState = snapshot.engineState
+  const clipping = snapshot.isClipping
   // The frozen guitar result + per-tap comparison spectra now live on the analyzer (mirrors Swift
   // frozenMagnitudes/Frequencies + tapEntries), exposed via the snapshot. App reads them through
   // these aliases (all downstream reads unchanged); writes go through analyzer transitions
@@ -363,7 +367,6 @@ export default function App() {
   // Audio engine: lifecycle + telemetry + audio-input/calibration — see hooks/useAudioEngine.
   const {
     running,
-    engineState,
     level,
     liveSpectrum,
     sampleRate,
@@ -375,7 +378,6 @@ export default function App() {
     currentDeviceId,
     calibrations,
     activeCalId,
-    clipping,
     engineMetrics,
     decayTime,
     pauseTap,
@@ -472,16 +474,11 @@ export default function App() {
   }, [newTap, onMaterialNewTap])
 
   // Lock the stepper once a tap has been captured mid-sequence, so the per-phase tap total can't
-  // change — mirrors Swift/Python: .disabled(currentTapCount > 0 && !isMeasurementComplete). It
-  // stays UNLOCKED while merely waiting for the first tap (material auto-arms into capturingL, so
-  // that initial wait must not lock it), and re-enables when the measurement completes. Guitar:
-  // locked while capturing or once the multi-tap sequence has started.
-  const tapsLocked = material
-    ? matPhase !== 'notStarted' &&
-      matPhase !== 'complete' &&
-      !(matPhase === 'capturingL' && currentTapCount === 0)
-    : engineState === 'capturing' ||
-      ((engineState === 'listening' || engineState === 'paused') && currentTapCount > 0)
+  // change — the exact canonical single expression, guitar AND material (Swift `.disabled(currentTapCount
+  // > 0 && !isMeasurementComplete)` / Python `not (tap_count > 0 and not complete)`). Unlocked while merely
+  // waiting for the first tap; re-enabled when the measurement completes (material now flips
+  // isMeasurementComplete too, 3c-D). 3c-C4 §12a: `analyzer.setNumberOfTaps` re-fires the prompt on change.
+  const tapsLocked = currentTapCount > 0 && !snapshot.isMeasurementComplete
 
   // Live-tap path: re-analyze the frozen spectrum as Peak Min / guitar type change.
   // Loaded-measurement path: the saved peaks are authoritative — only filter them by
@@ -699,7 +696,8 @@ export default function App() {
     }
     return ''
   })()
-  const sbComplete = !sbDetecting && (material ? matPhase === 'complete' : snapshot.isMeasurementComplete)
+  // Complete = the shared flag now that material completion flips isMeasurementComplete too (3c-D).
+  const sbComplete = !sbDetecting && snapshot.isMeasurementComplete
 
   // ── Library (Phase 4b): save the frozen guitar result, load one back in ───
   // Build a TapToneMeasurementModel from the CURRENT frozen result — the one place that
