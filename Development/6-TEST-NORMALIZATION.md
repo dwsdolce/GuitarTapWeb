@@ -38,8 +38,8 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
     COMMITTED 2026-07-11 (run-reviewed "runs smoothly").** **3c consolidation ✅ COMPLETE 2026-07-12** (C3a/C3b material → analyzer; C4 imperative statusMessage + EG-1;
     C5 + 3c-D shrank useAudioEngine + collapsed tapsLocked/sbComplete — full record in TAPTONEANALYZER-CONSOLIDATION.md,
     done). EG-1 + EG-2 + EG-3 ✅ done. **frozen-peak-recalc engine half ✅ 3-way** (PR-A/PR2; selection remap
-    PR1/PR3–PR7 → P3); import-persistence ✅ 3-way (IP1–IP3, fake-indexeddb). annotation-state = entirely the selection/override/offset subsystem → **rescheduled under P3** (view-side today; testing now = throwaway). **NEXT: orphan test
-    back-ports (§2) → PC-1 docs (web Quick-Start + shared manual) → P3 (selection/annotations by-frequency carry →
+    PR1/PR3–PR7 → P3); import-persistence ✅ 3-way (IP1–IP3, fake-indexeddb). annotation-state = entirely the selection/override/offset subsystem → **rescheduled under P3** (view-side today; testing now = throwaway). PC-1 docs ✅ (Cancel-as-restart + New-Tap-only-when-complete in all 3 HelpViews + shared manual) — **PHASE 3 COMPLETE**. **NEXT: Phase 4 orphan test
+    back-ports (§2) → P3 (selection/annotations by-frequency carry →
     RESTRUCTURE-NOTES.md). The 3 cross-platform parity gaps
     OUT-1/2/3 found during the 3c review are a **separate effort** → PLATFORM-PARITY-GAPS.md.
     **Maintain @parity tags + regen PARITY-MAP.md on every change.**
@@ -351,10 +351,9 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
 
 ## Plan — one phase at a time, each reviewed then verified (run the suite) before the next
 
-- **Phase 1 — Analysis + name map (THIS DOC).** Coverage matrix + canonical naming convention. *For review.*
-  Next sub-step once approved: expand into a **full name-map ledger** (every Swift file+test → target
-  Python name (verify) → target web name (new)), plus the gap ledger (what to add where) **and the
-  impl→test map** (which production slug each `test/<slug>` is evidence for → the future `tests=` links).
+- **Phase 1 — Analysis + name map (THIS DOC).** — ✅ DONE 2026-07-09 (reviewed). Coverage matrix + canonical
+  naming convention + the **full name-map ledger** (every Swift file+test → Python → web target), the gap ledger,
+  and the impl→test map (which production slug each `test/<slug>` is evidence for → the `tests=` links).
 - **Phase 2 — Web rewrite to the Swift spine (naming only).** Rename web `g#-*.test.ts` → behavior-slug
   filenames; align `describe`/`it` names to the Swift suite/test names for suites that already exist on
   web; add `@parity` markers. No coverage change. Verify: web suite still green.
@@ -400,8 +399,12 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
     selection/override/offset subsystem, view-side today — testing it now = throwaway when P3 moves it to the
     analyzer; lands 3-way with P3, together with frozen-peak-recalc's PR1/PR3–PR7 selection half).
   - **3e — EG-1 (engine empty / no-peak failure path)** — ✅ DONE (shipped in 3c-C4 via Option C, `e98d4da`).
-  - **PC-1 docs** (web Quick-Start + shared manual: Cancel-as-restart, New-Tap-only-when-complete) — ⬜ pending, slot
-    in anytime.
+  - **PC-1 docs** — ✅ DONE 2026-07-12. Cancel-as-restart + New-Tap-only-when-complete documented in all three
+    HelpViews (Swift `HelpView.swift`, Python `help_view.py`, web `QuickStartGuide.tsx` — identical wording) + the
+    shared manual (`Documentation/Manual/ch03-guitar-mode.md`).
+
+  **✅ PHASE 3 COMPLETE 2026-07-12** — 3a–3e done + PC-1 docs. (Remaining under Task-3/6-TEST: Phase 4 orphan
+  back-ports; annotation-state + frozen-peak-recalc's selection half ride P3 in the item-2 restructure.)
 - **Phase 4 — Back-port web-only tests to Swift + Python.** calibration parse/interp, analysis-quality
   bands, and any measurement-bridge/provenance checks not already folded — as named suites matching the
   Swift convention.

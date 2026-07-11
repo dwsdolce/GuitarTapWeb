@@ -250,7 +250,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'New Tap',
         icon: 'tap',
-        body: 'Arms the detector for the next tap (or begins a plate measurement sequence). A green indicator shows when a tap has been registered.',
+        body: 'Starts a fresh measurement — arms the detector (or begins a plate/brace sequence). Enabled only once the current measurement is complete; during a measurement it is disabled (use Cancel to start over). A green indicator shows when a tap has been registered.',
       },
       {
         title: 'Pause / Resume • Accept (plate/brace review)',
@@ -260,7 +260,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Cancel • Redo (plate/brace review)',
         icon: 'cancel',
-        body: "Cancel aborts the current measurement sequence and discards all partial data. In plate and brace mode, while reviewing a captured phase the button changes to Redo. Click Redo to discard only the current phase's data and re-capture it — earlier phases are preserved. The detector re-arms immediately so you can tap again without clicking New Tap.",
+        body: "Cancel restarts the measurement — it discards all partial data and immediately re-arms a fresh sequence, so you can tap again without clicking New Tap. Cancel is available while a measurement is in progress. In plate and brace mode, while reviewing a captured phase the button changes to Redo — click Redo to discard only the current phase's data and re-capture it, preserving earlier phases. Either way the detector re-arms immediately.",
       },
       {
         title: 'Crosshair',
