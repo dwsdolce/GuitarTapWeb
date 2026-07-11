@@ -2,9 +2,10 @@
 
 **Status:** APPROVED — IN PROGRESS. All §9 decisions settled. Created 2026-07-10. Committed through the **§10
 Peak-analysis effort** (3c-0/A/A2/B/C1/C2a committed 2026-07-10; C2b + P1 + P1b + P2 + selection-flicker fix
-committed 2026-07-11, folding C2b). **3c-C3a ✅ committed 2026-07-12** (material phase
-machine → analyzer, `useMaterialSession` deleted, analyzer holds the device; §11). **NEXT = EG-2** (material
-live spectrum) → **C3b** (material averaging up) → C4 → C5 → 3c-D. See §5/§5b/§10/§11 for per-sub-step status.
+committed 2026-07-11, folding C2b). **3c-C3a + C3b ✅ committed 2026-07-12** (material phase
+machine → analyzer + `useMaterialSession` deleted + analyzer holds the device (C3a); material averaging + peak-find
+up, device now a pure emitter (C3b); §11). **NEXT = C4** (imperative statusMessage + EG-1) → C5 (shrink
+useAudioEngine) → 3c-D. **EG-2** (material live spectrum) deferred until 3c complete. See §5/§5b/§10/§11 for status.
 (Supersedes the earlier `TAPSESSION-CONSOLIDATION.md` draft — renamed because the class it was named after is
 being renamed to the canonical `TapToneAnalyzer`.)
 
@@ -376,10 +377,12 @@ replaced by P2's `tapEntries`.
 
 ## 11. 3c-C3 — Material orchestration into the analyzer
 
-**Status: C3a ✅ committed 2026-07-12** (run-reviewed — full plate L/C/FLC, brace, accept/redo, play-file,
-load, type-switch, calibration all work). **NEXT = C3b** (material averaging + peak-find up). **EG-2** (feed
-liveSpectrum into the material chart — a pre-existing gap, NOT a C3a regression, surfaced during C3a review) is
-**deferred until 3c is complete** (user 2026-07-12: keep the 3c spine focused; side-tracks don't survive compaction). Two divergences were corrected during C3a: (1) an initial pure pass-through `useCallback`
+**Status: C3a + C3b ✅ committed 2026-07-12** (run-reviewed). C3a moved the material phase machine onto the
+analyzer (deleted `useMaterialSession`, analyzer holds the device); C3b moved material averaging + peak-find up
+(device is now a pure gated-capture emitter for both guitar + material; REG-B1/P1/P2 oracles unchanged).
+**NEXT = C4** (imperative statusMessage + EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse two-branch rules).
+**EG-2** (feed liveSpectrum into the material chart — a pre-existing gap, NOT a C3 regression) is **deferred
+until 3c is complete** (user 2026-07-12: keep the 3c spine focused; side-tracks don't survive compaction). Two divergences were corrected during C3a: (1) an initial pure pass-through `useCallback`
 wrapper layer in App (user caught it — Swift/Python call the analyzer directly, so App now does too); (2) a
 latent bug — `analyzer.measurementType` was NEVER synced (`setMeasurementTypeAndNotify` had no callers) and
 `MeasurementType` was DUPLICATED on the analyzer (its copy even dropped `'generic'`) — reconciled to the single
@@ -394,8 +397,12 @@ where the web analyzer starts holding a **device reference**.
 - **C3a — orchestration + state up, BRIDGED.** Analyzer owns material state + transitions + a device reference;
   the device still averages the per-phase taps + finds the material peak (emits `onMaterialCapture` as today).
   Value-preserving (like C2a was for guitar).
-- **C3b (follow) — material averaging + peak-find up.** Device emits raw per-phase taps; the analyzer accumulates
-  + averages + `findDominantPeak` (mirrors guitar C2a). Completes device purity. Separate run-review.
+- **C3b — material averaging + peak-find up — ✅ committed 2026-07-12.** Device emits each raw per-phase gated
+  tap (`onMaterialTap`) + signals `onMaterialPhaseComplete(phase?)` (`materialCollected`→`materialTapCount`); the
+  analyzer accumulates in `materialBuffer` (`recordMaterialTap`) then `averageSpectra` + `findDominantPeak` on
+  the average using `matSearch`'s range (`recordMaterialPhaseComplete`, was `recordMaterialCapture`). Gated FFT +
+  calibration stay in the device → zero drift; `file-playback` `playMaterial` drives a real analyzer, REG-B1/P1/P2
+  pass. Completes device purity (pure gated-capture emitter for guitar + material). Mirrors guitar C2a.
 
 **C3a — what moves off `useMaterialSession` onto the analyzer:**
 - **State (→ snapshot; match Swift, user #3):** `matSpectra` (mirrors Swift `longitudinalSpectrum`/`crossSpectrum`/
