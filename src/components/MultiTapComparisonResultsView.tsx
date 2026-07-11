@@ -35,6 +35,7 @@ export interface MultiTapRow extends TapModeFreqs {
  * These are the dark-appearance variants of those system colors, brightened for the
  * chart's dark background — the same convention as the mode colors.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- shared palette constant (used by App's multi-tap overlays); kept alongside the view rather than in its own module
 export const MULTITAP_PALETTE = ['#0a84ff', '#ff9f0a', '#30d158', '#bf5af2', '#40c8e0']
 
 /** Averaged-row indicator color — gold; mirrors Swift `TapToneAnalyzer.multiTapAvgColor` = `Color(1.0, 0.85, 0.0)`. */

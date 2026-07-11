@@ -90,6 +90,7 @@ export interface QSSection {
  * Peaks" notes are dropped (no web equivalent), the selection-reset control is the "Auto"
  * button, and the always-live crosshair is documented.
  */
+// eslint-disable-next-line react-refresh/only-export-components -- static quick-start content array; kept with the guide component rather than in its own data module
 export const QUICK_START_SECTIONS: QSSection[] = [
   {
     title: 'What Guitar Tap Does',

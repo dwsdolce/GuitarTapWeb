@@ -260,7 +260,7 @@ export function useAudioEngine({
       setErrorKind(denied ? 'permission' : 'engine')
       engineRef.current = null
     }
-  }, [engineRef, tapThresholdRef, dumpCaptureRef, onGuitarCapture, onMaterialCapture, onSessionAudio, onStarted, applyCalibrationForDevice, refreshDevices])
+  }, [analyzer, engineRef, tapThresholdRef, dumpCaptureRef, onGuitarCapture, onMaterialCapture, onSessionAudio, onStarted, applyCalibrationForDevice, refreshDevices])
 
   // Start listening automatically — GuitarTap has no Start button; the only
   // browser-mandated gate is the mic permission prompt itself.

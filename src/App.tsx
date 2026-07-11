@@ -432,7 +432,7 @@ export default function App() {
     } finally {
       setPlayingFileName(null)
     }
-  }, [startMaterial])
+  }, [analyzer, setError, startMaterial])
 
   // Re-enumerate inputs whenever the Settings dialog opens, so a freshly-plugged
   // microphone shows up in the device picker without a reload.
@@ -451,14 +451,14 @@ export default function App() {
     setComparison(null)
     comparisonRef.current = false // re-arm cleanly: don't absorb the next tap
     engineRef.current?.arm()
-  }, [])
+  }, [analyzer])
 
   const changeTaps = useCallback((n: number) => {
     const v = Math.max(1, Math.min(10, n))
     analyzer.setNumberOfTaps(v)
     engineRef.current?.setConfig({ numberOfTaps: v })
     setShowLoadedSettings(false) // user changed Taps → the loaded-settings banner no longer applies
-  }, [])
+  }, [analyzer])
 
   // New Tap in material mode: clear any dragged labels (Swift resets offsets on start), then start
   // the phase machine (hooks/useMaterialSession).
@@ -857,7 +857,7 @@ export default function App() {
       setComparison(null)
       setShowMeasurements(false)
     },
-    [settings.measurementType, updateSettings, deviceLabel, sampleRate],
+    [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, restoreAnnotations, restoreMaterial, restoreMaterialOffsets, setView],
   )
 
   // Create a comparison from ≥2 selected library measurements (mirrors Swift loadComparison).
@@ -877,7 +877,7 @@ export default function App() {
     // Freeze the comparison: stop the always-on listener so a stray tap can't clobber it
     // (mirrors Swift displayMode == .comparison). New Tap re-arms.
     engineRef.current?.disarm()
-  }, [])
+  }, [analyzer, setView])
 
   // Comparison chart overlays + results rows (derived from the active comparison entries).
   const comparisonOverlays = useMemo<SpectrumOverlay[]>(
