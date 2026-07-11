@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import { AudioEngine, type EngineState, type EngineMetrics, type MaterialCaptureResult } from '../audio/engine'
+import { RealtimeFFTAnalyzer, type EngineState, type EngineMetrics, type MaterialCaptureResult } from '../audio/realtimeFFTAnalyzer'
 import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { Calibration } from '../dsp/calibration'
@@ -30,7 +30,7 @@ import {
 import { parseCalibration } from '../dsp/calibration'
 
 interface UseAudioEngineArgs {
-  engineRef: MutableRefObject<AudioEngine | null>
+  engineRef: MutableRefObject<RealtimeFFTAnalyzer | null>
   calibrationRef: MutableRefObject<Calibration | null>
   /** Tap-detection threshold for the engine's initial config. */
   tapThresholdRef: MutableRefObject<number>
@@ -194,7 +194,7 @@ export function useAudioEngine({
     if (engineRef.current) return
     setError(null)
     setErrorKind(null)
-    const engine = new AudioEngine(
+    const engine = new RealtimeFFTAnalyzer(
       {
         onLevel: setLevel,
         onSpectrum: setLiveSpectrum,

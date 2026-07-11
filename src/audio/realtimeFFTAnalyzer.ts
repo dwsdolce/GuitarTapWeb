@@ -1,4 +1,4 @@
-// @parity audio/tap-analyzer tests=test/tap-decisions
+// @parity audio/realtime-analyzer
 import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { averageSpectra } from '../dsp/spectrumAverage'
@@ -35,11 +35,11 @@ export interface MaterialCaptureResult {
   phase?: MaterialPhaseName
 }
 
-/** Lifecycle state of the {@link AudioEngine}. */
+/** Lifecycle state of the {@link RealtimeFFTAnalyzer}. */
 export type EngineState = 'idle' | 'listening' | 'capturing' | 'paused'
 
 /** Optional callbacks the caller supplies to observe the engine (spectrum, level, captures, state…). */
-export interface AudioEngineCallbacks {
+export interface RealtimeFFTAnalyzerCallbacks {
   onSpectrum?: (spectrum: Spectrum) => void
   onLevel?: (db: number) => void
   /** Frozen result. For a multi-tap capture, `taps` holds each tap's individual
@@ -79,7 +79,7 @@ export interface EngineMetrics {
 }
 
 /** Tunable engine settings the caller can change while running (threshold, tap count, diagnostics). */
-export interface AudioEngineConfig {
+export interface RealtimeFFTAnalyzerConfig {
   /** Level-crossing threshold for tap onset (dBFS). */
   tapDetectionThreshold: number
   /** Number of taps to average (1–10). */
@@ -88,7 +88,7 @@ export interface AudioEngineConfig {
   dumpCaptureAudio: boolean
 }
 
-const DEFAULT_CONFIG: AudioEngineConfig = {
+const DEFAULT_CONFIG: RealtimeFFTAnalyzerConfig = {
   tapDetectionThreshold: -40,
   numberOfTaps: 1,
   dumpCaptureAudio: false,
@@ -120,13 +120,13 @@ interface ChunkMessage {
  * Setup defines the actual capture rate). Mirrors Swift `TapToneAnalyzer` / Python
  * `tap_tone_analyzer`.
  */
-export class AudioEngine {
+export class RealtimeFFTAnalyzer {
   private context: AudioContext | null = null
   private node: AudioWorkletNode | null = null
   private source: MediaStreamAudioSourceNode | null = null
   private stream: MediaStream | null = null
-  private readonly callbacks: AudioEngineCallbacks
-  private config: AudioEngineConfig
+  private readonly callbacks: RealtimeFFTAnalyzerCallbacks
+  private config: RealtimeFFTAnalyzerConfig
 
   sampleRate = 48000
   state: EngineState = 'idle'
@@ -229,7 +229,7 @@ export class AudioEngine {
   processingMs = 0
   avgProcessingMs = 0
 
-  constructor(callbacks: AudioEngineCallbacks = {}, config?: Partial<AudioEngineConfig>) {
+  constructor(callbacks: RealtimeFFTAnalyzerCallbacks = {}, config?: Partial<RealtimeFFTAnalyzerConfig>) {
     this.callbacks = callbacks
     this.config = { ...DEFAULT_CONFIG, ...config }
   }
@@ -244,7 +244,7 @@ export class AudioEngine {
     this.headless = true
   }
 
-  setConfig(config: Partial<AudioEngineConfig>): void {
+  setConfig(config: Partial<RealtimeFFTAnalyzerConfig>): void {
     const prevTaps = this.config.numberOfTaps
     this.config = { ...this.config, ...config }
     // A tap-count change while armed and waiting must immediately refresh the progress display so

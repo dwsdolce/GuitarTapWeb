@@ -9,6 +9,7 @@
 // render state, delegating every transition to it.
 //
 // @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/start-tap-race,test/measurement-complete
+// @parity audio/tap-analyzer  tests=test/tap-decisions
 import { averageSpectra } from '../dsp/spectrumAverage'
 import { computeGatedFFT } from '../dsp/gatedFFT'
 import type { Spectrum } from '../dsp/guitarFFT'

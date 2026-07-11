@@ -1,6 +1,6 @@
 // @parity view/main
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AudioEngine } from './audio/engine'
+import { RealtimeFFTAnalyzer } from './audio/realtimeFFTAnalyzer'
 import { SpectrumChart } from './components/SpectrumChart'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
@@ -153,7 +153,7 @@ const HINTS = {
 
 /**
  * Top-level app: the live-analysis orchestrator. Mirrors Swift `TapToneAnalysisView` /
- * Python `TapToneAnalysisView` (MainWindow) — owns the {@link AudioEngine}, wires the
+ * Python `TapToneAnalysisView` (MainWindow) — owns the {@link RealtimeFFTAnalyzer}, wires the
  * spectrum chart, controls, threshold meter, results / peak cards, and the Settings /
  * Metrics / Help / Save / Measurements modals, delegating chart, annotation, material,
  * and engine concerns to the `useChartView` / `useAnnotations` / `useMaterialSession` /
@@ -259,7 +259,7 @@ export default function App() {
 
   // The audio engine handle (constructed in `start`) — declared early so the material session
   // can arm it. Material measurement (plate/brace phase machine) — see hooks/useMaterialSession.
-  const engineRef = useRef<AudioEngine | null>(null)
+  const engineRef = useRef<RealtimeFFTAnalyzer | null>(null)
   // matPhase is owned by the analyzer (6-TEST 3c-B); useMaterialSession drives it via setMatPhase.
   const matPhase = snapshot.materialTapPhase
   const {

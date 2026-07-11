@@ -6,11 +6,11 @@
 // Web-only mechanism (onProgress refire) — no Swift/Python unit counterpart yet (back-port tracked
 // in Development/6-TEST-NORMALIZATION.md § 2).
 import { describe, it, expect } from 'vitest'
-import { AudioEngine } from '../src/audio/engine'
+import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 
 function makeEngine(numberOfTaps = 1) {
   const progress: Array<{ collected: number; total: number }> = []
-  const engine = new AudioEngine(
+  const engine = new RealtimeFFTAnalyzer(
     { onProgress: (collected, total) => progress.push({ collected, total }) },
     { numberOfTaps },
   )

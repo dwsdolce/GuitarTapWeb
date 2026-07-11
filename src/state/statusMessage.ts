@@ -13,7 +13,7 @@
 // the native apps express those states through the initial statusMessage, the File: playback messages,
 // the Comparison/MultiTap panels, and the mic-error dialog instead.
 
-import type { EngineState } from '../audio/engine'
+import type { EngineState } from '../audio/realtimeFFTAnalyzer'
 import type { MatPhase } from '../hooks/useMaterialSession'
 
 // Resting "waiting for a tap" prompt. Swift/Python show a phase-specific string only for the

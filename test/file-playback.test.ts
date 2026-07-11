@@ -1,7 +1,7 @@
 // @parity test/file-playback
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { AudioEngine, type MaterialCaptureResult } from '../src/audio/engine'
+import { RealtimeFFTAnalyzer, type MaterialCaptureResult } from '../src/audio/realtimeFFTAnalyzer'
 import { decodeWav } from '../src/dsp/wav'
 import { parseCalibration, type Calibration } from '../src/dsp/calibration'
 import { modePeaksFromSpectrum, type Spectrum } from '../src/dsp/guitarFFT'
@@ -49,7 +49,7 @@ async function playGuitar(
 ): Promise<{ spectrum: Spectrum; taps?: Spectrum[] } | null> {
   const wav = loadWav(reg.fixture)
   let captured: { spectrum: Spectrum; taps?: Spectrum[] } | null = null
-  const engine = new AudioEngine(
+  const engine = new RealtimeFFTAnalyzer(
     { onCapture: (spectrum, taps) => (captured = { spectrum, taps }) },
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
@@ -66,7 +66,7 @@ async function playMaterial(
 ) {
   const wav = loadWav(reg.fixture)
   const caps: MaterialCaptureResult[] = []
-  const engine = new AudioEngine(
+  const engine = new RealtimeFFTAnalyzer(
     { onMaterialCapture: (r) => caps.push(r) },
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
@@ -184,7 +184,7 @@ async function playGuitarSession(
 ): Promise<{ wav: { samples: Float32Array; sampleRate: number }; sessions: { samples: Float32Array; rate: number; label: string }[] }> {
   const wav = loadWav(reg.fixture)
   const sessions: { samples: Float32Array; rate: number; label: string }[] = []
-  const engine = new AudioEngine(
+  const engine = new RealtimeFFTAnalyzer(
     { onSessionAudio: (samples, rate, label) => sessions.push({ samples, rate, label }) },
     {
       tapDetectionThreshold: reg.settings.tapDetectionThreshold,

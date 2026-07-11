@@ -8,7 +8,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import type { AudioEngine, MaterialSearch, MaterialCaptureResult } from '../audio/engine'
+import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialCaptureResult } from '../audio/realtimeFFTAnalyzer'
 import type { MaterialPeaks } from '../components/MaterialResults'
 import { PLATE_PHASES, BRACE_PHASE } from '../dsp/gatedCapture'
 import type { Spectrum } from '../dsp/guitarFFT'
@@ -38,7 +38,7 @@ const EMPTY_MAT_PEAKS: MaterialPeaks = { longitudinal: null, cross: null, flc: n
 const FLC_COOLDOWN_MS = 500
 
 interface UseMaterialSessionArgs {
-  engineRef: RefObject<AudioEngine | null>
+  engineRef: RefObject<RealtimeFFTAnalyzer | null>
   /** Current measurement type (brace vs plate selects the phase set). */
   measRef: RefObject<MeasurementType>
   /** Whether the plate's FLC tap is enabled. */

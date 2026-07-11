@@ -165,13 +165,70 @@ analyzer + device and returns `useSyncExternalStore(analyzer.subscribe, analyzer
   - **Design note:** result *data* (`captured`, `matSpectra`, `matPeaks`) deliberately stays React-side, not
     in the lean useSyncExternalStore snapshot — a pragmatic web adaptation (Swift's analyzer holds everything;
     the web keeps bulk spectra out of the snapshot). The analyzer owns the state *machine* (facts + transitions).
-- **3c-C — Split the device out: `AudioEngine` → `RealtimeFFTAnalyzer`.** Move averaging / tap-accumulation /
-  completion OUT of the device INTO `TapToneAnalyzer` (device now emits raw per-tap/per-phase spectra +
-  level/state). Rename `src/audio/engine.ts` → `realtimeFFTAnalyzer.ts`, class `AudioEngine` →
-  `RealtimeFFTAnalyzer`; retag `@parity audio/tap-analyzer` off the device and onto `TapToneAnalyzer`, add
-  `@parity audio/realtime-analyzer` to the device. Web now has BOTH canonical classes, 1:1 with Swift/Python.
+- **3c-C — Split the device out: `AudioEngine` → `RealtimeFFTAnalyzer`.** The big one — decomposed into
+  C1–C5 in §5b. Move averaging / tap-accumulation / completion / material orchestration OUT of the device
+  INTO `TapToneAnalyzer` (device becomes a pure mic/FFT/gated-capture emitter), rename + retag, imperative
+  `statusMessage` (D3), EG-1. Web ends with BOTH canonical classes, 1:1 with Swift/Python.
 - **3c-D — Collapse the two-branch rules.** With one source, rewrite `tapsLocked` and `sbProgress` as single
   expressions over `analyzer.currentTapCount` / `numberOfTaps` / `materialTapPhase`.
+
+## 5b. 3c-C breakdown (each sub-step: tsc + suite green + run-review + commit)
+
+3c-C is the only phase that touches the **core capture path**, so it is split into small, separately
+verifiable diffs. Scope facts: `AudioEngine` = 9 importers / 36 refs; `finishGuitarGatedCapture` is used by
+only `test/start-tap-race`; the device is 978 lines, `useAudioEngine` 295, `useMaterialSession` 233.
+
+- **3c-C1 — Rename `AudioEngine` → `RealtimeFFTAnalyzer` (mechanical + retag)** — ✅ DONE (2026-07-10).
+  `src/audio/engine.ts` → `realtimeFFTAnalyzer.ts`; class + device interfaces (`RealtimeFFTAnalyzerCallbacks/
+  Config`) renamed; 9 files updated (the `useAudioEngine` *hook* name kept — renamed in C5). Retagged: device
+  → `audio/realtime-analyzer` (web joins the canonical 3-way group); `audio/tap-analyzer tests=test/tap-decisions`
+  moved onto `tapToneAnalyzer.ts` (now 3-way there). Map regen (63 groups). Pure rename — tsc · 205 tests · build
+  green; no run-review needed. *(Device still averages here — the honest name arrives with C2.)*
+
+- **3c-C2 — Move the GUITAR averaging/accumulation up.** Device stops owning `collected`/`averageSpectra` for
+  guitar; it emits **raw per-tap spectra**. The analyzer accumulates them in `capturedTaps` and averages via
+  `processMultipleTaps` (already built + tested) when the count is reached; App reads the frozen result + the
+  per-tap spectra (`tapSpectra` for the multi-tap view) from the analyzer.
+  - **Key dataflow (matches Swift):** the device delivers the gated **samples** to the analyzer; the analyzer
+    calls `computeGatedFFT` and accumulates the spectrum — exactly what
+    `TapToneAnalyzer.finishGuitarGatedCapture(samples)` already does. Mirrors Swift, where `computeGatedFFT` is
+    a **device** method *"called externally by TapToneAnalyzer"* (RealtimeFFTAnalyzer.swift:33). So
+    `finishGuitarGatedCapture` **stays as-is — no test change**; the device just stops averaging and hands over
+    the per-tap gated samples.
+  - **Riskiest single diff.** Run-review: guitar single + multi-tap, the multi-tap comparison view, and the
+    file-playback oracle regressions (`file-playback` / `gated-capture` / `guitar-fft`).
+
+- **3c-C3 — Absorb the MATERIAL transitions; delete `useMaterialSession`.** Move `startMaterial` / `accept` /
+  `redo` / `record` / `reset` / `restore` + `matSearch` (calibration ranges) + `finishMaterialSession` + the
+  FLC cooldown into `TapToneAnalyzer` (which now holds the device, so it calls `device.armMaterial` /
+  `checkpointSession` / `redoSession`). Material averaging moves up too (device emits per-phase raw taps).
+  - **Result-data decision — ALIGN with Swift (user, 2026-07-10; SUPERSEDES the 3c-B "stays React-side" note):**
+    the analyzer OWNS the result spectra/peaks as fields, mirroring Swift `TapToneAnalyzer`
+    (`frozenMagnitudes` / `longitudinalSpectrum` / `crossSpectrum` / `longitudinalPeaks` / `crossPeaks` / …),
+    exposed via the snapshot (a few array refs, rebuilt on change — lean-snapshot cost negligible). App reads
+    `snapshot.matSpectra` / `matPeaks` / `frozen*` instead of React state. **Also revisit `captured`** (left
+    React-side in 3c-A2) → move the frozen guitar spectrum + per-tap spectra onto the analyzer too, for full
+    parity. This is a scope increase over the original plan but it is the aligned design.
+  - Delete `useMaterialSession`; App calls `analyzer.startMaterial/accept/redo`. Run-review the full plate/brace
+    flow (L→C→FLC, accept/redo, cooldown, cancel, load).
+
+- **3c-C4 — Imperative `statusMessage` field (D3) + EG-1.** Add `statusMessage` as a notified field on the
+  analyzer, written through a `setStatusMessage(msg)` helper that stashes `_latestRealStatus` and applies the
+  **clipping override/restore** (`setClipping`) — mirroring Python `_set_status_message` / `_set_clipping`. Set
+  it at each transition (start / warm-up-analog / capture / accept / redo / device-change / tap-count / load).
+  The device forwards clipping → `analyzer.setClipping`. **EG-1:** the device's empty / no-peak capture failure
+  → `analyzer` sets `"No signal/resonance detected — tap again"` + re-arms. Rework `test/status-message` to
+  drive transitions and assert the field (retires the orphan; natural Swift/Python back-port). App reads
+  `analyzer.statusMessage`; the functional `statusMessage(state)` module is absorbed. Broad but mostly
+  mechanical; run-review every status string + clipping.
+
+- **3c-C5 — Shrink `useAudioEngine`.** With the capture flow + material owned by the analyzer, `useAudioEngine`
+  collapses to device lifecycle + telemetry (level/spectrum/metrics/device+calibration). Much of the
+  callback-mirroring disappears. (May land incrementally across C2–C4.)
+
+**Pacing:** C1 is safe (mechanical) — good standalone commit. C2 and C3 are the real risk (capture path) — one
+at a time, heavy run-review each. C4 is broad but low-risk-per-string. Recommend: do C1 now, then pause for a
+go/no-go before C2.
 
 ## 6. What collapses (the payoff)
 

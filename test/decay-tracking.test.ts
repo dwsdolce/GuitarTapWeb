@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { measureDecayTime, DecayTracker, DECAY_THRESHOLD_DB, type DecaySample } from '../src/dsp/decay'
-import { AudioEngine } from '../src/audio/engine'
+import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import { decodeWav } from '../src/dsp/wav'
 
 // Ring-out (decay) time — pinned to the Swift DecayTrackingTests / Python test_decay_tracking
@@ -95,7 +95,7 @@ describe('G4d — REG-G ring-out (file playback)', () => {
       new Uint8Array(readFileSync(new URL('./fixtures/Recording 5.wav', import.meta.url))),
       { downmix: true },
     )
-    const engine = new AudioEngine({ onCapture: () => {} }, { tapDetectionThreshold: -40, numberOfTaps: 1 })
+    const engine = new RealtimeFFTAnalyzer({ onCapture: () => {} }, { tapDetectionThreshold: -40, numberOfTaps: 1 })
     engine.initForTesting()
     await engine.playFile(wav.samples, wav.sampleRate, { pace: false })
     expect(engine.decayTime, 'no ring-out measured').not.toBeNull()
