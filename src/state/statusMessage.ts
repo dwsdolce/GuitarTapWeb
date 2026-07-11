@@ -14,7 +14,7 @@
 // the Comparison/MultiTap panels, and the mic-error dialog instead.
 
 import type { EngineState } from '../audio/realtimeFFTAnalyzer'
-import type { MatPhase } from '../hooks/useMaterialSession'
+import type { MaterialTapPhase as MatPhase } from './tapToneAnalyzer'
 
 // Resting "waiting for a tap" prompt. Swift/Python show a phase-specific string only for the
 // instant before warm-up ends, then the detection loop overwrites it with this type-agnostic

@@ -1,7 +1,10 @@
 # TapToneAnalyzer / RealtimeFFTAnalyzer Consolidation (6-TEST step 3c)
 
-**Status:** APPROVED — IN PROGRESS. All §9 decisions settled. Created 2026-07-10. Committed through **3c-C2a**
-(3c-0/A/A2/B/C1/C2a); **NEXT = 3c-C2b**. See §5/§5b for the per-sub-step status.
+**Status:** APPROVED — IN PROGRESS. All §9 decisions settled. Created 2026-07-10. Committed through the **§10
+Peak-analysis effort** (3c-0/A/A2/B/C1/C2a committed 2026-07-10; C2b + P1 + P1b + P2 + selection-flicker fix
+committed 2026-07-11, folding C2b). **NEXT = 3c-C3** — material orchestration into the analyzer + delete
+`useMaterialSession`; spec in **§11** (approved to split into C3a/C3b), awaiting go-ahead to code. See
+§5/§5b/§10/§11 for per-sub-step status.
 (Supersedes the earlier `TAPSESSION-CONSOLIDATION.md` draft — renamed because the class it was named after is
 being renamed to the canonical `TapToneAnalyzer`.)
 
@@ -370,3 +373,50 @@ surface in the consolidation → phased + heavy run-review; no behavior change i
 **C2b status: ✅ committed 2026-07-11 as part of this effort's single commit** — folded in (user chose this so
 `tapSpectra` never landed). Its frozen-spectrum + snapshot plumbing became part of P1; its `tapSpectra` was
 replaced by P2's `tapEntries`.
+
+## 11. 3c-C3 — Material orchestration into the analyzer (SPEC — for review; approved to split)
+
+**Goal:** move the plate/brace phase machine onto `TapToneAnalyzer` and delete `useMaterialSession`, mirroring
+Swift — whose `TapToneAnalyzer` owns `handle{Longitudinal,Cross,Flc}GatedProgress` + `materialCapturedTaps` +
+`longitudinalSpectrum`/`crossSpectrum`/`flcSpectrum`, and **holds `fftAnalyzer`** (the device). This is the phase
+where the web analyzer starts holding a **device reference**.
+
+**Split (user-approved 2026-07-11):**
+- **C3a — orchestration + state up, BRIDGED.** Analyzer owns material state + transitions + a device reference;
+  the device still averages the per-phase taps + finds the material peak (emits `onMaterialCapture` as today).
+  Value-preserving (like C2a was for guitar).
+- **C3b (follow) — material averaging + peak-find up.** Device emits raw per-phase taps; the analyzer accumulates
+  + averages + `findDominantPeak` (mirrors guitar C2a). Completes device purity. Separate run-review.
+
+**C3a — what moves off `useMaterialSession` onto the analyzer:**
+- **State (→ snapshot; match Swift, user #3):** `matSpectra` (mirrors Swift `longitudinalSpectrum`/`crossSpectrum`/
+  `flcSpectrum`) + `matPeaks` become analyzer fields exposed on the snapshot (ref-cached like `frozenSpectrum`);
+  App reads them via aliases (same pattern as C2b `captured`/`tapEntries`). `materialTapPhase` already lives on
+  the analyzer — the transitions read it synchronously, so `matPhaseRef` is dropped.
+- **Transitions:** `startMaterial` / `acceptMaterial` / `redoMaterial` / `recordMaterialCapture` / `resetMaterial`
+  / `restoreMaterial`, plus `matSearch` (L/C/FLC ranges), `finishMaterialSession` (WAV label), and the FLC
+  reposition **cooldown** timer (owned by the analyzer, cleared on reset/cancel).
+- **Device reference:** `analyzer.setDevice(engine)`, called by `useAudioEngine` when it creates the device.
+  Transitions call `this.device?.armMaterial / checkpointSession / redoSession / startSessionRecording /
+  finishSessionRecording`; read `this.device.playingFile`. (A *reference* — device creation/lifecycle stays in
+  `useAudioEngine`; full ownership is C5.)
+
+**Settings for `matSearch` (verified against Swift + Python 2026-07-11):**
+- **calibration — READ FROM THE DEVICE (not a setter).** Swift reads `fftAnalyzer.calibrationCorrections`
+  (SpectrumCapture:675); Python reads `self.mic._calibration` (spectrum_capture:810). So the web analyzer reads
+  `this.device.calibration` via a new **getter on `RealtimeFFTAnalyzer`** — matches canonical, no duplication.
+- **measureFlc — MIRRORED SETTER on the analyzer.** Swift reads `TapDisplaySettings.measureFlc`
+  (Control:221/337, SpectrumCapture:1344, TapDetection:372); Python reads `_tds.measure_flc()`. The web has no
+  analyzer-visible global settings singleton, so it mirrors `measureFlc` onto the analyzer via a setter — exactly
+  as `numberOfTaps` (also a `TapDisplaySettings` value) is already mirrored. The web adaptation of "read the
+  settings singleton."
+
+**Delete `useMaterialSession`;** App calls `analyzer.startMaterial/accept/redo`; the device `onMaterialCapture` →
+`analyzer.recordMaterialCapture`; App reads `snapshot.matSpectra`/`matPeaks`/`materialTapPhase`.
+
+**`@parity`:** reconcile the deleted `useMaterialSession`'s slug (if any) in the map; the material orchestration
+aligns onto the analyzer's `audio/tap-analyzer` group (Swift `TapToneAnalyzer+SpectrumCapture`). Regenerate.
+
+**Risk / run-review (heavy):** full plate L→C→FLC, brace, accept/redo, the FLC reposition cooldown, file-playback
+material (engine auto-advance), load a saved material measurement, cancel, dump-audio. No material-orchestration
+unit coverage → run-review is the gate. Acceptance bar: no behavior change.

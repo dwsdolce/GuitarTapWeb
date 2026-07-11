@@ -7,7 +7,7 @@ import { AlertModal } from './components/AlertModal'
 import type { ChartView, PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
 import { useAnnotations } from './hooks/useAnnotations'
-import { useMaterialSession, type MatPhase } from './hooks/useMaterialSession'
+import { type MaterialTapPhase as MatPhase } from './state/tapToneAnalyzer'
 import { useAudioEngine } from './hooks/useAudioEngine'
 import { ThresholdMeter } from './components/ThresholdMeter'
 import { PeakCard } from './components/PeakCard'
@@ -251,20 +251,21 @@ export default function App() {
   }, [settings.dumpCaptureAudio])
 
   // The audio engine handle (constructed in `start`) — declared early so the material session
-  // can arm it. Material measurement (plate/brace phase machine) — see hooks/useMaterialSession.
+  // can arm it. The analyzer owns the plate/brace phase machine (6-TEST 3c-C3): App reads the phase +
+  // per-phase spectra/peaks from the snapshot and drives the transitions via thin stable wrappers.
   const engineRef = useRef<RealtimeFFTAnalyzer | null>(null)
-  // matPhase is owned by the analyzer (6-TEST 3c-B); useMaterialSession drives it via setMatPhase.
   const matPhase = snapshot.materialTapPhase
-  const {
-    matPeaks,
-    matSpectra,
-    startMaterial,
-    acceptMaterial,
-    redoMaterial,
-    recordCapture,
-    resetMaterial,
-    restoreMaterial,
-  } = useMaterialSession({ engineRef, measRef, measureFlcRef, calibrationRef, analyzer })
+  const matPeaks = snapshot.matPeaks
+  const matSpectra = snapshot.matSpectra
+
+  // Mirror the settings the analyzer needs onto it: Swift/Python read these from the TapDisplaySettings
+  // singleton, but the web has no analyzer-visible global. `measurementType` drives the material search
+  // ranges + WAV label + brace auto-complete; `measureFlc` drives the plate phase plan. Declared BEFORE
+  // the measurement-type reset effect so the analyzer sees the new type before that effect re-arms. 3c-C3.
+  useEffect(() => {
+    analyzer.setMeasurementTypeAndNotify(settings.measurementType)
+    analyzer.setMeasureFlc(settings.measureFlc)
+  }, [analyzer, settings.measurementType, settings.measureFlc])
 
   // Browser tab title carries the version+build, like the Swift/Python window titles
   // ("Guitar Tap 1.0.1 (NNN)"). Set once at mount.
@@ -319,9 +320,9 @@ export default function App() {
   const armForCurrentType = useCallback(() => {
     const e = engineRef.current
     if (!e?.running) return
-    if (isMaterialType(measRef.current)) startMaterial()
+    if (isMaterialType(measRef.current)) analyzer.startMaterial()
     else e.arm()
-  }, [startMaterial])
+  }, [analyzer])
   // Switching measurement type resets the current result (mirrors the native measurementChanged
   // reset across the guitar↔material boundary) then arms a fresh sequence for the new type.
   // Skipped while loading a measurement, which sets the type and the restored result in the same commit.
@@ -338,9 +339,9 @@ export default function App() {
     setShowMultiTap(false)
     setComparison(null)
     comparisonRef.current = false
-    resetMaterial()
+    analyzer.resetMaterial()
     armForCurrentType()
-  }, [analyzer, settings.measurementType, resetMaterial, armForCurrentType])
+  }, [analyzer, settings.measurementType, armForCurrentType])
 
   // Stable capture-result callback the engine's once-registered handler delegates to. The guitar tap
   // sequence finished: average the analyzer's accumulated taps into the frozen result (which also
@@ -389,7 +390,7 @@ export default function App() {
     onSelectCalibration,
     onDeleteCalibration,
     retry,
-  } = useAudioEngine({ engineRef, calibrationRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onGuitarCapture, onMaterialCapture: recordCapture, onSessionAudio, onStarted: armForCurrentType, analyzer })
+  } = useAudioEngine({ engineRef, calibrationRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onGuitarCapture, onSessionAudio, onStarted: armForCurrentType, analyzer })
 
   // Play a recorded WAV through the live pipeline (Swift openAudioFile/startFromFile). Resets the
   // view like New Tap, applies an optional calibration for the playback, then pumps. Guitar arms a
@@ -420,7 +421,7 @@ export default function App() {
       if (isMaterialType(measRef.current)) {
         // Material: fresh phase machine (no arm — the engine owns the L→C→(FLC) auto-advance session).
         resetLabelsRef.current() // a fresh capture starts with un-dragged labels (Swift resets offsets on start)
-        startMaterial(false)
+        analyzer.startMaterial(false)
         await engineRef.current.playFile(samples, fileRate, {
           material: { brace: measRef.current === 'brace', measureFlc: measureFlcRef.current, calibration: cal },
         })
@@ -432,7 +433,7 @@ export default function App() {
     } finally {
       setPlayingFileName(null)
     }
-  }, [analyzer, setError, startMaterial])
+  }, [analyzer, setError])
 
   // Re-enumerate inputs whenever the Settings dialog opens, so a freshly-plugged
   // microphone shows up in the device picker without a reload.
@@ -461,13 +462,13 @@ export default function App() {
   }, [analyzer])
 
   // New Tap in material mode: clear any dragged labels (Swift resets offsets on start), then start
-  // the phase machine (hooks/useMaterialSession).
+  // the analyzer's phase machine.
   const onMaterialNewTap = useCallback(() => {
     setLoadedView(null) // new material measurement → drop the loaded transient range
     setShowLoadedSettings(false)
     resetLabelsRef.current()
-    startMaterial()
-  }, [startMaterial])
+    analyzer.startMaterial()
+  }, [analyzer])
 
   // Cancel is a restart (mirror Swift cancelTapSequence → startTapSequence): re-arm a fresh
   // sequence exactly like New Tap. Only offered while a multi-step sequence is active; during a
@@ -799,7 +800,7 @@ export default function App() {
         setLoadedPeaks(null)
         analyzer.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
         setComparison(null)
-        restoreMaterial({ matSpectra: mat.matSpectra, matPeaks: mat.matPeaks })
+        analyzer.restoreMaterial({ matSpectra: mat.matSpectra, matPeaks: mat.matPeaks })
         restoreMaterialOffsets(mat.annotationOffsetsByFreq) // dragged L/C/FLC label positions (shared store)
         setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
         setLoadedName(m.measurementName ?? null)
@@ -857,7 +858,7 @@ export default function App() {
       setComparison(null)
       setShowMeasurements(false)
     },
-    [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, restoreAnnotations, restoreMaterial, restoreMaterialOffsets, setView],
+    [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, restoreAnnotations, restoreMaterialOffsets, setView],
   )
 
   // Create a comparison from ≥2 selected library measurements (mirrors Swift loadComparison).
@@ -1148,7 +1149,7 @@ export default function App() {
               </button>
               <button
                 className={`btn tap-action${reviewing ? ' btn-accept' : ''}`}
-                onClick={reviewing ? acceptMaterial : paused ? resumeTap : pauseTap}
+                onClick={reviewing ? () => analyzer.acceptMaterial() : paused ? resumeTap : pauseTap}
                 disabled={!pauseEnabled}
                 title={reviewing ? HINTS.acceptTap : paused ? HINTS.resumeDetection : HINTS.pauseDetection}
               >
@@ -1157,7 +1158,7 @@ export default function App() {
               </button>
               <button
                 className={`btn tap-action${cancelEnabled ? ' btn-cancel' : ''}`}
-                onClick={reviewing ? redoMaterial : cancelTap}
+                onClick={reviewing ? () => analyzer.redoMaterial() : cancelTap}
                 disabled={!cancelEnabled}
                 title={reviewing ? HINTS.redoTap : HINTS.cancel}
               >

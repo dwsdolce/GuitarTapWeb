@@ -4,7 +4,8 @@
 // If this rule changes, update the B1–B10 truth table on all three platforms.
 //
 // @parity state/button-enablement  tests=test/button-enablement
-import { isGuitarType, type MaterialTapPhase, type MeasurementType } from './tapToneAnalyzer'
+import type { MaterialTapPhase } from './tapToneAnalyzer'
+import { isGuitarType, type MeasurementType } from '../settings'
 
 /** Input state for the button rule — mirrors the fields the view reads. */
 export interface ButtonState {

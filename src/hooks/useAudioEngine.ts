@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import { RealtimeFFTAnalyzer, type EngineState, type EngineMetrics, type MaterialCaptureResult } from '../audio/realtimeFFTAnalyzer'
+import { RealtimeFFTAnalyzer, type EngineState, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
 import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { Calibration } from '../dsp/calibration'
@@ -39,8 +39,6 @@ interface UseAudioEngineArgs {
   /** The guitar tap sequence finished — App averages the analyzer's accumulated taps into the frozen
    *  result (unless a comparison is frozen) and clears the loaded-measurement state. STABLE. */
   onGuitarCapture: () => void
-  /** A gated material phase was captured — the material session records + advances. STABLE. */
-  onMaterialCapture: (r: MaterialCaptureResult) => void
   /** Continuous session WAV for the Dump-Capture-Audio diagnostic (one per measurement). STABLE. */
   onSessionAudio: (samples: Float32Array, sampleRate: number, label: string) => void
   /** Engine came up — App arms a fresh sequence for the current measurement type (the web's
@@ -90,7 +88,6 @@ export function useAudioEngine({
   calibrationRef,
   tapThresholdRef,
   onGuitarCapture,
-  onMaterialCapture,
   onSessionAudio,
   onStarted,
   analyzer,
@@ -221,7 +218,9 @@ export function useAudioEngine({
           analyzer.setCurrentTapCount(collected)
         },
         onMetrics: setEngineMetrics,
-        onMaterialCapture,
+        // The analyzer owns the material phase machine (6-TEST 3c-C3): a gated phase capture flows
+        // straight to it (store the spectrum/peak, advance the phase).
+        onMaterialCapture: (r) => analyzer.recordMaterialCapture(r),
         onSessionAudio,
         // A mic was attached (auto-selected) or the active one was unplugged (fell back): re-sync the
         // device + RELOAD that device's calibration (None if it has none). Mirrors Swift's didSet.
@@ -242,6 +241,7 @@ export function useAudioEngine({
       { tapDetectionThreshold: tapThresholdRef.current, dumpCaptureAudio: dumpCaptureRef.current },
     )
     engineRef.current = engine
+    analyzer.setDevice(engine) // the analyzer holds the device to orchestrate material (6-TEST 3c-C3)
     try {
       await engine.start(getSavedInputDeviceId())
       setSampleRate(engine.sampleRate)
@@ -260,7 +260,7 @@ export function useAudioEngine({
       setErrorKind(denied ? 'permission' : 'engine')
       engineRef.current = null
     }
-  }, [analyzer, engineRef, tapThresholdRef, dumpCaptureRef, onGuitarCapture, onMaterialCapture, onSessionAudio, onStarted, applyCalibrationForDevice, refreshDevices])
+  }, [analyzer, engineRef, tapThresholdRef, dumpCaptureRef, onGuitarCapture, onSessionAudio, onStarted, applyCalibrationForDevice, refreshDevices])
 
   // Start listening automatically — GuitarTap has no Start button; the only
   // browser-mandated gate is the mic permission prompt itself.

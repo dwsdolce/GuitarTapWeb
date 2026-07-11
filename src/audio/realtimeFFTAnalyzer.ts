@@ -273,6 +273,12 @@ export class RealtimeFFTAnalyzer {
     this.guitarCorr = null
   }
 
+  /** The active mic calibration. Read by the TapToneAnalyzer when it builds a material search
+   *  (mirrors Swift reading `fftAnalyzer.calibrationCorrections` / Python `self.mic._calibration`). */
+  get activeCalibration(): Calibration | null {
+    return this.calibration
+  }
+
   /** Add calibration corrections to a freshly-computed spectrum (no-op when no calibration).
    *  The fixed guitar FFT bins are cached; any other bin layout (gated) is interpolated fresh. */
   private applyCal(spec: Spectrum): Spectrum {

@@ -5,7 +5,7 @@
 // instruction body. All strings are replicated verbatim from the canonical Swift source.
 // @parity view/material-instructions
 
-import type { MatPhase } from '../hooks/useMaterialSession'
+import type { MaterialTapPhase as MatPhase } from '../state/tapToneAnalyzer'
 
 // Apple system colors used by SwiftUI .gray/.blue/.orange/.purple/.green.
 const PHASE_COLOR: Record<MatPhase, string> = {

@@ -15,13 +15,17 @@ import type { Spectrum } from '../dsp/guitarFFT'
 import { findPeaks, type Peak } from '../dsp/peaks'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-
-export type MeasurementType = 'acoustic' | 'classical' | 'flamenco' | 'plate' | 'brace'
-
-/** Guitar (acoustic/classical/flamenco) vs material (plate/brace). Mirrors Swift `MeasurementType.isGuitar`. */
-export function isGuitarType(t: MeasurementType): boolean {
-  return t !== 'plate' && t !== 'brace'
-}
+import { PLATE_PHASES, BRACE_PHASE } from '../dsp/gatedCapture'
+import type {
+  RealtimeFFTAnalyzer,
+  MaterialSearch,
+  MaterialCaptureResult,
+  MaterialPhaseName,
+} from '../audio/realtimeFFTAnalyzer'
+import type { MaterialPeaks } from '../components/MaterialResults'
+// Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
+// store owns them; the analyzer no longer duplicates the type.
+import { isGuitarType, type MeasurementType } from '../settings'
 
 /** Material capture phase. Mirrors Swift `MaterialTapPhase` (web spelling). */
 export type MaterialTapPhase =
@@ -34,6 +38,20 @@ export type MaterialTapPhase =
   | 'capturingFlc'
   | 'reviewingFlc'
   | 'complete'
+
+/** Per-phase material result spectra (plate L/C/FLC, brace L). Mirrors Swift longitudinalSpectrum/
+ *  crossSpectrum/flcSpectrum. */
+export interface MatSpectra {
+  longitudinal: Spectrum | null
+  cross: Spectrum | null
+  flc: Spectrum | null
+}
+export const EMPTY_MAT_SPECTRA: MatSpectra = { longitudinal: null, cross: null, flc: null }
+const EMPTY_MAT_PEAKS: MaterialPeaks = { longitudinal: null, cross: null, flc: null }
+
+// Swift tapCooldown (0.5 s): after the C tap is accepted, the FLC capture is held disarmed for this
+// long while the user repositions the plate, so the repositioning bump can't be taken as the FLC tap.
+const FLC_COOLDOWN_MS = 500
 
 /** One captured tap: its magnitude spectrum + capture time (ms). Mirrors Swift's captured-tap tuple. */
 export interface CapturedTap {
@@ -72,6 +90,13 @@ export class TapToneAnalyzer {
   peaks: Peak[] = []
   modeByPeak: Map<number, ResolvedMode> = new Map()
   materialTapPhase: MaterialTapPhase = 'notStarted'
+  // Material (plate/brace) result data — the per-phase averaged spectra + located peaks. Owned by the
+  // analyzer, mirroring Swift longitudinalSpectrum/crossSpectrum/flcSpectrum + the material peaks. 3c-C3.
+  matSpectra: MatSpectra = EMPTY_MAT_SPECTRA
+  matPeaks: MaterialPeaks = EMPTY_MAT_PEAKS
+  // Whether the plate FLC tap is measured. Swift reads TapDisplaySettings.measureFlc / Python
+  // _tds.measure_flc(); the web has no analyzer-visible global, so App mirrors it via setMeasureFlc.
+  measureFlc = false
   measurementType: MeasurementType = 'classical'
   showLoadedSettingsWarning = false
 
@@ -239,6 +264,170 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
+  // ── Material (plate/brace) phase machine (mirrors Swift TapToneAnalyzer+SpectrumCapture) ──────────
+  // The analyzer holds a REFERENCE to the device (Swift's TapToneAnalyzer owns fftAnalyzer); its
+  // lifecycle stays in useAudioEngine until C5. Material transitions arm/checkpoint it and read its
+  // calibration + playingFile. 3c-C3 (orchestration + state up, bridged — the device still averages
+  // each phase's taps + finds the peak, emitting onMaterialCapture; C3b moves that up).
+  private device: RealtimeFFTAnalyzer | null = null
+  private flcCooldownTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Set the audio device this analyzer drives (useAudioEngine calls this on creation). */
+  setDevice(device: RealtimeFFTAnalyzer | null): void {
+    this.device = device
+  }
+
+  /** Mirror the plate FLC-measurement setting (App drives it from the settings store). */
+  setMeasureFlc(v: boolean): void {
+    this.measureFlc = v
+  }
+
+  private clearFlcCooldown(): void {
+    if (this.flcCooldownTimer != null) {
+      clearTimeout(this.flcCooldownTimer)
+      this.flcCooldownTimer = null
+    }
+  }
+
+  /** Build the gated search for a material phase: its frequency range + rule, with the device's active
+   *  calibration applied to the gated spectrum before its peak-find (mirrors Swift reading
+   *  fftAnalyzer.calibrationCorrections / Python self.mic._calibration). */
+  private matSearch(phase: MaterialPhaseName): MaterialSearch {
+    const base =
+      phase === 'cross'
+        ? PLATE_PHASES[1]
+        : phase === 'flc'
+          ? PLATE_PHASES[2]
+          : this.measurementType === 'brace'
+            ? BRACE_PHASE
+            : PLATE_PHASES[0]
+    return { ...base, calibration: this.device?.activeCalibration ?? null }
+  }
+
+  /** Continuous session WAV label for a completed material measurement (Swift Plate_LC / Plate_LCF / Brace). */
+  private finishMaterialSession(): void {
+    const label = this.measurementType === 'brace' ? 'Brace' : this.measureFlc ? 'Plate_LCF' : 'Plate_LC'
+    this.device?.finishSessionRecording(label)
+  }
+
+  /** Begin a fresh L→C→FLC capture. `arm` false for file playback (the device arms its own session). */
+  startMaterial(arm = true): void {
+    this.clearFlcCooldown()
+    this.matPeaks = EMPTY_MAT_PEAKS
+    this.matSpectra = EMPTY_MAT_SPECTRA
+    this.materialTapPhase = 'capturingL'
+    if (arm) {
+      // startSessionRecording seeds checkpoint [0] (the L-phase truncation anchor), so no explicit
+      // checkpoint is needed here.
+      this.device?.startSessionRecording()
+      this.device?.armMaterial(this.matSearch('longitudinal'))
+    }
+    this.notify()
+  }
+
+  /** Review → advance to the next phase (Accept). */
+  acceptMaterial(): void {
+    const phase = this.materialTapPhase
+    if (phase === 'reviewingL') {
+      this.materialTapPhase = 'capturingC'
+      this.device?.checkpointSession() // C phase start (so a redo can drop it)
+      this.device?.armMaterial(this.matSearch('cross'))
+      this.notify()
+    } else if (phase === 'reviewingC') {
+      if (this.measureFlc) {
+        // Mirror Swift acceptCurrentPhase: show the FLC reposition prompt during a tapCooldown with
+        // detection DISARMED (waitingForFlcTap) so the plate-repositioning bump isn't taken as the FLC
+        // tap; then arm the FLC capture.
+        this.materialTapPhase = 'waitingForFlcTap'
+        this.device?.checkpointSession() // FLC phase start (so a redo can drop it)
+        this.notify()
+        this.flcCooldownTimer = setTimeout(() => {
+          this.flcCooldownTimer = null
+          if (this.materialTapPhase !== 'waitingForFlcTap') return // canceled (reset / type change)
+          this.materialTapPhase = 'capturingFlc'
+          this.device?.armMaterial(this.matSearch('flc'))
+          this.notify()
+        }, FLC_COOLDOWN_MS)
+      } else {
+        this.materialTapPhase = 'complete'
+        this.finishMaterialSession()
+        this.notify()
+      }
+    } else if (phase === 'reviewingFlc') {
+      this.materialTapPhase = 'complete'
+      this.finishMaterialSession()
+      this.notify()
+    }
+  }
+
+  /** Review → re-capture the current phase (Redo). */
+  redoMaterial(): void {
+    const phase = this.materialTapPhase
+    this.device?.redoSession() // drop the rejected phase's audio from the session WAV
+    if (phase === 'reviewingL') {
+      this.materialTapPhase = 'capturingL'
+      this.device?.armMaterial(this.matSearch('longitudinal'))
+    } else if (phase === 'reviewingC') {
+      this.materialTapPhase = 'capturingC'
+      this.device?.armMaterial(this.matSearch('cross'))
+    } else if (phase === 'reviewingFlc') {
+      this.materialTapPhase = 'capturingFlc'
+      this.device?.armMaterial(this.matSearch('flc'))
+    }
+    this.notify()
+  }
+
+  /** Device onMaterialCapture: `phase` is set during file playback (the device owns the L→C→FLC
+   *  auto-advance); for LIVE capture it's undefined and we derive it from the current phase. During
+   *  playback we only reflect progress in the phase (the device re-arms); live, the user advances via
+   *  Accept (acceptMaterial). */
+  recordMaterialCapture({ spectrum, peak, phase }: MaterialCaptureResult): void {
+    const playing = this.device?.playingFile ?? false
+    const ph: MaterialPhaseName =
+      phase ??
+      (this.materialTapPhase === 'capturingC'
+        ? 'cross'
+        : this.materialTapPhase === 'capturingFlc'
+          ? 'flc'
+          : 'longitudinal')
+    if (ph === 'longitudinal') {
+      this.matSpectra = { ...this.matSpectra, longitudinal: spectrum }
+      this.matPeaks = { ...this.matPeaks, longitudinal: peak }
+      if (this.measurementType === 'brace') {
+        this.materialTapPhase = 'complete'
+        this.finishMaterialSession() // brace = single phase → session done
+      } else this.materialTapPhase = playing ? 'capturingC' : 'reviewingL'
+    } else if (ph === 'cross') {
+      this.matSpectra = { ...this.matSpectra, cross: spectrum }
+      this.matPeaks = { ...this.matPeaks, cross: peak }
+      if (playing) this.materialTapPhase = this.measureFlc ? 'capturingFlc' : 'complete'
+      else this.materialTapPhase = 'reviewingC'
+    } else {
+      this.matSpectra = { ...this.matSpectra, flc: spectrum }
+      this.matPeaks = { ...this.matPeaks, flc: peak }
+      this.materialTapPhase = playing ? 'complete' : 'reviewingFlc'
+    }
+    this.notify()
+  }
+
+  /** Back to notStarted + cleared (measurement-type change, cancel). */
+  resetMaterial(): void {
+    this.clearFlcCooldown()
+    this.materialTapPhase = 'notStarted'
+    this.matPeaks = EMPTY_MAT_PEAKS
+    this.matSpectra = EMPTY_MAT_SPECTRA
+    this.device?.cancelSessionRecording() // abandon any partial session WAV
+    this.notify()
+  }
+
+  /** Restore a loaded material measurement (per-phase spectra + peaks, phase=complete). */
+  restoreMaterial(m: { matSpectra: MatSpectra; matPeaks: MaterialPeaks }): void {
+    this.matSpectra = m.matSpectra
+    this.matPeaks = m.matPeaks
+    this.materialTapPhase = 'complete'
+    this.notify()
+  }
+
   // ── React external-store seam (D2: immutable snapshot) ─────────────────────
   // App subscribes via useSyncExternalStore(subscribe, getSnapshot). getSnapshot returns a frozen
   // snapshot that is referentially stable until a mutation calls notify() (Object.is short-circuits
@@ -285,6 +474,8 @@ export class TapToneAnalyzer {
         tapEntries: this.tapEntries,
         peaks: this.peaks,
         modeByPeak: this.modeByPeak,
+        matSpectra: this.matSpectra,
+        matPeaks: this.matPeaks,
       })
     }
     return this.cachedSnapshot
@@ -321,11 +512,6 @@ export class TapToneAnalyzer {
     this.measurementType = t
     this.notify()
   }
-
-  setMaterialTapPhase(p: MaterialTapPhase): void {
-    this.materialTapPhase = p
-    this.notify()
-  }
 }
 
 /** Immutable view of the lifecycle facts App reads via useSyncExternalStore. */
@@ -346,6 +532,10 @@ export interface TapToneSnapshot {
   peaks: Peak[]
   /** Mode classification for `peaks`, keyed by peak id. */
   modeByPeak: Map<number, ResolvedMode>
+  /** Material (plate/brace) per-phase result spectra. */
+  matSpectra: MatSpectra
+  /** Material (plate/brace) per-phase located peaks. */
+  matPeaks: MaterialPeaks
 }
 
 /**
