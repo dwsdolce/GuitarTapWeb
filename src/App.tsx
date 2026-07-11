@@ -260,8 +260,9 @@ export default function App() {
   // The audio engine handle (constructed in `start`) — declared early so the material session
   // can arm it. Material measurement (plate/brace phase machine) — see hooks/useMaterialSession.
   const engineRef = useRef<AudioEngine | null>(null)
+  // matPhase is owned by the analyzer (6-TEST 3c-B); useMaterialSession drives it via setMatPhase.
+  const matPhase = snapshot.materialTapPhase
   const {
-    matPhase,
     matPeaks,
     matSpectra,
     startMaterial,
@@ -270,7 +271,7 @@ export default function App() {
     recordCapture,
     resetMaterial,
     restoreMaterial,
-  } = useMaterialSession({ engineRef, measRef, measureFlcRef, calibrationRef })
+  } = useMaterialSession({ engineRef, measRef, measureFlcRef, calibrationRef, analyzer })
 
   // Browser tab title carries the version+build, like the Swift/Python window titles
   // ("Guitar Tap 1.0.1 (NNN)"). Set once at mount.

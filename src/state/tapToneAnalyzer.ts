@@ -194,6 +194,11 @@ export class TapToneAnalyzer {
     this.measurementType = t
     this.notify()
   }
+
+  setMaterialTapPhase(p: MaterialTapPhase): void {
+    this.materialTapPhase = p
+    this.notify()
+  }
 }
 
 /** Immutable view of the lifecycle facts App reads via useSyncExternalStore. */

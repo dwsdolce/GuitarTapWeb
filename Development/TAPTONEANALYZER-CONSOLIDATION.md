@@ -154,9 +154,17 @@ analyzer + device and returns `useSyncExternalStore(analyzer.subscribe, analyzer
   stays for the raw-state reads (className, `tapsLocked`, `statusMessage` switch, `sbProgress`) — those
   migrate in 3c-C/3c-D. `captured` stays as the frozen *spectrum* (display); the analyzer owns the
   completion *fact*. Value-preserving; tsc · 205 tests · build green. Run-review pending.
-- **3c-B — Absorb the material phase machine into `TapToneAnalyzer`.** Move `matPhase` +
-  `start/accept/redo/record/reset/restore` in (the `materialTapPhase` field already exists). Delete
-  `useMaterialSession`; App reads `analyzer.materialTapPhase`.
+- **3c-B — Migrate the `matPhase` fact** — ✅ DONE (2026-07-10). Re-scoped from the original "absorb the whole
+  phase machine + delete useMaterialSession": the transitions are engine-coupled (armMaterial, session
+  checkpoints, calibration search ranges), so moving them needs the analyzer to *hold the device* — that's the
+  3c-C work. So 3c-B migrates just the **fact**: `useMaterialSession.setMatPhase` now drives
+  `analyzer.setMaterialTapPhase` (keeping `matPhaseRef` for the transitions' synchronous reads); App reads
+  `snapshot.materialTapPhase`; the `matPhase` useState is gone. **The analyzer now owns ALL lifecycle facts**
+  (counts, completion, detection, phase). Value-preserving; tsc · 205 tests · build green. Run-review pending.
+  The transition-mechanics absorption + `useMaterialSession` deletion folds into 3c-C.
+  - **Design note:** result *data* (`captured`, `matSpectra`, `matPeaks`) deliberately stays React-side, not
+    in the lean useSyncExternalStore snapshot — a pragmatic web adaptation (Swift's analyzer holds everything;
+    the web keeps bulk spectra out of the snapshot). The analyzer owns the state *machine* (facts + transitions).
 - **3c-C — Split the device out: `AudioEngine` → `RealtimeFFTAnalyzer`.** Move averaging / tap-accumulation /
   completion OUT of the device INTO `TapToneAnalyzer` (device now emits raw per-tap/per-phase spectra +
   level/state). Rename `src/audio/engine.ts` → `realtimeFFTAnalyzer.ts`, class `AudioEngine` →
@@ -201,6 +209,8 @@ analyzer + device and returns `useSyncExternalStore(analyzer.subscribe, analyzer
 (align with canonical; folds in EG-1 + the PC-2 transient gaps) · **D4 = device split required** · slug renamed
 `state/tap-session` → `state/tap-tone-analyzer` · EG-1 in scope (lands in 3c-C with the device failure path).
 
-*Sequencing:* 3c-0 ✅ committed → 3c-A (count facts) ✅ committed → 3c-A2 (completion + detection) ✅ done →
-**3c-B next** (absorb the material phase machine) → 3c-C (device split + `AudioEngine`→`RealtimeFFTAnalyzer` +
-EG-1) → 3c-D (collapse the two-branch rules). No remaining open decisions.
+*Sequencing:* 3c-0 ✅ → 3c-A (count facts) ✅ → 3c-A2 (completion + detection) ✅ → 3c-B (matPhase fact) ✅ done
+→ **3c-C next**: the big one — analyzer holds the device (`AudioEngine`→`RealtimeFFTAnalyzer`), move averaging
+up, absorb the material transitions + delete `useMaterialSession`, imperative `statusMessage` (D3) + EG-1 →
+3c-D (collapse the two-branch rules). All lifecycle *facts* now live on the analyzer; 3c-C moves the
+*mechanics*.

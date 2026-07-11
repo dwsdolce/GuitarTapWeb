@@ -14,6 +14,7 @@ import { PLATE_PHASES, BRACE_PHASE } from '../dsp/gatedCapture'
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { Calibration } from '../dsp/calibration'
 import type { MeasurementType } from '../settings'
+import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 
 // Material measurement phases (MaterialTapPhase.swift). Brace: capturingL → complete.
 export type MatPhase =
@@ -44,10 +45,11 @@ interface UseMaterialSessionArgs {
   measureFlcRef: RefObject<boolean>
   /** Active mic calibration applied to the gated spectrum before its peak-find. */
   calibrationRef: RefObject<Calibration | null>
+  /** The lifecycle-state owner; setMatPhase drives its materialTapPhase (6-TEST 3c-B). */
+  analyzer: TapToneAnalyzer
 }
 
 export interface MaterialSessionModel {
-  matPhase: MatPhase
   matPhaseRef: RefObject<MatPhase>
   matPeaks: MaterialPeaks
   matSpectra: MatSpectra
@@ -70,15 +72,20 @@ export function useMaterialSession({
   measRef,
   measureFlcRef,
   calibrationRef,
+  analyzer,
 }: UseMaterialSessionArgs): MaterialSessionModel {
-  const [matPhase, setMatPhaseState] = useState<MatPhase>('notStarted')
   const [matPeaks, setMatPeaks] = useState<MaterialPeaks>(EMPTY_MAT_PEAKS)
   const [matSpectra, setMatSpectra] = useState<MatSpectra>(EMPTY_MAT_SPECTRA)
   const matPhaseRef = useRef<MatPhase>('notStarted')
-  const setMatPhase = useCallback((p: MatPhase) => {
-    matPhaseRef.current = p
-    setMatPhaseState(p)
-  }, [])
+  // matPhase is owned by the analyzer (6-TEST 3c-B): keep the ref for the transitions' synchronous
+  // reads, and drive analyzer.materialTapPhase (App reads it from the snapshot).
+  const setMatPhase = useCallback(
+    (p: MatPhase) => {
+      matPhaseRef.current = p
+      analyzer.setMaterialTapPhase(p)
+    },
+    [analyzer],
+  )
 
   const matSearch = useCallback(
     (phase: 'longitudinal' | 'cross' | 'flc'): MaterialSearch => {
@@ -214,7 +221,6 @@ export function useMaterialSession({
   )
 
   return {
-    matPhase,
     matPhaseRef,
     matPeaks,
     matSpectra,
