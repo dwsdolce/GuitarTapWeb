@@ -24,7 +24,7 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
     measurement-complete); extracted `src/state/buttonEnablement.ts`.
   - Discovery during that wiring surfaced **PC-1** (the Cancel-behavior parity bug) + PC-2/3/4; see the
     "Parity cleanup" section, where each is annotated with its shipped outcome. All validated by the user
-    (run-review) and committed 2026-07-09. Also surfaced **EG-1** (still open) — see the EG section.
+    (run-review) and committed 2026-07-09. Also surfaced **EG-1** (✅ done in 3c-C4) — see the EG section.
   - **3c consolidation UNDERWAY (spec: [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md)).**
     The state-ownership consolidation named here as NEXT now has its own spec and is in progress. `tapSession.ts`
     was renamed `tapToneAnalyzer.ts` (class `TapSession`→`TapToneAnalyzer`) and wired into `App.tsx` via
@@ -35,11 +35,13 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
     zero numeric drift). The analyzer now owns all lifecycle facts. **C2b** (frozen + per-tap onto the snapshot)
     was folded into the **Peak-analysis effort** (§10; user: "do what Swift does" — the analyzer owns peak
     analysis, not the view). **Peak-analysis P1 + P1b + P2 + selection-flicker fix (incl. C2b) ✅
-    COMMITTED 2026-07-11 (run-reviewed "runs smoothly").** **3c-C3a + C3b committed 2026-07-12** (plate/brace phase machine → analyzer + useMaterialSession deleted (C3a); material averaging + peak-find up, device now a pure emitter (C3b)). **NEXT = C4** (imperative statusMessage + EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse
-    two-branch rules tapsLocked/sbProgress). (P3 selection/annotations by-frequency carry → RESTRUCTURE-NOTES.md;
-    EG-3 Peak Min chart line ✅ done + committed 2026-07-11, web + Python aligned to Swift.) Then remaining pure gaps (frozen-peak-recalc, annotation-state
-    guitar, import-persistence) + the orphan test back-ports (§2). PC-1 docs (web Quick-Start + shared manual)
-    still pending — slot in anytime. **Maintain @parity tags + regen PARITY-MAP.md on every change.**
+    COMMITTED 2026-07-11 (run-reviewed "runs smoothly").** **3c consolidation ✅ COMPLETE 2026-07-12** (C3a/C3b material → analyzer; C4 imperative statusMessage + EG-1;
+    C5 + 3c-D shrank useAudioEngine + collapsed tapsLocked/sbComplete — full record in TAPTONEANALYZER-CONSOLIDATION.md,
+    done). EG-1 + EG-3 ✅ done. **NEXT: EG-2** (material live spectrum) → remaining pure gaps (frozen-peak-recalc,
+    annotation-state guitar, import-persistence) → orphan test back-ports (§2) → PC-1 docs (web Quick-Start + shared
+    manual) → P3 (selection/annotations by-frequency carry → RESTRUCTURE-NOTES.md). The 3 cross-platform parity gaps
+    OUT-1/2/3 found during the 3c review are a **separate effort** → PLATFORM-PARITY-GAPS.md.
+    **Maintain @parity tags + regen PARITY-MAP.md on every change.**
 
 ## Goal
 
@@ -305,7 +307,9 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
 
 ### Engine-parity gaps discovered during PC work (separate from the PC items)
 
-- **EG-1 — Web gated capture has no empty / no-peak failure path (web-only, discovered during PC-2).**
+- **EG-1 — ✅ DONE (shipped in 3c-C4 via Option C, `e98d4da`).** A no-resonance material tap now re-arms the same
+  phase with `"No resonance detected — tap again"` (analyzer `recordMaterialTap` per-tap validity gate). Original
+  gap below for context. *Web gated capture had no empty / no-peak failure path (web-only, discovered during PC-2).*
   Swift/Python arm a gated capture on a level-crossing; if it times out with no samples, returns an empty
   FFT, or `findDominantPeak` finds no peak, they set `statusMessage = "No signal detected — tap again"`
   (or `"No resonance detected — tap again"` for the no-peak case) and **re-arm** for another tap
@@ -317,8 +321,9 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
   failure branch to the engine (re-arm + surface the state); the two status strings then fall out of PC-2's
   `statusMessage(state)` table for free. **Not folded into PC-2** (the state doesn't exist to trigger them).
 
-- **EG-2 — Material mode shows no LIVE spectrum during capture (web-only view gap; surfaced during 3c-A
-  run-review, but pre-existing — NOT a 3c-A regression).** Guitar renders `displaySpectrum = captured ??
+- **EG-2 — ⬜ NOW ACTIONABLE (was deferred until 3c complete; 3c done 2026-07-12) — the immediate NEXT step.**
+  Material mode shows no LIVE spectrum during capture (web-only view gap; pre-existing, NOT a 3c regression).
+  Guitar renders `displaySpectrum = captured ??
   liveSpectrum` (App.tsx:616), so the chart updates live while waiting. Material renders `spectrum={null}` +
   `overlays={matOverlays}` (App.tsx:1170/617), and `matOverlays` contains only the *captured* phase spectra —
   `liveSpectrum` is never fed to the material chart. So while a plate/brace phase waits for a tap the chart is
@@ -381,15 +386,14 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
     material averaging + peak-find moved up off the device (emits raw per-phase gated taps via `onMaterialTap` +
     `onMaterialPhaseComplete`; analyzer `materialBuffer` + `recordMaterialTap` + `recordMaterialPhaseComplete` do
     averageSpectra + findDominantPeak; gated FFT + calibration stay in the device → zero drift, REG-B1/P1/P2
-    oracles unchanged; device now a pure gated-capture emitter for guitar + material). **NEXT = C4** (imperative
-    statusMessage + EG-1) → C5 (shrink useAudioEngine) → 3c-D (collapse the two-branch rules). **EG-2** (feed
-    liveSpectrum into the material chart — pre-existing gap, NOT a C3 regression) is **deferred until 3c is
-    complete** (user 2026-07-12: keep 3c focused). **P3**
-    (selection/annotations → analyzer, incl. by-frequency carry) → RESTRUCTURE-NOTES.md. Each sub-step: tsc + suite
-    green + parity regen + run-review + commit.
+    oracles unchanged; device now a pure gated-capture emitter for guitar + material). **C4 ✅ committed
+    (`e98d4da`)** — imperative statusMessage (D3) + EG-1 (Option C). **C5 + 3c-D ✅ committed (`04bccad`)** — shrank
+    useAudioEngine + collapsed tapsLocked/sbComplete (rooted in material completion setting isMeasurementComplete).
+    **✅ 3c COMPLETE 2026-07-12.** **P3** (selection/annotations → analyzer, incl. by-frequency carry) →
+    RESTRUCTURE-NOTES.md. (EG-2 material live spectrum — was deferred until 3c complete, NOW actionable.)
   - **3d — Remaining pure-gap suites** — ⬜ TODO. The originally-listed backfill items not yet built:
     frozen-peak-recalc, annotation-state (guitar path), import-persistence (library append). Independent of 3c.
-  - **3e — EG-1 (engine empty / no-peak failure path)** — ⬜ OPEN. Web-only engine-parity fix; see the EG section.
+  - **3e — EG-1 (engine empty / no-peak failure path)** — ✅ DONE (shipped in 3c-C4 via Option C, `e98d4da`).
   - **PC-1 docs** (web Quick-Start + shared manual: Cancel-as-restart, New-Tap-only-when-complete) — ⬜ pending, slot
     in anytime.
 - **Phase 4 — Back-port web-only tests to Swift + Python.** calibration parse/interp, analysis-quality

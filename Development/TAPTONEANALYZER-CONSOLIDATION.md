@@ -1,13 +1,17 @@
 # TapToneAnalyzer / RealtimeFFTAnalyzer Consolidation (6-TEST step 3c)
 
-**Status:** APPROVED — IN PROGRESS. All §9 decisions settled. Created 2026-07-10. Committed through the **§10
-Peak-analysis effort** (3c-0/A/A2/B/C1/C2a committed 2026-07-10; C2b + P1 + P1b + P2 + selection-flicker fix
-committed 2026-07-11, folding C2b). **3c-C3a + C3b ✅ committed 2026-07-12** (material phase
-machine → analyzer + `useMaterialSession` deleted + analyzer holds the device (C3a); material averaging + peak-find
-up, device now a pure emitter (C3b); §11). **3c-C4 ✅ committed 2026-07-12 (`e98d4da`)** — imperative statusMessage
-field (D3) + EG-1 via Option C + run-review (§12/§12a). **NEXT = C5 (shrink useAudioEngine) → 3c-D — to FINISH
-3c.** The 3 run-review parity gaps (OUT-1/2/3) are **spun out to their own backlog** (STATUS) — not consolidation
-work, don't gate 3c. **EG-2** (material live spectrum) deferred until 3c complete. See §5/§5b/§10/§11/§12 for status.
+**Status: ✅ COMPLETE 2026-07-12.** All §9 decisions settled. Created 2026-07-10. Sequence:
+3c-0/A/A2/B/C1/C2a (2026-07-10) → §10 Peak-analysis (C2b+P1+P1b+P2+selection fix, 2026-07-11) →
+3c-C3a/C3b (material → analyzer, `useMaterialSession` deleted, device a pure emitter; §11) →
+**3c-C4** (`e98d4da`, imperative statusMessage D3 + EG-1 via Option C; §12/§12a) →
+**3c-C5 + 3c-D** (`04bccad`) — shrank `useAudioEngine` (removed the duplicate engineState/clipping React state;
+App reads the snapshot) and collapsed `tapsLocked`/`sbComplete` to the canonical single expressions (rooted in a
+new alignment: **material completion now sets `isMeasurementComplete`**, matching Swift `finalisePlate*`/brace).
+The analyzer now owns lifecycle, capture, material, peaks, status, engine-state + clipping; the view reads the
+snapshot; no duplicate mirroring remains. **NEXT (still within Task-3/6-TEST, NOT 3c):** EG-2 (material live
+spectrum — was deferred until 3c complete, now actionable) + remaining pure gaps (frozen-peak-recalc, guitar
+annotation-state, import-persistence) + orphan back-ports + PC-1 docs + P3 (RESTRUCTURE-NOTES). The 3 run-review
+parity gaps (OUT-1/2/3) are a **separate cross-platform parity effort** (STATUS), after Phase 6. See §5b/§10/§11/§12.
 (Supersedes the earlier `TAPSESSION-CONSOLIDATION.md` draft — renamed because the class it was named after is
 being renamed to the canonical `TapToneAnalyzer`.)
 
@@ -263,9 +267,9 @@ only `test/start-tap-race`; the device is 978 lines, `useAudioEngine` 295, `useM
   `analyzer.statusMessage`; the functional `statusMessage(state)` module is absorbed. Broad but mostly
   mechanical; run-review every status string + clipping.
 
-- **3c-C5 — Shrink `useAudioEngine`.** With the capture flow + material owned by the analyzer, `useAudioEngine`
-  collapses to device lifecycle + telemetry (level/spectrum/metrics/device+calibration). Much of the
-  callback-mirroring disappears. (May land incrementally across C2–C4.)
+- **3c-C5 — Shrink `useAudioEngine` — ✅ DONE (`04bccad`).** The duplicate `engineState`/`clipping` React state
+  (the "lifecycle mirroring") is removed — both are analyzer snapshot facts now; the hook is device lifecycle +
+  telemetry + device/calibration. (The device→analyzer callback wiring stays in the hook, which owns the device.)
 
 **Pacing:** C1 is safe (mechanical) — good standalone commit. C2 and C3 are the real risk (capture path) — one
 at a time, heavy run-review each. C4 is broad but low-risk-per-string. Recommend: do C1 now, then pause for a
@@ -311,9 +315,10 @@ go/no-go before C2.
 `RealtimeFFTAnalyzer`) ✅ committed → C2a (guitar averaging/accumulation up, bridged) ✅ committed → **§10
 Peak-analysis effort — C2b (frozen + per-tap onto snapshot) + P1 + P1b + P2 + selection fix ✅ committed
 2026-07-11 as ONE commit** (folded C2b per the user 2026-07-11 so the interim `tapSpectra` name never landed and
-`tapEntries` carrying peaks arrived whole). **NEXT = 3c-C3** (absorb material transitions, delete
-`useMaterialSession`) → C4 (imperative `statusMessage` D3 + EG-1) → C5 (shrink `useAudioEngine`) → 3c-D (collapse
-two-branch rules). (§10 P3 = selection/annotations → analyzer, tracked in RESTRUCTURE-NOTES.md.)
+`tapEntries` carrying peaks arrived whole). C3a/C3b (material → analyzer) → C4 (`e98d4da`, statusMessage D3 +
+EG-1 Option C) → **C5 + 3c-D** (`04bccad`, shrank useAudioEngine + collapsed tapsLocked/sbComplete via the
+material-`isMeasurementComplete` alignment). **3c ✅ COMPLETE 2026-07-12.** (§10 P3 = selection/annotations →
+analyzer, tracked in RESTRUCTURE-NOTES.md.)
 All lifecycle *facts* live on the analyzer; 3c-C moves the *mechanics*. **Decisions settled:** device computes
 FFT + delivers per-tap spectrum, analyzer accumulates spectra + averages (D1); analyzer owns the result spectra
 via the snapshot (D2 align); imperative statusMessage (D3); device split required (D4).
@@ -545,14 +550,14 @@ spectrum has no in-band peak sets `"No resonance detected — tap again"` and do
 Maintain `@parity` (`state/status-message` moves onto the analyzer's anchor; the device loses its material
 count/complete callbacks — reconcile the map). REG-B1/P1/P2 (`file-playback`) + all state/scenario suites green.
 
-**Risk / run-review (heavy — behavior DOES change for EG-1 + the upgraded strings):** every status string (guitar +
-material, all phases, resume/redo/accept, device-change, load, paused, clipping override/restore), the no-resonance
-re-tap (tap the plate off-band → re-prompt, no count), full plate L→C→FLC + brace + accept/redo + FLC cooldown,
-file-playback material auto-advance, load a saved material measurement, cancel. **NEXT after C4 = C5** (shrink
-`useAudioEngine`; also resolves the guitar count-duplication) → 3c-D (collapse two-branch rules).
+**Risk / run-review (heavy — behavior changed for EG-1 + the material phase strings):** run-reviewed 2026-07-12
+across every status string, the no-resonance re-tap, full plate L→C→FLC + brace + accept/redo + FLC cooldown,
+file-playback auto-advance, load, cancel. (The web now SHOWS the material phase strings; making Swift/Python show
+them too is OUT-1 in [PLATFORM-PARITY-GAPS.md](PLATFORM-PARITY-GAPS.md).) C5 + 3c-D followed (`04bccad`) — see §9.
 
 ### 12a. Run-review log (2026-07-12, step-by-step Swift↔web) — ✅ COMPLETE. 2 fixes folded into the C4 commit
-(RF-1/RF-2); 3 outstanding cross-platform items (OUT-1/2/3) are the NEXT effort, mirrored into STATUS.
+(RF-1/RF-2, below); the cross-platform gaps it also surfaced (OUT-1/2/3) moved to
+[PLATFORM-PARITY-GAPS.md](PLATFORM-PARITY-GAPS.md).
 
 **Fixed in the C4 web commit (`e98d4da`):**
 - **RF-1 — status-bar / Metrics "Peak" readout reads `liveSpectrum`, not `displaySpectrum`.** Swift's
@@ -565,41 +570,6 @@ file-playback material auto-advance, load a saved material measurement, cancel. 
   the readout is `material ? (engineMetrics?.displayLevelDB ?? -100) : (metrics.peakMagnitude ?? -100)` — both
   default to -100 pre-first-frame (Swift `displayLevelDB`/`peakMagnitude` initial), so no fast flicker at startup.
 
-**Outstanding cross-platform items — found during the review but NOT consolidation work.** Spun out to their own
-backlog (STATUS "Parity gaps found during 3c review"); they do NOT gate 3c — **finish 3c (C5 → 3c-D) first**, then
-do these (OUT-1 design-for-review before editing canonical):
-- **OUT-1 — phase-guidance-through-warmup (Swift + Python).** See the DECISION below (Option B). Web already
-  conformant. Canonical detection-loop change + parity tests lock-step + Swift release. **The full dead-string set
-  the fix must make visible (each set right before a warm-up restart that overwrites it → "Tap the guitar…"):**
-  - Accept L→C: `"Rotate 90° and tap for C"` (Swift Control:344 restart + :347 msg).
-  - Accept C→FLC: `"Set up for FLC tap, then tap"` — shows during the disarmed cooldown, but does the armed
-    `capturingFlc` keep it or go generic? (verify during review; Swift Control:353 + :360 restart).
-  - Redo L / C / FLC: `"Ready for L/C/FLC tap — tap again"` (Swift Control:454/473/492 restart + :457/476/495 msg) —
-    **confirmed on current Swift: goes to "Tap the guitar…"** (user run-review 2026-07-12).
-  - (Also the resume strings Control:278-282 "Ready for fL/L/C/FLC tap" if resume restarts warm-up — verify.)
-- **OUT-2 — status-bar progress: bar missing + `sbProgress` text divergences.** (a) Swift renders a visual
-  tap/phase progress **bar** (`ProgressView(value: tapProgress)`, Controls:420) in the bottom status bar; the
-  **web shows only the text** and **Python has neither** → add the bar to **Python + web**. (b) The `sbProgress`
-  TEXT also diverges from Swift (Controls:405-413, verified 3c-D run-review): the web GUITAR branch shows a
-  provisional `currentTapCount + (capturing ? 1 : 0)` — Swift shows raw `currentTapCount` (no +1); and the web
-  gates guitar on `numberOfTaps > 1` while Swift gates on `currentTapCount > 0`. (Plate/brace text matches Swift;
-  the two-branch structure IS canonical — Swift branches plate vs brace/guitar too, so it is NOT a 3c-D collapse
-  target.) Align the guitar text to Swift (or, if the provisional +1 is judged better, apply to all three).
-  Cross-platform UI-parity item, independent of the statusMessage work.
-- **OUT-3 — Metrics "Bin Count" is blank ("-") for plate/brace in the web** (Swift + Python show 32,768). Web-only:
-  the App `metrics` useMemo gates `binCount: !material && captured ? captured.frequencies.length : null`, so material
-  → null. Fix = show the FFT bin count for material too (from the live/continuous FFT — `GUITAR_FFT_SIZE`-based, the
-  ~32,768 bins Swift/Python report). Swift/Python already correct.
-
-- **DECISION — material phase status strings: OPTION B (make them live in ALL THREE), NOT revert.** The phase
-  strings the web shows (`capturingC` "Rotate 90° and tap for C", redo "Ready for … tap — tap again", the FLC
-  prompt) are the INTENDED canonical messages — Swift Control:344-347 / Python control:830-833 SET them — but
-  they're **dead in Swift/Python**: the phase-arm **restarts the warm-up** (`analyzerStartTime = Date()`, purposeful
-  — suppresses false triggers while the plate is repositioned), and the detection loop overwrites the message with
-  "Initializing… (Ns)" → "Tap the guitar…", so the user never sees them (confirmed on current Swift build 374 +
-  run-review). Swift and Python AGREE (no canonical inconsistency); the web was the outlier only because it has no
-  warm-up to overwrite them. **User decision (run-review): make the phase guidance VISIBLE in all three** rather than
-  hide it — a separate cross-platform effort: Swift + Python show the phase message through the phase-arm warm-up
-  (keeping the warm-up), web already conformant (C4 NOT reverted). Requires a Swift release; parity tests updated
-  lock-step. **Design deferred until the review has catalogued every phase transition** so they're all made live
-  together. Tracked in STATUS as its own item.
+**Outstanding cross-platform parity gaps found during this review (OUT-1/2/3, incl. the Option-B phase-guidance
+decision) have been MOVED OUT of this now-complete spec** → see **[PLATFORM-PARITY-GAPS.md](PLATFORM-PARITY-GAPS.md)**
+(tracked in STATUS). They are a separate cross-platform effort, not 3c work.
