@@ -1,7 +1,8 @@
 # 6-TEST — Cross-Platform Test Normalization
 
-**Status:** Phase 1 done (reviewed). **Phase 2 (web→Swift-spine naming) — structural moves DONE**, green
-(web 144 · Python 376). Internal test-name alignment deferred per-file to Phase 3. Created 2026-07-09.
+**Status:** **Phases 1–3 ✅ COMPLETE** (Phase 1 analysis/name-map 2026-07-09; Phase 2 web→Swift-spine naming
+2026-07-09; Phase 3 behavioral backfill + 3c consolidation + PC-1..4 + EG-1/2/3 + PC-1 docs, 2026-07-12), green
+(web 144 · Python 376). **NEXT: Phase 4** — back-port the 4 web-only suites to Swift+Python. Created 2026-07-09.
 Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in `STATUS.md`.
 
 ### Progress log
@@ -18,7 +19,7 @@ Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in 
 - **Remaining Phase 2:** tag/place the still-untagged web files (`g0-wav`, `g3a-calibration`,
   `calibration-store`, `analysis-quality`, `g6/g7/g8/g9`) — these are the reverse-gap behaviors handled with
   Swift/Python in Phase 4; and per-file internal name alignment (Phase 3).
-- **Phase 3 (2026-07-09) — behavioral backfill + parity cleanup, PC-1..PC-4 DONE + COMMITTED:**
+- **Phase 3 (2026-07-09 → ✅ COMPLETE 2026-07-12) — behavioral backfill + parity cleanup + 3c consolidation:**
   - Built web `src/state/tapSession.ts` (the web's TapToneAnalyzer-equivalent lifecycle state machine) +
     ported the 5 behavioral suites (button-enablement, state-invariants, scenario-trace, start-tap-race,
     measurement-complete); extracted `src/state/buttonEnablement.ts`.
@@ -354,9 +355,10 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
 - **Phase 1 — Analysis + name map (THIS DOC).** — ✅ DONE 2026-07-09 (reviewed). Coverage matrix + canonical
   naming convention + the **full name-map ledger** (every Swift file+test → Python → web target), the gap ledger,
   and the impl→test map (which production slug each `test/<slug>` is evidence for → the `tests=` links).
-- **Phase 2 — Web rewrite to the Swift spine (naming only).** Rename web `g#-*.test.ts` → behavior-slug
-  filenames; align `describe`/`it` names to the Swift suite/test names for suites that already exist on
-  web; add `@parity` markers. No coverage change. Verify: web suite still green.
+- **Phase 2 — Web rewrite to the Swift spine (naming only).** — ✅ DONE 2026-07-09 (2a + 2b, see the
+  progress log above). Renamed web `g#-*.test.ts` → behavior-slug filenames; aligned `describe`/`it` names
+  to the Swift suite/test names for suites that already exist on web; added `@parity` markers. No coverage
+  change; web suite stayed green. *(Deeper `it`-name alignment for suites moved onto the analyzer rides P3.)*
 - **Phase 3 — Backfill web behavioral gaps + parity cleanup + state consolidation.** Sub-steps (each verified:
   web suite green + parity map regenerated + `--check`):
   - **3a — `TapSession` + 5 behavioral suites** — ✅ DONE + committed (2026-07-09). Built `src/state/tapSession.ts`
