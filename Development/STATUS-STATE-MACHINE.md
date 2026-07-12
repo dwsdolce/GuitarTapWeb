@@ -7,13 +7,24 @@
 detection-loop status strings state-reachable (retiring the 4b "pipeline-progress transients" exclusion for the
 loop strings).
 
-**Status: ✅ IMPLEMENTED (Swift + Python; web was already conformant).** Both steps landed as one pass:
-`tapPrompt()` + `guitarLoopStatus(capturing:)` helpers added (Swift `TapToneAnalyzer` / Python
-`_tap_prompt`/`_guitar_loop_status`); the resting + loop-transient sites derive from them; the warm-up is now
+**Status: ✅ IMPLEMENTED + user run-reviewed (Swift + Python + web).** Core landed as one pass:
+`tapPrompt()` + `guitarLoopStatus(capturing:)` helpers (Swift `TapToneAnalyzer` / Python
+`_tap_prompt`/`_guitar_loop_status`); resting + loop-transient sites derive from them; the warm-up is now
 **silent** (its three status writes removed, the noise-floor re-anchor kept). Behavior-preserving — full suites
-green (Swift 330-test run; Python 393). OUT-1 fixed + pinned by the "survives the warm-up" reveal tests
-(Swift + Python StatusMessageTests). **Superseded OUT-1 (now retired).** Did **not** touch OUT-4 (the detection
-*algorithm* / noise-floor EMA is untouched — only the warm-up's *status-writing* role changed).
+green (Swift 330-test run; Python 393; web 214). OUT-1 fixed + pinned by the "survives the warm-up" reveal tests
+(Swift + Python StatusMessageTests). **Superseded OUT-1 (retired).** Did **not** touch OUT-4 (detection algorithm
+/ noise-floor EMA untouched).
+
+**Run-review surfaced two view/model divergences the silent warm-up exposed (both fixed):**
+- **Web was NOT fully conformant** — its material-L arm showed `"Tap the guitar…"`; Swift (now visible) shows
+  `"Ready for L tap"`. Fixed: `startMaterial`/`restingPrompt` now return `"Ready for L tap"` / brace
+  `"Ready for fL tap"` (incl. the `(×N each for L, C[, FLC])` multi-tap variant), matching Swift. Test updated.
+- **Python status bar had competing writers** — `_sb_detect_msg` was clobbered by `set_running()`'s hardcoded
+  `"Listening for tap…"` and `_update_plate_phase_ui()`'s phase-value write (`"Capturing FLC"`). Fixed: the
+  label is now **single-sourced** from `analyzer.status_message` (mirrors Swift `Text(tap.statusMessage)`),
+  seeded on signal-connect + engine-start (the change-signal alone missed the startup arm prompt → stale
+  `"Stopped"`). The left-side `"Waiting for tap…"` label is a separate mic/level indicator (consistent across
+  all three — left alone).
 
 ---
 

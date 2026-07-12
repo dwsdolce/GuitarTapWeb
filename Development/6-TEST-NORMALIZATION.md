@@ -427,8 +427,11 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
     driving differs (idiomatic, like scenario-trace). **Scope** — pins the state-reachable strings (arm/rest,
     clipping, device-begin, paused/resume, completion frozen-across-recalc, loaded, plate completion). Two
     families are intentionally excluded (documented in the suite headers):
-    - *Material phase-guidance* (Rotate 90°, Set up FLC, redo Ready-for-X) — warm-up-overwritten on
-      Swift/Python; rides **OUT-1** (added lock-step with that fix). A headless test would falsely green on them.
+    - *Material phase-guidance* (Ready-for-L, Rotate 90°, Set up FLC, redo) — was warm-up-overwritten on
+      Swift/Python (OUT-1). **✅ OUT-1 now FIXED** by the status state-machine alignment (silent warm-up;
+      STATUS-STATE-MACHINE.md) — the guidance is visible and pinned by the "survives-warm-up" reveal tests
+      added to Swift + Python StatusMessageTests (a headless test alone would falsely green; these feed a
+      warm-up frame). The web material-L arm was aligned to "Ready for L tap" lock-step.
     - *Per-tap capture PROGRESS transients* (`Tap n/N capturing…`, `…captured. Tap again…`, material per-tap /
       review / no-resonance) — written mid-gated-capture; the web pins them via its explicit `setEngineState`,
       Swift/Python set them imperatively so a state-driven suite can't reach them. **FOLLOW-UP (open, NOT tied to
@@ -451,11 +454,36 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
 
   **✅ PHASE 4 COMPLETE** — all four orphans resolved (guitar-fft + gated-capture retired in 4a; status-message
   3-way in 4b; tap-count-change 3-way in 4c). `gen_parity_map.py --check` → **0 orphans, no problems**.
-- **Phase 5 — Reconcile folding + platform-only + wire coverage detection.** Make dsp/peaks/average and
-  plate/brace split consistently (or document); document the Swift gesture suite and Python Qt suites as
-  justified platform-only; settle the oracle-vs-hardcoded-goldens question. **Populate `tests=` on every
-  impl group** (all 44, up from 7) and **add the coverage-gap report to `gen_parity_map.py`** (impl slugs
-  with no test evidence).
+- **Phase 5 ✅ COMPLETE — reconcile folding + platform-only + coverage detection.**
+  - **`tests=` populated** on the testable impl groups (dsp/audio/state/model; view/* is review-only by design).
+    10 newly linked (Swift anchor carries `tests=`; the generator unions across platforms): audio/realtime-analyzer
+    →file-playback+tap-decisions; dsp/fft→gated-fft+file-playback; dsp/guitar-fft→file-playback; dsp/wav→file-playback
+    +tap-decisions (transitive — every WAV test decodes real files); dsp/gated-capture→file-playback+tap-decisions;
+    dsp/spectrum-average→peaks; dsp/peak-analysis→frozen-peak-recalc+dsp+peaks; dsp/guitar-modes→classify;
+    dsp/calibration→file-playback (transitive — cal applied through the pipeline); state/settings-store→display-range.
+    The map now shows real equivalence ("tests") for these instead of "review only".
+  - **Coverage-gap report** added to `gen_parity_map.py`: `coverage_gaps()` + a `--gaps` command + a summary line in
+    generate/`--check`. Lists testable impl groups with NO `tests=` evidence. **2 genuine gaps remain** (report is
+    honest, not forced to zero): **dsp/analysis-quality** (decay/tap-ratio quality-label thresholds — tested only by
+    the web's untagged `analysis-quality.test.ts`, no Swift/Python twin → back-port candidate) and **model/mode-colors**
+    (mode→colour mapping — untested on any platform; low-risk). Phase 6 wires this as a CI gate.
+  - **Platform-only suites tagged `@parity none`** (now in the map's Platform-specific section): Swift
+    `SpectrumViewGestureTests` (SwiftUI zoom/pan gesture math) + Python `test_wi10_qtimer_slots` (Qt
+    `QTimer.singleShot` mechanics). UI-framework-specific, no cross-platform contract.
+  - **Folding — documented consistent:** `dsp/spectrum-average` folds into `test/peaks` (Swift PeakFindingTests tests
+    averaging alongside find-peaks; the web folded its spectrum-average suite into peaks). Plate/brace is a 2-file
+    split on all three (Swift Plate/BracePropertiesTests; Python test_plate/test_brace; web plate/brace).
+    `dsp/fft`+`dsp/guitar-fft`+`dsp/wav` share one Swift anchor (`RealtimeFFTAnalyzer+FFTProcessing.swift`) — that IS
+    the FFT/WAV layer; `computeGatedFFT` lives there too, so `test/gated-fft` is valid evidence for `dsp/fft`.
+  - **Oracle-vs-hardcoded-goldens — settled (document, don't unify):** the web vendors
+    `test/fixtures/parity-oracle.json` (tolerances + REG-* golden peaks); Swift/Python hardcode the SAME values as
+    `private let` constants transcribed from the companion `.guitartap` files (native apps don't ship a JSON test
+    fixture). The binding contract is the shared golden numbers at ±1 tolerance, kept aligned by hand.
+  - **Known reverse-gaps (web-only tests, no Swift/Python twin — left untagged, tracked NOT resolved here):** web
+    `g0-wav`, `g3a-calibration`, `analysis-quality`, `calibration-store`; Python-only `test_wi1/wi2/wi6` (settings
+    persistence + effective-peak-id). Impl coverage is transitive via file-playback except analysis-quality (the one
+    real gap above). Left untagged to keep `--check` at 0 orphans; a future back-port would make them 3-way slugs.
+  - **Verify:** `gen_parity_map.py --check` = **61 groups, 2 platform-specific, no problems (0 orphans)**; `--gaps` = 2.
 - **Phase 6 — Contract doc + rule + CI gate.** Finalize this matrix as the living coverage doc; add the
   "change shared behavior → update all three" rule; wire `--check` (missing-on-some) + the coverage-gap
   report (missing-on-all) as CI gates; update `STATUS.md`.
