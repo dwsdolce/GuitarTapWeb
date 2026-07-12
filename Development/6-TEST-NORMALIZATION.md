@@ -407,9 +407,26 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
 
   **✅ PHASE 3 COMPLETE 2026-07-12** — 3a–3e done + PC-1 docs. (Remaining under Task-3/6-TEST: Phase 4 orphan
   back-ports; annotation-state + frozen-peak-recalc's selection half ride P3 in the item-2 restructure.)
-- **Phase 4 — Back-port web-only tests to Swift + Python.** calibration parse/interp, analysis-quality
-  bands, and any measurement-bridge/provenance checks not already folded — as named suites matching the
-  Swift convention.
+- **Phase 4 — Resolve the 4 web-only test orphans (align to the Swift/Python structure).** The audit
+  (Swift + Python coverage sweep) showed these are **not** four back-ports — two dissolve by structure
+  alignment, two are genuine gaps:
+  - **4a ✅ — `guitar-fft` + `gated-capture` were wrong-altitude shortcuts.** Both asserted the REG-G/B/P
+    regressions by calling DSP functions directly on raw WAV samples — one level *below* the full engine
+    chain the file-playback test exists to exercise. Swift/Python (and the web's own `file-playback.test.ts`)
+    already cover the same regressions end-to-end in ONE file (`file-playback` is a strict superset:
+    REG-G1/G2 + per-tap, REG-B1, REG-P1/P2). Deleted both web test files and their now-dead DSP-direct
+    functions — `guitarModePeaks`, `guitarMultiTapModePeaks`, `averagePowerDb` (a duplicate of the live
+    `spectrumAverage.ts::averageSpectra`), `gatedSingleTapPeak`, `platePeaks`, `gatedPeakAtCrossing` + dead
+    types/consts — all confirmed zero production callers. Retired both slugs + the duplicate
+    `dsp/spectrum-average` tag; regenerated the map (63→61 groups). `file-playback` is the sole full-chain
+    regression home. Suite green (29 files / 211 tests; tsc + lint clean).
+  - **4b — `status-message`** (genuinely untested on Swift *and* Python): new dedicated `StatusMessageTests`
+    on both, driving analyzer transitions and asserting the canonical strings (already 3c-aligned across the
+    three). The web's `status-message.test.ts` stays → clean 3-way slug.
+  - **4c — `tap-count-change`** (**Option B**, user-chosen): the behavior lives in a different layer on each
+    platform (Swift model `numberOfTaps.didSet` / web engine `setConfig` / Python **view**). Align Python's
+    `number_of_taps` to a model-level setter mirroring Swift's `didSet` (a production change), then assert the
+    armed-and-idle status refresh at the analyzer level on all three.
 - **Phase 5 — Reconcile folding + platform-only + wire coverage detection.** Make dsp/peaks/average and
   plate/brace split consistently (or document); document the Swift gesture suite and Python Qt suites as
   justified platform-only; settle the oracle-vs-hardcoded-goldens question. **Populate `tests=` on every
