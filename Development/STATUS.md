@@ -34,12 +34,9 @@ cleanup). The Material Results phased display shipped 2026-07-08.
 **Open-work detail docs** (the open items above)
 | Doc | Purpose |
 |---|---|
-| [PHASE6-PARITY.md](PHASE6-PARITY.md) | Phase 6 parity backlog — all done **except § 6-TEST** |
-| [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) | 6-TEST project history — ✅ COMPLETE (Phases 1–6); the living reference is now TEST-COVERAGE.md |
 | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) | view-layer restructure — raw material; spec still to be written |
 | [THEME-SPEC.md](THEME-SPEC.md) | Light/Dark/System theme spec — blocked on § 8 |
-| [PLATFORM-PARITY-GAPS.md](PLATFORM-PARITY-GAPS.md) | cross-platform Swift/Python/web behavior+UI gaps (OUT-1/2/3) — separate effort, post-Phase-6 |
-| [LOG-FREQ-REMOVAL.md](LOG-FREQ-REMOVAL.md) | remove the dead log-frequency axis — ✅ done 2026-07-08 (B1) |
+| [PLATFORM-PARITY-GAPS.md](PLATFORM-PARITY-GAPS.md) | cross-platform Swift/Python/web behavior+UI gaps (OUT-2/3/4/5) — separate effort, post-Phase-6 |
 
 **Reference** (living — consult, don't complete)
 | Doc | Purpose |
@@ -54,6 +51,9 @@ cleanup). The Material Results phased display shipped 2026-07-08.
 **History** (done — audit trail, not a to-do list)
 | Doc | Purpose |
 |---|---|
+| [PHASE6-PARITY.md](PHASE6-PARITY.md) | Phase 6 parity backlog — ✅ COMPLETE (last item § 6-TEST done); coverage now lives in `GuitarTap/TEST-COVERAGE.md` |
+| [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) | 6-TEST normalization — ✅ COMPLETE (Phases 1–6); project history, living reference is `GuitarTap/TEST-COVERAGE.md` |
+| [LOG-FREQ-REMOVAL.md](LOG-FREQ-REMOVAL.md) | removed the dead log-frequency axis — ✅ done 2026-07-08 (B1) |
 | [TAPTONEANALYZER-CONSOLIDATION.md](TAPTONEANALYZER-CONSOLIDATION.md) | Phase 6-3c consolidation spec — ✅ done 2026-07-12 (analyzer/device split); parity gaps it surfaced live in PLATFORM-PARITY-GAPS.md |
 | [STATUS-STATE-MACHINE.md](STATUS-STATE-MACHINE.md) | Status state-machine alignment (silent warm-up + derived status) — ✅ done (Swift+Python; web already conformant); fixed OUT-1 at the root |
 | [REVIEW-TRACKER.md](REVIEW-TRACKER.md) | Task 1/2 doc-review tracker (done) + the spun-out effort specs |
