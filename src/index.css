@@ -7,6 +7,21 @@
   --text: #e7ebf0;
   --muted: #8a96a5;
   --accent: #4ea1ff;
+
+  /* Apple systemBlue — the shared cross-platform accent for the tap/phase progress bar and its
+     label. Pinned explicitly on all three (Swift `.tint(.blue)`, Qt stylesheet, here) because each
+     toolkit otherwise inherits a DIFFERENT colour: Swift took the user's macOS accent, Qt took
+     `palette(highlight)`, and the web used `--accent` — so they could never agree.
+     systemBlue is light/dark adaptive on Apple's side; this is the dark value. The light value is
+     #007AFF. THIS IS A THEME TOKEN: the Light/Dark/System work owns swapping it (THEME-SPEC.md),
+     which is why it is a named variable rather than a literal at the use site. */
+  --system-blue: #0a84ff;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --system-blue: #007aff; /* Apple systemBlue, light */
+  }
 }
 
 * {

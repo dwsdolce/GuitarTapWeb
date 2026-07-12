@@ -667,7 +667,10 @@ export default function App() {
     }
     return {
       frequencyResolution: binHz,
-      binCount: !material && captured ? captured.frequencies.length : null,
+      // Bin Count is Analysis *Configuration*, not a property of a capture: it is the live/continuous
+      // FFT's output bin count, so it reads in every mode and before any tap. Mirrors Swift
+      // `analyzer.frequencies.isEmpty ? "—" : analyzer.frequencies.count` (Python: `fft_size // 2`).
+      binCount: sp ? sp.frequencies.length : null,
       sampleRate,
       bandwidth: sampleRate ? sampleRate / 2 : null,
       sampleLengthSeconds: sampleRate ? GUITAR_FFT_SIZE / sampleRate : null,
@@ -678,23 +681,41 @@ export default function App() {
       peakMagnitude,
       isRunning: running,
     }
-  }, [liveSpectrum, binHz, material, captured, sampleRate, engineMetrics, running])
+  }, [liveSpectrum, binHz, sampleRate, engineMetrics, running])
 
   // Status-bar progress + frozen indicators (mirror Swift "Phase X/Y · Tap N/M" / "⏸ Complete").
+  // Mirrors Swift Controls:404-423: the label and the progress BAR share ONE gate — detecting AND
+  // (material OR at least one guitar tap captured) — so they appear and vanish together.
+  // The count means taps COMPLETED (never a provisional +1 for the tap in flight), which is exactly
+  // what the bar measures — text and bar therefore stay in lock-step. Material `currentTapCount` is
+  // CUMULATIVE across phases, so the plate label subtracts the completed phases to show the WITHIN-phase
+  // count (Swift's identical expression); brace and guitar are single-phase and print it directly.
   const sbDetecting = snapshot.isDetecting
+  // The BAR and the LABEL have DIFFERENT gates in Swift's macOS `fullStatusBar` — deliberately:
+  //   bar:   `if tap.currentTapCount > 0`                                    (NO isDetecting)
+  //   label: `if tap.isDetecting && (isPlateOrBrace || currentTapCount > 0)` (WITH isDetecting)
+  // isDetecting drops for the 0.5 s per-tap cooldown, so gating the BAR on it would make it blink
+  // out after every tap. Keying the bar on the tap count instead makes it appear on the first tap
+  // and stay up for the whole measurement; New Tap / Cancel zero the count and clear it.
+  // (The iOS `compactStatusBar` DOES gate its 50 pt bar on isDetecting — that is the variant the
+  // desktop ports wrongly copied. Desktop mirrors fullStatusBar.)
+  const sbShowBar = currentTapCount > 0
+  const sbShowProgress = sbDetecting && (material || currentTapCount > 0)
   const sbProgress = (() => {
-    if (material && sbDetecting && matPhase.startsWith('capturing')) {
-      const step = matPhase.startsWith('capturingC') ? 2 : matPhase.startsWith('capturingFlc') ? 3 : 1
-      // Brace uses the guitar-style tap counter (single OR multi-tap), like Swift's brace
-      // phaseLabel = "Tap currentTapCount/numberOfTaps". Plate uses the phase counter instead.
-      if (brace) return `Tap ${currentTapCount}/${numberOfTaps}`
-      const tapPart = numberOfTaps > 1 ? ` · Tap ${currentTapCount}/${numberOfTaps}` : ''
-      return `Phase ${step}/${settings.measureFlc ? 3 : 2}${tapPart}`
+    if (!sbShowProgress) return ''
+    if (material && !brace) {
+      const step = matPhase.startsWith('capturingC')
+        ? 2
+        : matPhase.startsWith('capturingFlc') || matPhase === 'waitingForFlcTap'
+          ? 3
+          : 1
+      const totalPhases = settings.measureFlc ? 3 : 2
+      if (numberOfTaps <= 1) return `Phase ${step}/${totalPhases}`
+      const withinPhase = Math.max(0, currentTapCount - (step - 1) * numberOfTaps)
+      return `Phase ${step}/${totalPhases} · Tap ${withinPhase}/${numberOfTaps}`
     }
-    if (!material && sbDetecting && numberOfTaps > 1) {
-      return `Tap ${Math.min(currentTapCount + (engineState === 'capturing' ? 1 : 0), numberOfTaps)}/${numberOfTaps}`
-    }
-    return ''
+    // Brace + guitar: single phase, so the cumulative count IS the within-phase count.
+    return `Tap ${currentTapCount}/${numberOfTaps}`
   })()
   // Complete = the shared flag now that material completion flips isMeasurementComplete too (3c-D).
   const sbComplete = !sbDetecting && snapshot.isMeasurementComplete
@@ -1371,6 +1392,21 @@ export default function App() {
         </div>
       )}
       <div className={`statusbar state-${engineState}`}>
+        {/* Full-width linear progress bar on its OWN ROW above the status line — mirrors Swift's macOS
+            fullStatusBar, a VStack of "ProgressView when currentTapCount > 0" then the status HStack.
+            Gated on the tap count alone (see sbShowBar) so it never blinks during the per-tap cooldown. */}
+        {sbShowBar && (
+          <div
+            className="sb-progress-track"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={1}
+            aria-valuenow={snapshot.tapProgress}
+          >
+            <div className="sb-progress-fill" style={{ width: `${snapshot.tapProgress * 100}%` }} />
+          </div>
+        )}
+        <div className="statusbar-row">
         {/* LEFT — detection state: dot + Waiting/Detected + level (mirrors Swift order). */}
         <span className={`sb-state-dot${sbComplete ? ' complete' : ''}`} />
         {/* Swift: isMeasurementComplete ? "Tap Detected!" : "Waiting for tap...". */}
@@ -1397,6 +1433,7 @@ export default function App() {
         <span className={`sb-active-dot${sbDetecting ? ' on' : ''}`} />
         <span className={`sb-msg${sbDetecting ? '' : ' idle'}`}>{snapshot.statusMessage}</span>
         {sbProgress && <span className="sb-progress">{sbProgress}</span>}
+        </div>
       </div>
 
       {/* Mic-error / load-warning alerts as modal dialogs, mirroring the native apps'

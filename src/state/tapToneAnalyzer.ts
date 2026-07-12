@@ -139,9 +139,33 @@ export class TapToneAnalyzer {
     return isGuitarType(this.measurementType)
   }
 
-  /** currentTapCount / numberOfTaps, unclamped (invariant I5 pins it to [0, 1]). */
+  /** Total individual taps expected across ALL phases of the current material sequence.
+   *  Brace: `numberOfTaps` (longitudinal only). Plate: `numberOfTaps × 2` (L+C), or `× 3` with FLC.
+   *  Mirrors Swift `totalPlateTaps` (TapDetection:360) / Python `total_plate_taps`. */
+  get totalPlateTaps(): number {
+    if (this.measurementType === 'brace') return this.numberOfTaps
+    return this.numberOfTaps * (this.measureFlc ? 3 : 2)
+  }
+
+  /** Fraction of the sequence captured, 0…1 — the value the status-bar progress bar renders.
+   *  Guitar divides by `numberOfTaps`; material divides by `totalPlateTaps`, because the material
+   *  `currentTapCount` is CUMULATIVE across phases — so the bar fills once across L→C→FLC rather than
+   *  refilling each phase. Mirrors Swift `tapProgress` (SpectrumCapture:698 guitar / :953 material). */
   get tapProgress(): number {
-    return this.numberOfTaps > 0 ? this.currentTapCount / this.numberOfTaps : 0
+    const total = this.isGuitar ? this.numberOfTaps : this.totalPlateTaps
+    return total > 0 ? Math.min(1, this.currentTapCount / total) : 0
+  }
+
+  /** Cumulative taps completed in the phases BEFORE `phase` — the base the material `currentTapCount`
+   *  rebases to on accept / redo / file auto-advance. Guarded on the prior phases actually having been
+   *  captured, mirroring Swift's redo rebasing (`lCount` / `lcCount`, Control:465-487). */
+  private materialPhaseBase(phase: MaterialTapPhase): number {
+    const n = this.numberOfTaps
+    const haveL = this.matSpectra.longitudinal != null
+    const haveC = this.matSpectra.cross != null
+    if (phase === 'capturingC') return haveL ? n : 0
+    if (phase === 'capturingFlc' || phase === 'waitingForFlcTap') return haveL && haveC ? n * 2 : 0
+    return 0 // capturingL — no phase precedes it
   }
 
   // ── Transitions (mirror TapToneAnalyzer) ──────────────────────────────────
@@ -384,7 +408,7 @@ export class TapToneAnalyzer {
     const phase = this.materialTapPhase
     if (phase === 'reviewingL') {
       this.materialTapPhase = 'capturingC'
-      this.currentTapCount = 0
+      this.currentTapCount = this.materialPhaseBase('capturingC') // cumulative: L's taps stay counted
       this.materialBuffer = []
       this.device?.checkpointSession() // C phase start (so a redo can drop it)
       this.device?.armMaterial(this.matSearch('cross'))
@@ -396,7 +420,7 @@ export class TapToneAnalyzer {
         // detection DISARMED (waitingForFlcTap) so the plate-repositioning bump isn't taken as the FLC
         // tap; then arm the FLC capture.
         this.materialTapPhase = 'waitingForFlcTap'
-        this.currentTapCount = 0
+        this.currentTapCount = this.materialPhaseBase('waitingForFlcTap') // cumulative: L+C stay counted
         this.materialBuffer = []
         this.device?.checkpointSession() // FLC phase start (so a redo can drop it)
         this.setStatusMessage('Set up for FLC tap, then tap')
@@ -429,7 +453,6 @@ export class TapToneAnalyzer {
   redoMaterial(): void {
     const phase = this.materialTapPhase
     this.device?.redoSession() // drop the rejected phase's audio from the session WAV
-    this.currentTapCount = 0
     this.materialBuffer = []
     if (phase === 'reviewingL') {
       this.materialTapPhase = 'capturingL'
@@ -444,6 +467,9 @@ export class TapToneAnalyzer {
       this.device?.armMaterial(this.matSearch('flc'))
       this.setStatusMessage('Ready for FLC tap — tap again')
     }
+    // Rebase the cumulative count to the taps completed in the PRIOR phases — redoing C keeps L's taps
+    // counted, redoing FLC keeps L+C's (Swift redo: `currentTapCount = lCount` / `= lcCount`).
+    this.currentTapCount = this.materialPhaseBase(this.materialTapPhase)
     this.notify()
   }
 
@@ -474,7 +500,9 @@ export class TapToneAnalyzer {
       return
     }
     this.materialBuffer.push(spectrum)
-    this.currentTapCount = this.materialBuffer.length
+    // Cumulative across phases (Swift): prior phases' taps + this phase's buffered taps. The phase
+    // machinery below keys on `materialBuffer.length` (the WITHIN-phase count), never on currentTapCount.
+    this.currentTapCount = this.materialPhaseBase(this.materialTapPhase) + this.materialBuffer.length
     const total = this.numberOfTaps
     if (this.materialBuffer.length < total) {
       // More taps for this phase — re-arm the same phase (Swift reEnableDetectionForNextPlateTap).
@@ -513,7 +541,7 @@ export class TapToneAnalyzer {
         this.setStatusMessage(this.materialCompleteString())
       } else if (playing) {
         this.materialTapPhase = 'capturingC'
-        this.currentTapCount = 0
+        this.currentTapCount = this.materialPhaseBase('capturingC') // cumulative: L's taps stay counted
         this.setStatusMessage('File: L complete, capturing C...')
         this.device?.armMaterial(this.matSearch('cross'))
       } else {
@@ -526,7 +554,7 @@ export class TapToneAnalyzer {
       if (playing) {
         if (this.measureFlc) {
           this.materialTapPhase = 'capturingFlc'
-          this.currentTapCount = 0
+          this.currentTapCount = this.materialPhaseBase('capturingFlc') // cumulative: L+C stay counted
           this.setStatusMessage('File: C complete, capturing FLC...')
           this.device?.armMaterial(this.matSearch('flc'))
         } else {
@@ -613,6 +641,8 @@ export class TapToneAnalyzer {
         isMeasurementComplete: this.isMeasurementComplete,
         currentTapCount: this.currentTapCount,
         numberOfTaps: this.numberOfTaps,
+        totalPlateTaps: this.totalPlateTaps,
+        tapProgress: this.tapProgress,
         materialTapPhase: this.materialTapPhase,
         measurementType: this.measurementType,
         isGuitar: this.isGuitar,
@@ -770,8 +800,13 @@ export interface TapToneSnapshot {
   isDetecting: boolean
   isDetectionPaused: boolean
   isMeasurementComplete: boolean
+  /** Taps captured so far. Guitar: 0…numberOfTaps. Material: CUMULATIVE across phases, 0…totalPlateTaps. */
   currentTapCount: number
   numberOfTaps: number
+  /** Total taps across all phases of the material sequence (brace: n; plate: n×2, or n×3 with FLC). */
+  totalPlateTaps: number
+  /** currentTapCount / (numberOfTaps | totalPlateTaps), clamped to 1 — the status-bar progress bar. */
+  tapProgress: number
   materialTapPhase: MaterialTapPhase
   measurementType: MeasurementType
   isGuitar: boolean

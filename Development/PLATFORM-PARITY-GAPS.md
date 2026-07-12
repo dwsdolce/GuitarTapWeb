@@ -16,6 +16,78 @@ Maintain `@parity` tags + regenerate PARITY-MAP.md on any code change.
 
 ---
 
+## ✅ OUT-2 + OUT-3 — DONE, USER RUN-REVIEWED (2026-07-13)
+
+User verified the Metrics panel (Bin Count), the tap count, and the progress bar **on all three
+platforms**. Commit messages: `Development/COMMIT-MESSAGES.md`.
+Suites: Swift 342 · Python 403 · Web 224, all green.
+
+### The run-review found 6 bugs the green suites missed. This is the root cause:
+
+> **The same value was computed three different ways, and two of them were wrong — in opposite
+> directions.** Swift keeps a cumulative counter (`currentTapCount += 1`) SEPARATE from the
+> within-phase buffer (`materialCapturedTaps`, cleared each phase). The **web** reset the counter at
+> every phase advance. **Python** derived the counter FROM the buffer (`len(captured_taps)`), so it
+> restarted whenever the buffer was cleared. Neither port was structurally identical to Swift, and no
+> test drove the material capture path on ANY platform — so all three sailed through green suites.
+> *(This is the argument for structural identity, stated by the user, demonstrated by the bug.)*
+
+1. **Python bar blinked / stuck hidden.** Its gate was copied from Swift's **iOS `compactStatusBar`**
+   (which gates the bar on `isDetecting`) instead of the **macOS `fullStatusBar`** (which gates it on
+   `currentTapCount > 0`). `isDetecting` drops for the 0.5 s per-tap cooldown; worse, `set_tap_count`
+   only runs on `tapCountChanged`, so the re-arm never re-evaluated visibility and the hide stuck.
+2. **Python bar reset to 0 on every phase change** — the `len(captured_taps)` bug above. It also made
+   the plate label compute `max(0, 1 - 2)` → **"Tap 0/N" from phase 2 onward**.
+3. **Web had no bar at all** — same wrong gate, plus a native `<progress>` element that needs vendor
+   pseudo-elements to render. Rebuilt as a full-width track+fill div on its own row (Swift's VStack).
+4. **Swift iOS `compactStatusBar` blinked too** (user-flagged): its bar shared one `if` with the
+   label. Split so the bar is gated on `currentTapCount > 0`, matching `fullStatusBar`.
+5. **Python's tap-count label froze at "0/3"** (round-2 run-review). Two causes, both structural:
+   its text was only written when `show` was true, and `show` samples `is_detecting` — which is False
+   at every tap completion, so the label kept its armed value forever. Deeper: Python's `is_detecting`
+   had a Swift-style `didSet` setter but **no signal**, so the view was *structurally unable* to react
+   to it — it could only sample it inside `set_tap_count` (driven by `tapCountChanged`). Swift gets
+   this free (`@Published` → the status bar re-renders); React gets it free (snapshot). Python alone
+   had no binding. **Fix:** add `detectionStateChanged` to the analyzer (emitted from the
+   `is_detecting` setter), bridge it through `FftCanvas`, and re-run `set_tap_count` on it; and always
+   write the label's text, gating only its visibility (as Swift does — it computes `phaseLabel` from
+   current values and merely wraps it in an `if`, so its text can never be stale).
+
+6. **The status-bar blues never matched — there were FIVE of them.** Nothing stated the colour; each
+   toolkit inherited a different one. Swift's untinted `ProgressView` took the user's **macOS accent**
+   (so it drifted with a System Settings preference); Qt took `palette(highlight)`; the web used
+   `--accent`. Python was inconsistent *with itself* — its bar (`palette(highlight)`, light blue) and
+   its labels (`rgb(40,100,210)`, dark blue) were different colours; and the web's Peak readout was a
+   fourth blue (`#6fb6ff`). Swift renders the bar, the phase/tap label, and the Peak readout as ONE
+   colour (`.blue`). **Fix (user chose: pin one colour now):** all three pin **Apple systemBlue** —
+   Swift `.tint(.blue)`; Python `_system_blue()`; web `--system-blue`. Kept as a **named token** per
+   platform (not a literal at the use site) because the **Light/Dark/System theme work owns this
+   token** when it lands — user: *"the bar color (and associated label) should be a style which
+   changes on dark/light/user defined styles."* systemBlue is itself light/dark adaptive
+   (#007AFF / #0A84FF).
+
+**The rule now, on all three:** BAR gates on `currentTapCount > 0` (never `isDetecting`) — so it
+appears on the first tap and stays up for the whole measurement; New Tap / Cancel zero the count and
+clear it. LABEL keeps `isDetecting && (isPlateOrBrace || currentTapCount > 0)`.
+
+### Verified by the user (2026-07-13) — Metrics panel, tap count, and progress bar on ALL THREE
+
+> **Label `isDetecting` gate — CONFIRMED CORRECT, leave it.** The tap-count LABEL (not the bar) is
+> gated on `isDetecting` on all three, so it drops out during the 0.5 s cooldown. This is *not* a
+> blink into empty space: the status message occupies that slot while detection is disarmed, then the
+> count returns. User-confirmed on Swift ("replaced with a message then comes back. Seems ok").
+> Python matches. No change wanted.
+
+**The lesson, for the next parity item.** Six bugs, none caught by the suites, all found by *running
+the apps*. The suites were green because every platform tested its own behaviour, and no test drove
+the material capture path anywhere. The new 3-way `test/tap-progress` closes that specific hole (it
+was verified to FAIL on the old Python code), but the general rule stands: **a green suite is not a
+run-review**, and **structural identity across the three is what prevents this class of bug** — the
+same value was being computed three different ways, so two of them could be wrong without anything
+noticing.
+
+---
+
 ## OUT-1 — Phase-guidance-through-warmup (Swift + Python) — ✅ FIXED
 
 **Resolved by the status state-machine alignment ([STATUS-STATE-MACHINE.md](STATUS-STATE-MACHINE.md)):** the
@@ -50,7 +122,33 @@ editing canonical.**
 
 ---
 
-## OUT-2 — Status-bar progress: bar missing + `sbProgress` text divergences
+## OUT-2 — Status-bar progress bar + `sbProgress` text — ✅ DONE (user run-reviewed 2026-07-13)
+
+**What it actually was — the original write-up below was wrong in two ways, and the real bug was bigger:**
+
+1. **"Python has neither" is false.** Python already had BOTH the `_sb_progress` QProgressBar *and* the
+   "Phase N/M · Tap p/q" text, with Swift's exact visibility gate. **But its bar was broken:** the view
+   recomputed a percentage from `tapCountChanged(current_tap_count, number_of_taps)` — i.e. it divided the
+   **cumulative** count by `number_of_taps` instead of `total_plate_taps`. For a 2-tap plate the bar hit
+   **100% at the end of phase L** and `min(captured, total)` pinned it there through C and FLC.
+   **Fix:** the view now renders the analyzer's `tap_progress` (Swift's structure — the model already
+   computed it correctly), deleting the duplicated wrong math.
+2. **The web needed a MODEL fix, not just a bar.** The web's material `currentTapCount` **reset at every
+   phase advance**; Swift/Python count **cumulatively** across L→C→FLC. The status text agreed only by
+   coincidence (web printed its per-phase count directly; Swift subtracts `(step-1)×numberOfTaps` from its
+   cumulative one), so nothing caught it — but `tapProgress` did *not* agree, and the bar would have
+   refilled 0→100% **every phase**. **Fix (user chose Option A — align the model, not patch the bar):**
+   added `totalPlateTaps`; made material `currentTapCount` cumulative incl. Swift's redo rebasing
+   (`lCount`/`lcCount`); `tapProgress` = `currentTapCount / totalPlateTaps`; the status text now derives the
+   within-phase count via Swift's expression (**same displayed text as before**). Surgical, because the web's
+   phase machinery keys on `materialBuffer.length`, never on `currentTapCount`.
+
+**New 3-way test slug `test/tap-progress`** (Swift `TapProgressTests` · Python `test_tap_progress` · web
+`tap-progress.test.ts`, 9/9/10 green) pins `totalPlateTaps`, `tapProgress`, the cumulative count, and the redo
+rebasing. It passes immediately on Swift/Python (they were canonical) — which is exactly what proves the web
+now agrees. Linked as evidence: `audio/tap-analyzer tests=test/tap-decisions,test/tap-progress`.
+
+Original write-up follows.
 
 (a) **Progress bar is Swift-only.** Swift renders a visual tap/phase progress **bar**
 (`ProgressView(value: tapProgress)`, Controls:420) in the bottom status bar; the **web shows only the text** and
@@ -59,14 +157,28 @@ editing canonical.**
 (b) **`sbProgress` TEXT diverges** from Swift (Controls:405-413, verified in the 3c-D run-review): the web GUITAR
 branch shows a provisional `currentTapCount + (capturing ? 1 : 0)` — Swift shows raw `currentTapCount` (no +1); and
 the web gates guitar on `numberOfTaps > 1` while Swift gates on `currentTapCount > 0`. (Plate/brace text matches
-Swift; the two-branch structure IS canonical — Swift branches plate vs brace/guitar too.) Align the guitar text to
-Swift (or, if the provisional +1 is judged better, apply to all three).
+Swift; the two-branch structure IS canonical — Swift branches plate vs brace/guitar too.)
+
+**DECISION (user, 2026-07-13) — SWIFT WINS: the count means "taps COMPLETED", not "tap being worked on".**
+The semantic question is whether `n/N` names the tap you're *striking* (1-3) or the taps you've *finished* (0-2).
+Canonical = **completed**, which is exactly what the progress **bar** measures — so the text and the bar stay in
+sync (that coherence with OUT-2a is the reason, not mere deference to Swift). **Align the web to Swift:** drop the
+provisional `+1`, and gate guitar on `currentTapCount > 0` (not `numberOfTaps > 1`).
 
 Cross-platform UI-parity item, independent of the statusMessage work.
 
 ---
 
-## OUT-3 — Metrics "Bin Count" blank for plate/brace (web-only)
+## OUT-3 — Metrics "Bin Count" blank for plate/brace (web-only) — ✅ DONE (user run-reviewed 2026-07-13)
+
+**Fix:** `binCount` now reads the LIVE FFT (`sp.frequencies.length`, where `sp = liveSpectrum`), mirroring Swift
+`analyzer.frequencies.isEmpty ? "—" : analyzer.frequencies.count` (Python: static `fft_size // 2`). Bin Count is
+**Analysis *Configuration*** — a property of the continuous FFT, not of a capture — which is why Swift/Python show
+it in every mode. The web had gated it on `!material && captured`, so it was blank in material mode **and** blank
+before any tap; both are now fixed by the one change. (Same class of bug as the RF-1 fix directly above it in
+App.tsx: live telemetry must read `liveSpectrum`, not the capture.) Subtitle already matched all three.
+
+Original write-up follows.
 
 The Metrics panel shows a blank ("-") **Bin Count** for plate/brace in the web; Swift + Python show **32,768**.
 Web-only: the App `metrics` useMemo gates `binCount: !material && captured ? captured.frequencies.length : null`,
@@ -97,9 +209,16 @@ implies a **noise-floor settling window** — the timed warm-up the web currentl
 the warm-up but stop it owning the status) and OUT-4 (web gains the relative floor + a settling window) converge
 the three toward one detection architecture; tackle them together.
 
-**DECISION framework:** per *"What does Swift do?"* — port the relative noise-floor path to the web's material
-detection (canonical = Swift/Python). If the absolute model is judged better, that's a cross-platform change
-(make Swift + Python absolute too) — get buy-in first. Design-for-review before editing canonical.
+**DECISION (user, 2026-07-13) — PORT THE SWIFT/PYTHON RELATIVE MODEL TO THE WEB. In scope; it does NOT get
+deferred past the release.** The deciding argument is **field evidence, not canonicality**: the Swift/Python
+relative-EMA path has had **beta testing and real use**; the web's absolute-dBFS path has had **none**. Prefer the
+model that has been exercised in anger.
+
+**The OUT-1 coupling is defused** (user): the crux of OUT-1 was the warm-up *clobbering the status message*, and
+that was fixed by making the warm-up **silent** — the warm-up itself still exists (it suppresses detection and
+re-anchors `noiseFloorEstimate` at exit). So giving the web a **silent settling window** buys the relative floor
+without reintroducing the message problem. Scope = **material (plate/brace) only**; guitar stays absolute on all
+three (already matching).
 
 Found during the 6-TEST Phase-4 (4b) status-message extraction.
 
@@ -115,4 +234,9 @@ complete!", with no "Processing…" intermediate. Both finalise the same measure
 intermediate status + the defer. Minor edge case (manual count reduction mid-capture is rare). **Which is
 canonical is genuinely open** — Python's synchronous finalise is arguably *better* here (no pending gated
 capture to wait for; Swift's defer is copy-pasted from the normal last-tap path that *does* need the window).
-Decide + align all three, then pin the branch 3-way in tap-count-change. Found during 6-TEST 4c.
+
+**DECISION (user, 2026-07-13) — PYTHON'S SYNCHRONOUS FINALISE WINS; align all three (Swift changes).** There is
+genuinely no pending gated capture to wait for on this path, so the `captureWindow` defer + the "Processing…"
+intermediate buy nothing; Swift's defer is an artifact of copy-pasting the normal last-tap path (which *does*
+need the window). This is a **deliberate cross-platform improvement that edits canonical Swift** — user gave
+buy-in explicitly. Then pin the branch 3-way in `test/tap-count-change`. Found during 6-TEST 4c.
