@@ -16,7 +16,15 @@ Maintain `@parity` tags + regenerate PARITY-MAP.md on any code change.
 
 ---
 
-## OUT-1 — Phase-guidance-through-warmup (Swift + Python)
+## OUT-1 — Phase-guidance-through-warmup (Swift + Python) — ✅ FIXED
+
+**Resolved by the status state-machine alignment ([STATUS-STATE-MACHINE.md](STATUS-STATE-MACHINE.md)):** the
+Swift/Python warm-up is now **silent** (it suppresses detection but no longer writes `statusMessage`), so the
+phase-guidance set at each transition survives — exactly as the web shows it. Verified by the "survives the
+warm-up" reveal tests added to StatusMessageTests (Swift + Python), which feed a warm-up frame and assert the
+guidance persists (they fail on the pre-alignment code). Original write-up below for history.
+
+
 
 The material phase status strings the web shows — `capturingC` → "Rotate 90° and tap for C", redo →
 "Ready for L/C/FLC tap — tap again", and the FLC prompt — are the **intended** canonical messages
@@ -94,3 +102,17 @@ detection (canonical = Swift/Python). If the absolute model is judged better, th
 (make Swift + Python absolute too) — get buy-in first. Design-for-review before editing canonical.
 
 Found during the 6-TEST Phase-4 (4b) status-message extraction.
+
+---
+
+## OUT-5 — Reduce-tap-count-mid-sequence: Swift defers with "Processing…", Python completes synchronously
+
+When the user reduces the tap count to at-or-below the taps already captured mid-sequence, Swift
+(`numberOfTaps.didSet`, TapToneAnalyzer.swift:245-251) sets `statusMessage = "All taps captured. Processing…"`,
+stops detection, and **defers** `processMultipleTaps()` by `captureWindow` (async). Python's `set_tap_num`
+(control.py:746-752) instead calls `process_multiple_taps()` **synchronously** — straight to "Analysis
+complete!", with no "Processing…" intermediate. Both finalise the same measurement; the difference is the brief
+intermediate status + the defer. Minor edge case (manual count reduction mid-capture is rare). **Which is
+canonical is genuinely open** — Python's synchronous finalise is arguably *better* here (no pending gated
+capture to wait for; Swift's defer is copy-pasted from the normal last-tap path that *does* need the window).
+Decide + align all three, then pin the branch 3-way in tap-count-change. Found during 6-TEST 4c.

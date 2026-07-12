@@ -373,8 +373,9 @@ export class TapToneAnalyzer {
       this.device?.startSessionRecording()
       this.device?.armMaterial(this.matSearch('longitudinal'))
     }
-    // capturingL resting prompt = the generic tap prompt (canonical post-warm-up steady state).
-    this.setStatusMessage(this.tapPrompt())
+    // capturingL arm prompt = "Ready for L tap" (mirrors Swift startTapSequence; the silent
+    // warm-up on Swift/Python now shows this too — was "Tap the guitar…", a divergence).
+    this.setStatusMessage(this.materialArmPrompt())
     this.notify()
   }
 
@@ -658,6 +659,19 @@ export class TapToneAnalyzer {
     return this.numberOfTaps === 1 ? 'Tap the guitar...' : `Tap the guitar ${this.numberOfTaps} times...`
   }
 
+  /** The material arm prompt for the longitudinal (first) phase — mirrors Swift startTapSequence's
+   *  brace/plate branch, including the multi-tap "×N each for …" variant. */
+  private materialArmPrompt(): string {
+    if (this.measurementType === 'brace') {
+      return this.numberOfTaps > 1 ? `Ready for fL tap (×${this.numberOfTaps})` : 'Ready for fL tap'
+    }
+    if (this.numberOfTaps > 1) {
+      const phases = this.measureFlc ? 'L, C, FLC' : 'L, C'
+      return `Ready for L tap (×${this.numberOfTaps} each for ${phases})`
+    }
+    return 'Ready for L tap'
+  }
+
   /** The resting "waiting for a tap" prompt for the current mode/phase (used on resume + tap-count change). */
   private restingPrompt(): string {
     if (this.isGuitar) {
@@ -672,7 +686,7 @@ export class TapToneAnalyzer {
       case 'capturingFlc':
         return 'Set up for FLC tap, then tap'
       default:
-        return this.tapPrompt() // capturingL / notStarted
+        return this.materialArmPrompt() // capturingL / notStarted → "Ready for L tap" (mirrors Swift)
     }
   }
 

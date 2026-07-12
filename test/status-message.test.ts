@@ -138,11 +138,16 @@ describe('statusMessage — guitar detection-loop strings', () => {
 })
 
 describe('statusMessage — material phase strings', () => {
-  it('capturingL rests at the tap prompt (NOT "Ready for L tap")', () => {
+  it('plate capturingL arms at "Ready for L tap" (mirrors Swift; brace → "Ready for fL tap")', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
     a.startMaterial(false)
-    expect(a.statusMessage).toBe('Tap the guitar...')
+    expect(a.statusMessage).toBe('Ready for L tap')
+
+    const b = new TapToneAnalyzer()
+    b.measurementType = 'brace'
+    b.startMaterial(false)
+    expect(b.statusMessage).toBe('Ready for fL tap')
   })
 
   it('Accept L → "Rotate 90° and tap for C"; Accept C (FLC) → "Set up for FLC tap, then tap"', () => {

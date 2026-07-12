@@ -434,10 +434,23 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
       Swift/Python set them imperatively so a state-driven suite can't reach them. **FOLLOW-UP (open, NOT tied to
       OUT-1):** pin these 3-way either via option B (assert the transient sequence inside the Swift/Python
       file-playback / gated-capture pipeline tests) or let it fall out of a future status-machine refactor.
-  - **4c — `tap-count-change`** (**Option B**, user-chosen): the behavior lives in a different layer on each
-    platform (Swift model `numberOfTaps.didSet` / web engine `setConfig` / Python **view**). Align Python's
-    `number_of_taps` to a model-level setter mirroring Swift's `didSet` (a production change), then assert the
-    armed-and-idle status refresh at the analyzer level on all three.
+  - **4c ✅ — `tap-count-change`** (**Option B**). **Key finding: no production change was needed.** The audit's
+    premise (Python's refresh "lives in the view") was incomplete — Python's `set_tap_num` (control.py:732)
+    *already* mirrors all three branches of Swift's `numberOfTaps.didSet` (armed-idle refresh, reduction→process,
+    loaded-warning clear), and the view delegates to it; the web's `setNumberOfTaps` mirrors it too. So the
+    model-level refresh already exists on all three (only the trigger idiom differs: Swift property `didSet` vs
+    Python/web setter method — left as-is, since converting Python's plain attr to a property would fire the
+    refresh on every internal assignment for zero behavioral gain). 4c became a test back-port: new
+    `GuitarTapTests/TapCountChangeTests.swift` (3 tests, green) + `tests/test_tap_count_change.py` (3, green) +
+    a model-level `describe` added to the web's `tap-count-change.test.ts` (3), pinning the shared behavior
+    (raise/lower while armed-idle refreshes the prompt; idle change is a no-op). **`test/tap-count-change` is
+    now 3-way.** The web's original engine-level `setConfig → onProgress` refire tests stay (a web-specific
+    progress-bar mechanism). **Discovered divergence (not pinned 3-way):** the reduce-count-≤-captured branch
+    diverges — Swift sets "All taps captured. Processing…" and *defers* processing by `captureWindow`, Python's
+    `set_tap_num` calls `process_multiple_taps` synchronously. Minor edge case → **OUT-5**.
+
+  **✅ PHASE 4 COMPLETE** — all four orphans resolved (guitar-fft + gated-capture retired in 4a; status-message
+  3-way in 4b; tap-count-change 3-way in 4c). `gen_parity_map.py --check` → **0 orphans, no problems**.
 - **Phase 5 — Reconcile folding + platform-only + wire coverage detection.** Make dsp/peaks/average and
   plate/brace split consistently (or document); document the Swift gesture suite and Python Qt suites as
   justified platform-only; settle the oracle-vs-hardcoded-goldens question. **Populate `tests=` on every
