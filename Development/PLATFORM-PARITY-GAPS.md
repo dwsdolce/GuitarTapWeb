@@ -64,3 +64,33 @@ The Metrics panel shows a blank ("-") **Bin Count** for plate/brace in the web; 
 Web-only: the App `metrics` useMemo gates `binCount: !material && captured ? captured.frequencies.length : null`,
 so material → null. Fix = show the FFT bin count for material too (from the live/continuous FFT — `GUITAR_FFT_SIZE`
 -based, the ~32,768 bins Swift/Python report). Swift/Python already correct.
+
+---
+
+## OUT-4 — Material tap-detection model: relative noise-floor EMA (Swift/Python) vs absolute dBFS (web)
+
+For **plate/brace** detection, Swift (`TapToneAnalyzer+TapDetection.swift:135-167`) and Python
+(`tap_tone_analyzer_tap_detection.py:88-110`) trigger **relative to an EMA-tracked noise floor**:
+`rising = noiseFloorEstimate + max(tapDetectionThreshold − noiseFloorEstimate, 10 dB)`, the floor updated by an
+EMA (`α = 0.05`) from every below-threshold chunk and re-anchored to the current level at warm-up exit — so
+detection adapts to ambient noise ("keeps detection working when ambient noise is elevated"; material taps are
+quiet). The **web** (`realtimeFFTAnalyzer.ts`) uses a **fixed absolute dBFS level-crossing** for all modes.
+`useRelativeDetection` is scoped to plate/brace on both native platforms (Swift :135-138 / Python :88);
+**guitar mode already matches** (all three absolute).
+
+**Masked in the regression tests** (REG-B1/REG-P1 pass on all three): `alignCaptureToOnset` re-anchors the FFT
+window to the sample-level onset, so a slightly different crossing point still yields the same peaks. The
+divergence bites in **live material-tap sensitivity** under elevated/varying ambient noise — which taps register
+at all — not in the computed peak values.
+
+**Couples with OUT-1.** On the canonical side the relative floor and the warm-up are entangled: warm-up *exit*
+re-anchors `noiseFloorEstimate` (`TapDetection:192-208`). So giving the web relative material detection also
+implies a **noise-floor settling window** — the timed warm-up the web currently lacks. OUT-1 (Swift/Python keep
+the warm-up but stop it owning the status) and OUT-4 (web gains the relative floor + a settling window) converge
+the three toward one detection architecture; tackle them together.
+
+**DECISION framework:** per *"What does Swift do?"* — port the relative noise-floor path to the web's material
+detection (canonical = Swift/Python). If the absolute model is judged better, that's a cross-platform change
+(make Swift + Python absolute too) — get buy-in first. Design-for-review before editing canonical.
+
+Found during the 6-TEST Phase-4 (4b) status-message extraction.

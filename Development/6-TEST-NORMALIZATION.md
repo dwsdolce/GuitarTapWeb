@@ -420,9 +420,20 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
     types/consts — all confirmed zero production callers. Retired both slugs + the duplicate
     `dsp/spectrum-average` tag; regenerated the map (63→61 groups). `file-playback` is the sole full-chain
     regression home. Suite green (29 files / 211 tests; tsc + lint clean).
-  - **4b — `status-message`** (genuinely untested on Swift *and* Python): new dedicated `StatusMessageTests`
-    on both, driving analyzer transitions and asserting the canonical strings (already 3c-aligned across the
-    three). The web's `status-message.test.ts` stays → clean 3-way slug.
+  - **4b ✅ — `status-message`** (was genuinely untested on Swift *and* Python): new
+    `GuitarTapTests/StatusMessageTests.swift` (10 tests, green via xcodebuild) + `tests/test_status_message.py`
+    (10 tests, green); the web's `status-message.test.ts` stays → **`test/status-message` is now a 3-way slug**
+    (verified in PARITY-MAP). The suites assert identical (3c-aligned) canonical strings; only the per-platform
+    driving differs (idiomatic, like scenario-trace). **Scope** — pins the state-reachable strings (arm/rest,
+    clipping, device-begin, paused/resume, completion frozen-across-recalc, loaded, plate completion). Two
+    families are intentionally excluded (documented in the suite headers):
+    - *Material phase-guidance* (Rotate 90°, Set up FLC, redo Ready-for-X) — warm-up-overwritten on
+      Swift/Python; rides **OUT-1** (added lock-step with that fix). A headless test would falsely green on them.
+    - *Per-tap capture PROGRESS transients* (`Tap n/N capturing…`, `…captured. Tap again…`, material per-tap /
+      review / no-resonance) — written mid-gated-capture; the web pins them via its explicit `setEngineState`,
+      Swift/Python set them imperatively so a state-driven suite can't reach them. **FOLLOW-UP (open, NOT tied to
+      OUT-1):** pin these 3-way either via option B (assert the transient sequence inside the Swift/Python
+      file-playback / gated-capture pipeline tests) or let it fall out of a future status-machine refactor.
   - **4c — `tap-count-change`** (**Option B**, user-chosen): the behavior lives in a different layer on each
     platform (Swift model `numberOfTaps.didSet` / web engine `setConfig` / Python **view**). Align Python's
     `number_of_taps` to a model-level setter mirroring Swift's `didSet` (a production change), then assert the
