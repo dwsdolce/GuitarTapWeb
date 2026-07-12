@@ -19,7 +19,7 @@ Maintain `@parity` tags + regenerate PARITY-MAP.md on any code change.
 ## ✅ OUT-2 + OUT-3 — DONE, USER RUN-REVIEWED (2026-07-13)
 
 User verified the Metrics panel (Bin Count), the tap count, and the progress bar **on all three
-platforms**. Commit messages: `Development/COMMIT-MESSAGES.md`.
+platforms**. Committed.
 Suites: Swift 342 · Python 403 · Web 224, all green.
 
 ### The run-review found 6 bugs the green suites missed. This is the root cause:
@@ -224,7 +224,53 @@ Found during the 6-TEST Phase-4 (4b) status-message extraction.
 
 ---
 
-## OUT-5 — Reduce-tap-count-mid-sequence: Swift defers with "Processing…", Python completes synchronously
+## OUT-5 — Reduce-tap-count-mid-sequence — ⏳ RESOLVED BY DELETION, NOT VERIFIED
+
+> **STATUS: code written, awaiting the user's run-review.** Suites: Swift 345 · Python 406 · Web 227.
+
+**Resolution: the branch was DEAD CODE. Deleted from Swift and Python; the web never had it.**
+
+The Taps stepper is disabled the moment a sequence has a tap — `.disabled(currentTapCount > 0 &&
+!isMeasurementComplete)` in Swift (both stepper sites), `setEnabled(not (captured > 0 and not
+complete))` in Python, `tapsLocked` in the web. **The count cannot be changed mid-sequence on any
+platform; you must cancel first.** User confirmed by testing Swift directly. So the
+"reduce-the-count → finalise with what you have" branch could never fire from the UI.
+
+And because it was unreachable, it had silently drifted **three ways**:
+
+| | behaviour |
+|---|---|
+| **Swift** | deferred `processMultipleTaps()` by `captureWindow`, showed "All taps captured. Processing…", and averaged **ALL** captured taps (reduce 5→3 → averaged 5) |
+| **Python** | finalised **synchronously** and **truncated**: `del captured_taps[new_num:]` (reduce 5→3 → averaged 3) |
+| **Web** | no branch at all |
+
+Three implementations of an unreachable feature, producing three different measurements. Deleted
+rather than reconciled — **no reachable behaviour changes.** It was also a latent trap:
+`loadMeasurement` writes `numberOfTaps`, so a load during a live sequence would have kicked off
+`processMultipleTaps()` mid-load, guarded only by call ordering.
+
+**What stays** (live, and tested): the prompt refresh when the count changes while armed *before* any
+tap (`currentTapCount == 0` → "Tap the guitar N times…"). That is the legitimate use of the stepper,
+and exactly when it is enabled.
+
+**Superseded ideas, recorded so they are not re-proposed:** *(a)* reconcile the branch (truncate +
+union guard + sync finalise) — unnecessary, the code is unreachable; *(b)* make a mid-sequence count
+change **cancel and restart** the sequence — rejected: it is destructive (silently discards captured
+taps, in both the raise and reduce directions), and it only takes effect if the stepper is *unlocked*,
+which is the very thing we do not want. The lock already expresses the intent.
+
+**Pinned 3-way** in `test/tap-count-change` (`NoImplicitFinaliseTests` / `TestNoImplicitFinalise` /
+`describe('OUT-5 …')`): a count change with taps in hand must not complete the measurement, must not
+truncate `capturedTaps`, and must not stop detection.
+
+**Follow-up worth tracking (NOT done):** the stepper-lock rule itself lives in the **view** on all
+three (`App.tsx`'s `tapsLocked`, Swift's `.disabled(...)`, Python's `_update_tap_buttons`) — it is
+**not** in the canonical `buttonEnablement` rule module and is not pinned 3-way. It is load-bearing
+(it is what makes the branch unreachable), so it belongs in the rule module.
+
+Original write-up follows.
+
+## OUT-5 (original) — Swift defers with "Processing…", Python completes synchronously
 
 When the user reduces the tap count to at-or-below the taps already captured mid-sequence, Swift
 (`numberOfTaps.didSet`, TapToneAnalyzer.swift:245-251) sets `statusMessage = "All taps captured. Processing…"`,

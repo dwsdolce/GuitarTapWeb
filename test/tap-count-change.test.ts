@@ -91,3 +91,52 @@ describe('tap-count change refreshes the status prompt (model — mirrors Swift 
     expect(a.statusMessage).toBe('Tap the guitar to begin')
   })
 })
+// OUT-5: there is deliberately NO "reduce the count mid-sequence → finalise with the taps already
+// captured" branch on any platform. The Taps stepper is disabled from the first captured tap
+// (`currentTapCount > 0 && !isMeasurementComplete`), so the count cannot change mid-sequence — you
+// cancel first. The branch that used to exist in Swift and Python was unreachable, and being
+// unreachable it had drifted three ways (Swift deferred + averaged ALL taps; Python finalised
+// synchronously + TRUNCATED to the new count; the web never had it). It was removed rather than
+// reconciled. These tests pin that removal: a count change with taps in hand must NOT finalise.
+describe('OUT-5 — changing the count with taps captured must NOT implicitly finalise', () => {
+  const spectrum = () => ({
+    magnitudesDb: Array.from({ length: 64 }, () => -60),
+    frequencies: Array.from({ length: 64 }, (_, i) => i * 30),
+  })
+
+  function armedWithTaps(total: number, taps: number): TapToneAnalyzer {
+    const a = new TapToneAnalyzer()
+    a.setNumberOfTaps(total)
+    a.startTapSequence()
+    a.beginGuitarAccumulation()
+    for (let i = 0; i < taps; i++) a.recordGuitarTap(spectrum())
+    return a
+  }
+
+  it('lowering the count TO the captured tap count does not complete the measurement', () => {
+    const a = armedWithTaps(4, 2) // 2 of 4 captured
+    a.setNumberOfTaps(2) // count == captured — the old Swift/Python branch would have finalised here
+
+    expect(a.isMeasurementComplete).toBe(false)
+    expect(a.isDetecting).toBe(true)
+    expect(a.capturedTaps.length).toBe(2) // not truncated, not averaged away
+  })
+
+  it('lowering the count BELOW the captured tap count does not complete or truncate', () => {
+    const a = armedWithTaps(4, 3)
+    a.setNumberOfTaps(1) // captured (3) > new total (1)
+
+    expect(a.isMeasurementComplete).toBe(false)
+    expect(a.isDetecting).toBe(true)
+    expect(a.capturedTaps.length).toBe(3) // Python used to `del captured_taps[new_num:]`
+  })
+
+  it('raising the count keeps the taps already captured', () => {
+    const a = armedWithTaps(3, 2)
+    a.setNumberOfTaps(5)
+
+    expect(a.isMeasurementComplete).toBe(false)
+    expect(a.capturedTaps.length).toBe(2)
+    expect(a.numberOfTaps).toBe(5)
+  })
+})
