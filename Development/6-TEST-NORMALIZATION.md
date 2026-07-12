@@ -1,9 +1,13 @@
 # 6-TEST — Cross-Platform Test Normalization
 
-**Status:** **Phases 1–3 ✅ COMPLETE** (Phase 1 analysis/name-map 2026-07-09; Phase 2 web→Swift-spine naming
-2026-07-09; Phase 3 behavioral backfill + 3c consolidation + PC-1..4 + EG-1/2/3 + PC-1 docs, 2026-07-12), green
-(web 144 · Python 376). **NEXT: Phase 4** — back-port the 4 web-only suites to Swift+Python. Created 2026-07-09.
-Tracked as the last open Phase-6 item (see `PHASE6-PARITY.md` § 6-TEST) and in `STATUS.md`.
+> **✅ COMPLETE (Phases 1–6).** This is now the **project history** — how the suites were normalized. The
+> **living coverage reference** (what's covered, how to check, the tooling) is **`GuitarTap/TEST-COVERAGE.md`** —
+> in the canonical Swift repo, alongside the `PARITY-MAP.md` it describes (not here in `Development/`).
+
+**Status:** **Phases 1–6 ✅ COMPLETE.** 1 analysis/name-map · 2 web→Swift-spine naming · 3 behavioral backfill +
+3c consolidation + PC-1..4 + EG-1/2/3 + docs · 4 orphan back-ports (guitar-fft/gated-capture retired,
+status-message + tap-count-change 3-way; 0 orphans) · 5 `tests=` population + coverage-gap report + platform-only
+tags + folding/oracle docs · 6 living coverage doc (`GuitarTap/TEST-COVERAGE.md`) + rule + documented gates. Created 2026-07-09.
 
 ### Progress log
 - **Phase 1 (2026-07-09):** analysis + coverage matrix + name-map ledger + coverage-gap mechanism. Reviewed.
@@ -484,9 +488,13 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
     persistence + effective-peak-id). Impl coverage is transitive via file-playback except analysis-quality (the one
     real gap above). Left untagged to keep `--check` at 0 orphans; a future back-port would make them 3-way slugs.
   - **Verify:** `gen_parity_map.py --check` = **61 groups, 2 platform-specific, no problems (0 orphans)**; `--gaps` = 2.
-- **Phase 6 — Contract doc + rule + CI gate.** Finalize this matrix as the living coverage doc; add the
-  "change shared behavior → update all three" rule; wire `--check` (missing-on-some) + the coverage-gap
-  report (missing-on-all) as CI gates; update `STATUS.md`.
+- **Phase 6 ✅ COMPLETE — contract doc + rule + gates.** The living coverage reference is now
+  **`GuitarTap/TEST-COVERAGE.md`** in the canonical Swift repo (the `@parity` system, the matrix + equivalence
+  levels, the "change shared behavior → update all three" rule, how to run the tools, current
+  gaps/reverse-gaps/platform-only, and the two gates). `Tooling/parity/README.md` gained the `--gaps` command.
+  **CI:** no pipeline exists in any repo yet → `--check` (missing-on-some) + `--gaps` (missing-on-all) are
+  documented **local/pre-commit** gates, to become hard CI gates when a pipeline is added. **6-TEST normalization
+  is COMPLETE** — this doc is the project history; `GuitarTap/TEST-COVERAGE.md` is the living reference.
 
 ## Open decisions (settled)
 1. **Rename web files for parity** — **YES** (user, 2026-07-09). Web filenames become the behavior slug;
