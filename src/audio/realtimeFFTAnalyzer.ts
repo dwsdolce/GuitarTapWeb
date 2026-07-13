@@ -111,6 +111,25 @@ const PEAK_HOLD_SECONDS = 2.0
 
 const CONFIRM_CHUNKS = 2
 
+// ── OUT-4 detection constants — canonical values from Swift/Python ────────────────────────────────
+// Falling threshold = rising − HYSTERESIS_MARGIN, so the ring-out decay cannot re-trigger a tap on
+// its way down. Swift `hysteresisMargin` / Python `hysteresis_margin`, both 3.0. It was once
+// user-settable (the `.guitartap` format still has the fossil) and is now a constant.
+const HYSTERESIS_MARGIN = 3.0
+
+// Noise-floor EMA (material only). Swift `noiseFloorAlpha` / Python `noise_floor_alpha`.
+const NOISE_FLOOR_ALPHA = 0.05
+const NOISE_FLOOR_INITIAL_DB = -60
+
+// Minimum headroom over the noise floor for a material tap. The 10 dB floor rejects small ambient
+// spikes (typically 1–4 dB above the floor) while still catching real taps (12–30 dB above it).
+const NOISE_FLOOR_MIN_HEADROOM_DB = 10
+// The falling threshold keeps at least this much headroom over the floor.
+const NOISE_FLOOR_MIN_FALLING_HEADROOM_DB = 4
+
+// Detection warm-up, in seconds of AUDIO. Swift `warmupPeriod` / Python `warmup_period`.
+const WARMUP_SECONDS = 0.5
+
 interface ChunkMessage {
   samples: Float32Array
   rms: number
@@ -166,6 +185,32 @@ export class RealtimeFFTAnalyzer {
   // Tap detection state.
   private prevAbove = true
   private consecutive = 0
+
+  // ── Hysteresis (OUT-4) — mirrors Swift/Python `isAboveThreshold` ────────────────────────────────
+  // NOT the same thing as `prevAbove`. `prevAbove` is edge-detection state (was the LAST chunk above
+  // the rising threshold?). `isAboveThreshold` is a LATCH: it goes true at the rising threshold and
+  // only clears at the lower FALLING threshold, so the ring-out decay envelope cannot re-trigger a
+  // tap on its way down. The web had no hysteresis at all — in guitar mode either. Swift and Python
+  // have carried `hysteresisMargin = 3.0` all along.
+  private isAboveThreshold = false
+
+  // ── Noise-floor EMA (OUT-4) — mirrors Swift/Python `noiseFloorEstimate` ─────────────────────────
+  // Material (plate/brace) detects RELATIVE to the tracked ambient floor, not against a fixed dBFS
+  // level. The rule reduces to `rising = max(threshold, noiseFloor + 10 dB)` — i.e. it is the absolute
+  // threshold with a FLOOR under it, so it only differs once the room gets loud. That is what keeps
+  // detection working when ambient noise is elevated; a fixed threshold simply saturates (the level
+  // never drops below it, so no rising edge can ever be confirmed) and the app goes deaf.
+  // Guitar stays absolute. See Development/OUT-4-DETECTION-SPEC.md.
+  private noiseFloorEstimate = NOISE_FLOOR_INITIAL_DB
+
+  // ── Detection warm-up (OUT-4) — mirrors Swift/Python `warmupStartAudioTime` ─────────────────────
+  // Value of the AUDIO clock when the sequence armed; detection is suppressed for WARMUP_SECONDS of
+  // AUDIO after it. SILENT — it never writes a status message (that was OUT-1). Its real job is to
+  // let the noise-floor EMA converge before the first tap is judged, and to re-anchor the floor to
+  // real audio at exit. Measured on the audio clock, never the wall clock: the warm-up must cover the
+  // first 0.5 s of AUDIO however long setup took. `null` = not armed / warm-up skipped.
+  private warmupStartAudioTime: number | null = null
+  private justExitedWarmup = false
 
   // Ring-out (decay) tracking — guitar only; fed the broadband level per chunk on an audio clock.
   private decay = new DecayTracker()
@@ -307,6 +352,10 @@ export class RealtimeFFTAnalyzer {
     this.guitarTapCount = 0
     this.prevAbove = true
     this.consecutive = 0
+    // Guitar SKIPS the warm-up during file playback: an externally recorded guitar file may put the
+    // tap inside the first 0.5 s, and guitar detects against the absolute threshold so it never reads
+    // the noise floor. Live, it runs the warm-up like everything else.
+    this.armWarmup(this.playingFile)
     this.decay.reset() // New Tap → drop any prior ring-out (the next tap re-seeds it)
     this.lastDecay = null
     this.callbacks.onDecay?.(null)
@@ -326,6 +375,11 @@ export class RealtimeFFTAnalyzer {
     this.capture = this.materialCapture
     this.prevAbove = true
     this.consecutive = 0
+    // Material ALWAYS runs the warm-up — live and playback alike. It is the only mode that uses the
+    // relative noise-floor detector, and the warm-up is what establishes that floor (it feeds the EMA
+    // and re-anchors it to real audio at exit). Also re-armed between taps/phases, which additionally
+    // stops the previous tap's ring-out from re-triggering while the plate is repositioned.
+    this.armWarmup(false)
     this.setState('listening')
   }
 
@@ -351,6 +405,8 @@ export class RealtimeFFTAnalyzer {
     if (this.state !== 'paused') return
     this.prevAbove = true
     this.consecutive = 0
+    // Resuming re-arms detection, so it re-runs the warm-up (mirrors Swift resumeTapDetection).
+    this.armWarmup(this.playingFile && this.captureKind === 'guitar')
     if (this.sessionActive) this.sessionRecording = true // resume accumulating into the session WAV
     this.setState('listening')
   }
@@ -697,7 +753,7 @@ export class RealtimeFFTAnalyzer {
     this.feedContinuous(s)
     this.feedPreroll(s)
     if (this.state === 'capturing') this.feedCapture(s)
-    else if (this.state === 'listening') this.detectTap(db)
+    else if (this.state === 'listening') this.detectTap(db, this.audioElapsed)
   }
 
   /** Play decoded mono samples through the live pipeline (no mic) — the web equivalent of Swift
@@ -840,8 +896,80 @@ export class RealtimeFFTAnalyzer {
   }
 
   // ── Tap detection (2-chunk rising-edge level crossing) ────────────────────
-  private detectTap(levelDb: number): void {
-    const above = levelDb > this.config.tapDetectionThreshold
+  /** Rising-edge tap detector. Mirrors Swift `detectTap(level:audioTime:…)` / Python `detect_tap`.
+   *
+   *  `audioTime` is THIS chunk's audio-clock value, passed in rather than read from `this.audioElapsed`,
+   *  so the warm-up is anchored to the chunk being judged. (On the web the pipeline is synchronous so
+   *  the two coincide, but Swift delivers this across a thread hop where they do NOT — reading the clock
+   *  at the consumer there silently skipped the warm-up entirely. Same signature everywhere.)
+   *
+   *  Three things happen here, in the canonical order:
+   *    1. noise-floor EMA (material only, and only while NOT latched above — tap energy must not
+   *       inflate the floor). Runs during the warm-up too: that is the most valuable time, since no
+   *       taps have happened yet.
+   *    2. effective thresholds — absolute for guitar, noise-floor-relative for material.
+   *    3. warm-up gate, then hysteresis + N-chunk confirmation.
+   */
+  private detectTap(levelDb: number, audioTime: number): void {
+    const useRelative = this.captureKind === 'material'
+    const threshold = this.config.tapDetectionThreshold
+
+    // 1. Noise-floor EMA — only while below threshold, so a tap cannot inflate the floor.
+    if (useRelative && !this.isAboveThreshold) {
+      this.noiseFloorEstimate =
+        NOISE_FLOOR_ALPHA * levelDb + (1 - NOISE_FLOOR_ALPHA) * this.noiseFloorEstimate
+    }
+
+    // 2. Effective thresholds.
+    //    Guitar   — absolute (unchanged behaviour), now WITH a falling threshold it never had.
+    //    Material — relative to the tracked floor. Note this reduces to
+    //                   rising = max(threshold, noiseFloor + 10)
+    //               so it IS the absolute rule until the room gets loud enough to lift the floor.
+    let rising: number
+    let falling: number
+    if (useRelative) {
+      const headroom = Math.max(threshold - this.noiseFloorEstimate, NOISE_FLOOR_MIN_HEADROOM_DB)
+      rising = this.noiseFloorEstimate + headroom
+      falling =
+        this.noiseFloorEstimate +
+        Math.max(headroom - HYSTERESIS_MARGIN, NOISE_FLOOR_MIN_FALLING_HEADROOM_DB)
+    } else {
+      rising = threshold
+      falling = threshold - HYSTERESIS_MARGIN
+    }
+
+    // 3a. Warm-up — SILENT (it never writes a status message; that was OUT-1). Suppresses detection
+    //     while the EMA converges, measured on the AUDIO clock against this chunk's timestamp.
+    if (this.warmupStartAudioTime !== null && audioTime - this.warmupStartAudioTime < WARMUP_SECONDS) {
+      this.justExitedWarmup = true // the NEXT frame is the first after warm-up
+      return
+    }
+
+    // 3b. First frame after the warm-up: re-anchor the floor to real audio. The EMA may have been
+    //     seeded before any audio arrived, and without this it can latch at a garbage value and the
+    //     relative rule silently degrades to the absolute one.
+    if (this.justExitedWarmup) {
+      this.justExitedWarmup = false
+      if (useRelative) {
+        this.noiseFloorEstimate = levelDb
+        const h = Math.max(threshold - this.noiseFloorEstimate, NOISE_FLOOR_MIN_HEADROOM_DB)
+        this.isAboveThreshold = levelDb > this.noiseFloorEstimate + h
+      } else {
+        this.isAboveThreshold = levelDb > rising
+      }
+      return // sync state only; do not detect on this frame
+    }
+
+    // 3c. Hysteresis + confirmation. `isAboveThreshold` latches at `rising` and only clears at the
+    //     lower `falling`, so the ring-out decay cannot re-trigger. A tap additionally requires
+    //     CONFIRM_CHUNKS consecutive above-rising chunks, which rejects brief noise bumps.
+    const above = levelDb > rising
+    if (this.isAboveThreshold) {
+      if (levelDb <= falling) this.isAboveThreshold = false
+    } else if (above) {
+      this.isAboveThreshold = true
+    }
+
     if (above) {
       if (this.consecutive > 0) this.consecutive++
       else if (!this.prevAbove) this.consecutive = 1
@@ -857,6 +985,21 @@ export class RealtimeFFTAnalyzer {
       this.consecutive = 0
     }
     this.prevAbove = above
+  }
+
+  /** Arm the detection warm-up on the AUDIO clock, and reset the noise floor for a fresh sequence.
+   *
+   *  `skip` backdates the window so it has already elapsed — used for GUITAR file playback only:
+   *  an externally recorded guitar file may put the tap inside the first 0.5 s, and guitar detects
+   *  against the absolute threshold, so it never reads the noise floor and loses nothing.
+   *  MATERIAL always runs the warm-up (live and playback): it is the only mode that uses the floor,
+   *  and the warm-up is what establishes it. See Development/OUT-4-DETECTION-SPEC.md.
+   */
+  private armWarmup(skip: boolean): void {
+    this.warmupStartAudioTime = skip ? this.audioElapsed - (WARMUP_SECONDS + 0.1) : this.audioElapsed
+    this.justExitedWarmup = false
+    this.isAboveThreshold = false
+    this.noiseFloorEstimate = NOISE_FLOOR_INITIAL_DB
   }
 
   private beginCapture(): void {

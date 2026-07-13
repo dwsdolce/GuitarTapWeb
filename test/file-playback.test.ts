@@ -12,7 +12,17 @@ import { modePeaksFromSpectrum, type Spectrum } from '../src/dsp/guitarFFT'
 // selection / mode classification → (material) auto-advanced phase machine. The web mirror of
 // Swift's FilePlaybackRegressionTests (TapToneAnalyzer.forTesting() + playFileForTesting): same
 // fixtures, same parity-oracle.json values, same ±1 tolerances. `initForTesting()` runs the engine
-// headlessly (no AudioContext/mic) and `pace:false` runs the chunk pump synchronously.
+// headlessly (no AudioContext/mic).
+//
+// PLAYBACK IS REAL-TIME PACED (`pace: true`, the default) — deliberately, and it must stay that way.
+// Swift and Python pace their playback in real time (`Thread.sleep` / `time.sleep(chunk_duration)`).
+// The web used to run `pace: false` (as fast as it could), which made it the ONLY platform not running
+// the same thing — and anything wall-clock-dependent (the detection warm-up, which is what establishes
+// the noise floor for plate/brace) could not be exercised here at all. Running un-paced silently skipped
+// the detection path live users take. See GuitarTapWeb/Development/OUT-4-DETECTION-SPEC.md.
+//
+// The cost is real (~90 s of fixture audio) and accepted: it is the price of the three platforms
+// actually running the same code path. Tests carry explicit timeouts sized to their fixture.
 
 const oracle = JSON.parse(
   readFileSync(new URL('./fixtures/parity-oracle.json', import.meta.url), 'utf8'),
@@ -68,7 +78,7 @@ async function playGuitar(
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
   engine.initForTesting()
-  await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration), pace: false })
+  await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration) })
   if (!complete) return null
   const spectrum: Spectrum = { magnitudesDb: analyzer.frozenMagnitudes, frequencies: analyzer.frozenFrequencies }
   const taps =
@@ -100,7 +110,6 @@ async function playMaterial(
   analyzer.startMaterial(false) // arm the analyzer's phase machine (playFile arms the device for playback)
   await engine.playFile(wav.samples, wav.sampleRate, {
     material: { brace, measureFlc: reg.settings.measureFlc ?? false, calibration: loadCal(reg.calibration) },
-    pace: false,
   })
   // Collect one result per completed phase off the analyzer (the engine auto-advanced L→C→(FLC)).
   const phases: MaterialPhaseName[] = brace
@@ -130,7 +139,7 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
       expect(Math.abs(p!.frequency - exp.frequency)).toBeLessThan(TOL.freqHz)
       expect(Math.abs(p!.magnitude - exp.magnitude)).toBeLessThan(TOL.magDb)
     }
-  })
+  }, 20_000)
 
   it('REG-G2: generic-guitar 8 taps → 8 captured + averaged Air/Top/Back', async () => {
     const reg = oracle.filePlayback['REG-G2']
@@ -147,7 +156,7 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
       expect(Math.abs(p!.frequency - exp.frequency)).toBeLessThan(TOL.freqHz)
       expect(Math.abs(p!.magnitude - exp.magnitude)).toBeLessThan(TOL.magDb)
     }
-  })
+  }, 60_000)
 
   // Per-tap Air/Top/Back for all 8 taps. The web parity-oracle.json carries only averagedPeaks for
   // REG-G2, so these references are the hardcoded values from Swift FilePlaybackRegressionTests
@@ -182,7 +191,7 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
       expect(Math.abs(modes.back!.frequency - backF)).toBeLessThan(TOL.freqHz)
       expect(Math.abs(modes.back!.magnitude - backM)).toBeLessThan(TOL.magDb)
     })
-  })
+  }, 60_000)
 
   it('REG-B1: brace session → fL via the engine material session', async () => {
     const reg = oracle.filePlayback['REG-B1']
@@ -194,7 +203,7 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
     expect(Math.abs(cap.peak!.frequency - exp.frequency)).toBeLessThan(TOL.freqHz)
     expect(Math.abs(cap.peak!.magnitude - exp.magnitude)).toBeLessThan(TOL.magDb)
     expect(Math.abs(cap.peak!.quality - exp.q!)).toBeLessThan(TOL.q)
-  })
+  }, 30_000)
 
   it('REG-P1: plate full session → fL/fC/fLC via the engine auto-advancing phases', async () => {
     const reg = oracle.filePlayback['REG-P1']
@@ -209,7 +218,38 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
       expect(Math.abs(cap!.peak!.magnitude - exp.magnitude)).toBeLessThan(TOL.magDb)
       expect(Math.abs(cap!.peak!.quality - exp.q!)).toBeLessThan(TOL.q)
     }
-  })
+  }, 90_000)
+
+  // ── OUT-4: the one test that can tell the two detection models apart ────────────────────────────
+  //
+  // Swift/Python detect material taps against an EMA-tracked noise floor; the web uses a fixed
+  // absolute dBFS threshold. The relative rule reduces to
+  //     rising = max(tapDetectionThreshold, noiseFloor + 10 dB)
+  // so the two are the SAME FUNCTION until the floor climbs within 10 dB of the threshold. Every other
+  // fixture sits at -64..-69 dBFS, far below that — which is why no test has ever separated them.
+  //
+  // This fixture is the clean plate session with its noise floor raised to -52 dBFS (above the -53.34
+  // threshold). At that floor the ABSOLUTE detector SATURATES: `above` is permanently true, so
+  // `prevAbove` never falls, `consecutive` never seeds, and NO tap is ever confirmed — it captures
+  // nothing. The RELATIVE detector floats its threshold to floor+10 = -42 and still catches every tap
+  // (they peak at -24..-27 dBFS chunk-RMS). That is exactly the failure the relative model exists to
+  // prevent: "keeps detection working when ambient noise is elevated".
+  //
+  // Assert the PHASE COUNT, not peak values: the added noise sums into the gated FFT, so fL/fC/fLC
+  // shift slightly. A tight peak assertion here would be measuring the noise, not the detector. The
+  // clean fixtures keep the strict peak assertions.
+  //
+  // Regenerate the fixture with `python3 tooling/make-noisy-fixture.py` (deterministic, seeded).
+  // Full analysis: Development/OUT-4-DETECTION-SPEC.md
+  it('OUT-4: noisy plate (floor -52 dBFS) → relative noise-floor detection still captures all 3 phases', async () => {
+    const reg = oracle.filePlayback['REG-P1']
+    const caps = await playMaterial({ ...reg, fixture: 'plate-umik-1-noisy-52.wav' }, false)
+    expect(
+      caps.length,
+      'absolute-threshold detection saturates on an elevated noise floor and captures nothing; ' +
+        'the noise-floor-relative detector still finds all three taps',
+    ).toBe(3)
+  }, 90_000)
 })
 
 // 6f: continuous session recording (Swift finishSessionRecording). When the dump-capture diagnostic
@@ -230,7 +270,7 @@ async function playGuitarSession(
     },
   )
   engine.initForTesting()
-  await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration), pace: false })
+  await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration) })
   return { wav, sessions }
 }
 
@@ -245,18 +285,18 @@ describe('G11 — continuous session recording (6f)', () => {
     // robust to capture-window/detection-timing tweaks.)
     expect(sessions[0]!.samples.length).toBeGreaterThan(8192)
     expect(sessions[0]!.samples.length).toBeLessThanOrEqual(wav.samples.length)
-  })
+  }, 20_000)
 
   it('REG-G2 multi-tap: session labeled by the tap count (Guitar_8tap)', async () => {
     const { sessions } = await playGuitarSession(oracle.filePlayback['REG-G2'], true)
     expect(sessions).toHaveLength(1)
     expect(sessions[0]!.label).toBe('Guitar_8tap')
-  })
+  }, 60_000)
 
   it('dump off (default): no session WAV is emitted or buffered', async () => {
     const { sessions } = await playGuitarSession(oracle.filePlayback['REG-G1'], false)
     expect(sessions).toHaveLength(0)
-  })
+  }, 20_000)
 })
 // 6k: multi-tap averaging per MATERIAL phase. plate-umik-1-web-mac-3-taps.wav is a 3-taps-per-phase
 // plate session recorded by the web app (Chrome, UMIK-1). Replaying it at numberOfTaps=3 averages each
@@ -293,5 +333,5 @@ describe('G11 — multi-tap averaging per material phase (6k)', () => {
       expect(Math.abs(cap!.peak!.magnitude - em), `${phase} mag`).toBeLessThan(P2_MAG_TOL)
       expect(Math.abs(cap!.peak!.quality - eq), `${phase} Q`).toBeLessThan(TOL.q)
     }
-  })
+  }, 120_000)
 })

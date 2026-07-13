@@ -224,9 +224,10 @@ Found during the 6-TEST Phase-4 (4b) status-message extraction.
 
 ---
 
-## OUT-5 — Reduce-tap-count-mid-sequence — ⏳ RESOLVED BY DELETION, NOT VERIFIED
+## OUT-5 — Reduce-tap-count-mid-sequence — ✅ DONE (user run-reviewed + committed 2026-07-13)
 
-> **STATUS: code written, awaiting the user's run-review.** Suites: Swift 345 · Python 406 · Web 227.
+> User confirmed guitar and plate sequences still work; reachable behaviour unchanged, as intended.
+> Suites: Swift 345 · Python 406 · Web 227.
 
 **Resolution: the branch was DEAD CODE. Deleted from Swift and Python; the web never had it.**
 
