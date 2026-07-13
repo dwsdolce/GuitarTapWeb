@@ -12,8 +12,10 @@ _Last updated: 2026-07-13._
 
 | # | Item | Status | Detail doc |
 |---|---|---|---|
-| 1 | **Architectural-parity restructure** (view layer) | Needs its own **spec** before any code moves — write it and size it first. Lands the two parked test items (frozen-peak-recalc's selection half + `annotation-state` going 3-way). | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
-| 2 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes). The **systemBlue token** now on all three (progress bar, phase label, Peak readout) is the seam this work owns. | [THEME-SPEC.md](THEME-SPEC.md) |
+| 1 | **Re-analyze enablement (`canReanalyze`)** | ⏳ **CODE WRITTEN, NOT VERIFIED** (all 3; suites green: Swift 351 · Python 459 · Web 233). Re-analyze is now offered for **any complete guitar measurement with a frozen spectrum**, never material. It is a **reset**, not a dirty-flag: enabled when it *could* do something, not only when we can prove it *will*. The old rule (`loadedMeasurementPeaks != nil`) was a stale-peaks proxy that was wrong both ways — it disabled itself after one press (the one-shot), and never lit up for a live capture whose mode assignments had drifted. Predicate now lives on the analyzer; all 3 views bind to it. **Needs a run-review on all 3.** | — (see the `canReanalyze` doc-comment) |
+| 2 | **Release notes — all 3 platforms** | Pending: user bumps the build number first. **Ask how release notes work here before writing any** — earlier inferences about location/format were wrong. | — |
+| 3 | **Architectural-parity restructure** (view layer) | Needs its own **spec** before any code moves — write it and size it first. Lands the two parked test items (frozen-peak-recalc's selection half + `annotation-state` going 3-way). | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
+| 4 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes). The **systemBlue token** now on all three (progress bar, phase label, Peak readout) is the seam this work owns. | [THEME-SPEC.md](THEME-SPEC.md) |
 
 ## Done (for reference)
 

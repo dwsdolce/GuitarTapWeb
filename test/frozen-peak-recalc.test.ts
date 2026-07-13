@@ -137,3 +137,72 @@ describe('frozen-peak-recalc — loaded peaks are authoritative (PR2c) + live/ma
     expect(a.peaks).toHaveLength(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// PR8: canReanalyze — when the Re-analyze button is offered
+// ---------------------------------------------------------------------------
+//
+// Re-analyze is a RESET, not a dirty-flag indicator: it is offered whenever it COULD do
+// something, not only when we can prove it WILL. What can leave the displayed analysis differing
+// from a clean re-derivation is open-ended (peaks came from a file; mode assignments carried
+// forward across Peak Min moves instead of being re-claimed; the analysis range moved; selections
+// were hand-edited), and the two failure modes are not symmetric — a wrongly-DISABLED button is a
+// dead end, a wrongly-ENABLED one costs a pointless click. So: any complete guitar measurement
+// with a frozen spectrum; never material.
+//
+// This replaces `loadedPeaks == null`, a proxy for "the peaks are stale" that was wrong in both
+// directions — it disabled itself after one press (the web comment even recorded the one-shot as
+// intended), and never lit up for a live capture whose mode assignments had drifted.
+//
+// Mirrors Swift FrozenPeakRecalculation_CanReanalyzeTests / Python TestPR8CanReanalyze.
+describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
+  it('PR8a: a live (never-loaded) frozen capture can be re-analyzed', () => {
+    const a = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(a, mags, freqs)
+    recalc(a) // fresh capture — loadedPeaks null
+    expect(a.canReanalyze).toBe(true)
+  })
+
+  it('PR8b: a loaded measurement can be re-analyzed', () => {
+    const a = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(a, mags, freqs)
+    recalc(a, { loadedPeaks: [peak(200, -25)] })
+    expect(a.canReanalyze).toBe(true)
+  })
+
+  it('PR8c: it is not a one-shot — still available after the loaded peaks are dropped', () => {
+    const a = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(a, mags, freqs)
+    recalc(a, { loadedPeaks: [peak(200, -25)] })
+    expect(a.canReanalyze).toBe(true)
+
+    recalc(a, { loadedPeaks: null }) // what the App's reanalyze() does: clears the loaded peaks
+    expect(a.canReanalyze).toBe(true)
+  })
+
+  it('PR8d: material can never be re-analyzed', () => {
+    for (const mt of ['plate', 'brace'] as const) {
+      const a = new TapToneAnalyzer()
+      a.measurementType = mt
+      const { mags, freqs } = makeSpectrum(200, -20)
+      frozen(a, mags, freqs)                                        // even WITH a frozen spectrum…
+      recalc(a, { material: true, loadedPeaks: [peak(200, -20)] })  // …and loaded peaks
+      expect(a.canReanalyze, `${mt} must never offer Re-analyze`).toBe(false)
+    }
+  })
+
+  it('PR8e: nothing to re-analyze without a completed measurement and a frozen spectrum', () => {
+    const noSpectrum = new TapToneAnalyzer()
+    noSpectrum.isMeasurementComplete = true
+    expect(noSpectrum.canReanalyze).toBe(false)
+
+    const incomplete = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(incomplete, mags, freqs)
+    incomplete.isMeasurementComplete = false
+    expect(incomplete.canReanalyze).toBe(false)
+  })
+})

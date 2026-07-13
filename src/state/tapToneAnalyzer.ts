@@ -266,6 +266,36 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
+  /** Whether the Re-analyze button is offered: ANY complete guitar measurement with a frozen
+   *  spectrum, and never a plate/brace one.
+   *
+   *  Re-analyze is a RESET, not a dirty-flag indicator. It is offered whenever it COULD do
+   *  something, not only when we can prove it WILL — deliberately. What can leave the displayed
+   *  analysis differing from a clean re-derivation is open-ended: the peaks came from a file; mode
+   *  assignments were carried forward across Peak Min moves rather than re-claimed; the analysis
+   *  range moved; selections were hand-edited. Proving "it will definitely change something" means
+   *  enumerating all of those correctly, forever, with nothing to tell us when we got it wrong. The
+   *  two failure modes are not symmetric: a wrongly-DISABLED button is a dead end (the user cannot
+   *  force the recomputation they want), while a wrongly-ENABLED one costs a click that recomputes
+   *  the same answer.
+   *
+   *  (The previous rule, `loadedPeaks == null`, was a proxy for "the peaks are stale" and was wrong
+   *  in both directions: it disabled itself after a single press, and never lit up for a live
+   *  capture whose mode assignments had drifted.)
+   *
+   *  Never for plate/brace: material peaks come from the per-phase captures, and running findPeaks
+   *  over them would destroy the saved L/C/FLC peaks.
+   *
+   *  Mirrors Swift `canReanalyze` / Python `can_reanalyze`. */
+  get canReanalyze(): boolean {
+    return (
+      this.isGuitar &&
+      this.isMeasurementComplete &&
+      this.frozenMagnitudes.length > 0 &&
+      this.frozenFrequencies.length > 0
+    )
+  }
+
   /** Recompute the guitar peaks + their mode classification from the current analysis settings.
    *  Mirrors Swift `recalculateFrozenPeaksIfNeeded`: material has no guitar peaks; a loaded
    *  measurement's saved peaks are authoritative (FILTER by threshold, never re-run findPeaks); a
@@ -650,6 +680,7 @@ export class TapToneAnalyzer {
         tapEntries: this.tapEntries,
         peaks: this.peaks,
         modeByPeak: this.modeByPeak,
+        canReanalyze: this.canReanalyze,
         matSpectra: this.matSpectra,
         matPeaks: this.matPeaks,
         statusMessage: this.statusMessage,
@@ -818,6 +849,9 @@ export interface TapToneSnapshot {
   peaks: Peak[]
   /** Mode classification for `peaks`, keyed by peak id. */
   modeByPeak: Map<number, ResolvedMode>
+  /** Whether the Re-analyze button is offered (any complete guitar measurement with a frozen
+   *  spectrum; never material). See `TapToneAnalyzer.canReanalyze` for why it is not a dirty flag. */
+  canReanalyze: boolean
   /** Material (plate/brace) per-phase result spectra. */
   matSpectra: MatSpectra
   /** Material (plate/brace) per-phase located peaks. */

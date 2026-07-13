@@ -1251,22 +1251,27 @@ export default function App() {
             </span>
           </div>
 
-          {/* Active input device — mirrors the Swift/Python results header (row 2). The web has no
-              Re-analyze button (loaded peaks are authoritative), so this is the device name alone. */}
+          {/* Active input device + Re-analyze — mirrors the Swift/Python results header (row 2).
+              Enabled state is the analyzer's `canReanalyze`, so all three platforms answer it
+              identically: any complete guitar measurement with a frozen spectrum, never material.
+              Material DISABLES rather than hides (matching native) — the button is greyed, not
+              absent, so the header doesn't reflow between measurement types. */}
           {!comparison && (
             <div className="results-mic">
               <span className="results-mic-name">{deviceLabel}</span>
-              {!material && (
-                <button
-                  className="btn mini icon"
-                  onClick={reanalyze}
-                  disabled={loadedPeaks == null}
-                  title="Re-analyze peaks from the spectrum using the current settings"
-                  aria-label="Re-analyze peaks"
-                >
-                  <RefreshIcon />
-                </button>
-              )}
+              <button
+                className="btn mini icon"
+                onClick={reanalyze}
+                disabled={!snapshot.canReanalyze}
+                title={
+                  material
+                    ? 'Re-analyze applies to guitar measurements only'
+                    : 'Re-analyze peaks from the spectrum using the current settings'
+                }
+                aria-label="Re-analyze peaks"
+              >
+                <RefreshIcon />
+              </button>
             </div>
           )}
 

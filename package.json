@@ -1,7 +1,7 @@
 {
   "name": "guitartap-web",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.2",
   "type": "module",
   "description": "Web port of GuitarTap — headless DSP core (Phase 2) + React UI (Phase 3).",
   "scripts": {
