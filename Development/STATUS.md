@@ -6,22 +6,28 @@ is either a detail doc for one of these items, living reference, or history —
 see the doc map at the bottom. Detail docs keep their own granular checkboxes;
 this file just points at them.
 
-_Last updated: 2026-07-12._
+_Last updated: 2026-07-13._
 
 ## Open work
 
 | # | Item | Status | Detail doc |
 |---|---|---|---|
-| 1 | **Task 3 / 6-TEST** — cross-platform test-suite normalization (major) | **✅ COMPLETE (Phases 1–6).** All test suites normalized to the Swift spine across the 3 repos; **0 parity orphans**, 2 documented coverage gaps (dsp/analysis-quality, model/mode-colors), 2 platform-only suites (`@parity none`). Phase 4 back-ports done, Phase 5 `tests=` links + coverage-gap report (`--gaps`), Phase 6 living coverage doc. Two deferred-but-tracked follow-ups: the pipeline-progress transients (4b) + `annotation-state`/frozen-peak-recalc's selection half → **P3** (item 2). The **living coverage reference is now `GuitarTap/TEST-COVERAGE.md`**; this row is done. | `GuitarTap/TEST-COVERAGE.md` · [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) |
-| 2 | **Architectural-parity restructure** (view layer) | Planned post-review — needs its own spec before any code moves | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
-| 3 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes) | [THEME-SPEC.md](THEME-SPEC.md) |
-| 4 | **Platform parity gaps** (Swift/Python/web behavior + UI) — **IN PROGRESS** | **1 open of 5.** ✅ **OUT-1** (phase-guidance-through-warmup) · ✅ **OUT-2** (status-bar progress bar + `sbProgress` text, + the shared systemBlue token) · ✅ **OUT-3** (web Bin Count) · ✅ **OUT-5** (reduce-count-mid-sequence — resolved by DELETION: the branch was unreachable on all three, the Taps stepper being locked once a sequence has a tap, and had drifted 3 ways while nobody could reach it). **Open: OUT-4** — the last one. **SPEC DONE + empirically verified; no code written** → [OUT-4-DETECTION-SPEC.md](OUT-4-DETECTION-SPEC.md), resume at step 0. Give the web the relative noise-floor detector + hysteresis (it has **none**, guitar included) + a silent settling window. Key finding: **file playback deliberately disabled the relative model on ALL platforms** (`skipWarmup` pins noiseFloor=−100 → rising ≡ absolute), so it has never been tested anywhere; fix = **measurement type decides** (material playback runs the warm-up → playback ≡ live). The fixture that fails is built + verified (`tooling/make-noisy-fixture.py`): web 0/3, canonical 3/3. | [PLATFORM-PARITY-GAPS.md](PLATFORM-PARITY-GAPS.md) · [STATUS-STATE-MACHINE.md](STATUS-STATE-MACHINE.md) |
+| 1 | **Architectural-parity restructure** (view layer) | Needs its own **spec** before any code moves — write it and size it first. Lands the two parked test items (frozen-peak-recalc's selection half + `annotation-state` going 3-way). | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
+| 2 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes). The **systemBlue token** now on all three (progress bar, phase label, Peak readout) is the seam this work owns. | [THEME-SPEC.md](THEME-SPEC.md) |
 
 ## Done (for reference)
 
-Everything else is complete: Phases 2–5, all of Phase 6 **except** 6-TEST, and the
-entire Task 1 / Task 2 comment-&-doc-parity review (all `@parity` slugs + map
-cleanup). The Material Results phased display shipped 2026-07-08.
+Everything else is complete:
+
+- **Task 3 / 6-TEST** — test-suite normalization across the 3 repos ✅ (Phases 1–6). 0 parity orphans;
+  living coverage reference is now `GuitarTap/TEST-COVERAGE.md` (canonical repo).
+- **Task 4 / Platform parity gaps** — OUT-1…OUT-5 ✅ all shipped + user run-reviewed (2026-07-13).
+  OUT-4 uncovered two canonical bugs: the relative noise-floor detector had **never actually run in file
+  playback on any platform** (`skipWarmup` pinned the floor to −100, collapsing the relative rule onto the
+  absolute one; and the warm-up was wall-clock, so it expired before any audio arrived). OUT-5 was resolved
+  by **deletion** — the branch was unreachable on all three.
+- Phases 2–5 and all of Phase 6; the entire Task 1 / Task 2 comment-&-doc-parity review (all `@parity`
+  slugs + map cleanup). Material Results phased display shipped 2026-07-08.
 
 ## Doc map — what each file in `Development/` is
 
@@ -36,8 +42,6 @@ cleanup). The Material Results phased display shipped 2026-07-08.
 |---|---|
 | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) | view-layer restructure — raw material; spec still to be written |
 | [THEME-SPEC.md](THEME-SPEC.md) | Light/Dark/System theme spec — blocked on § 8 |
-| [PLATFORM-PARITY-GAPS.md](PLATFORM-PARITY-GAPS.md) | cross-platform Swift/Python/web behavior+UI gaps (OUT-1…5) — OUT-1/2/3/5 ✅ done; **OUT-4 open** |
-| [OUT-4-DETECTION-SPEC.md](OUT-4-DETECTION-SPEC.md) | **OUT-4 spec** — give the web the relative noise-floor detection model (+ hysteresis, settling window); the fixture design that makes it testable |
 
 **Reference** (living — consult, don't complete)
 | Doc | Purpose |
@@ -52,6 +56,8 @@ cleanup). The Material Results phased display shipped 2026-07-08.
 **History** (done — audit trail, not a to-do list)
 | Doc | Purpose |
 |---|---|
+| [PLATFORM-PARITY-GAPS.md](PLATFORM-PARITY-GAPS.md) | Task 4 — cross-platform behavior/UI gaps OUT-1…OUT-5 — ✅ ALL DONE, user run-reviewed 2026-07-13 |
+| [OUT-4-DETECTION-SPEC.md](OUT-4-DETECTION-SPEC.md) | OUT-4 spec + the empirical work behind it (why the relative model never ran in playback; the noisy-fixture design) — ✅ done; `tooling/make-noisy-fixture.py` regenerates the fixture |
 | [PHASE6-PARITY.md](PHASE6-PARITY.md) | Phase 6 parity backlog — ✅ COMPLETE (last item § 6-TEST done); coverage now lives in `GuitarTap/TEST-COVERAGE.md` |
 | [6-TEST-NORMALIZATION.md](6-TEST-NORMALIZATION.md) | 6-TEST normalization — ✅ COMPLETE (Phases 1–6); project history, living reference is `GuitarTap/TEST-COVERAGE.md` |
 | [LOG-FREQ-REMOVAL.md](LOG-FREQ-REMOVAL.md) | removed the dead log-frequency axis — ✅ done 2026-07-08 (B1) |

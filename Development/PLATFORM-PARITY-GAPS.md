@@ -187,7 +187,54 @@ so material → null. Fix = show the FFT bin count for material too (from the li
 
 ---
 
-## OUT-4 — Material tap-detection model: relative noise-floor EMA (Swift/Python) vs absolute dBFS (web)
+## OUT-4 — Material tap-detection model — ✅ DONE (user run-reviewed 2026-07-13)
+
+**Task 4 is now COMPLETE — OUT-1/2/3/4/5 all done.** User confirmed guitar hysteresis on the web with a
+live mic (the one behaviour change the tests could not see), twice.
+
+**What shipped.** The web gained the relative noise-floor detector (EMA α=0.05, `rising =
+max(threshold, noiseFloor + 10 dB)`), **hysteresis in BOTH modes** (margin 3.0 — it had none, guitar
+included), and a silent audio-clock warm-up. Swift + Python were fixed too: see the two bugs below.
+
+**Two canonical bugs found on the way — both meant the relative model had NEVER run in playback, on any
+platform, which is why no test could ever separate the two detection models:**
+
+1. **`skipWarmup` pinned `noiseFloorEstimate = -100`** for all file playback, which makes `rising`
+   compute to exactly `tapDetectionThreshold` — the relative rule collapses onto the absolute one.
+   `skipWarmup` was only ever needed for the *guitar* fixtures (external recordings, 0.15–0.26 s of
+   lead-in); it got applied to everything and broke *material*, the one mode that uses the floor.
+   **Fix: key it on the MEASUREMENT TYPE.** Material playback runs the warm-up → playback ≡ live.
+2. **The warm-up was on the WALL clock but must cover the first 0.5 s of AUDIO.** In playback the file
+   read + engine reconfigure outlast it, so it expired before any audio arrived — it never ran, the
+   re-anchor never fired, the EMA latched near its seed, and the file's opening noise fired a FALSE tap.
+   **Fix: an audio clock — and the timestamp TRAVELS WITH THE CHUNK.** Reading `audioElapsed` at the
+   consumer is not enough: the handler hops to the main thread while the audio thread races ahead, so
+   the clock read there belongs to a *later* chunk. That reproduced the identical bug. `rmsLevelHandler`
+   now emits `(level, audioTime)` and `detectTap` takes it.
+
+**The test that proves it** (3-way, `test/file-playback`): `plate-umik-1-noisy-52.wav` — the plate
+session with its floor raised to −52 dBFS, above the −53.34 threshold. An absolute detector **saturates**
+there (the level never drops below threshold, so no rising edge can be confirmed) and captures **0 of 3**
+phases; the relative one floats to floor+10 and captures **3 of 3**. Verified to fail on the web's
+pre-port code. Regenerate: `tooling/make-noisy-fixture.py`.
+
+Also: `detectTap(peakMagnitude:)` renamed to `detectTap(level:)` on Swift+Python — it is fed the per-chunk
+RMS level, never an FFT peak. The old name cost real time (it looked as though the platforms detected on
+different signals; they do not).
+
+**Lead-in guard: deliberately NOT built.** It could only fire on an *externally recorded* file replayed in
+plate/brace mode — app session WAVs carry ≥0.5 s of lead-in **by construction** (session recording starts
+before the warm-up clock, and live suppresses detection during it, so no tap can exist in the first 0.5 s).
+The failure it would prevent is mild (first tap missed → nothing captured → visible no-op, not a wrong
+number). Not worth a 3-platform modal. **Documented instead** in the Play File help entry on all three and
+in the manual (§10.3 + a Common Problems row).
+
+**Open nit (not worth doing now, per user):** Python's help rows lack the separators Swift/web have, so the
+Play File entry reads less cleanly than the others.
+
+Original write-up follows.
+
+## OUT-4 (original) — relative noise-floor EMA (Swift/Python) vs absolute dBFS (web)
 
 For **plate/brace** detection, Swift (`TapToneAnalyzer+TapDetection.swift:135-167`) and Python
 (`tap_tone_analyzer_tap_detection.py:88-110`) trigger **relative to an EMA-tracked noise floor**:

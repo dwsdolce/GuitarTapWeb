@@ -295,7 +295,9 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Play File',
         icon: 'filePlay',
-        body: "Click the Play File button in the toolbar to feed a WAV or audio file through the FFT pipeline instead of the microphone. The file's tap is analysed exactly as a live microphone tap — tap detection fires automatically, peaks are found, and results appear in the panel. The chart title shows the filename while the file plays. After playback the microphone restarts automatically.",
+        body:
+          "Click the Play File button in the toolbar to feed a WAV or audio file through the FFT pipeline instead of the microphone. The file's tap is analysed exactly as a live microphone tap — tap detection fires automatically, peaks are found, and results appear in the panel. The chart title shows the filename while the file plays. After playback the microphone restarts automatically.\n\n" +
+          '⚠️ Plate and brace files need half a second of room tone before the first tap. Those modes measure the room’s noise floor from the audio ahead of the tap and detect relative to it, so the file must actually contain that lead-in. Recordings made by Guitar Tap always do. A file recorded elsewhere may not: if its first tap falls inside that opening half-second the tap is treated as part of the settling period, is not detected, and nothing is captured — re-record with a moment of silence in front of the first tap. Guitar files are unaffected.',
       },
       {
         title: 'Save',

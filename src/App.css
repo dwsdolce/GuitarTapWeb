@@ -167,6 +167,10 @@
   color: var(--muted);
   line-height: 1.55;
   font-size: 0.9rem;
+  /* Preserve paragraph breaks (\n\n) inside a help body — used where an entry carries a note or
+     warning after its main text. Collapses ordinary whitespace, so entries without newlines are
+     unaffected. */
+  white-space: pre-line;
 }
 
 /* Settings → About & Help: the two help launchers (Quick Start Guide / User Manual). */
