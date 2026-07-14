@@ -12,15 +12,26 @@ _Last updated: 2026-07-13._
 
 | # | Item | Status | Detail doc |
 |---|---|---|---|
-| 1 | **Re-analyze enablement (`canReanalyze`)** | ⏳ **CODE WRITTEN, NOT VERIFIED** (all 3; suites green: Swift 351 · Python 459 · Web 233). Re-analyze is now offered for **any complete guitar measurement with a frozen spectrum**, never material. It is a **reset**, not a dirty-flag: enabled when it *could* do something, not only when we can prove it *will*. The old rule (`loadedMeasurementPeaks != nil`) was a stale-peaks proxy that was wrong both ways — it disabled itself after one press (the one-shot), and never lit up for a live capture whose mode assignments had drifted. Predicate now lives on the analyzer; all 3 views bind to it. **Needs a run-review on all 3.** | — (see the `canReanalyze` doc-comment) |
-| 2 | **Release notes — all 3 platforms** | Pending: user bumps the build number first. **Ask how release notes work here before writing any** — earlier inferences about location/format were wrong. | — |
-| 3 | **Architectural-parity restructure** (view layer) | Needs its own **spec** before any code moves — write it and size it first. Lands the two parked test items (frozen-peak-recalc's selection half + `annotation-state` going 3-way). | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
-| 4 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes). The **systemBlue token** now on all three (progress bar, phase label, Peak readout) is the seam this work owns. | [THEME-SPEC.md](THEME-SPEC.md) |
+| 1 | **1.0.2 release** | ⏳ **NOT COMMITTED** — user is testing before check-in. Content is written and run-reviewed; only the check-in remains. Notes: Swift `Documentation/ReleaseNotes-1.0.2-391.md` + PDF · Python `docs/ReleaseNotes-1.0.2-434.md` + PDF · web = **in-app**, `src/components/ReleaseNotes.tsx` + a third Help-menu entry (no PDF, no Markdown — the web renders its own help; `@parity none`). **Build number = the git commit count AT the release commit** (so HEAD+1, e.g. 390→391). Swift/Python notes are cumulative: prepend the new section, rename the file, keep the prior history byte-identical. | — |
+| 2 | **Architectural-parity restructure** (view layer) | Needs its own **spec** before any code moves — write it and size it first. Lands the two parked test items (frozen-peak-recalc's selection half + `annotation-state` going 3-way). | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
+| 3 | **Theme — Light / Dark / System** | Blocked on THEME-SPEC § 8 decisions (light gradient + chrome hexes). The **systemBlue token** now on all three (progress bar, phase label, Peak readout) is the seam this work owns. | [THEME-SPEC.md](THEME-SPEC.md) |
 
 ## Done (for reference)
 
 Everything else is complete:
 
+- **Re-analyze enablement (`canReanalyze`)** ✅ all 3, user run-reviewed 2026-07-13 (suites green:
+  Swift 351 · Python 459 · Web 233). Re-analyze is offered for **any complete guitar measurement with a
+  frozen spectrum**, never material. It is a **reset**, not a dirty-flag indicator: enabled when it *could*
+  do something, not only when we can prove it *will* — the staleness sources are open-ended, and a
+  wrongly-disabled button is a dead end where a wrongly-enabled one costs a pointless click. The old rule
+  (`loadedMeasurementPeaks != nil`) was a stale-peaks proxy wrong in both directions: it disabled itself
+  after one press (the one-shot), and never lit up for a live capture whose mode assignments had drifted
+  across Peak Min moves. The predicate now lives on the analyzer and all 3 views bind to it — as a view
+  boolean it had been untestable, which is why the wrong proxy survived.
+- **Web in-app Release Notes** ✅ user-reviewed — Help gains a third entry; TSX like the rest of the web's
+  help, since the web ships no PDF and has no Markdown pipeline. `@parity none` (the web is always current,
+  so notes for the running build belong in the app; Swift ships via the App Store, Python via GitHub).
 - **Task 3 / 6-TEST** — test-suite normalization across the 3 repos ✅ (Phases 1–6). 0 parity orphans;
   living coverage reference is now `GuitarTap/TEST-COVERAGE.md` (canonical repo).
 - **Task 4 / Platform parity gaps** — OUT-1…OUT-5 ✅ all shipped + user run-reviewed (2026-07-13).

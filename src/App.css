@@ -163,6 +163,28 @@
   font-size: 0.92rem;
   margin-bottom: 0.15rem;
 }
+/* Release Notes (ReleaseNotes.tsx) — reuses the Quick Start shell; these two rules add the
+   "what's new since" line under the version header and the New Features / Improvements /
+   Bug Fixes group headings within a release. */
+.rn-since {
+  margin: -0.35rem 0 0.6rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.rn-group {
+  margin-bottom: 1rem;
+}
+.rn-group:last-child {
+  margin-bottom: 0;
+}
+.rn-group-h {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.95rem;
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--line);
+}
 .qs-row-body {
   color: var(--muted);
   line-height: 1.55;

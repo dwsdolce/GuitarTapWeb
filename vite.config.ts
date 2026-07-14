@@ -17,11 +17,18 @@ const appBuild: string = (() => {
   }
 })()
 
-// Deployed under dolcesfogato.com/guitar_tap/guitar_tap_web/ — production assets
-// (and the AudioWorklet, loaded via import.meta.env.BASE_URL) must be served from
-// that subpath. Dev server stays at root.
+// Production uses a RELATIVE base, so the build runs from whatever directory it is uploaded
+// to — the live site (dolcesfogato.com/guitar_tap/guitar_tap_web/) or a test directory beside
+// it — with no rebuild. An absolute base bakes the deploy path into every asset URL, so a copy
+// dropped anywhere else asks for its JS at the production path, gets a 404, and renders a blank
+// page. Everything that resolves against the base follows automatically: the bundle, the
+// manifest, the service worker, and the AudioWorklet (loaded via import.meta.env.BASE_URL).
+//
+// Caveat: relative URLs resolve against the DOCUMENT url, so the app must be served with a
+// trailing slash (…/guitar_tap_web/, not …/guitar_tap_web). Servers normally redirect to add it.
+// The User Manual link is an absolute external URL and is unaffected. Dev server stays at root.
 export default defineConfig(({ mode }) => ({
-  base: mode === 'production' ? '/guitar_tap/guitar_tap_web/' : '/',
+  base: mode === 'production' ? './' : '/',
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
     __APP_BUILD__: JSON.stringify(appBuild),

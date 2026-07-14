@@ -127,6 +127,15 @@ export const BookIcon = () => (
     <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
   </svg>
 )
+/** Release Notes (Help menu) — a document with a folded corner and lines of text. */
+export const NotesIcon = () => (
+  <svg {...ICON_SVG}>
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <polyline points="14 2 14 8 20 8" />
+    <line x1="8" y1="13" x2="16" y2="13" />
+    <line x1="8" y1="17" x2="14" y2="17" />
+  </svg>
+)
 export const FilePlayIcon = () => (
   <svg {...ICON_SVG}>
     <circle cx="12" cy="12" r="10" />

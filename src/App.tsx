@@ -16,6 +16,7 @@ import { MetricsPanel, type Metrics } from './components/MetricsPanel'
 import { SaveSheet } from './components/SaveSheet'
 import { PlayFileSheet } from './components/PlayFileSheet'
 import { QuickStartGuide } from './components/QuickStartGuide'
+import { ReleaseNotes } from './components/ReleaseNotes'
 // Toolbar + tap-control icons live in a shared module so the Quick Start Guide can render the
 // exact same glyphs next to each control (Swift SF Symbols / Python qtawesome equivalents).
 import {
@@ -35,6 +36,7 @@ import {
   GearIcon,
   HelpIcon,
   BookIcon,
+  NotesIcon,
   FilePlayIcon,
   DotViewfinderIcon,
   PlusViewfinderIcon,
@@ -194,6 +196,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showHelpMenu, setShowHelpMenu] = useState(false)
   const [showQuickStart, setShowQuickStart] = useState(false)
+  const [showReleaseNotes, setShowReleaseNotes] = useState(false)
   // Phone only: the Analysis Results panel is a button-triggered bottom sheet (mirrors iOS
   // `showingResults`). On desktop/tablet the panel is always visible and this is ignored (the
   // Results button + sheet styling only activate at the phone breakpoint).
@@ -1053,6 +1056,20 @@ export default function App() {
                   <BookIcon />
                   <span>User Manual</span>
                 </button>
+                {/* Release Notes — browser edition only. The web is always the latest version the
+                    moment it loads, so the notes for the running build belong in the app; the Apple
+                    edition ships its notes through the App Store and the desktop edition with its
+                    GitHub release. */}
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setShowHelpMenu(false)
+                    setShowReleaseNotes(true)
+                  }}
+                >
+                  <NotesIcon />
+                  <span>Release Notes</span>
+                </button>
               </div>
             </>
           )}
@@ -1517,6 +1534,7 @@ export default function App() {
       )}
 
       {showQuickStart && <QuickStartGuide onClose={() => setShowQuickStart(false)} />}
+      {showReleaseNotes && <ReleaseNotes onClose={() => setShowReleaseNotes(false)} />}
     </div>
   )
 }
