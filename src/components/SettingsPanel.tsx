@@ -464,7 +464,9 @@ export function SettingsPanel({
                   <input type="checkbox" checked={d.dumpCaptureAudio} onChange={(e) => patch({ dumpCaptureAudio: e.target.checked })} />
                   <span>
                     Dump capture audio
-                    <em className="set-inline-desc"> — download each captured tap/phase as a 32-bit-float WAV (diagnostic)</em>
+                    {/* One WAV per measurement, not per tap/phase (session recording). It downloads
+                        to the browser's Downloads folder — the one artifact with no Save dialog. */}
+                    <em className="set-inline-desc"> — download each measurement's captured audio as a 32-bit-float WAV, to your browser's Downloads folder (diagnostic)</em>
                   </span>
                 </label>
                 <button className="btn mini" onClick={() => resetKeys(ANALYSIS_KEYS)}>
