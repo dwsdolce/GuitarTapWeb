@@ -9,6 +9,7 @@ import type { TapEntry } from '../state/tapToneAnalyzer'
 import type { MaterialPeak } from '../dsp/gatedCapture'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
+import { exportStem } from './exportFilename'
 import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 import { formatDisplayDateCompact } from '../format/date'
@@ -246,9 +247,8 @@ export function measurementWarning(m: TapToneMeasurementModel, current: CaptureS
 /** Filesystem-safe `.guitartap` base name, mirroring Swift `baseFilename`:
  *  `<measurement-name-slug>-<unix timestamp>`. */
 export function guitarTapFilename(m: TapToneMeasurementModel): string {
-  const slug = (m.measurementName || 'measurement').replace(/[ /]/g, '-').toLowerCase()
   const ts = Math.floor((Date.parse(m.timestamp) || 0) / 1000)
-  return `${slug}-${ts}.guitartap`
+  return `${exportStem(m.measurementName, ts, 'measurement')}.guitartap`
 }
 
 /** Top-to-Air frequency ratio for a saved guitar measurement, mirroring Swift/Python

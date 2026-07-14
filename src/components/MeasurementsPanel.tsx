@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { listMeasurements, deleteMeasurement, saveMeasurement, clearMeasurements } from '../measurement/store'
 import { measurementTapToneRatio, guitarTapFilename, newMeasurementId } from '../measurement/fromLive'
+import { exportStem } from '../measurement/exportFilename'
 import { formatDisplayDate } from '../format/date'
 import { parseGuitarTapFile, serializeGuitarTapFile, type TapToneMeasurementModel } from '../measurement'
 import { MeasurementDetail } from './MeasurementDetail'
@@ -187,10 +188,9 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
   const exportSpectrum = async (m: TapToneMeasurementModel) => {
     setMenuId(null)
     try {
-      const stem =
-        (m.measurementName?.trim() || 'spectrum').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() ||
-        'spectrum'
-      await exportSpectrumPng(measurementToImageOpts(m), `${stem}-spectrum-${Math.floor(Date.now() / 1000)}.png`)
+      // Saved-measurement export uses the MEASUREMENT's timestamp (matching Swift/Python), not now.
+      const ts = Math.floor((Date.parse(m.timestamp) || 0) / 1000)
+      await exportSpectrumPng(measurementToImageOpts(m), `${exportStem(m.measurementName, ts, 'spectrum')}.png`)
     } catch (err) {
       setImportError(`Couldn't export spectrum: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -199,10 +199,8 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
   const exportPdf = async (m: TapToneMeasurementModel) => {
     setMenuId(null)
     try {
-      const stem =
-        (m.measurementName?.trim() || 'report').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() ||
-        'report'
-      await exportPdfReport(measurementToPdfData(m), `${stem}-report-${Math.floor(Date.now() / 1000)}.pdf`)
+      const ts = Math.floor((Date.parse(m.timestamp) || 0) / 1000)
+      await exportPdfReport(measurementToPdfData(m), `${exportStem(m.measurementName, ts, 'report')}.pdf`)
     } catch (err) {
       setImportError(`Couldn't export PDF: ${err instanceof Error ? err.message : String(err)}`)
     }

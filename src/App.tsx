@@ -64,6 +64,7 @@ import {
 } from './measurement/fromLive'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { saveMeasurement } from './measurement/store'
+import { exportStem } from './measurement/exportFilename'
 import { parseCalibration, type Calibration } from './dsp/calibration'
 import { decodeWav, encodeWavFloat32 } from './dsp/wav'
 import { exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
@@ -114,7 +115,8 @@ const isReviewing = (p: MatPhase) => p === 'reviewingL' || p === 'reviewingC' ||
 // download it (the browser equivalent of Swift's write to ~/Documents/GuitarTap — no save dialog,
 // since it fires per tap/phase). Filename mirrors Swift's `web_<label>_<ISO8601-dashes>.wav`.
 function dumpCaptureWav(samples: Float32Array, sampleRate: number, label: string): void {
-  const ts = new Date().toISOString().replace(/[:.]/g, '-')
+  // Integer-second ISO, ":" → "-", matching Swift/Python (drop the milliseconds toISOString adds).
+  const ts = new Date().toISOString().replace(/\.\d+Z$/, 'Z').replace(/:/g, '-')
   const blob = new Blob([encodeWavFloat32(samples, sampleRate).buffer as ArrayBuffer], { type: 'audio/wav' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -780,15 +782,15 @@ export default function App() {
   const exportPdf = useCallback(() => {
     const m = buildCurrentMeasurement(loadedName ?? '', '')
     if (!m) return
-    const stem =
-      (loadedName ?? 'report').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'report'
-    const ts = Math.floor(Date.now() / 1000)
+    // A report is a report — multi-tap and comparison included: no `-multitap-`/`-report-` infix,
+    // "report" only as the unnamed default (§2b).
+    const filename = `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'report')}.pdf`
     // Multi-tap guitar measurements always produce the two-page report (averaged + per-tap
     // comparison), mirroring Swift exportMultiTapPDFReport (gated on tapEntries, not the on-screen toggle).
     if (m.tapEntries && m.tapEntries.length > 1) {
-      void exportMultiTapPdfReport(multiTapPdfData(m), `${stem}-multitap-report-${ts}.pdf`)
+      void exportMultiTapPdfReport(multiTapPdfData(m), filename)
     } else {
-      void exportPdfReport(measurementToPdfData(m), `${stem}-report-${ts}.pdf`)
+      void exportPdfReport(measurementToPdfData(m), filename)
     }
   }, [buildCurrentMeasurement, loadedName])
 
@@ -923,9 +925,7 @@ export default function App() {
       guitarType: material || comparison ? undefined : guitarType,
       date: new Date().toLocaleString(),
     }
-    const stem =
-      (loadedName ?? 'spectrum').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'spectrum'
-    void exportSpectrumPng(opts, `${stem}-spectrum-${Math.floor(Date.now() / 1000)}.png`)
+    void exportSpectrumPng(opts, `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'spectrum')}.png`)
   }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, loadedName, settings.measurementType, guitarType])
 
   const comparisonRows = useMemo<ComparisonRow[]>(

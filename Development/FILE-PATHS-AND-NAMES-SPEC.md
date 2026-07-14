@@ -46,6 +46,10 @@ Plus two incidentals (§7).
    **no platform writes one today** (logging is disabled on all three).
 8. **RELEASE SCOPE — all of it is in 1.0.2.** *"They are important to get correct."* Nothing ships
    until every step is done and tested, so the order (§8) is chosen for risk, not for triage.
+   **This explicitly includes the Chromium `showDirectoryPicker()` folder picker for the web WAV dump**
+   (§4c, Step 6) — it is *not* deferred. (An earlier draft wrongly marked it "later enhancement";
+   that was never agreed and has been removed.) Safari/Firefox keep the Downloads fallback because
+   they have no API for it, not as a scope choice.
 
 **Nothing is open. §8 is the plan; §9 is the documentation impact.**
 
@@ -319,9 +323,13 @@ way, the default needs **no authorization at all**, because it is inside the con
    *(Python's **log** path already gets this right via `user_documents_dir()`
    (`utilities/logging.py:35-41`); only the WAV path is hardcoded
    (`tap_tone_analyzer_spectrum_capture.py:178-183`). Independent confirmation of the decision.)*
-3. **The web is Chromium-vs-Safari split** — same shape as the export path already has (§1c). Safari
-   gets informational text ("downloaded to your browser's Downloads folder"); Chromium gets a real
-   picker. **Minimum bar for 1.0.2 is the honest caption**; the directory picker can follow.
+3. **The web is Chromium-vs-Safari split** — same shape as the export path already has (§1c), and
+   **both halves are in 1.0.2** (user: all of it ships):
+   - **Chromium** — a real folder picker via `showDirectoryPicker()`, the handle persisted in
+     IndexedDB, so dumps write to the chosen folder with no re-prompting. Settings shows the chosen
+     path + a Change button, matching the native apps.
+   - **Safari / Firefox** — no File System Access API, so it stays a `<a download>` to Downloads;
+     the caption says so (already done in Step 1). No picker possible.
 
 ⚠ **Verify at implementation time:** security-scoped bookmarks are **new ground in this codebase** —
 `MeasurementFileExporter`'s `lastUsedExportDirectory` is a **plain path string**, not a bookmark
@@ -514,31 +522,46 @@ Delete `GuitarTap/Views/Utilities/_SpikeBookmark.swift` and its hook (the button
 
 ---
 
-### Step 1 — Truth in text (zero behaviour change)
+### Step 1 — Truth in text (zero behaviour change) ✅ COMMITTED 2026-07-14
 
-- [ ] Settings captions, all 3: "one WAV per measurement", **not** "each captured tap"
-      (Swift `TapSettingsView+Sections.swift:487-491` · Python `tap_tone_analysis_view.py:6250-6253` ·
-      web `SettingsPanel.tsx:463-468`)
-- [ ] Swift's caption stops naming `Documents/GuitarTap` (it is not where the user will look)
-- [ ] Kill the false *"bypass the sandbox container redirect"* comments
-      (`Logging.swift:36-37`, `MeasurementFileExporter.swift:39`)
-- [ ] Python's stale library-path docstring (`tap_analysis_results_view.py:10-13` says `GuitarTap/`)
+- [x] Settings captions, all 3 → "Save the captured audio of each measurement as a WAV file"
+      (web adds "to your browser's Downloads folder" — the one edition that can name the destination)
+- [x] Swift's caption names no folder (it becomes a settable field in Step 6)
+- [x] Killed the false *"bypass the sandbox container redirect"* comments (`Logging.swift`,
+      `MeasurementFileExporter.swift`); documented that the log stays put and does not follow the
+      WAV folder (§4c)
+- [x] Python's docstring corrected — the app name is `guitar-tap` (not `GuitarTap`), so the real
+      dir is `~/Library/Application Support/guitar-tap/` etc. *(Doc catching up to reality — the
+      runtime has resolved there all along; no directory moved.)*
 
-**Test:** none — it is text. All three build. Lands immediately so every later diff is honest.
+**Test:** none — text only. Swift builds, web `tsc` clean, Python parses. Committed on all three.
 
 ---
 
-### Step 2 — Filenames (§2b, §5, §6b, §7.1)
+### Step 2 — Filenames (§2b, §5, §6b, §7.1) ✅ CODE DONE, NOT YET USER-VERIFIED
 
-- [ ] web: drop the `-report-` / `-spectrum-` **infix** (`App.tsx:783-791`, `:926-928`,
-      `MeasurementsPanel.tsx:190-205`)
-- [ ] web: fix the **double-word** bug — an unnamed export currently yields
-      `report-report-<ts>.pdf` / `spectrum-spectrum-<ts>.png`
-- [ ] web: multi-tap and comparison reports are **just reports** — no `-multitap-` segment
-- [ ] web: drop the **millisecond** segment from the dumped-WAV name (§5)
-- [ ] Swift: list-PNG fallback `measurement` → `spectrum` (`MeasurementsListView.swift:429`)
-- [ ] Swift: nameless measurement must not display as **"Comparison"** (`MeasurementRowView.swift:81`, §6b)
-- [ ] Swift: `Int()` the fractional-second JSON name (`ExportView.swift:180`, §7.1)
+**Structural win (option B): one canonical stem helper per platform**, all sites routed through it —
+Swift `ExportFilename.stem` · Python `export_filename.export_stem` (+ a thin `export_stem_for`
+adapter for the ISO-string timestamp) · web `exportStem`. New `@parity model/export-filename`
+(tests=`test/export-filenames`), map regenerated (64 groups, no problems).
+
+- [x] web: dropped the `-report-` / `-spectrum-` **infix** and the **double-word** bug
+      (`report-report-…` / `spectrum-spectrum-…`)
+- [x] web: multi-tap and comparison reports are **just reports** — no `-multitap-` segment
+- [x] web: dropped the **millisecond** segment from the dumped-WAV name (§5)
+- [x] Swift: list-PNG fallback `measurement` → `spectrum`
+- [x] Swift: nameless measurement no longer displays as **"Comparison"** (now `Measurement`;
+      Python/web row titles were already correct — Swift was the outlier)
+- [x] Swift: `Int()` the fractional-second JSON name (§7.1)
+
+**Extra bugs consolidation exposed and fixed (not in the original checklist):**
+- [x] web PNG/PDF used a **different slug** (`[^\w.-]`) than its own `.guitartap` path — `\w` is
+      ASCII-only, so "Ramírez" mangled to "ram-rez". Now one Unicode-safe rule everywhere.
+- [x] web saved-measurement PNG/PDF used **`Date.now()`** instead of the **measurement's** timestamp
+      (natives use the measurement's). Now aligned.
+- [x] Swift **list-comparison PDF** used `measurement` default, not `report`; both comparison paths
+      slugged spaces but **not `/`**. Python had the same list-comparison-PDF bug. Both fixed by the
+      helper.
 
 **Test — NEW 3-way suite `test/export-filenames`** (new `@parity` slug):
 Swift `ExportFilenameTests.swift` · Python `test_export_filenames.py` · web `export-filenames.test.ts`.
@@ -639,12 +662,13 @@ The big one. Shaped by whatever Step 0 taught us.
 - [ ] Python: default from **`QStandardPaths.writableLocation(DocumentsLocation)`**, *not* hardcoded
       `~/Documents` — honours a OneDrive-redirected Documents and Linux XDG
 - [ ] A **missing / stale folder is an ERROR** and the user re-picks — never a silent fallback
-- [ ] web: **Step 1 already set the caption to "your browser's Downloads folder"** — correct for
-      *today* (all browsers use a raw `<a download>`, so all land in Downloads). If the Chromium
-      `showDirectoryPicker()` enhancement lands, this caption must become **browser-conditional**:
-      Chromium-with-a-chosen-folder shows the chosen location; Safari/Firefox stay "Downloads". Same
-      split the export path already has (§1c). `showDirectoryPicker` is a **later enhancement, not
-      1.0.2** — so for 1.0.2 the Step-1 caption stands and this is a forward note only.
+- [ ] web **Chromium**: a real folder picker via `showDirectoryPicker()`, handle persisted in
+      IndexedDB, dumps written to the chosen folder with no re-prompting. Settings shows the chosen
+      path + Change button. **In 1.0.2.**
+- [ ] web **Safari/Firefox**: no File System Access API — stays `<a download>` to Downloads. The
+      Step-1 caption ("your browser's Downloads folder") covers this case.
+- [ ] web caption becomes **browser-conditional**: Chromium-with-a-chosen-folder shows the chosen
+      location; Safari/Firefox show "Downloads". Same split as the export path (§1c).
 - [ ] The **debug log does not follow** this setting — it stays in the app's `Documents/GuitarTap` (§4c)
 
 **Test:**
