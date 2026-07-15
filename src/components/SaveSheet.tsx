@@ -1,11 +1,13 @@
 // @parity view/save-sheet
 import { useState } from 'react'
+import { isValidMeasurementName } from '../measurement/measurementName'
 
 /** Props for {@link SaveSheet}. */
 export interface SaveSheetProps {
-  /** Pre-fill for the measurement-name field (mirrors Swift's `@Binding` pre-fill). */
+  /** Pre-fill for the measurement-name field: the loaded measurement's name on re-save, else ""
+   *  (§3). Mirrors Swift SaveMeasurementSheet `defaultName`. */
   defaultName?: string
-  /** Called with the entered name + notes when the user confirms Save. */
+  /** Called with the entered name (trimmed, always non-empty) + notes when the user confirms Save. */
   onSave: (name: string, notes: string) => void
   /** Dismiss the sheet (Cancel, backdrop click, or after a successful Save). */
   onClose: () => void
@@ -16,8 +18,12 @@ export function SaveSheet({ defaultName = '', onSave, onClose }: SaveSheetProps)
   const [name, setName] = useState(defaultName)
   const [notes, setNotes] = useState('')
 
+  // A name is required (§3): Save is disabled until the field is non-empty after trimming.
+  const canSave = isValidMeasurementName(name)
+
   const save = () => {
-    onSave(name, notes)
+    if (!canSave) return
+    onSave(name.trim(), notes)
     onClose()
   }
 
@@ -30,7 +36,7 @@ export function SaveSheet({ defaultName = '', onSave, onClose }: SaveSheetProps)
             <button className="btn" onClick={onClose}>
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={save}>
+            <button className="btn btn-primary" onClick={save} disabled={!canSave}>
               Save
             </button>
           </div>

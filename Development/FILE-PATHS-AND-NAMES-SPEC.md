@@ -584,27 +584,34 @@ easy to reach and pin now; once a name is required they become rare (only import
 
 ---
 
-### Step 3 — Measurement Name required (§3)
+### Step 3 — Measurement Name required (§3) ✅ CODE DONE, NOT YET USER-VERIFIED
 
-- [ ] **`canSaveMeasurement` on the MODEL** — name non-empty after trimming. All three views bind to
-      it; **no view-local `disabled:` logic** (see the principle above)
-- [ ] Save disabled until the field is non-empty; whitespace-only is empty
-- [ ] A typed name is **stored trimmed**
-- [ ] web: drop the type-name pre-fill (`App.tsx:1521-1522`) and the `"Comparison"` pre-fill
-- [ ] A **comparison is just a measurement** — it needs a name too
-- [ ] **Pre-fill from a loaded measurement's name** when re-saving one (modified or not)
-- [ ] Correct the `SaveSheet.tsx:7` doc comment that falsely claims it mirrors Swift
+**Predicate on the MODEL** (`TapToneMeasurement.isValidName` / `is_valid_name` / web
+`isValidMeasurementName`; `normalizedName` / `normalized_name` / `normalizedMeasurementName` for the
+trimmed store). New `@parity model/measurement-name` (tests=`test/measurement-name`), symbol-tagged
+on the native statics; map regenerated (66 groups, no problems).
 
-**Test — 3-way, on the model:**
-- [ ] `canSaveMeasurement`: empty → false · `"   "` → false · `"x"` → true
-- [ ] trailing/leading spaces are trimmed **on store**, not just on validate
-- [ ] loading a measurement then opening the save sheet pre-fills its name
-- [ ] a comparison save requires a name
-- [ ] **expected fallout:** every existing test that saves without a name now needs one —
-      measurement/persistence suites on all three
+- [x] Predicate on the model; all 3 Save buttons bind to it — **no view-local `disabled:` logic**
+      (Swift `.disabled(!canSave)`, Python `_save_btn.setEnabled` on `textChanged`, web `disabled`
+      + Enter-guard)
+- [x] Save disabled until non-empty after trimming; whitespace-only is empty
+- [x] A typed name is **stored trimmed** (`normalizedName`; web `SaveSheet` passes `name.trim()`)
+- [x] web: dropped the type-name pre-fill and the `"Comparison"` pre-fill — now `defaultName = loadedName ?? ''`
+- [x] A **comparison needs a name too** — same sheet, same predicate; its `defaultName` is empty
+- [x] **Pre-fill from a loaded measurement's name** on re-save: the sheet takes `defaultName =
+      loadedMeasurementName ?? ""` (native seed on-appear-if-empty; web `useState(defaultName)`)
+- [x] Fixed the `SaveSheet.tsx` doc comment that falsely claimed it mirrors a Swift `@Binding` pre-fill
 
-**Not changed:** `measurementName` stays **optional in the `.guitartap` format** (§3b). UI rule, not
-format change. The `"measurement"` fallback stays for *reading* nameless files from other builds.
+**Test — 3-way `test/measurement-name`:** Swift `MeasurementNameTests.swift` · Python
+`test_measurement_name.py` · web `measurement-name.test.ts`. empty/whitespace→invalid, real
+text→valid, trim-on-store, blank→nil, and validity-agrees-with-storage.
+
+**Predicted test fallout did NOT occur** — and that confirms the design. The rule is enforced at the
+**view** (Save disabled); the model's save path stays **tolerant of nil**, so existing tests that
+save nameless measurements through the model API still pass. `measurementName` stays **optional in
+the format** (§3b) — UI rule, not format change; the `"measurement"` fallback stays for reading.
+
+Suites: Swift 361 · Python 469 · web 243 (+4 each).
 
 ---
 

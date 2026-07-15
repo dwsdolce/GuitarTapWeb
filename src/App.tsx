@@ -1519,7 +1519,7 @@ export default function App() {
 
       {showSave && (
         <SaveSheet
-          defaultName={comparison ? 'Comparison' : MEASUREMENT_SHORT_NAME[settings.measurementType]}
+          defaultName={loadedName ?? ''}
           onSave={onSaveMeasurement}
           onClose={() => setShowSave(false)}
         />
