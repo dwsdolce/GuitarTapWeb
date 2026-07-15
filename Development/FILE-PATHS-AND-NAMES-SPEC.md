@@ -538,7 +538,7 @@ Delete `GuitarTap/Views/Utilities/_SpikeBookmark.swift` and its hook (the button
 
 ---
 
-### Step 2 — Filenames (§2b, §5, §6b, §7.1) ✅ CODE DONE, NOT YET USER-VERIFIED
+### Step 2 — Filenames (§2b, §5, §6b, §7.1) ✅ DONE — committed + user-verified
 
 **Structural win (option B): one canonical stem helper per platform**, all sites routed through it —
 Swift `ExportFilename.stem` · Python `export_filename.export_stem` (+ a thin `export_stem_for`
@@ -584,7 +584,7 @@ easy to reach and pin now; once a name is required they become rare (only import
 
 ---
 
-### Step 3 — Measurement Name required (§3) ✅ CODE DONE, NOT YET USER-VERIFIED
+### Step 3 — Measurement Name required (§3) ✅ DONE — committed + user-verified (enable/disable + loaded-name pre-fill)
 
 **Predicate on the MODEL** (`TapToneMeasurement.isValidName` / `is_valid_name` / web
 `isValidMeasurementName`; `normalizedName` / `normalized_name` / `normalizedMeasurementName` for the
@@ -615,7 +615,7 @@ Suites: Swift 361 · Python 469 · web 243 (+4 each).
 
 ---
 
-### Step 4 — Bounded pre-roll (§6) ✅ CODE DONE, NOT YET USER-VERIFIED
+### Step 4 — Bounded pre-roll (§6) ✅ DONE — committed + user-verified (8 s idle → 3.17 s file)
 
 Pure model work, no UI. Extracted a testable helper (`maintainSessionRecording` /
 `_maintain_session_recording`) so the rule is unit-testable independent of the gated pipeline.
@@ -653,21 +653,24 @@ Suites: Swift 365 · Python 473 · web 247 (+4 each). Parity map 67 groups, no p
 
 ---
 
-### Step 5 — macOS export-dialog default (§1b)
+### Step 5 — macOS export-dialog default (§1b) ✅ DONE — committed + user-verified (Save panel opens at real ~/Documents/GuitarTap)
 
 Swift only.
 
-- [ ] `defaultSaveDirectory` resolves the **real** home (`getpwuid(getuid())->pw_dir`), not the
-      container — `homeDirectoryForCurrentUser` and `NSHomeDirectory()` both return the container
-- [ ] **De-duplicate** the second copy at `PlatformAdapters.swift:91-96`
-- [ ] Do **not** `createDirectory` outside the container (it will fail); the powerbox panel can still
-      *display* a directory the app cannot read
+- [x] `defaultSaveDirectory` resolves the **real** home via `getpwuid(getuid())->pw_dir` (not
+      `homeDirectoryForCurrentUser` / `NSHomeDirectory()`, which return the container)
+- [x] **De-duplicated** — deleted the copy in `PlatformAdapters.swift`; it now uses the one
+      `MeasurementFileExporter.startDirectory`
+- [x] Does **not** `createDirectory` (no write access there until the user picks it); the powerbox
+      panel displays it regardless, opening at the nearest existing ancestor if it doesn't exist yet
+- [x] `getpwuid` failure falls back to `NSHomeDirectory()` (container) rather than crashing
 
-**Test:**
-- [ ] unit-test the path helper returns the real home, not the container
-- [ ] **manual:** on a machine with no `lastUsedDirectory` set, the Save panel opens at the real
-      `~/Documents/GuitarTap`. ⚠ Verify the panel accepts a `directoryURL` the app has no access to —
-      **do not assume**
+**Test — `ExportDirectoryTests.swift` (`@parity none`, macOS-sandbox-specific):** asserts the default
+is the real `~/Documents/GuitarTap` and NOT under `…/Library/Containers/…`. Swift 367 tests green.
+
+**Run-reviewed** (2026-07-15): with `lastUsedDirectory` cleared (deleted the key from the container
+prefs), Save to Disk opened at the real `~/Documents/GuitarTap`. The powerbox does accept a
+`directoryURL` the app can't read, exactly as the spike predicted.
 
 ---
 
