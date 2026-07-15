@@ -224,15 +224,22 @@ export class RealtimeFFTAnalyzer {
   private recentPeakDb = -100
   private recentPeakTime = 0
 
-  // Continuous session recording (Swift sessionRecordingBuffer) — every pipeline chunk while
-  // `sessionRecording`, accumulated as chunk slices. `sessionActive` survives pause/resume (which
-  // toggle `sessionRecording`); `sessionCheckpoints` hold the chunk-count at each phase start so a
-  // redone material phase can be truncated away. Only runs when the dump-capture setting is on.
-  private sessionChunks: Float32Array[] = []
+  // Continuous session recording — a flat sample buffer, mirroring Swift `sessionRecordingBuffer`
+  // ([Float]) and Python `_session_recording_buffer` (list). `sessionActive` survives pause/resume
+  // (which toggle `sessionRecording`); `sessionCheckpoints` hold the SAMPLE COUNT at each phase
+  // start so a redone material phase can be truncated away. Only runs when the dump-capture setting
+  // is on. (number[], not Float32Array, so it grows cheaply and truncates like the native lists;
+  // flattened to a Float32Array at finishSessionRecording.)
+  private sessionSamples: number[] = []
   private sessionCheckpoints: number[] = []
   private sessionRecording = false
   private sessionActive = false
   private sessionRate = 48000
+  // Bounded pre-roll for the session WAV (FILE-PATHS-AND-NAMES-SPEC §6). True from
+  // startSessionRecording until the first capture begins, then false for the rest of the session:
+  // while true, only the last SESSION_PRE_ROLL_SECONDS of audio is kept; after the first tap the
+  // buffer grows straight through. Mirrors Swift sessionPreRollActive.
+  private sessionPreRollActive = false
 
   /** Latest measured ring-out time (s), read into the measurement at save (Swift currentDecayTime). */
   get decayTime(): number | null {
@@ -430,49 +437,75 @@ export class RealtimeFFTAnalyzer {
    *  Guitar calls this from `arm()`; live material drives it from useMaterialSession. */
   startSessionRecording(): void {
     if (!this.config.dumpCaptureAudio) return
-    this.sessionChunks = []
+    this.sessionSamples = []
     this.sessionCheckpoints = [0] // first-phase truncation anchor (Swift/Python seed [0] at start)
     this.sessionRate = this.sampleRate
     this.sessionActive = true
     this.sessionRecording = true
+    this.sessionPreRollActive = true // bound the pre-first-tap audio to ~2 s (§6)
   }
 
-  /** Mark a phase boundary so a later redo can truncate the rejected phase's audio (Swift sessionCheckpoints). */
+  /** Mark a phase boundary (SAMPLE count) so a later redo can truncate the rejected phase's audio
+   *  (Swift/Python sessionCheckpoints). */
   checkpointSession(): void {
-    if (this.sessionActive) this.sessionCheckpoints.push(this.sessionChunks.length)
+    if (this.sessionActive) this.sessionCheckpoints.push(this.sessionSamples.length)
   }
 
   /** Redo the current phase: drop everything recorded since the last checkpoint (Swift redo truncation). */
   redoSession(): void {
     if (!this.sessionActive) return
     const cp = this.sessionCheckpoints[this.sessionCheckpoints.length - 1] ?? 0
-    if (cp < this.sessionChunks.length) this.sessionChunks.length = cp
+    if (cp < this.sessionSamples.length) {
+      this.sessionSamples.length = cp
+      // Redoing the FIRST phase empties the buffer back to the pre-first-tap state, so re-arm the
+      // bounded pre-roll (§6). Later phases keep the latch frozen. Mirrors Swift redoCurrentPhase.
+      if (cp === 0) this.sessionPreRollActive = true
+    }
+  }
+
+  /** Seconds of audio retained before the first tap (>= the 0.5 s warm-up, with margin). */
+  static readonly SESSION_PRE_ROLL_SECONDS = 2.0
+
+  /** ``SESSION_PRE_ROLL_SECONDS`` in samples at the current session rate (Swift sessionPreRollSamples). */
+  private get sessionPreRollSamples(): number {
+    return Math.round(this.sessionRate * RealtimeFFTAnalyzer.SESSION_PRE_ROLL_SECONDS)
+  }
+
+  /** Append one chunk to the session WAV buffer and maintain the bounded pre-roll (§6).
+   *
+   *  Before the first tap (sessionPreRollActive): keep only the last ~2 s — the tap is always in
+   *  the tail, so trimming the head never eats it; this just discards accumulated idle. The first
+   *  capture (state === 'capturing') freezes the latch. Everything after — subsequent taps, plate
+   *  phases, and the gaps between them — is completely live. Mirrors Swift maintainSessionRecording. */
+  private maintainSessionRecording(s: Float32Array): void {
+    if (!this.sessionRecording) return
+    for (let i = 0; i < s.length; i++) this.sessionSamples.push(s[i]!)
+    if (!this.sessionPreRollActive) return // frozen after the first tap → fully live
+    if (this.state === 'capturing') {
+      this.sessionPreRollActive = false // first tap started — freeze the pre-roll
+      return
+    }
+    const excess = this.sessionSamples.length - this.sessionPreRollSamples
+    if (excess > 0) this.sessionSamples.splice(0, excess)
   }
 
   /** Finish the session: emit the accumulated audio (if any) as one WAV via onSessionAudio, then clear. */
   finishSessionRecording(label: string): void {
     this.sessionRecording = false
     this.sessionActive = false
-    const chunks = this.sessionChunks
+    const samples = this.sessionSamples
     const rate = this.sessionRate
-    this.sessionChunks = []
+    this.sessionSamples = []
     this.sessionCheckpoints = []
-    const total = chunks.reduce((n, c) => n + c.length, 0)
-    if (total === 0) return
-    const out = new Float32Array(total)
-    let o = 0
-    for (const c of chunks) {
-      out.set(c, o)
-      o += c.length
-    }
-    this.callbacks.onSessionAudio?.(out, rate, label)
+    if (samples.length === 0) return
+    this.callbacks.onSessionAudio?.(new Float32Array(samples), rate, label)
   }
 
   /** Abandon the session without writing (cancel / measurement-type change / New Tap of a fresh kind). */
   cancelSessionRecording(): void {
     this.sessionRecording = false
     this.sessionActive = false
-    this.sessionChunks = []
+    this.sessionSamples = []
     this.sessionCheckpoints = []
   }
 
@@ -746,9 +779,9 @@ export class RealtimeFFTAnalyzer {
       this.callbacks.onDecay?.(this.lastDecay)
     }
 
-    // Continuous session recording: keep every chunk that flows through the pipeline while active
-    // (Swift sessionRecordingBuffer.append). Paused segments are excluded (pause() clears the flag).
-    if (this.sessionRecording) this.sessionChunks.push(s.slice())
+    // Continuous session recording with the bounded pre-roll (§6): keep every chunk while active,
+    // trimming only the pre-first-tap idle. Paused segments are excluded (pause() clears the flag).
+    this.maintainSessionRecording(s)
 
     this.feedContinuous(s)
     this.feedPreroll(s)

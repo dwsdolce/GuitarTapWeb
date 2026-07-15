@@ -1,8 +1,8 @@
-// @parity test/export-filenames
+// @parity test/export-filename
 //
 // Pins the shared export-filename rule (FILE-PATHS-AND-NAMES-SPEC §2b): one stem function,
 // per-artifact default word, integer-second discriminator, name slugged (spaces and "/" → "-",
-// lowercased). Three-way with Swift ExportFilenameTests.swift and Python test_export_filenames.py.
+// lowercased). Three-way with Swift ExportFilenameTests.swift and Python test_export_filename.py.
 import { describe, it, expect } from 'vitest'
 import { exportStem } from '../src/measurement/exportFilename'
 import { guitarTapFilename } from '../src/measurement/fromLive'

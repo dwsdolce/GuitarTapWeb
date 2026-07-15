@@ -615,27 +615,41 @@ Suites: Swift 361 · Python 469 · web 243 (+4 each).
 
 ---
 
-### Step 4 — Bounded pre-roll (§6)
+### Step 4 — Bounded pre-roll (§6) ✅ CODE DONE, NOT YET USER-VERIFIED
 
-Pure model work, no UI. The highest test value in the plan.
+Pure model work, no UI. Extracted a testable helper (`maintainSessionRecording` /
+`_maintain_session_recording`) so the rule is unit-testable independent of the gated pipeline.
 
-- [ ] While armed and **before the first tap**, retain only the last **~2 s** of audio
-- [ ] On the first detected tap, record straight through to completion
-- [ ] Buffer is bounded **while idle** — not merely trimmed at the end (this is the memory half, and
-      the half a naive implementation gets wrong)
+- [x] Before the first tap: keep only the last ~2 s (`sessionPreRollActive` latch; trims the head on
+      every chunk). The tap is always in the tail, so trimming never eats it.
+- [x] The first tap (`gatedCaptureActive` / web `state === 'capturing'`) **freezes the latch** — the
+      rest of the session records straight through
+- [x] **Bounded while idle**, not just at the end (the memory half)
+- [x] Redo of the **first** phase re-arms the latch (`phaseStart == 0`); later phases stay frozen
 
-**Test — 3-way** (extend the session-recording coverage):
-- [ ] arm → advance **60 s** with no tap → tap → complete ⇒ WAV ≈ *pre-roll + measurement*, **not**
-      60 s + measurement
-- [ ] the **≥ 0.5 s lead-in survives** — the property file playback depends on
-      (`OUT-4-DETECTION-SPEC.md`). The pre-roll retains `min(2 s, time-since-arm)`, and the first
-      *detected* tap can never be sooner than 0.5 s after arming (detection is suppressed during the
-      warm-up), so the guarantee holds
-- [ ] the accumulation buffer stays bounded during a long idle (assert its length, not just the file)
-- [ ] tap **immediately** after arming ⇒ still a valid fixture (short pre-roll, but ≥ 0.5 s)
+**THE INVARIANT the user called out** — *"trim ONLY on the first tap; the rest is completely live"* —
+is pinned by a dedicated test on all three: a long multi-tap / multi-phase run with ~4 s idle GAPS
+between taps (far over the 2 s pre-roll) trims **nothing** after the first tap (exact-count assertion).
 
-**Rationale to keep in view (user):** these recordings exist to build **test cases**. A waveform can
-reproduce a measurement on every platform; a measurement can **never** reproduce the waveform.
+**Test — 3-way `test/session-pre-roll`:** Swift `SessionPreRollTests.swift` · Python
+`test_session_pre_roll.py` · web `session-pre-roll.test.ts`. Bounded-before-first-tap, freeze-on-first-tap,
+fully-live-after (the invariant), and the ≥ 0.5 s lead-in guarantee.
+
+**Two side-items resolved this step:**
+1. **Naming drift fixed** (user flagged): the committed Step-2 slug/files were split singular/plural →
+   normalized to **`test/export-filename`** (singular, matching the impl); and Step-4 hyphenated to
+   **`test/session-pre-roll`** (matching how every camelCase concept decomposes).
+2. **Web session buffer normalized to a flat SAMPLE buffer** (`number[]`), with **sample-count**
+   checkpoints and sample-accurate trim — was `Float32Array[]` chunks with chunk-index checkpoints.
+   Now structurally identical to Swift `[Float]` / Python `list`; the web test asserts exact sample
+   counts. (Separately confirmed the *tap-detection* pre-roll — the 200 ms ring buffer that seeds the
+   FFT for sample-accurate onset — was **already** sample-based on all three; only the diagnostic WAV
+   buffer differed.)
+
+**Rationale (user):** these recordings exist to build **test cases**. A waveform can reproduce a
+measurement on every platform; a measurement can **never** reproduce the waveform.
+
+Suites: Swift 365 · Python 473 · web 247 (+4 each). Parity map 67 groups, no problems.
 
 ---
 
