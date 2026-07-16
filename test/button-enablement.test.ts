@@ -10,11 +10,14 @@ import { describe, it, expect } from 'vitest'
 import { buttonRule } from '../src/state/buttonEnablement'
 
 describe('ButtonEnablement', () => {
-  // B1: Fresh / idle guitar — nothing started, nothing complete. All disabled.
-  it('B1 — guitar idle: all disabled', () => {
+  // B1: Disarmed-idle guitar — nothing complete, nothing in flight. New Tap is ENABLED so
+  // the user can re-arm; Pause and Cancel stay disabled. (On Swift/Python this is the state
+  // the Dump Capture Audio folder guard can produce, §4b; the web can't reach it, but the
+  // rule is identical for parity.)
+  it('B1 — guitar disarmed-idle: new tap enabled', () => {
     expect(buttonRule({ isDetecting: false, isDetectionPaused: false, isMeasurementComplete: false })).toEqual({
       pauseEnabled: false,
-      newTapDisabled: true, // !isMeasurementComplete && !isDetecting
+      newTapDisabled: false, // idle (no sequence in flight) → New Tap enabled to re-arm
       cancelEnabled: false,
     })
   })
@@ -33,11 +36,12 @@ describe('ButtonEnablement', () => {
     ).toEqual({ pauseEnabled: false, newTapDisabled: false, cancelEnabled: false })
   })
 
-  // B4: impossible (isDetecting && isMeasurementComplete) — invariant-forbidden. New Tap
-  // keys off complete and Pause off detecting, so this contradictory state lights up BOTH.
-  it('B4 — guitar impossible detecting+complete: lights both new tap and pause', () => {
+  // B4: impossible (isDetecting && isMeasurementComplete) — invariant-forbidden. New Tap now
+  // keys off "sequence in flight" (detecting||paused) rather than complete, so this
+  // contradictory state disables New Tap (detecting) while Pause is on — no longer both.
+  it('B4 — guitar impossible detecting+complete: new tap disabled, pause on', () => {
     const out = buttonRule({ isDetecting: true, isDetectionPaused: false, isMeasurementComplete: true })
-    expect(out.newTapDisabled).toBe(false) // complete → New Tap enabled
+    expect(out.newTapDisabled).toBe(true) // in flight (detecting) → New Tap disabled
     expect(out.pauseEnabled).toBe(true) // detecting → Pause enabled
   })
 
@@ -142,5 +146,19 @@ describe('ButtonEnablement', () => {
         numberOfTaps: 3,
       }),
     ).toEqual({ pauseEnabled: true, newTapDisabled: true, cancelEnabled: true })
+  })
+
+  // B13: Disarmed-idle material (plate, phase notStarted, nothing complete/in flight) —
+  // New Tap ENABLED to re-arm; Pause/Cancel disabled. The material counterpart of B1.
+  it('B13 — plate disarmed-idle: new tap enabled', () => {
+    expect(
+      buttonRule({
+        isDetecting: false,
+        isDetectionPaused: false,
+        isMeasurementComplete: false,
+        measurementType: 'plate',
+        materialTapPhase: 'notStarted',
+      }),
+    ).toEqual({ pauseEnabled: false, newTapDisabled: false, cancelEnabled: false })
   })
 })

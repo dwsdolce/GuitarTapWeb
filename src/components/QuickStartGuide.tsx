@@ -302,7 +302,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Save',
         icon: 'save',
-        body: 'Saves the current measurement — enabled only when the spectrum is frozen and peaks have been detected. Enter a measurement name and optional notes.',
+        body: 'Saves the current measurement — enabled when the spectrum is frozen, peaks have been detected, and you have entered a measurement name (the name is required; notes are optional).',
       },
       {
         title: 'Measurements',

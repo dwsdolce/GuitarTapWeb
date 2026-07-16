@@ -46,10 +46,24 @@ Plus two incidentals (§7).
    **no platform writes one today** (logging is disabled on all three).
 8. **RELEASE SCOPE — all of it is in 1.0.2.** *"They are important to get correct."* Nothing ships
    until every step is done and tested, so the order (§8) is chosen for risk, not for triage.
-   **This explicitly includes the Chromium `showDirectoryPicker()` folder picker for the web WAV dump**
-   (§4c, Step 6) — it is *not* deferred. (An earlier draft wrongly marked it "later enhancement";
-   that was never agreed and has been removed.) Safari/Firefox keep the Downloads fallback because
-   they have no API for it, not as a scope choice.
+9. **§4c — the web stays Downloads-only; NO Chromium folder picker (REVERSED 2026-07-15).** An
+   earlier draft put the `showDirectoryPicker()` picker in 1.0.2. It's out: a persisted directory
+   handle requires the user to **re-grant access on every page load** (a File System Access API
+   security constraint), which makes a "set-it-once" folder unusable. So the web keeps the plain
+   `<a download>` → Downloads on **all** browsers, with the caption naming Downloads (the browser
+   also hides the path and offers no way to open a folder, so there's no path field or Open button).
+10. **§4b decision 1b — arm-time reachability check (macOS/Python), and LAUNCH behaves like New Tap
+    (user 2026-07-15).** When capture is armed with Dump Capture Audio on and the folder unreachable,
+    prompt **before** capturing (Change Location / Turn Off Saving / Cancel) rather than losing the
+    write at completion. **This applies to the launch auto-arm too** — launching the app is a user
+    action, so it prompts exactly like pressing New Tap. Swift: the launch auto-arm routes through
+    `requestStartTapSequence`. Python: the model defers arming and sets `pending_dump_folder_prompt`,
+    which the view checks at startup (a Qt signal would race — the model auto-arms *before* the view
+    connects its signals). No silent fallback: if the folder vanishes mid-measurement the write is
+    skipped (logged), never redirected.
+11. **WavDumpFolder is a shared Swift↔Python capability** (`@parity model/wav-dump-folder`), same
+    interface + method names; storage differs (macOS security-scoped bookmark vs Python plain path,
+    because Python isn't sandboxed). The web has no counterpart.
 
 **Nothing is open. §8 is the plan; §9 is the documentation impact.**
 
@@ -294,8 +308,7 @@ way, the default needs **no authorization at all**, because it is inside the con
 | Swift macOS | container `…/Data/Documents/GuitarTap/` | **none needed** — inside the container | ✅ `NSOpenPanel` → **security-scoped bookmark** |
 | Swift iOS | container `Documents/GuitarTap/` — already reachable via Files | none | ❌ **no Change button** — Files reaches it; a picker would drag bookmark machinery onto iOS for no benefit |
 | Python | the **OS's** Documents dir + `/GuitarTap` — see below | none | ✅ `QFileDialog` |
-| web (Chromium) | the browser's **Downloads** folder | none | ✅ `showDirectoryPicker()` → handle persisted in IndexedDB |
-| web (Safari/Firefox) | the browser's **Downloads** folder | n/a | ❌ **no API** — field is informational text, no button |
+| web (all browsers) | the browser's **Downloads** folder | n/a | ❌ **none** — see rule 3 (the picker was reversed out) |
 
 **Consequences of the container-default, all good:**
 - **No first-run prompt.** The default just works. The panel appears *only* when the user presses
@@ -305,31 +318,41 @@ way, the default needs **no authorization at all**, because it is inside the con
   cancelled, the current folder simply stands.
 
 **Rules agreed:**
-1. **A missing / stale folder is handled by outcome — REVISED by the Step-0 spike (2026-07-14).**
-   The original rule ("any staleness is an error, the user re-picks") was too blunt. The spike showed
-   macOS tracks the folder by **identity, not path**:
-   - **Folder renamed / moved** → the bookmark still resolves, the write **succeeds into the new
-     location**, and `bookmarkDataIsStale` comes back `true`. This is a *relocation*, not an error:
-     **re-mint the bookmark silently and update the displayed path.** Erroring here — or making the
-     user re-pick a folder that still works — would be user-hostile.
-   - **Folder deleted / volume unmounted / grant lost** → `URL(resolvingBookmarkData:)` throws, or
-     `startAccessingSecurityScopedResource()` returns `false`. *This* is the error: report it and make
-     the user re-pick. Never fall back silently to another location (undiscoverable).
-
-   So: `isStale == true` ⇒ re-mint + update path (silent). Resolve-throws / startAccessing-false ⇒
-   user-visible error + re-pick.
+1. **The folder must stay where you put it — a chosen folder is a PATH, not an opaque identity
+   (FINAL rule, user 2026-07-15; supersedes the "re-mint silently on rename" draft).** macOS
+   security-scoped bookmarks track the folder by **identity**, so a rename/move/trash would silently
+   follow the folder — which the user found surprising and undesirable (it wrote captures into a
+   *renamed* folder, and into the **Trash** when the folder was trashed, with no notice). So the app
+   deliberately **overrides** that: on every check the bookmark must resolve **to the path the user
+   chose**.
+   - **Renamed / moved / trashed** → the bookmark resolves, but to a *different* path than the chosen
+     one → **unreachable → the user fixes it** (Change Location re-picks / Turn Off Saving). (Trash is
+     just a move to `~/.Trash/…`, so it's caught by the same path mismatch — no more silent
+     Trash-writes.)
+   - **Deleted / volume unmounted / grant lost** → `URL(resolvingBookmarkData:)` throws → unreachable
+     → same fix.
+   So the whole rule is one line a Windows/path person finds obvious: **"it's not the same name — fix
+   it."** Rename, move, trash, delete all collapse to "not where you left it." **Never** fall back
+   silently to another location. *(A benign-stale bookmark that still resolves to the chosen path is
+   re-minted silently — that's a legitimate refresh, not a relocation.)*
+   - **Implementation:** store the **chosen path** alongside the bookmark. Display/Settings read the
+     stored path (instant — no slow resolve of a dead bookmark on the main thread, which was hanging
+     the Settings dialog). `isReachable`/`acquireDumpFolder` resolve the bookmark and require
+     `resolved.path == chosenPath` + writable. **Python** gets this for free — it stores a plain path
+     and writes to it, so a rename/delete makes the path not-exist → unreachable (don't `mkdir` it).
 2. **Python's default must ask the OS**, not hardcode `~/Documents` — `QStandardPaths.writableLocation(DocumentsLocation)`
    — so a OneDrive-redirected Documents on Windows and XDG `user-dirs.dirs` on Linux are honoured.
    *(Python's **log** path already gets this right via `user_documents_dir()`
    (`utilities/logging.py:35-41`); only the WAV path is hardcoded
    (`tap_tone_analyzer_spectrum_capture.py:178-183`). Independent confirmation of the decision.)*
-3. **The web is Chromium-vs-Safari split** — same shape as the export path already has (§1c), and
-   **both halves are in 1.0.2** (user: all of it ships):
-   - **Chromium** — a real folder picker via `showDirectoryPicker()`, the handle persisted in
-     IndexedDB, so dumps write to the chosen folder with no re-prompting. Settings shows the chosen
-     path + a Change button, matching the native apps.
-   - **Safari / Firefox** — no File System Access API, so it stays a `<a download>` to Downloads;
-     the caption says so (already done in Step 1). No picker possible.
+3. **The web stays Downloads-only on ALL browsers — no picker (REVERSED 2026-07-15, §0b.9).** A
+   persisted `FileSystemDirectoryHandle` needs the user to **re-grant access on every page load**,
+   which makes a set-once folder unusable — so the Chromium `showDirectoryPicker()` idea is dropped.
+   The web keeps `<a download>` → Downloads everywhere, with the caption naming Downloads. The
+   browser hides the path and offers no way to open a folder, so there is **no path field and no
+   Open button** on the web (a dead button would mislead) — the honest caption is the whole UI.
+4. **Arm-time reachability check (§0b.10, macOS/Python)** — validate the folder at New Tap, not at
+   the write, so the failure is caught on the main thread where a prompt can be shown.
 
 ⚠ **Verify at implementation time:** security-scoped bookmarks are **new ground in this codebase** —
 `MeasurementFileExporter`'s `lastUsedExportDirectory` is a **plain path string**, not a bookmark
@@ -674,32 +697,67 @@ prefs), Save to Disk opened at the real `~/Documents/GuitarTap`. The powerbox do
 
 ---
 
-### Step 6 — WAV folder setting (§4b, §4c)
+### Step 6 — WAV folder setting (§4b, §4c) ✅ CODE DONE, NOT YET USER-VERIFIED
 
-The big one. Shaped by whatever Step 0 taught us.
+The big one — the security-scoped-bookmark work the Step-0 spike proved. New shared model helper
+`WavDumpFolder` (Swift) / `wav_dump_folder.py` (Python), same interface + method names
+(`defaultFolder`/`default_folder`, `currentFolder`, `hasCustomFolder`, `isReachable`,
+`acquireDumpFolder`, `chooseFolder`, `useDefaultFolder`, `revealInFinder`). `@parity model/wav-dump-folder`
++ `test/wav-dump-folder` (Swift+Python; web has no counterpart). Map 69 groups, no problems.
 
-- [ ] Settings: **path field** + **Show in Finder / Open Folder** + **Change…**
-- [ ] Default = **the app's `Documents/GuitarTap`**, per platform — container on macOS/iOS (so **no
-      authorization and no first-run prompt**), real Documents on Python
-- [ ] macOS **Change…** → `NSOpenPanel` → **security-scoped bookmark** (the only path needing a grant)
-- [ ] iOS: **no Change button** (Files already reaches the container)
-- [ ] Python: default from **`QStandardPaths.writableLocation(DocumentsLocation)`**, *not* hardcoded
-      `~/Documents` — honours a OneDrive-redirected Documents and Linux XDG
-- [ ] A **missing / stale folder is an ERROR** and the user re-picks — never a silent fallback
-- [ ] web **Chromium**: a real folder picker via `showDirectoryPicker()`, handle persisted in
-      IndexedDB, dumps written to the chosen folder with no re-prompting. Settings shows the chosen
-      path + Change button. **In 1.0.2.**
-- [ ] web **Safari/Firefox**: no File System Access API — stays `<a download>` to Downloads. The
-      Step-1 caption ("your browser's Downloads folder") covers this case.
-- [ ] web caption becomes **browser-conditional**: Chromium-with-a-chosen-folder shows the chosen
-      location; Safari/Firefox show "Downloads". Same split as the export path (§1c).
-- [ ] The **debug log does not follow** this setting — it stays in the app's `Documents/GuitarTap` (§4c)
+- [x] Settings folder row: **path** + **Show in Finder / Open Folder** + **Change…** + **Use Default**
+      (visible when Dump Capture Audio is on)
+- [x] Default = **the app's `Documents/GuitarTap`** — container on macOS/iOS (no authorization / no
+      first-run prompt), the OS Documents dir on Python
+- [x] macOS **Change…** → `NSOpenPanel` → **security-scoped bookmark + chosen path stored**;
+      `dumpCaptureWAV` writes under `startAccessingSecurityScopedResource()`; the bookmark must resolve
+      **to the chosen path** (rule 1) — rename/move/trash/delete → unreachable → prompt; a folder that
+      vanishes mid-measurement → **write skipped** (logged), never redirected to the container
+- [x] iOS: **no Change button** (`#if os(macOS)`) — a Files hint instead
+- [x] Python: default from **`QStandardPaths.writableLocation(DocumentsLocation)`** — fixes the
+      hardcoded `~/Documents` (honours OneDrive / Linux XDG); `QFileDialog` to change, `QDesktopServices` to open
+- [x] **Arm-time reachability check (decision 1b)**, not write-time: `requestStartTapSequence()` /
+      `_ensure_dump_folder_reachable()` guard New Tap — dump on + folder unreachable → dialog
+      (**Change Location… / Turn Off Saving / Cancel**), sequence doesn't arm until resolved. The
+      reachability predicate is on the shared model; the dialog is framework-idiomatic (SwiftUI
+      `.alert` / Qt `QMessageBox`)
+- [x] **web: Downloads-only, NO picker** (reversed — re-grant-per-load is unusable, §0b.9); caption
+      keeps the location, drops "(diagnostic)"; no path field / Open button (browser can't)
+- [x] The **debug log does not follow** this setting (§4c)
+- [x] **Docs (landed WITH the step):** manual `ch08-settings-reference.md` Dump Capture Audio passage
+      rewritten for the settable folder + Show-in-Finder/Change…/Use-Default controls + the arm-time
+      dialog + per-platform defaults (this is the ch08 location list that Step 1 deferred here). No
+      in-app help change — there is no Dump Capture Audio help entry; the Settings-row caption is its
+      documentation.
 
-**Test:**
-- [ ] 3-way unit tests on **path resolution** and **stale detection**
-- [ ] **manual (macOS, essential):** pick a folder → quit → relaunch → dump → the WAV lands in the
-      chosen folder. Then rename the folder → the app **reports an error** and asks for a re-pick.
-      The bookmark round-trip is **not** unit-testable; this run-review is the real gate
+**Test — `test/wav-dump-folder` (Swift+Python):** default folder, no-custom reachability, current==default,
+acquire/release. The bookmark round-trip and picker are **manual** (the spike proved the mechanism).
+
+**Post-review revisions (user run-review, 2026-07-15) — folded in:**
+- **Path-comparison** (rule 1): rename / move / **trash** / delete all → unreachable → fix it (was
+  silent bookmark-follow, which wrote captures into a renamed folder and into the Trash).
+- **Launch behaves like New Tap** (§0b.10): the launch auto-arm prompts too, both platforms.
+- **No silent fallback**: `acquireDumpFolder` returns nil → the write is skipped (logged), not
+  redirected to the default.
+- **Fast display**: Settings reads the stored chosen path (no slow dead-bookmark resolve → no hang).
+- **"Use Default" disabled, not hidden** ([[feedback_button_visibility_principle]]).
+
+**Needs a manual run-review — the real gate** (a unit test can't reach the picker or the bookmark
+round-trip). The cases the user found, on macOS unless noted:
+
+1. **Settings row** — turn on Dump Capture Audio → the folder row shows the path; **Show in Finder**
+   opens it; **Change…** picks a folder and the shown path updates; **Use Default** greyed when
+   already on default, enabled after a Change.
+2. **Persistence** — set a custom folder, capture → WAV lands there; **quit + relaunch**, capture
+   again → still goes to the chosen folder (bookmark survived).
+3. **Rename** the folder in Finder → **New Tap** *and* a **relaunch** → the dialog fires (Change
+   Location re-picks / Turn Off / Cancel); the path shown is the name you chose.
+4. **Trash** the folder → same dialog (no more silent writes into the Trash).
+5. **Empty Trash / delete** → dialog, and Settings opens **fast** (no hang).
+6. **Python (any OS)** — same Settings row, same New-Tap **and** launch dialog behaviour.
+
+Suites: Swift 371 · Python 478 · web 247. *(A full-suite run may flake on `REG_G` — the real-time
+ring-out decay test — under load; it passes cleanly in isolation. Unrelated to this step.)*
 
 ---
 
@@ -717,6 +775,18 @@ The big one. Shaped by whatever Step 0 taught us.
 Manual and Help/Quick Start updates land **with their step**, per the standing rule. **Release notes go
 last, alone** — see §9. The build number is the commit count *at the release commit*, so the notes
 files get **renamed** once everything else has landed.
+
+**Doc catch-up (2026-07-15):** the Step 1 and Step 3 docs were skipped when those steps landed and
+were done retroactively —
+- **Step 1:** `ch08-settings-reference.md` Dump Capture Audio caption → "one continuous WAV per
+  measurement" (was "each captured tap"). The per-platform **save-location list** in ch08 was left
+  for **Step 6** (which makes the folder settable) — ✅ **done with Step 6**: rewritten for the
+  folder row + controls + arm-time dialog.
+- **Step 3:** `ch07-save-export-share.md` (name now **required**, not "both optional / blank →
+  date-time"), and the **Save** enablement line in all three in-app helps (`HelpView.swift` /
+  `QuickStartGuide.tsx` / `help_view.py`) — Save is now also gated on a name.
+
+Going forward each step's docs land **with** it (Steps 2, 4, 5 had no doc impact).
 
 ---
 

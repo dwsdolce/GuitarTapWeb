@@ -464,9 +464,11 @@ export function SettingsPanel({
                   <input type="checkbox" checked={d.dumpCaptureAudio} onChange={(e) => patch({ dumpCaptureAudio: e.target.checked })} />
                   <span>
                     Dump capture audio
-                    {/* One WAV per measurement, not per tap/phase (session recording). It downloads
-                        to the browser's Downloads folder — the one artifact with no Save dialog. */}
-                    <em className="set-inline-desc"> — download each measurement's captured audio as a 32-bit-float WAV, to your browser's Downloads folder (diagnostic)</em>
+                    {/* One WAV per measurement, not per tap/phase (session recording). The browser
+                        hides the Downloads path from the page and offers no way to open a folder, so
+                        the caption naming Downloads is the most the web can truthfully show — there is
+                        no path field or Open button here (unlike the native apps). §4c / §6. */}
+                    <em className="set-inline-desc"> — download each measurement's captured audio as a 32-bit-float WAV, to your browser's Downloads folder</em>
                   </span>
                 </label>
                 <button className="btn mini" onClick={() => resetKeys(ANALYSIS_KEYS)}>
