@@ -31,6 +31,28 @@ export interface SpectrumImageOpts {
 const FONT = (s: number, w = '') => `${w ? w + ' ' : ''}${s}px system-ui, sans-serif`
 const th: ChartTheme = LIGHT_CHART
 
+/**
+ * The peaks a report is ABOUT — its header count, its Detected Peaks Summary, and its chart dots
+ * must all agree on this one set.
+ *
+ * Mirrors Swift `TapToneAnalyzer.visiblePeaks` / Python `visible_peaks`: the `annotated` flag on each
+ * marker already encodes that rule (all → every peak, selected → selectedPeakIDs only, none → nothing),
+ * so honouring it here is what keeps the web report identical to the native ones.
+ *
+ * Regression guard: the header and summary used to use ALL detected peaks — a 3-app capture of one tap
+ * reported "Detected Peaks: 47" against Swift's 6, and summarised the lowest-frequency peaks instead of
+ * the selected ones (dropping selected peaks above the visible range). Pinned by
+ * `test/annotation-state.test.ts` (the web side of that group, previously absent — which is why this
+ * shipped while Swift/Python, which both test the rule, were correct).
+ *
+ * NOTE: the rule itself is untagged on every platform — Swift `visiblePeaks` and Python `visible_peaks`
+ * carry no `@parity` slug, and the web re-derives it here rather than owning it on the analyzer. Giving
+ * it a real 3-way `state/` slug belongs with the view-layer restructure (RESTRUCTURE-NOTES.md).
+ */
+export function reportPeaks(markers: PeakMarker[]): PeakMarker[] {
+  return markers.filter((m) => m.annotated)
+}
+
 /** Render the full white report image to an off-screen canvas (PNG export + PDF embed). */
 export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasElement {
   const W = opts.width ?? 1480
@@ -38,10 +60,11 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   const { minHz, maxHz, minDb, maxDb } = opts.view
   const overlays = opts.overlays ?? []
   const markers = opts.markers ?? []
+  const visible = reportPeaks(markers)
 
   const headerH = 116
   const chartH = opts.chartHeight ?? 660 // renderSpectrum lays out title + plot + axis titles within this
-  const summaryH = markers.length ? 110 : 0
+  const summaryH = visible.length ? 110 : 0
   const legendH = 44
   const H = PAD + headerH + chartH + summaryH + legendH + PAD
 
@@ -75,7 +98,13 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   ctx.font = FONT(14)
   const meta = [opts.measurementTypeName ? `Type: ${opts.measurementTypeName}` : '', 'Platform: Web'].filter(Boolean)
   ctx.fillText(meta.join('   •   '), PAD, y + 76)
-  if (markers.length) ctx.fillText(`Detected Peaks: ${markers.length}`, PAD, y + 98)
+  // Subtitle — mirrors Swift ExportableSpectrumChart.swift:582-589:
+  //     if !materialSpectra.isEmpty { "Comparing N measurements" }
+  //     else if !peaks.isEmpty      { "Detected Peaks: N" }
+  // `overlays` is the web's materialSpectra (same mapping the legend below uses). "Detected Peaks: N"
+  // is CORRECT for guitar — it was only wrong for material, where the web showed it unconditionally.
+  if (overlays.length) ctx.fillText(`Comparing ${overlays.length} measurements`, PAD, y + 98)
+  else if (visible.length) ctx.fillText(`Detected Peaks: ${visible.length}`, PAD, y + 98)
   y += headerH
 
   // ── Chart (drawn by the SHARED renderer, light theme) ─────────────────────
@@ -94,11 +123,15 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   y += chartH
 
   // ── Detected Peaks Summary ────────────────────────────────────────────────
-  if (markers.length) {
+  if (visible.length) {
     ctx.fillStyle = th.title
     ctx.font = FONT(16, 'bold')
     ctx.fillText('Detected Peaks Summary', PAD, y + 18)
-    const chips = [...markers].sort((a, b) => a.frequency - b.frequency).slice(0, 8)
+    // Every visible peak, in frequency order — including ones outside the plotted range
+    // (Swift lists all selected peaks, e.g. 409/622/994 Hz under a 75–350 Hz view). Bounded by
+    // WIDTH, not by an arbitrary count: the old `.slice(0, 8)` silently dropped peaks even in the
+    // normal selected case. The row doesn't wrap, so stop when the next chip won't fit.
+    const chips = [...visible].sort((a, b) => a.frequency - b.frequency)
     let cx = PAD
     const cy = y + 32
     for (const m of chips) {
@@ -108,6 +141,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
       let cw = ctx.measureText(lines[0]!).width
       ctx.font = FONT(12)
       cw = Math.max(cw, ctx.measureText(lines[1]!).width, ctx.measureText(lines[2]!).width) + 20
+      if (cx + cw > W - PAD) break
       ctx.fillStyle = hexA(color, 0.1)
       ctx.beginPath()
       ctx.roundRect(cx, cy, cw, 56, 6)
@@ -132,7 +166,9 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   ctx.fillStyle = th.title
   ctx.font = FONT(13, '600')
   const ly = y + 22
-  const legendTitle = overlays.length ? 'Series:' : 'Guitar Modes:'
+  // Swift: material → "Measurements:", guitar → "Guitar Modes:"
+  // (ExportableSpectrumChart.swift:650-671). The web said "Series:" for the material case.
+  const legendTitle = overlays.length ? 'Measurements:' : 'Guitar Modes:'
   ctx.fillText(legendTitle, PAD, ly + 4)
   let lx = PAD + ctx.measureText(legendTitle).width + 18
   ctx.font = FONT(13)
@@ -153,8 +189,17 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   return canvas
 }
 
+/** Frequency for the CHART's "Range:" line — mirrors Swift's local `formatFreq` closure
+ *  (`ExportableSpectrumChart.swift:510`):
+ *
+ *      freq >= 1000 ? String(format: "%.1fk Hz", freq / 1000) : String(format: "%.0f Hz", freq)
+ *
+ *  ⚠ Zero decimals here, and note the unusual `"1.5k Hz"` kHz form (the `k` binds to the number, with
+ *  the space before `Hz`) — that is Swift's, odd-looking but canonical. This is NOT the same formatter
+ *  as the PDF metadata row's (`fmtFreq` in pdfReport.ts, one decimal, "1.5 kHz"). Swift keeps two on
+ *  purpose; the web had their rounding swapped. */
 function fmt(hz: number): string {
-  return hz >= 1000 ? `${(hz / 1000).toFixed(2)} kHz` : `${hz.toFixed(1)} Hz`
+  return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k Hz` : `${hz.toFixed(0)} Hz`
 }
 
 /** Save the composed spectrum report image as a PNG (Chromium "Save As…" dialog / download fallback). */

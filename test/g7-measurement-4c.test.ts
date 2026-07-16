@@ -15,11 +15,11 @@ const mk = (over: Partial<TapToneMeasurementModel>): TapToneMeasurementModel => 
 
 describe('measurementWarning — tiering', () => {
   it('returns null when the measurement has no recorded microphone', () => {
-    expect(measurementWarning(mk({ sampleRate: 44100 }), { microphoneName: 'Mic', sampleRate: 48000 })).toBeNull()
+    expect(measurementWarning(mk({ sampleRate: 44100 }), { microphoneName: 'Mic', sampleRate: 48000, calibrationName: undefined })).toBeNull()
   })
 
   it('warns when the recorded mic is not the current input', () => {
-    const w = measurementWarning(mk({ microphoneName: 'UMIK-1' }), { microphoneName: 'MacBook Pro Microphone' })
+    const w = measurementWarning(mk({ microphoneName: 'UMIK-1' }), { microphoneName: 'MacBook Pro Microphone', calibrationName: undefined })
     expect(w).toContain("'UMIK-1'")
     expect(w).toContain("isn't the current input")
     expect(w).toContain("'MacBook Pro Microphone'")
@@ -29,7 +29,7 @@ describe('measurementWarning — tiering', () => {
     // Chrome adds "(Built-in)"; Safari does not — same physical device.
     const w = measurementWarning(
       mk({ microphoneName: 'MacBook Pro Microphone', sampleRate: 48000 }),
-      { microphoneName: 'MacBook Pro Microphone (Built-in)', sampleRate: 48000 },
+      { microphoneName: 'MacBook Pro Microphone (Built-in)', sampleRate: 48000, calibrationName: undefined },
     )
     expect(w).toBeNull()
   })
@@ -37,7 +37,7 @@ describe('measurementWarning — tiering', () => {
   it('still surfaces a sample-rate difference even when only the label suffix differs', () => {
     const w = measurementWarning(
       mk({ microphoneName: 'MacBook Pro Microphone', sampleRate: 48000 }),
-      { microphoneName: 'MacBook Pro Microphone (Built-in)', sampleRate: 44100 },
+      { microphoneName: 'MacBook Pro Microphone (Built-in)', sampleRate: 44100, calibrationName: undefined },
     )
     expect(w).toContain('a different sample rate')
   })
@@ -45,7 +45,7 @@ describe('measurementWarning — tiering', () => {
   it('returns null when same mic, same rate, no calibration', () => {
     const w = measurementWarning(
       mk({ microphoneName: 'Mic', sampleRate: 48000 }),
-      { microphoneName: 'Mic', sampleRate: 48000 },
+      { microphoneName: 'Mic', sampleRate: 48000, calibrationName: undefined },
     )
     expect(w).toBeNull()
   })
@@ -53,17 +53,31 @@ describe('measurementWarning — tiering', () => {
   it('warns on a sample-rate difference (same mic)', () => {
     const w = measurementWarning(
       mk({ microphoneName: 'Mic', sampleRate: 44100 }),
-      { microphoneName: 'Mic', sampleRate: 48000 },
+      { microphoneName: 'Mic', sampleRate: 48000, calibrationName: undefined },
     )
     expect(w).toBe(
       'This measurement was recorded with a different sample rate. A newly captured tap may not match the saved result.',
     )
   })
 
-  it('warns on a calibration difference (recorded had one, web has none)', () => {
+  it('returns null when same mic, same rate, and the SAME calibration', () => {
+    // REGRESSION (2026-07-16): every calibrated measurement warned on load. The function was
+    // always right — App.tsx simply never passed the current calibration, so the recorded
+    // '7108913' was compared against undefined and could never match. Nothing asserted this
+    // case because the suite predates the web having calibration at all (see the test below,
+    // named "web has none"). `CaptureSetup.calibrationName` is now a required key so a caller
+    // that omits it fails to compile.
+    const w = measurementWarning(
+      mk({ microphoneName: 'Umik-1  Gain: 18dB', sampleRate: 48000, calibrationName: '7108913' }),
+      { microphoneName: 'Umik-1  Gain: 18dB', sampleRate: 48000, calibrationName: '7108913' },
+    )
+    expect(w).toBeNull()
+  })
+
+  it('warns on a calibration difference (recorded had one, none loaded now)', () => {
     const w = measurementWarning(
       mk({ microphoneName: 'Mic', sampleRate: 48000, calibrationName: 'UMIK-1 cal' }),
-      { microphoneName: 'Mic', sampleRate: 48000 },
+      { microphoneName: 'Mic', sampleRate: 48000, calibrationName: undefined },
     )
     expect(w).toBe(
       'This measurement was recorded with a different calibration. A newly captured tap may not match the saved result.',
@@ -73,7 +87,7 @@ describe('measurementWarning — tiering', () => {
   it('combines calibration + sample-rate differences', () => {
     const w = measurementWarning(
       mk({ microphoneName: 'Mic', sampleRate: 44100, calibrationName: 'cal' }),
-      { microphoneName: 'Mic', sampleRate: 48000 },
+      { microphoneName: 'Mic', sampleRate: 48000, calibrationName: undefined },
     )
     expect(w).toContain('a different calibration and sample rate')
   })

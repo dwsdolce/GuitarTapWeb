@@ -1,5 +1,5 @@
 // @parity view/measurements-list
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { listMeasurements, deleteMeasurement, saveMeasurement, clearMeasurements } from '../measurement/store'
 import { measurementTapToneRatio, guitarTapFilename, newMeasurementId } from '../measurement/fromLive'
@@ -8,8 +8,8 @@ import { formatDisplayDate } from '../format/date'
 import { parseGuitarTapFile, serializeGuitarTapFile, type TapToneMeasurementModel } from '../measurement'
 import { MeasurementDetail } from './MeasurementDetail'
 import { exportSpectrumPng } from '../presentation/spectrumExport'
-import { measurementToImageOpts, measurementToPdfData } from '../presentation/measurementImage'
-import { exportPdfReport } from '../presentation/pdfReport'
+import { measurementToImageOpts, measurementToPdfData, multiTapPdfData } from '../presentation/measurementImage'
+import { exportPdfReport, exportMultiTapPdfReport } from '../presentation/pdfReport'
 import { saveFile } from '../saveFile'
 
 export interface MeasurementsPanelProps {
@@ -64,12 +64,74 @@ const isInstalled = (): boolean =>
   window.matchMedia?.('(display-mode: standalone)').matches ||
   (window.navigator as unknown as { standalone?: boolean }).standalone === true
 
+/** Gap between the ⋯ button and the menu, and the minimum breathing room kept against the
+ *  window edge. */
+const MENU_GAP = 4
+const MENU_EDGE_MARGIN = 8
+/** Floor for the clamped menu height, so a pathologically short window yields a small
+ *  scrollable menu rather than an invisible one. */
+const MENU_MIN_HEIGHT = 96
+
+/** Vertical placement for the row ⋯ menu, given the button's rect and the menu's OWN measured
+ *  height (`null` before the first measurement — see `menuHeight`).
+ *
+ *  Opens downward by default and flips up only when the menu genuinely doesn't fit below AND
+ *  there is more room above; then clamps `maxHeight` to the space actually available so the menu
+ *  can never run off the window. When it fits, `maxHeight` exceeds the content and no scrollbar
+ *  appears, so the clamp costs nothing in the common case.
+ *
+ *  This replaced `openUp = menuRect.bottom > window.innerHeight - 170`, where 170 was a hardcoded
+ *  guess at the menu's height. The menu is ~262px tall (7 items + 2 separators + padding), so any
+ *  row 170–262px from the window bottom opened downward and was clipped — "Delete" became
+ *  unreachable. It surfaced once the library grew enough to put rows down there. Measuring
+ *  removes the constant entirely: adding a menu item can never re-introduce it.
+ *
+ *  Exported for tests — the old logic was inline in JSX and therefore untestable, which is part of
+ *  why a stale constant survived unnoticed. Pure: all inputs are arguments.
+ */
+export function menuPlacement(
+  rect: { top: number; bottom: number },
+  menuHeight: number | null,
+  viewportHeight: number = window.innerHeight,
+): CSSProperties {
+  const spaceBelow = viewportHeight - rect.bottom - MENU_GAP - MENU_EDGE_MARGIN
+  const spaceAbove = rect.top - MENU_GAP - MENU_EDGE_MARGIN
+
+  // Before the menu has been measured, place it downward; useLayoutEffect measures and
+  // repositions before the browser paints, so this never reaches the screen.
+  if (menuHeight == null) return { top: rect.bottom + MENU_GAP }
+
+  const openUp = menuHeight > spaceBelow && spaceAbove > spaceBelow
+  const available = openUp ? spaceAbove : spaceBelow
+  return {
+    ...(openUp
+      ? { bottom: viewportHeight - rect.top + MENU_GAP }
+      : { top: rect.bottom + MENU_GAP }),
+    maxHeight: Math.max(MENU_MIN_HEIGHT, available),
+    overflowY: 'auto',
+  }
+}
+
 export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPanelProps) {
   const [items, setItems] = useState<TapToneMeasurementModel[] | null>(null)
   const [comparing, setComparing] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [menuId, setMenuId] = useState<string | null>(null)
   const [menuRect, setMenuRect] = useState<DOMRect | null>(null)
+  // The row menu's own rendered height, measured after it mounts. Its open-up/open-down choice
+  // must be made against the REAL height: a hardcoded estimate goes stale the moment a menu item
+  // is added, and a too-small one silently clips the menu off the bottom of the window (which is
+  // what happened — the estimate said 170px for a ~262px menu, so any row 170–262px from the
+  // bottom opened downward and lost "Delete"). null = not measured yet (first paint only).
+  const [menuHeight, setMenuHeight] = useState<number | null>(null)
+  const menuElRef = useRef<HTMLDivElement | null>(null)
+
+  // Measure the menu once it's in the DOM. useLayoutEffect (not useEffect) runs after mutation but
+  // BEFORE paint, so the measure → re-place round trip never reaches the screen: no flicker, even
+  // though the first render positions the menu with no height to go on.
+  useLayoutEffect(() => {
+    setMenuHeight(menuId != null ? (menuElRef.current?.offsetHeight ?? null) : null)
+  }, [menuId])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
@@ -200,7 +262,16 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
     setMenuId(null)
     try {
       const ts = Math.floor((Date.parse(m.timestamp) || 0) / 1000)
-      await exportPdfReport(measurementToPdfData(m), `${exportStem(m.measurementName, ts, 'report')}.pdf`)
+      const filename = `${exportStem(m.measurementName, ts, 'report')}.pdf`
+      // A multi-tap guitar measurement gets the two-page report (averaged + per-tap comparison),
+      // mirroring Swift generateMultiTapReport. Gated on tapEntries — plate/brace never store them,
+      // so this is guitar-only. The live "Export PDF Report" (App.tsx) already does this; the saved-
+      // measurement export path here did not, so a saved multi-tap PDF was missing its second page.
+      if (m.tapEntries && m.tapEntries.length > 1) {
+        await exportMultiTapPdfReport(multiTapPdfData(m), filename)
+      } else {
+        await exportPdfReport(measurementToPdfData(m), filename)
+      }
     } catch (err) {
       setImportError(`Couldn't export PDF: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -418,14 +489,19 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
         (() => {
           const m = items?.find((x) => x.id === menuId)
           if (!m) return null
-          const openUp = menuRect.bottom > window.innerHeight - 170
           const style: CSSProperties = {
             position: 'fixed',
             right: window.innerWidth - menuRect.right,
-            ...(openUp ? { bottom: window.innerHeight - menuRect.top + 4 } : { top: menuRect.bottom + 4 }),
+            ...menuPlacement(menuRect, menuHeight),
           }
           return createPortal(
-            <div className="meas-menu" role="menu" style={style} onClick={(e) => e.stopPropagation()}>
+            <div
+              className="meas-menu"
+              role="menu"
+              ref={menuElRef}
+              style={style}
+              onClick={(e) => e.stopPropagation()}
+            >
               <button role="menuitem" onClick={() => onLoad(m)}>
                 <Icon paths={ICON_LOAD} />
                 Load into View

@@ -46,15 +46,33 @@ export interface PdfMaterialProp {
   label: string
   value: string
   color?: string
+  /** Inline suffix drawn immediately after the value, 9pt, in the ROW'S OWN colour, upright —
+   *  Swift `specificModulusRow` (PDFReportGenerator.swift:1012-1024) draws `("(\(quality.rawValue))")`
+   *  at `.font(.system(size: 9)).foregroundColor(quality.color)`. Include the parentheses.
+   *  ⚠ NOT italic and NOT grey — that was the bug: "(Excellent)" rendered grey+italic while its
+   *  value was green. */
   hint?: string
+  /** Sub-line BELOW the row: 9pt, secondary, ITALIC, and WITHOUT parentheses — Swift's ratios block
+   *  (PDFReportGenerator.swift:837-856) puts `Text("typical: 0.04–0.08").italic()` in a VStack under
+   *  the row rather than inline. Distinct from `hint`: the web previously forced both through one
+   *  inline italic-grey mechanism, which was correct for neither. */
+  note?: string
 }
 
 export interface PdfMaterialAnalysis {
   title: string // "Plate Properties" / "Brace Properties"
   gore?: { thickness: string; glc: string; goreItalic: boolean; body: string; fvs: string } | null
-  freqs: string[] // ["fL: 123.4 Hz", "fC: …", "fLC: …"]
-  dimensions: PdfMaterialProp[] // sample dimension rows (label/value)
+  /** fL / fC / fLC — label+value so the value can be bold, and laid out in THREE columns inside a
+   *  grey box (Swift plateSection:778-793 / braceSection:851-861). Was a pre-joined string[]. */
+  freqs: PdfMaterialProp[]
+  dimensions: PdfMaterialProp[] // sample dimension rows (label/value) — 3 columns, grey box
   props: PdfMaterialProp[] // speed/young/specmod/radiation rows (color = quality where relevant)
+  /** Plate only: the GLC row Swift draws FULL-WIDTH after the two-column property block
+   *  (PDFReportGenerator.swift:825-834) — a label/value row when the FLC tap was performed, or
+   *  `glcNote` (italic) when it was not. The web omitted this row entirely; GLC appeared only inside
+   *  the Gore box. */
+  glc?: PdfMaterialProp | null
+  glcNote?: string | null
   ratios: PdfMaterialProp[] // cross/long etc. (plate only)
   overall: { value: string; color: string }
 }
@@ -124,8 +142,16 @@ function cssToRgb(color: string): RGB {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : hexToRgb(color)
 }
 
+/** Frequency for the report's metadata row — mirrors Swift `Float.formattedAsFrequency()`
+ *  (`Extensions.swift:53`): one decimal, always.
+ *
+ *  ⚠ Swift deliberately uses a DIFFERENT formatter for the chart's "Range:" line
+ *  (`ExportableSpectrumChart.swift:510`, zero decimals) — see `fmt()` in spectrumExport.ts. The web
+ *  had the two the wrong way round: this one rounded to 0 dp ("20 Hz" vs Swift's "20.0 Hz") while the
+ *  chart's used 1 dp ("20.0 Hz" vs Swift's "20 Hz"). Keep them distinct and keep each matched to its
+ *  Swift counterpart. */
 function fmtFreq(hz: number): string {
-  return hz >= 1000 ? `${(hz / 1000).toFixed(2)} kHz` : `${hz.toFixed(0)} Hz`
+  return hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${hz.toFixed(1)} Hz`
 }
 
 type Doc = import('jspdf').jsPDF
@@ -254,10 +280,29 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
   // Letter page has far less vertical room than Swift's auto-grown page, so a shorter image keeps the
   // averaged report (peaks + Analysis Results) on a single page instead of spilling to a second.
   const canvas = renderSpectrumToCanvas({ ...data.image, chartHeight: PDF_CHART_HEIGHT })
-  const imgH = (CONTENT_W * canvas.height) / canvas.width
-  ensure(cur, imgH + 8)
-  doc.addImage(canvas.toDataURL('image/png'), 'PNG', L, cur.y, CONTENT_W, imgH)
-  cur.y += imgH + 14
+  // Dark matte around the chart, mirroring Swift (PDFReportGenerator.swift:405-410):
+  //     .background(Color(white: 0.05)).cornerRadius(6)
+  // It marks where the captured spectrum ends and the report begins. On Swift the frame is not a
+  // stroke at all — its chart PNG carries transparent padding (hence the DeviceGray alpha mask in
+  // its PDF) and the near-black background shows THROUGH it. The web's canvas is opaque white, so
+  // the same look is drawn deliberately: a #0D0D0D rounded rect with the chart inset into it.
+  const MATTE = 5
+  const innerW = CONTENT_W - MATTE * 2
+  const imgH = (innerW * canvas.height) / canvas.width
+  const matteH = imgH + MATTE * 2
+  ensure(cur, matteH + 8)
+  doc.setFillColor(13, 13, 13) // Color(white: 0.05)
+  doc.roundedRect(L, cur.y, CONTENT_W, matteH, 6, 6, 'F')
+  // ⚠ The trailing 'MEDIUM' is load-bearing. jsPDF's `compression` argument defaults to 'NONE',
+  // which stores the chart as a RAW RGB bitmap — the PNG compression paid for in toDataURL is
+  // decoded and thrown away. Measured on a plate report: the image stream was 3,489,840 bytes,
+  // exactly 1480 × 786 × 3, making the PDF 3.50 MB against Swift's 0.61 MB and Python's 0.62 MB —
+  // and Swift's image is 6.96 MP to the web's 1.16 MP, i.e. six times bigger yet seven times
+  // smaller on disk. Flate is lossless (pixels are bit-identical), and it takes the report to
+  // ~0.13 MB. FAST gives 26.9×, MEDIUM 31.1×, SLOW 31.7× — MEDIUM is the knee of the curve.
+  // The `undefined` is the optional `alias` slot; compression is the 8th parameter.
+  doc.addImage(canvas.toDataURL('image/png'), 'PNG', L + MATTE, cur.y + MATTE, innerW, imgH, undefined, 'MEDIUM')
+  cur.y += matteH + 14
 
   // divider
   ensure(cur, 20)
@@ -430,50 +475,79 @@ function drawMaterialAnalysis(cur: Cur, a: PdfMaterialAnalysis) {
     font(doc, 16, 'bold')
     setColor(doc, ACCENT)
     doc.text(g.thickness, L + 8, cur.y + 32)
-    font(doc, 9, g.goreItalic ? 'italic' : 'normal')
-    setColor(doc, SECONDARY)
-    doc.text(g.glc, L + 8, cur.y + 44)
+    // Swift order: thickness → Body/f_vs → GLC (PDFReportGenerator.swift:966-993). The web had the
+    // last two swapped.
     font(doc, 9, 'normal')
     setColor(doc, SECONDARY)
-    doc.text(`${g.body} · ${g.fvs}`, L + 8, cur.y + 53)
+    doc.text(`${g.body} · ${g.fvs}`, L + 8, cur.y + 44)
+    font(doc, 9, g.goreItalic ? 'italic' : 'normal')
+    setColor(doc, SECONDARY)
+    doc.text(g.glc, L + 8, cur.y + 53)
     cur.y += goreH + 14
     divider(cur)
     cur.y += 14
   }
 
-  ensure(cur, 30)
+  // Keep the section title with its first block. Each drew its own `ensure()`, so the title could
+  // claim the last 30pt of a page and the Sample Dimensions box would then paginate away — leaving
+  // "Plate Properties" stranded at the foot of the page, which reads as missing content. Swift never
+  // hits this: its page auto-grows, so nothing is ever pushed.
+  const firstBlockH = a.dimensions.length ? threeColBoxHeight(a.dimensions, 'Sample Dimensions') + 6 : 0
+  ensure(cur, Math.max(30, 18 + firstBlockH))
   font(doc, 13, 'bold')
   setColor(doc, PRIMARY)
   doc.text(a.title, L, cur.y)
   cur.y += 18
 
-  // Sample dimensions
+  // Sample dimensions — THREE columns in a grey box, heading inside the box.
+  // Swift dimensionsSubsection (PDFReportGenerator.swift:929-956):
+  //   Length | Width | Thickness
+  //   Mass   | Density
+  // The web drew 2 columns of plain text, which pushed Thickness onto its own line AND spilled
+  // Density onto page 2, splitting the block across a page break.
   if (a.dimensions.length) {
-    ensure(cur, 14)
-    font(doc, 10, 'bold')
-    setColor(doc, SECONDARY)
-    doc.text('Sample Dimensions', L, cur.y)
-    cur.y += 14
-    twoColRows(cur, a.dimensions)
+    threeColBox(cur, a.dimensions, 'Sample Dimensions')
     cur.y += 8
   }
 
-  // Frequencies row
+  // Frequencies row — fL | fC | fLC across three columns in a grey box, values bold
+  // (Swift plateSection:778-793 / braceSection:851-861). The web drew one line of plain,
+  // unbolded text with no box.
   if (a.freqs.length) {
-    ensure(cur, 16)
-    font(doc, 10, 'normal')
-    setColor(doc, PRIMARY)
-    doc.text(a.freqs.join('       '), L, cur.y)
-    cur.y += 18
+    threeColBox(cur, a.freqs)
+    cur.y += 8
   }
 
-  // Property rows (two columns)
-  twoColRows(cur, a.props)
+  // Property rows (two columns) — COLUMN-major, matching Swift's two side-by-side VStacks.
+  // Plate (8): L | Speed of Sound (L), Speed of Sound (C), Young's Modulus (L), Young's Modulus (C)
+  //            R | Specific Modulus (L), Specific Modulus (C), Radiation Ratio (L), Radiation Ratio (C)
+  // Brace (4): L | Speed of Sound, Young's Modulus (E)   R | Specific Modulus, Radiation Ratio
+  // The array order already matches Swift (measurementImage.ts); only the fill was wrong.
+  twoColRows(cur, a.props, 'column')
 
-  // Ratios (plate)
+  // GLC (Shear Modulus) — FULL-WIDTH row after the two-column block, before the ratios
+  // (Swift PDFReportGenerator.swift:825-834). Plate only; the web omitted it entirely, so GLC
+  // appeared only inside the Gore box.
+  if (a.glc) {
+    cur.y += 4
+    ensure(cur, 14)
+    propAt(cur, a.glc, L)
+    cur.y += 14
+  } else if (a.glcNote) {
+    cur.y += 4
+    ensure(cur, 14)
+    font(doc, 10, 'italic')
+    setColor(doc, SECONDARY)
+    doc.text(a.glcNote, L, cur.y)
+    cur.y += 14
+  }
+
+  // Ratios (plate) — Swift is also two side-by-side VStacks here
+  // (PDFReportGenerator.swift:837-856), so 'column' is the structural match. With exactly two
+  // ratios both fills render identically; 'column' keeps it correct if a third is ever added.
   if (a.ratios.length) {
     cur.y += 4
-    twoColRows(cur, a.ratios)
+    twoColRows(cur, a.ratios, 'column')
   }
 
   // Overall quality pill
@@ -490,31 +564,122 @@ function drawMaterialAnalysis(cur: Cur, a: PdfMaterialAnalysis) {
   cur.y += 16
 }
 
-/** Render label/value props in two columns, advancing cur.y row by row. */
-function twoColRows(cur: Cur, rows: PdfMaterialProp[]) {
+/** How a two-column block is filled.
+ *
+ *  - `'column'` — **down then across**: the first half of `rows` fills the LEFT column, the second
+ *    half the RIGHT. This is Swift's layout, which it gets structurally from two side-by-side
+ *    `VStack`s (`PDFReportGenerator.swift:796-823` plate, `:893-910` brace).
+ *  - `'row'` — **across then down**: `rows[i]` left, `rows[i+1]` right.
+ *
+ *  Passed explicitly by every caller — no default. The callers genuinely need different fills, and a
+ *  shared default is what let the material property block silently render row-major against Swift's
+ *  column-major (see below).
+ */
+type ColFill = 'column' | 'row'
+
+/** Draw one label/value pair at `x`, label in secondary + value in bold — mirrors Swift
+ *  `platePropRow` (`PDFReportGenerator.swift:1001-1009`: label `.secondary`, value `.semibold`). */
+function propAt(cur: Cur, row: PdfMaterialProp, x: number) {
   const { doc } = cur
-  const colW = CONTENT_W / 2
-  for (let i = 0; i < rows.length; i += 2) {
-    ensure(cur, 14)
-    for (let c = 0; c < 2; c++) {
-      const row = rows[i + c]
+  font(doc, 10, 'normal')
+  setColor(doc, SECONDARY)
+  doc.text(row.label + ':', x, cur.y)
+  const labelW = doc.getTextWidth(row.label + ': ')
+  font(doc, 10, 'bold')
+  setColor(doc, row.color ? hexToRgb(row.color) : PRIMARY)
+  doc.text(row.value, x + labelW, cur.y)
+  if (row.hint) {
+    const vW = doc.getTextWidth(row.value + ' ')
+    // 9pt, the ROW'S colour, UPRIGHT — Swift specificModulusRow:1020-1022. Was grey + italic.
+    font(doc, 9, 'normal')
+    setColor(doc, row.color ? hexToRgb(row.color) : PRIMARY)
+    doc.text(row.hint, x + labelW + vW, cur.y)
+  }
+}
+
+/** Render label/value props in THREE equal columns inside a grey rounded box, advancing cur.y.
+ *
+ *  Mirrors Swift's `dimensionsSubsection` (`PDFReportGenerator.swift:929-956`) and the plate/brace
+ *  frequencies row (`:778-793` / `:851-861`): equal-width columns filled LEFT→RIGHT, wrapped in
+ *  `.padding(6).background(Color.gray.opacity(0.06)).cornerRadius(4)`.
+ *
+ *  The web previously drew both blocks as 2 columns of plain text with no box — which is why
+ *  Thickness fell to a second line and Density was pushed onto page 2, splitting the block across a
+ *  page break.
+ */
+function threeColBoxHeight(rows: PdfMaterialProp[], heading?: string): number {
+  return 12 + (heading ? 12 : 0) + Math.ceil(rows.length / 3) * 14
+}
+
+function threeColBox(cur: Cur, rows: PdfMaterialProp[], heading?: string) {
+  const { doc } = cur
+  const colW = CONTENT_W / 3
+  const lines = Math.ceil(rows.length / 3)
+  const boxH = threeColBoxHeight(rows, heading)
+  ensure(cur, boxH + 6)
+  doc.setFillColor(BOX_BG[0], BOX_BG[1], BOX_BG[2])
+  doc.roundedRect(L, cur.y - 10, CONTENT_W, boxH, 4, 4, 'F')
+  if (heading) {
+    font(doc, 10, 'bold')
+    setColor(doc, SECONDARY)
+    doc.text(heading, L + 6, cur.y)
+    cur.y += 14
+  }
+  for (let r = 0; r < lines; r++) {
+    for (let c = 0; c < 3; c++) {
+      const row = rows[r * 3 + c]
       if (!row) continue
-      const x = L + c * colW
-      font(doc, 10, 'normal')
-      setColor(doc, SECONDARY)
-      doc.text(row.label + ':', x, cur.y)
-      const labelW = doc.getTextWidth(row.label + ': ')
-      font(doc, 10, 'bold')
-      setColor(doc, row.color ? hexToRgb(row.color) : PRIMARY)
-      doc.text(row.value, x + labelW, cur.y)
-      if (row.hint) {
-        const vW = doc.getTextWidth(row.value + ' ')
-        font(doc, 9, 'italic')
-        setColor(doc, SECONDARY)
-        doc.text(row.hint, x + labelW + vW, cur.y)
-      }
+      propAt(cur, row, L + 6 + c * colW)
     }
     cur.y += 14
+  }
+  cur.y += 2
+}
+
+/** Render label/value props in two columns, advancing cur.y row by row.
+ *
+ *  ⚠ The `fill` argument is load-bearing. Swift builds its two-column property blocks as two
+ *  side-by-side VStacks, i.e. **column-major**; this function filled **row-major**, so the same
+ *  correct values landed in the wrong cells:
+ *
+ *    Swift (column-major)              web, before (row-major)
+ *    Speed of Sound (L)  Spec Mod (L)  Speed of Sound (L)  Speed of Sound (C)
+ *    Speed of Sound (C)  Spec Mod (C)  Young's Mod (L)     Young's Mod (C)
+ *    Young's Mod (L)     Rad Ratio (L) Spec Mod (L)        Spec Mod (C)
+ *    Young's Mod (C)     Rad Ratio (C) Rad Ratio (L)       Rad Ratio (C)
+ *
+ *  On the PLATE this was camouflaged — row-major happens to put every (L) in the left column and
+ *  every (C) in the right, which reads like a deliberate L/C split rather than a bug. On the BRACE
+ *  (four unrelated properties) it was obvious. Same defect, different disguise.
+ */
+function twoColRows(cur: Cur, rows: PdfMaterialProp[], fill: ColFill) {
+  const { doc } = cur
+  const colW = CONTENT_W / 2
+  // Column-major: left column takes the first `half`, right column the rest. An odd count leaves the
+  // right column one short (the left column is the longer one), matching a VStack pair.
+  const half = fill === 'column' ? Math.ceil(rows.length / 2) : 0
+  const rowCount = fill === 'column' ? half : Math.ceil(rows.length / 2)
+  for (let r = 0; r < rowCount; r++) {
+    const pair = [0, 1].map((c) => (fill === 'column' ? rows[r + c * half] : rows[r * 2 + c]))
+    const hasNote = pair.some((row) => row?.note)
+    ensure(cur, hasNote ? 24 : 14)
+    for (let c = 0; c < 2; c++) {
+      const row = pair[c]
+      if (row) propAt(cur, row, L + c * colW)
+    }
+    cur.y += 14
+    // Sub-line under the row — Swift stacks it in a VStack(spacing: 2) beneath the prop row
+    // (PDFReportGenerator.swift:837-856), 9pt secondary italic, no parentheses.
+    if (hasNote) {
+      for (let c = 0; c < 2; c++) {
+        const note = pair[c]?.note
+        if (!note) continue
+        font(doc, 9, 'italic')
+        setColor(doc, SECONDARY)
+        doc.text(note, L + c * colW, cur.y - 3)
+      }
+      cur.y += 9
+    }
   }
 }
 

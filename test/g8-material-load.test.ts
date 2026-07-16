@@ -112,6 +112,9 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
       measureFlc: false,
       peakMinThreshold: -70,
     },
+    // A real multi-tap count: the builder used to hardcode `numberOfTaps: 1`, so every
+    // saved material measurement claimed one tap however many were captured+averaged.
+    numberOfTaps: 3,
     sampleRate: 48000,
     deviceLabel: 'Test Mic',
   })
@@ -144,7 +147,20 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
     expect(built.crossSnapshot?.guitarType).toBe('Generic')
     expect(built.annotationVisibilityMode).toBeDefined()
     expect(built.peakMinThreshold).toBe(-70)
-    expect(built.numberOfTaps).toBe(1)
+  })
+
+  // REGRESSION: the builder hardcoded `numberOfTaps: 1` while the guitar builder passed the real
+  // count, so a 3-tap plate/brace saved "1" — in the FILE, so it reached the Details pane, the PDF,
+  // and any reload. The capture and the power-domain average were correct; only the count was wrong.
+  // The old assertion here read `toBe(1)` and pinned the literal, which is why it never caught it:
+  // the builder ignored its caller, so no value the caller passed could fail the test.
+  it('saves the REAL tap count, not a hardcoded 1 (Swift/Python write the true count)', () => {
+    expect(built.numberOfTaps).toBe(3)
+  })
+
+  it('carries the real tap count through the file round-trip', () => {
+    const m = parseGuitarTapFile(serializeGuitarTapFile([built]))[0]!
+    expect(m.numberOfTaps).toBe(3)
   })
 
   it('round-trips through the file back into live material', () => {
@@ -177,6 +193,7 @@ describe('material annotation offsets round-trip (6d)', () => {
     peaks: { longitudinal: matPeak(120, -40), cross: matPeak(250, -45), flc: null },
     view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
     settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const },
+    numberOfTaps: 1,
     sampleRate: 48000,
     deviceLabel: 'Test Mic',
     // Drag only the longitudinal label; cross is left un-dragged.
@@ -205,6 +222,7 @@ describe('material annotation offsets round-trip (6d)', () => {
       peaks: { longitudinal: matPeak(120, -40), cross: null, flc: null },
       view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
       settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const },
+      numberOfTaps: 1,
       sampleRate: 48000,
       deviceLabel: 'Test Mic',
     })

@@ -14,10 +14,10 @@ import {
   goreTargetThicknessMm,
   woodQuality,
   overallQuality,
-  type WoodQuality,
   type Dimensions,
 } from '../dsp/material'
 import type { MaterialPeak } from '../dsp/gatedCapture'
+import { WOOD_QUALITY_COLOR } from '../presentation/qualityColors'
 import { effectiveStiffness, STIFFNESS_RAW_NAME, type Settings } from '../settings'
 
 export interface MaterialPeaks {
@@ -39,14 +39,11 @@ const f1 = (n: number) => n.toFixed(1)
 const f2 = (n: number) => n.toFixed(2)
 const f3 = (n: number) => n.toFixed(3)
 
-// Mirrors Swift WoodQuality.color (green → red across the five tiers).
-const QUALITY_COLOR: Record<WoodQuality, string> = {
-  Excellent: '#30d158',
-  'Very Good': '#34c759',
-  Good: '#ffd60a',
-  Fair: '#ff9f0a',
-  Poor: '#ff453a',
-}
+// Wood-quality → colour comes from the single scheme-qualified table in presentation/qualityColors.
+// The app chrome is dark today, so this names 'dark' explicitly. When the theme work lands (STATUS
+// item 3) this literal becomes the active scheme from the theme context — the table itself doesn't
+// move, and the PDF stays pinned to 'light'.
+const QUALITY_COLOR = WOOD_QUALITY_COLOR.dark
 
 type Role = 'L' | 'C' | 'FLC'
 

@@ -257,11 +257,15 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (spectrum) drawCurve(spectrum.frequencies, spectrum.magnitudesDb, th.curve)
   for (const ov of overlays) drawCurve(ov.frequencies, ov.magnitudesDb, ov.color)
 
-  // Peak dots.
+  // Peak dots — ONLY for annotated peaks, mirroring Swift/Python `visiblePeaks`
+  // (annotationVisibilityMode + selectedPeakIDs). `annotated` already encodes that rule:
+  // all → every peak, selected → selectedPeakIDs only, none → nothing.
+  // This used to dot EVERY detected peak (unannotated ones just smaller), which diverged
+  // from the native editions: with mode=selected they draw 6 dots where the web drew 47.
   for (const m of markers) {
-    if (m.frequency < minHz || m.frequency > maxHz) continue
+    if (!m.annotated || m.frequency < minHz || m.frequency > maxHz) continue
     ctx.beginPath()
-    ctx.arc(xFor(m.frequency), yFor(m.magnitude), m.annotated ? 4 : 3, 0, Math.PI * 2)
+    ctx.arc(xFor(m.frequency), yFor(m.magnitude), 4, 0, Math.PI * 2)
     ctx.fillStyle = m.color ?? '#8a96a5'
     ctx.fill()
   }

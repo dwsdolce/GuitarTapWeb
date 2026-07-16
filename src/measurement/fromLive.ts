@@ -205,14 +205,25 @@ export function measurementTypeName(m: TapToneMeasurementModel): string {
 export interface CaptureSetup {
   microphoneName?: string
   sampleRate?: number | null
-  calibrationName?: string
+  /** The CURRENTLY loaded calibration, or `undefined` when none is. **Required on purpose** —
+   *  a required key whose value may be undefined, so a caller that forgets it is a COMPILE
+   *  ERROR rather than a silent "no calibration now". It is compared against the recorded
+   *  name, so omitting it made every calibrated measurement warn on load. A unit test cannot
+   *  guard this: `measurementWarning` was always correct — only its callers were wrong. */
+  calibrationName: string | undefined
 }
 
 /** Tiered load-time warning, mirroring Swift `loadMeasurement` / Python `load_measurement`
  *  (the sample-rate epic): if the recorded microphone isn't the current input → name
  *  warning; if it's the same mic but the calibration and/or sample rate differ → a
- *  "recorded with a different …" warning; otherwise null. The web has no device picker or
- *  calibration yet, so "current mic" is the live `track.label` and calibration is absent. */
+ *  "recorded with a different …" warning; otherwise null. "Current mic" is the live
+ *  `track.label` (the web has no stable device UID — see normMic below).
+ *
+ *  CALLERS MUST PASS THE CURRENT `calibrationName`. It is compared against the recorded one,
+ *  so omitting it reads as "no calibration now" and every calibrated measurement warns on
+ *  load — which is exactly what happened while this doc-comment still claimed the web had no
+ *  calibration (it gained one later; the load call sites were never updated). Pinned by
+ *  test/measurement-warning.test.ts. */
 export function measurementWarning(m: TapToneMeasurementModel, current: CaptureSetup): string | null {
   const recorded = m.microphoneName
   if (!recorded) return null
@@ -436,6 +447,9 @@ export interface BuildMaterialArgs {
   peaks: { longitudinal: MaterialPeak | null; cross: MaterialPeak | null; flc: MaterialPeak | null }
   view: ChartView
   settings: Settings
+  /** Taps averaged per phase. Required (not optional) so the call site must supply the real
+   *  count — a hardcoded 1 here shipped a wrong tap count in every saved material measurement. */
+  numberOfTaps: number
   sampleRate: number | null
   deviceLabel: string
   microphoneUID?: string
@@ -532,7 +546,7 @@ export function buildMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasureme
     peakAnnotationOffsets: Object.keys(peakAnnotationOffsets).length ? peakAnnotationOffsets : undefined,
     annotationVisibilityMode: a.settings.annotationVisibilityMode,
     tapDetectionThreshold: a.settings.tapDetectionThreshold,
-    numberOfTaps: 1,
+    numberOfTaps: a.numberOfTaps,
     peakMinThreshold: a.settings.peakMinThreshold,
     microphoneName: a.deviceLabel || undefined,
     microphoneUID: a.microphoneUID || undefined,

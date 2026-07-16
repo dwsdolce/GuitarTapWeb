@@ -250,7 +250,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'New Tap',
         icon: 'tap',
-        body: 'Starts a fresh measurement — arms the detector (or begins a plate/brace sequence). Enabled only once the current measurement is complete; during a measurement it is disabled (use Cancel to start over). A green indicator shows when a tap has been registered.',
+        body: 'Starts a fresh measurement — arms the detector (or begins a plate/brace sequence). Disabled only while a measurement is being captured; enabled at all other times, including after a measurement completes (use Cancel to abandon one in progress). A green indicator shows when a tap has been registered.',
       },
       {
         title: 'Pause / Resume • Accept (plate/brace review)',

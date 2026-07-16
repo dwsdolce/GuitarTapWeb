@@ -441,18 +441,30 @@ export default function App() {
     if (showSettings && running) void refreshDevices()
   }, [showSettings, running, refreshDevices])
 
-  const newTap = useCallback(() => {
+  /** Everything a fresh measurement must drop from the previously LOADED one, whatever the mode.
+   *
+   *  Swift/Python clear this inside their single shared `startTapSequence` / `start_tap_sequence`, so
+   *  guitar and material cannot drift apart. The web splits New Tap into two handlers (`newTap` /
+   *  `onMaterialNewTap`), and material silently cleared only `loadedView` — so after New Tap on a
+   *  plate/brace the Save sheet still offered the LOADED measurement's name (its `defaultName` is
+   *  `loadedName`), and the load-time provenance warning stayed live too. Both paths now call this,
+   *  which is the closest the web gets to the native single arm path. */
+  const clearLoadedMeasurement = useCallback(() => {
     setLoadedPeaks(null)
     setLoadWarning(null)
     setLoadedName(null)
-    setLoadedView(null) // new tap → drop the loaded measurement's transient range
+    setLoadedView(null) // drop the loaded measurement's transient axis range
     setShowLoadedSettings(false)
+  }, [])
+
+  const newTap = useCallback(() => {
+    clearLoadedMeasurement()
     analyzer.clearResult()
     setShowMultiTap(false)
     setComparison(null)
     comparisonRef.current = false // re-arm cleanly: don't absorb the next tap
     engineRef.current?.arm()
-  }, [analyzer])
+  }, [analyzer, clearLoadedMeasurement])
 
   const changeTaps = useCallback((n: number) => {
     const v = Math.max(1, Math.min(10, n))
@@ -464,11 +476,10 @@ export default function App() {
   // New Tap in material mode: clear any dragged labels (Swift resets offsets on start), then start
   // the analyzer's phase machine.
   const onMaterialNewTap = useCallback(() => {
-    setLoadedView(null) // new material measurement → drop the loaded transient range
-    setShowLoadedSettings(false)
+    clearLoadedMeasurement()
     resetLabelsRef.current()
     analyzer.startMaterial()
-  }, [analyzer])
+  }, [analyzer, clearLoadedMeasurement])
 
   // Cancel is a restart (mirror Swift cancelTapSequence → startTapSequence): re-arm a fresh
   // sequence exactly like New Tap. Only offered while a multi-step sequence is active; during a
@@ -736,7 +747,7 @@ export default function App() {
       if (material) {
         if (!matSpectra.longitudinal) return null
         return buildMaterialMeasurement({
-          name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, sampleRate, deviceLabel,
+          name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, numberOfTaps, sampleRate, deviceLabel,
           microphoneUID: currentDeviceId ?? undefined,
           calibrationName: calibrationRef.current?.name,
           annotationOffsetsByFreq: annotationOffsets,
@@ -823,7 +834,9 @@ export default function App() {
         setComparison(null)
         analyzer.restoreMaterial({ matSpectra: mat.matSpectra, matPeaks: mat.matPeaks })
         restoreMaterialOffsets(mat.annotationOffsetsByFreq) // dragged L/C/FLC label positions (shared store)
-        setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
+        setLoadWarning(
+          measurementWarning(m, { microphoneName: deviceLabel, sampleRate, calibrationName: calibrationRef.current?.name }),
+        )
         setLoadedName(m.measurementName ?? null)
         {
           const loadedTaps = m.numberOfTaps ?? 1
@@ -866,7 +879,13 @@ export default function App() {
       })
       // Load-time provenance check (mic / calibration / sample rate) — closes the web
       // side of the sample-rate epic. Cleared on New Tap / fresh capture.
-      setLoadWarning(measurementWarning(m, { microphoneName: deviceLabel, sampleRate }))
+      // The CURRENT calibration must be passed, or every calibrated measurement warns on load:
+      // the recorded name is compared against `current.calibrationName`, so omitting it made the
+      // comparison '7108913' !== undefined — always "a different calibration". Save already uses
+      // `calibrationRef.current?.name` (see buildMeasurement), so load must read the same source.
+      setLoadWarning(
+        measurementWarning(m, { microphoneName: deviceLabel, sampleRate, calibrationName: calibrationRef.current?.name }),
+      )
       setLoadedName(m.measurementName ?? null)
       // Restore the measurement's Taps and show the loaded-settings banner (Swift parity).
       {

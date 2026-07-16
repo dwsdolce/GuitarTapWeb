@@ -7,6 +7,7 @@ import type { Peak } from '../dsp/peaks'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
 import { MODE_COLOR, MODE_DISPLAY_NAME } from './modeColors'
+import { WOOD_QUALITY_COLOR } from './qualityColors'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
 import {
@@ -47,7 +48,6 @@ import {
   goreTargetThicknessMm,
   woodQuality,
   overallQuality,
-  type WoodQuality,
   type Dimensions,
 } from '../dsp/material'
 import type {
@@ -61,14 +61,10 @@ import type {
 const pitch = new Pitch(440)
 type AnnoMode = 'all' | 'selected' | 'none'
 
-// Wood-quality → color, matching MaterialResults' QUALITY_COLOR (Swift WoodQuality.color).
-const QUALITY_COLOR: Record<WoodQuality, string> = {
-  Excellent: '#30d158',
-  'Very Good': '#34c759',
-  Good: '#ffd60a',
-  Fair: '#ff9f0a',
-  Poor: '#ff453a',
-}
+// Wood-quality → colour comes from the single scheme-qualified table in presentation/qualityColors.
+// The report is ALWAYS a white page — Swift and Python render their PDFs light regardless of app
+// appearance — so it is pinned to 'light' and stays that way when the theme work lands.
+const QUALITY_COLOR = WOOD_QUALITY_COLOR.light
 const ROLE_L = '#0a84ff'
 const ROLE_C = '#ff9f0a'
 const ROLE_FLC = '#bf5af2'
@@ -357,7 +353,7 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     analysis = {
       title: 'Brace Properties',
       gore: null,
-      freqs: fL != null ? [`fL: ${f1(fL)} Hz`] : [],
+      freqs: fL != null ? [{ label: 'fL', value: `${f1(fL)} Hz` }] : [],
       dimensions,
       props: [
         { label: 'Speed of Sound', value: `${f0(cL)} m/s` },
@@ -391,8 +387,12 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     const presetName = STIFFNESS_RAW_NAME[s.plateStiffnessPreset]
     const fvsLine = s.plateStiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
 
-    const freqs = [`fL: ${f1(fL ?? 0)} Hz`, `fC: ${f1(fC ?? 0)} Hz`]
-    if (fLC != null) freqs.push(`fLC: ${f1(fLC)} Hz`)
+    // fL / fC always; fLC only when the third tap was performed (Swift plateSection:778-793).
+    const freqs: PdfMaterialProp[] = [
+      { label: 'fL', value: `${f1(fL ?? 0)} Hz` },
+      { label: 'fC', value: `${f1(fC ?? 0)} Hz` },
+    ]
+    if (fLC != null) freqs.push({ label: 'fLC', value: `${f1(fLC)} Hz` })
 
     analysis = {
       title: 'Plate Properties',
@@ -418,9 +418,16 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
         { label: 'Radiation Ratio (L)', value: f1(rL) },
         { label: 'Radiation Ratio (C)', value: f1(rC) },
       ],
+      // Full-width GLC row after the two-column block — Swift PDFReportGenerator.swift:825-834:
+      //   if let glc = props.goreShearModulus { platePropRow("GLC (Shear Modulus)", …) }
+      //   else { Text("GLC assumed 0 — FLC tap not performed").italic() }
+      glc: shearPa != null ? { label: 'GLC (Shear Modulus)', value: `${f3(shearPa / 1e9)} GPa` } : null,
+      glcNote: shearPa == null ? 'GLC assumed 0 — FLC tap not performed' : null,
+      // `note`, not `hint`: Swift puts the typical range on its OWN line beneath the ratio, italic
+      // and WITHOUT parentheses (PDFReportGenerator.swift:837-856) — not inline after the value.
       ratios: [
-        { label: 'Cross/Long Ratio', value: f3(crossLong), hint: '(typical: 0.04–0.08)' },
-        { label: 'Long/Cross Ratio', value: f1(longCross), hint: '(typical: 12–25)' },
+        { label: 'Cross/Long Ratio', value: f3(crossLong), note: 'typical: 0.04–0.08' },
+        { label: 'Long/Cross Ratio', value: f1(longCross), note: 'typical: 12–25' },
       ],
       overall: { value: overall, color: QUALITY_COLOR[overall] },
     }

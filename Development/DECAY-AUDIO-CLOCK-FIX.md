@@ -1,9 +1,8 @@
 # Ring-out decay: audio-clock timestamps (load-invariant)
 
-**Status: ✅ CODE COMPLETE on all 3 platforms, all suites green. NOT yet USER run-reviewed. NOT committed.**
-2026-07-15. Suites: Swift 372/372 (under load, REG_G stable) · Python 479/479 · web decay 10/10.
-Golden unchanged (0.0853). Next: USER run-review (live-capture a tap on a busy machine → ring-out
-stable), then commit. Commit spans Swift + Python (web needed no change).
+**Status: ✅ DONE — committed + user-verified 2026-07-15.** One commit per repo (Swift/Python code;
+web = the tracking doc + already-correct DecayTracker). Suites: Swift 372/372 (under load, REG_G
+stable) · Python 479/479 · web decay 10/10. Golden unchanged (0.0853).
 
 ## Why (the real product bug, not a test flake)
 

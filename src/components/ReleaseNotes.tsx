@@ -46,7 +46,7 @@ export const RELEASES: RNRelease[] = [
     version: '1.0.2',
     // The git commit count at the release commit — the same number vite.config.ts stamps into
     // the app (`git rev-list --count HEAD`), so the notes and the About line always agree.
-    build: '105',
+    build: '112',
     since: '1.0.1',
     intro:
       'The browser edition has caught up with the macOS/iOS and desktop editions: ring-out measurement, the full Analysis Results panel, in-app help, live material spectra, phone support, and the same tap detection the other editions use. Everything below is new since the first release.',
@@ -101,7 +101,7 @@ export const RELEASES: RNRelease[] = [
           },
           {
             title: 'Tap Sequence Controls',
-            body: 'Cancel restarts the tap sequence rather than leaving it half-finished, and New Tap is offered only once a measurement is complete. The Taps (multi-tap comparison) toggle is enabled and disabled in place instead of appearing and disappearing.',
+            body: 'Cancel restarts the tap sequence rather than leaving it half-finished, and New Tap is available whenever a measurement is not actively being captured, so you can always start a fresh one. The Taps (multi-tap comparison) toggle is enabled and disabled in place instead of appearing and disappearing.',
           },
           {
             title: 'Display',
@@ -109,7 +109,15 @@ export const RELEASES: RNRelease[] = [
           },
           {
             title: 'Recording',
-            body: 'Dump Capture Audio previously wrote both a WAV for every tap and a continuous recording of the whole session. It now writes only the continuous session recording, which already contains every approved tap in capture order — the per-tap files were redundant.',
+            body: 'Dump Capture Audio previously wrote both a WAV for every tap and a continuous recording of the whole session. It now writes only the continuous session recording, which already contains every approved tap in capture order — the per-tap files were redundant. In the browser, captured audio downloads to your Downloads folder.',
+          },
+          {
+            title: 'Saving',
+            body: 'Saving a measurement now requires a name, so every measurement is identifiable at a glance in the list and in exports. The Save button stays disabled until you enter one; notes remain optional.',
+          },
+          {
+            title: 'Exporting',
+            body: 'Exported and downloaded file names are now consistent with the macOS and desktop editions, and names with accented or non-Latin characters (for example Ramírez) are preserved correctly instead of being stripped.',
           },
           {
             title: 'Microphone Calibration',
@@ -121,6 +129,12 @@ export const RELEASES: RNRelease[] = [
         heading: 'Bug Fixes',
         items: [
           {
+            body: 'Loading a saved measurement always warned that it “was recorded with a different calibration”, even when the microphone and calibration in use were exactly the ones it was recorded with. The check never looked at the calibration you currently have loaded, so every calibrated measurement raised the warning. It now warns only when something genuinely differs.',
+          },
+          {
+            body: 'The spectrum chart and the exported image and PDF report showed the wrong peaks. Every detected peak was dotted rather than the ones your annotation setting selects, and the report’s Detected Peaks summary listed the lowest-frequency peaks instead of the selected ones — leaving out selected peaks that sit outside the plotted frequency range. The chart, the image and the report now all show exactly the selected peaks, matching the App Store and open-source editions.',
+          },
+          {
             body: 'Playing a measurement from a file did not detect taps the same way a live measurement does — it used a fixed threshold rather than tracking the noise floor. File playback now behaves exactly like a live measurement, which also means a recording needs a short lead-in before its first tap (see the Quick Start guide).',
           },
           {
@@ -129,9 +143,22 @@ export const RELEASES: RNRelease[] = [
           {
             body: 'The microphone could silently stop delivering audio — most often because another tab or app took it — and Guitar Tap would sit there appearing to listen while receiving nothing. It now detects this and restarts the input automatically.',
           },
+          {
+            body: 'A saved plate or brace measurement always recorded one tap, however many you actually took. The measurement itself was correct — each phase still averaged all of its taps — but the tap count shown in Measurement Details and in the PDF report was wrong, and stayed wrong when the measurement was re-loaded. Guitar measurements were unaffected.',
+          },
+          {
+            body: 'The ⋯ menu on a saved measurement could be cut off by the bottom of the browser window, putting Delete out of reach. It only happened once the list grew long enough to put rows near the bottom. The menu now measures itself and opens upwards when there isn’t room below.',
+          },
+          {
+            body: 'Exported PDF reports were far larger than they needed to be — around 3.5 MB for a plate report. The spectrum image was being stored uncompressed. The same report is now about 0.18 MB, with no loss of quality.',
+          },
+          {
+            body: 'Starting a New Tap after loading a saved measurement kept the loaded measurement’s name in the Save dialog, and left its “recorded with a different setup” warning on screen. New Tap now clears both, on guitar and material measurements alike.',
+          },
           { body: 'The phone-only Results button appeared on desktop layouts.' },
           { body: 'Changing the number of taps mid-setup did not refresh the on-screen prompt.' },
           { body: 'The dark-mode curve colour on the material chart was wrong.' },
+          { body: 'An Overall Quality of “Good” was shown in yellow instead of blue, and “Very Good” was hard to tell from “Excellent”, in both the Analysis Results panel and the PDF report.' },
           { body: 'The FLC tap could be captured before the plate had stopped ringing from the previous phase.' },
         ],
       },

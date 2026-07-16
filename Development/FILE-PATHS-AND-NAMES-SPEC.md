@@ -1,7 +1,14 @@
 # FILE PATHS & NAMES — cross-platform audit and plan
 
-**Status:** ⏳ ANALYSIS COMPLETE · **DECISIONS TAKEN 2026-07-14 (§0b)** · NO CODE WRITTEN
-**Blocks:** the 1.0.2 release (found during release testing)
+**Status:** ✅ **COMPLETE — all 8 steps shipped in 1.0.2, committed 2026-07-15** (one commit per
+repo across Swift/Python/web). Steps 0–8 done + user-verified. The run-review bundled in two
+independent fixes (disarmed-idle **button-enablement** + audio-clock **ring-out decay**); dead
+`ExportView` was removed (no cross-platform naming inconsistency existed); the doc-impact audit fixed
+4 stale "New Tap only when complete" wordings; release notes (build 398/440/112), a regenerated User
+Manual (1.0.2), and a marketing-site 1.0.2 banner all landed. **This spec is now HISTORY.** The only
+remaining 1.0.2 work is cross-platform testing (esp. Linux/Windows) → then ship (App Store submit ·
+web deploy · GitHub release · publish site).
+**Was:** a 1.0.2 release blocker found during release testing — now resolved.
 **Platforms:** Swift (canonical) · Python · web
 **Parity slugs touched:** `view/save-sheet`, `view/measurements-list`, `view/settings`, `dsp/wav`, `model/measurement`
 
@@ -381,7 +388,8 @@ documentable, very low usage, and expected to be a custom-build/debugging tool f
 landed — not something being written now.)*
 
 **Nit:** the log filenames differ — Swift `GuitarTap-debug.log`, Python `guitar_tap-debug.log`. If a
-user is ever asked to send one, that is two different filenames to explain.
+user is ever asked to send one, that is two different filenames to explain. **Resolved (Step 7): the
+per-platform names are INTENTIONAL (user-confirmed); no change.**
 
 ---
 
@@ -482,12 +490,14 @@ are the agreed rule (§2b); the display ones just need to not say "Comparison".)
 
 ## 7. Incidentals
 
-1. **Swift writes fractional seconds into a filename.** `ExportView.swift:180`:
-   `"measurements-\(Date().timeIntervalSince1970).json"` interpolates a `Double` →
-   `measurements-1784060789.123456.json`. Every other path uses `Int(...)`. Almost certainly a bug.
-2. **Python drops a file on the user's Desktop.** `realtime_fft_analyzer_engine_control.py:238`
-   writes `~/Desktop/guitar_tap_raw_capture.wav` — a hardcoded raw-PCM diagnostic, unrelated to the
-   Dump Capture Audio setting.
+1. ~~**Swift writes fractional seconds into a filename.** `ExportView.swift`~~ **RESOLVED (Step 7):
+   the `ExportView` code was DEAD** — never presented (`showingExport` never true, `exportText` never
+   set). Deleted rather than patched. No live path ever wrote `measurements-<ts>.json`. The two live
+   export paths (library backup + single measurement) already use integer epochs and match on all
+   three platforms.
+2. ~~**Python drops a file on the user's Desktop.**~~ **NON-ISSUE (Step 7):**
+   `~/Desktop/guitar_tap_raw_capture.wav` is behind a disabled guard and is never written
+   (user-confirmed). No change.
 
 ---
 
@@ -697,7 +707,7 @@ prefs), Save to Disk opened at the real `~/Documents/GuitarTap`. The powerbox do
 
 ---
 
-### Step 6 — WAV folder setting (§4b, §4c) ✅ CODE DONE, NOT YET USER-VERIFIED
+### Step 6 — WAV folder setting (§4b, §4c) ✅ DONE — committed + user-verified 2026-07-15
 
 The big one — the security-scoped-bookmark work the Step-0 spike proved. New shared model helper
 `WavDumpFolder` (Swift) / `wav_dump_folder.py` (Python), same interface + method names
@@ -733,6 +743,10 @@ The big one — the security-scoped-bookmark work the Step-0 spike proved. New s
 **Test — `test/wav-dump-folder` (Swift+Python):** default folder, no-custom reachability, current==default,
 acquire/release. The bookmark round-trip and picker are **manual** (the spike proved the mechanism).
 
+**✅ Step 6 COMMITTED + user-verified 2026-07-15.** Two independent fixes surfaced by the run-review
+were committed with it: the button-enablement disarmed-idle fix (which resolves the Cancel dead-end
+below) and the audio-clock ring-out decay fix (`Development/DECAY-AUDIO-CLOCK-FIX.md`).
+
 **Post-review revisions (user run-review, 2026-07-15) — folded in:**
 - **Path-comparison** (rule 1): rename / move / **trash** / delete all → unreachable → fix it (was
   silent bookmark-follow, which wrote captures into a renamed folder and into the Trash).
@@ -761,16 +775,27 @@ ring-out decay test — under load; it passes cleanly in isolation. Unrelated to
 
 ---
 
-### Step 7 — Incidentals (§7)
+### Step 7 — Incidentals (§7) ✅ DONE 2026-07-15
 
-- [ ] Python: `~/Desktop/guitar_tap_raw_capture.wav` (`realtime_fft_analyzer_engine_control.py:238`) —
-      a hardcoded raw-PCM diagnostic that litters the user's Desktop
-- [ ] *(Swift's fractional-second filename folded into Step 2)*
-- [ ] *(Nit) log filenames differ: `GuitarTap-debug.log` vs `guitar_tap-debug.log`*
+Run-review resolved all three to nothing needing a filename change:
+- [x] **Python `~/Desktop/guitar_tap_raw_capture.wav` — NON-ISSUE.** It's behind a disabled guard
+      and is never written to disk (user-confirmed). No change.
+- [x] **Log filenames differ (`GuitarTap-debug.log` vs `guitar_tap-debug.log`) — INTENTIONAL**
+      per-platform names (user-confirmed). No change.
+- [x] **Swift fractional-second `measurements-<ts>.json` — the code was DEAD.** Chasing it revealed
+      `ExportView` (a "display a measurement's raw JSON with Copy/Save" sheet) is unreachable:
+      `showingExport` is never set true and `exportText` never assigned in either presenter
+      (`MeasurementsListView`, `MeasurementDetailView`). So `measurements-<ts>.json` was produced by
+      no one. **Removed the dead code** — deleted `ExportView.swift` (+ its file-private
+      `DocumentPickerCoordinator`) and the orphaned `showingExport`/`exportText` state + two dead
+      `.sheet` blocks. Swift-only (`@parity none`); project uses synchronized file groups so no
+      pbxproj edit. **No cross-platform naming inconsistency existed:** the two LIVE export paths —
+      library backup (`guitartap-library-<int-epoch>.guitartap`) and single-measurement
+      (`{name|"measurement"}-<int-epoch>.guitartap`) — already match on Swift/Python/web.
 
 ---
 
-### Step 8 — Documentation, then release notes LAST
+### Step 8 — Documentation, then release notes LAST ✅ DONE — committed 2026-07-15
 
 Manual and Help/Quick Start updates land **with their step**, per the standing rule. **Release notes go
 last, alone** — see §9. The build number is the commit count *at the release commit*, so the notes
@@ -788,6 +813,13 @@ were done retroactively —
 
 Going forward each step's docs land **with** it (Steps 2, 4, 5 had no doc impact).
 
+**Step 8 status: ✅ COMMITTED 2026-07-15** (with Step 7 + the website, one commit per repo). A doc-impact
+re-audit before the notes caught stale *"New Tap only when complete"* wording that the button-enablement
+fix had left behind in **four** in-app/manual spots (`HelpView`, `help_view.py`, `QuickStartGuide`,
+`ch09`) **and in the committed release notes themselves** — all corrected to the reformulated rule.
+`ch08`'s folder-dialog wording was tightened for the path-comparison (rename/move/trash) + launch-B
+behaviours. Release notes: see §9c.
+
 ---
 
 ## 9. Documentation impact
@@ -800,7 +832,7 @@ Every item here is user-visible, so the docs are **part of the work, not a follo
 |---|---|---|
 | `ch07-save-export-share.md` | **Wrong today and about to be wronger.** Line 16 says the Save sheet's two fields are *"both optional"*; line 23 says *"If left blank, the date and time serve as the name."* **Nothing does that** — the code shows `"Comparison"` in the list (§6b) and `measurement-<ts>` in filenames. Rewrite: the **Name is required**. | §3 |
 | `ch08-settings-reference.md` | Lines 157-161: *"each captured tap is saved as a … WAV"* → **one session WAV per measurement**. *"The save location is: macOS / Linux … `~/Documents/GuitarTap/`"* → **wrong on sandboxed macOS**. Document the **new WAV-folder setting** (path field + Show in Finder + Change…), with the per-platform defaults from §4b. | §4, §1b |
-| `ch09-controls-reference.md` | **Save** is now disabled until a name is entered. | §3 |
+| `ch09-controls-reference.md` | **Save** is now disabled until a name is entered. **New Tap** enablement wording corrected (2026-07-15): it's disabled only while a measurement is actively being captured — not "always enabled" — matching the button-enablement fix. | §3 |
 | `ch10-tips-and-troubleshooting.md` | Re-read the file-playback **lead-in** note against the pre-roll. It **stays** — it is about *externally recorded* files, which the pre-roll does not touch (§6). Check the wording still says so. | §6 |
 | `app-b-file-formats.md` | Confirm `measurementName` remains **optional in the format**. We are changing the UI rule, not the format. | §3b |
 
@@ -811,20 +843,26 @@ Every item here is user-visible, so the docs are **part of the work, not a follo
   it goes to the browser's **Downloads** folder (Safari/Firefox) — the only artifact with no dialog.
 - Swift `HelpView.swift` · Python `help_view.py` · web `QuickStartGuide.tsx`.
 
-### 9c. Release notes — **already committed, and now incomplete**
+### 9c. Release notes — ✅ EXTENDED + RENAMED + COMMITTED (2026-07-15)
 
-The 1.0.2 notes were written and committed *before* this audit. Everything above is user-visible, so
-all three sets need extending **before release**:
+The 1.0.2 notes were written and committed *before* this work; all three sets were extended and
+**renamed to the new build (commit count + 1)**: Swift `ReleaseNotes-1.0.2-398.md` · Python
+`ReleaseNotes-1.0.2-440.md` · web `ReleaseNotes.tsx` (build `112`). Added across all three:
 
-- Measurement Name is now required (behaviour change — most visible item).
-- New WAV folder setting + Show in Finder.
-- Export/report/spectrum filename corrections (web).
-- macOS: the export dialog now opens in the right place.
-- Session recordings are bounded (no more minutes of silence).
+- Measurement Name is now required (most visible behaviour change).
+- Settable WAV Capture folder (Show in Finder / Change… / Use Default) + the arm-time reachability prompt.
+- Consistent export/report/spectrum filenames (incl. the web infix + non-ASCII `Ramírez` fixes).
+- **New Tap no longer gets stuck** (the disarmed-idle button fix) — which also **corrected an inaccurate
+  line already in the committed notes** (*"New Tap offered only once complete"*).
+- **Ring-out measured on the audio clock** (accurate under load).
 
-Swift `Documentation/ReleaseNotes-1.0.2-<build>.md` (+ PDF) · Python `docs/ReleaseNotes-1.0.2-<build>.md`
-(+ PDF) · web `src/components/ReleaseNotes.tsx`. **⚠ The build numbers will move** — the notes are
-named for the commit count *at the release commit*, so they must be renamed once these changes land.
+The **web edition omits** the New-Tap-stuck and decay-under-load bug fixes — neither can occur there
+(no folder guard; its `DecayTracker` was already audio-clock based). *(The macOS export-dialog-location
+and bounded-pre-roll items from the pre-audit draft above are covered by Steps 5 / 6 respectively.)*
+
+**✅ Done + committed 2026-07-15:** the `-398.pdf` / `-440.pdf` were generated and the stale
+`-391.pdf` / `-434.pdf` removed; the cumulative notes were also copied over the website's
+stable-named release PDFs and the User Manual regenerated to 1.0.2.
 
 ---
 
