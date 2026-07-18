@@ -248,11 +248,28 @@ Swift is canonical *but wrong here*; Python/web have it right. Related:
 Swift: `Longitudinal` / `Cross-grain` / `FLC` · Python + web: `Longitudinal (L)` / `Cross-grain (C)` /
 `FLC`. Minor; pairs with M (same Swift chart-export path).
 
-### O. Python's date format differs
+### O. Date format: Python `, ` vs Swift/web ` at ` — ROOT-CAUSED 2026-07-18 (STATUS item 12-O)
 
-Python: `Jul 16, 2026, 3:56 PM` · Swift + web: `Jul 16, 2026 at 3:56 PM`. Check against
-[[project_datetime_format_consistency]] (unified 2026-06-25) before changing — this may be
-locale-medium formatting doing the right thing per platform.
+Python: `Jul 16, 2026, 3:56 PM` (comma) · Swift + web: `Jul 16, 2026 at 3:56 PM`.
+
+**It is NOT a stale-CLDR / Babel-version problem.** Probed the env: Babel is already the latest
+release (**2.18.0**) and `get_datetime_format('medium', 'en_US')` still returns `'{1}, {0}'` (comma) for
+all four widths — bumping Babel changes nothing. The ` at ` comes from a *separate* CLDR field, the
+**`atTime` combining variant**, which ICU (Swift `Foundation`, JS `Intl`) applies **only for the
+`dateStyle`+`timeStyle` combo**; Babel returns CLDR's **standard** datetime glue (`{1}, {0}`) and has no
+`atTime` skeleton to reach.
+
+**So Swift + web are the ones that drifted.** All three `DateDisplay`/`format/date` code comments
+document the intended output as the **comma** form (`"Jun 25, 2026, 2:34 PM"`); Python matches it, but
+Swift/web call the `dateStyle:'medium'/timeStyle:'short'` APIs which silently apply the `atTime` glue.
+
+**Fix (do Swift + web → comma; Python unchanged), locale-safe via field-based formatting:**
+- Swift `DateDisplay.string`: `date.formatted(.dateTime.year().month(.abbreviated).day().hour().minute())`
+- Web `formatDisplayDate`: `toLocaleString(undefined, { year:'numeric', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })`
+
+Field-based formatting uses each locale's **standard** layout (not `atTime`), matches Python, and is
+exactly the shape the **compact** variants on both platforms already use (which is why those never showed
+` at `). Consistent with [[project_datetime_format_consistency]].
 
 ---
 

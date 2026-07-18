@@ -114,12 +114,16 @@ export function buildMaterialMarkers(
     cross: MaterialPeak | null
     flc: MaterialPeak | null
   },
+  mode: AnnoMode,
   offsetsByFreq?: Map<string, [number, number]>,
 ): PeakMarker[] {
+  // Material (plate/brace) has no per-peak selection, so All and Selected both annotate every
+  // identified peak; None hides all badges (dots remain). Mirrors Swift/Python visiblePeaks.
+  const annotated = mode !== 'none'
   const out: PeakMarker[] = []
   const push = (mp: MaterialPeak, color: string, label: string) => {
     const key = mp.frequency.toFixed(1)
-    out.push({ ...mp, color, label, annotated: true, annoKey: key, annoOffset: offsetsByFreq?.get(key) })
+    out.push({ ...mp, color, label, annotated, annoKey: key, annoOffset: offsetsByFreq?.get(key) })
   }
   if (matPeaks.longitudinal) push(matPeaks.longitudinal, '#4ea1ff', 'Longitudinal')
   if (matPeaks.cross) push(matPeaks.cross, '#f0a03a', 'Cross-grain')
@@ -157,7 +161,7 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
       title,
       spectrum: null,
       overlays,
-      markers: buildMaterialMarkers(r.matPeaks, r.annotationOffsetsByFreq),
+      markers: buildMaterialMarkers(r.matPeaks, (m.annotationVisibilityMode as AnnoMode) ?? 'all', r.annotationOffsetsByFreq),
       view: { minHz: s.minFreq, maxHz: s.maxFreq, minDb: s.minDB, maxDb: s.maxDB },
       measurementTypeName: MEASUREMENT_FULL_NAME[r.measurementType],
       date,

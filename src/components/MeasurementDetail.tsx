@@ -1,6 +1,6 @@
 // @parity view/measurement-detail
 import { measurementTypeName, comparisonEntryModeFreqs, colorComponentsToCss } from '../measurement/fromLive'
-import { isComparison, type TapToneMeasurementModel, type ResonantPeakModel } from '../measurement'
+import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type TapToneMeasurementModel, type ResonantPeakModel } from '../measurement'
 import { MODE_COLOR, MODE_DISPLAY_NAME, magnitudeColor } from '../presentation/modeColors'
 import type { ResolvedMode } from '../dsp/classify'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
@@ -50,11 +50,13 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
 
   // Identified Peaks = the SELECTED peaks only (guitar: identified modes / multi-tap averaged;
   // plate/brace: the L/C/FLC peaks). Sorted by frequency.
-  const selectedIds = m.selectedPeakIDs?.length ? new Set(m.selectedPeakIDs) : new Set(m.peaks.map((p) => p.id))
+  // Material (plate/brace) has no per-peak selection: effectiveSelectedPeakIDs returns ALL peaks,
+  // ignoring the (possibly corrupted) saved aggregate — mirrors Swift/Python. Guitar uses the selection.
+  const selectedIds = effectiveSelectedPeakIDs(m)
   const shownPeaks = m.peaks.filter((p) => selectedIds.has(p.id)).sort((a, b) => a.frequency - b.frequency)
 
   // Material peaks are labeled by their selected role ID (full words), not a stored modeLabel.
-  const isMaterial = m.longitudinalSnapshot != null || m.selectedLongitudinalPeakID != null
+  const isMaterial = isMaterialMeasurement(m)
   const peakLabel = (p: ResonantPeakModel): string => {
     if (isMaterial) {
       if (p.id === m.selectedLongitudinalPeakID) return 'Longitudinal'

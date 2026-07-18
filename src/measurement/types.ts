@@ -112,3 +112,28 @@ export interface TapToneMeasurementModel {
 
 /** True when this record is a saved comparison rather than a single tap measurement. */
 export const isComparison = (m: TapToneMeasurementModel): boolean => m.comparisonEntries != null
+
+/** Measurement type resolved from the stored snapshots; undefined for legacy files.
+ *  Mirrors Swift `TapToneMeasurement.resolvedMeasurementType`. */
+export const resolvedMeasurementType = (m: TapToneMeasurementModel): string | undefined =>
+  m.spectrumSnapshot?.measurementType ?? m.longitudinalSnapshot?.measurementType
+
+/** True for a plate/brace (material) measurement, which has **no per-peak selection** — the
+ *  identified L/C/FLC in `peaks` are the peaks. Falls back to material-only fields for legacy
+ *  files. Mirrors Swift `TapToneMeasurement.isMaterial`. */
+export const isMaterialMeasurement = (m: TapToneMeasurementModel): boolean => {
+  const mt = resolvedMeasurementType(m)
+  if (mt != null) return !mt.endsWith('Guitar')
+  return m.longitudinalSnapshot != null || m.selectedLongitudinalPeakID != null
+}
+
+/** The peak IDs to render, annotate, and export for this measurement.
+ *  - Guitar: the saved selection (`selectedPeakIDs`), or all peaks when none saved.
+ *  - Material: **always all of `peaks`.** Plate/brace have no per-peak selection, and the saved
+ *    aggregate can be corrupted by an intermittent phase-transition write (an iPad-only Swift
+ *    glitch), so it is ignored on read — healing existing corrupt files at render time.
+ *  Mirrors Swift/Python `effectiveSelectedPeakIDs`. */
+export const effectiveSelectedPeakIDs = (m: TapToneMeasurementModel): Set<string> => {
+  if (isMaterialMeasurement(m)) return new Set(m.peaks.map((p) => p.id))
+  return m.selectedPeakIDs?.length ? new Set(m.selectedPeakIDs) : new Set(m.peaks.map((p) => p.id))
+}

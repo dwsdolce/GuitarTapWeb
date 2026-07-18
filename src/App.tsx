@@ -587,8 +587,8 @@ export default function App() {
   // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors). Reuses the shared
   // annotation-offset store so L/C/FLC labels drag exactly like guitar labels (Swift/Python parity).
   const materialMarkers = useMemo<PeakMarker[]>(() => {
-    return buildMaterialMarkers(matPeaks, annotationOffsets)
-  }, [matPeaks, annotationOffsets])
+    return buildMaterialMarkers(matPeaks, annotationMode, annotationOffsets)
+  }, [matPeaks, annotationMode, annotationOffsets])
 
   // ── Multi-tap comparison (guitar, >1 tap) ───────────────────────────────────
   // Per-tap mode peaks are (re)found from each tap spectrum at the current Peak Min,
@@ -630,11 +630,13 @@ export default function App() {
     if (!material) return []
     const out: SpectrumOverlay[] = []
     if (matSpectra.longitudinal)
-      out.push({ ...matSpectra.longitudinal, color: MAT_L_COLOR, label: brace ? 'Longitudinal (fL)' : 'Longitudinal (L)' })
+      // Chart legend uses the mode key "(L)" uniformly for plate AND brace, matching Swift/Python
+      // (the brace's "(fL)" form is reserved for step instructions + the fL readout). (RESPIN-1.0.2, fix N.)
+      out.push({ ...matSpectra.longitudinal, color: MAT_L_COLOR, label: 'Longitudinal (L)' })
     if (matSpectra.cross) out.push({ ...matSpectra.cross, color: MAT_C_COLOR, label: 'Cross-grain (C)' })
     if (matSpectra.flc) out.push({ ...matSpectra.flc, color: MAT_FLC_COLOR, label: 'FLC' })
     return out
-  }, [material, brace, matSpectra])
+  }, [material, matSpectra])
   const chartMarkers = material ? materialMarkers : markers
   // Per-measurement-type display range (plate 20–200, brace 30–1000, guitar 75–350),
   // matching Swift/Python — no special-cased material override.
@@ -1013,7 +1015,7 @@ export default function App() {
         <button
           className={`btn toggle ${annotationMode !== 'none' ? 'on' : ''}`}
           onClick={cycleAnnotations}
-          disabled={!running || material || displayPeaks.length === 0}
+          disabled={!running || (material ? materialMarkers.length === 0 : displayPeaks.length === 0)}
           title={HINTS.annotations(ANNOTATION_LABEL[annotationMode])}
         >
           {annotationMode === 'all' ? <EyeIcon /> : annotationMode === 'selected' ? <StarIcon /> : <EyeOffIcon />}

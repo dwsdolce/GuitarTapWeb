@@ -264,40 +264,46 @@ onset, or re-run the 3-tap brace with Swift's buffer forced small. **Do not "fix
 the averaging is not the suspect. Note the guitar path is *unaffected* (all three agree to 0.001 dB), so
 any fix must not disturb it.
 
-### ⭐ NARROWED by the first plate test (2026-07-16): it is the SESSION'S FIRST TAP
+### ⚠ A "first-tap" narrowing was proposed here, then FALSIFIED. It is PER-TAP.
 
-The plate is the decisive experiment, because unlike the brace it has **three** phases — so it can
-separate "Swift's gated path is wrong" from "Swift's *first tap* is wrong". Peaks, three apps, same taps:
+**The SINGLE-tap plate (2026-07-16)** appeared to show only the session's first tap misaligning:
 
 | peak | Python | Swift | Web |
 |---|---|---|---|
-| **fL** | 67.034660 Hz / −50.5370 dB | **66.947420 Hz / −49.5903 dB** ← only divergence | 67.034660 Hz / −50.5370 dB |
-| **fC** | 117.331500 Hz / −55.4257 dB | 117.331500 Hz / −55.4259 dB | 117.331500 Hz / −55.4257 dB |
-| **fFLC** | 35.860146 Hz / −58.9537 dB | 35.860600 Hz / −58.9514 dB | 35.860603 Hz / −58.9512 dB |
+| **fL** | 67.034660 Hz | **66.947420 Hz** ← diverges | 67.034660 Hz |
+| **fC** | 117.331500 Hz | 117.331500 Hz *(seemed identical)* | 117.331500 Hz |
+| **fFLC** | 35.860146 Hz | 35.860600 Hz *(seemed ~exact)* | 35.860603 Hz |
 
-**fC is identical on all three** (to 6 dp, magnitudes within 0.0002 dB) and fFLC agrees to ~0.0005 Hz.
-Python ≡ web on fL to the last digit. Q and bandwidth match everywhere. **Only fL diverges** — so
-Swift's *later* taps re-align to the onset perfectly, and only the first misses.
+That looked like "only fL (the session's first tap) diverges; later phases re-align." **I wrote that
+as a narrowing. The 3-TAP plate killed it.**
 
-**Three independent cases now agree:**
+**The 3-TAP plate (2026-07-16) — Python≡web bit-identical throughout (fL Δ +0.00001):**
 
-1. **Plate** — L wrong; C and FLC right.
-2. **Brace** (this document) — a **single-phase, L-only** measurement, and Swift diverged. **100% of a
-   brace sits in the one phase that's broken**, which is why the brace read like a whole-measurement
-   2 dB error while the plate reads like one bad peak among three good ones. *Same cause, different
-   exposure.*
-3. **Guitar** — all three agree to 0.001 dB, and guitar uses a fixed **65536-sample non-gated** window,
-   not the gated one.
+| peak | Python | **Swift** | Δ (swift − python) | single-tap Δ |
+|---|---|---|---|---|
+| **fL** | 67.502270 Hz | 67.410290 Hz | **−0.0920 Hz** | −0.0872 (≈same, NOT shrunk) |
+| **fC** | 117.440250 Hz | 117.419660 Hz | **−0.0206 Hz** | 0.0000 (now diverges) |
+| **fFLC** | 36.353745 Hz | 36.254917 Hz | **−0.0988 Hz** | ~0.0005 (now diverges) |
 
-**Working hypothesis:** at session start the pre-roll ring buffer isn't deep enough for Swift to
-re-align the onset when chunks arrive **4800 samples (100 ms)** at a time; by the second tap it is full
-and alignment succeeds. This turns fix **C** in `AUDIO-BUFFER-SIZE.md` (anchor the gated window to the
-detected onset sample) from "somewhere in the gated path" into one specific question: **pre-roll depth
-at session start.**
+**Two predictions of the first-tap theory, both failed:**
+1. If only tap 1 of the L phase were bad, averaging 3 L taps would cut the fL gap to ~⅓ (≈0.03 Hz).
+   It held at **−0.092 Hz** → **all three L taps are misaligned**; averaging can't dilute it.
+2. fC/fFLC were supposed to stay exact (their taps aren't the session's first). Instead **both now
+   diverge** — so the single-tap "fC/fFLC agree" was **coincidence** (those taps rounded to the same
+   bin), not "later taps re-align."
 
-**Settles a loose end — the offset is RANDOM per tap, not a bias.** Swift is 2.02 dB *lower* on brace-L
-but 0.95 dB *higher* on plate-L. The sign flips. So "Swift reads low" was the wrong framing and **no
-constant correction exists** — exactly what buffer quantization predicts.
+**Correct story = item 4's original root cause, un-narrowed:** the 4800-frame buffer misaligns the
+gated window on **every** tap; multi-tap averaging *exposes* it across all three phases rather than
+masking it. The pre-roll-depth-at-session-start idea is **OUT**. Fix **C** (anchor the gated window to
+the detected onset sample) applies **per tap**, not just the first.
+
+**Guitar remains the clean control** — all three agree to 0.001 dB, because guitar uses a fixed
+**65536-sample non-gated** window, not the gated path. So the defect is specifically the **gated**
+material capture, on every tap.
+
+*(The earlier brace-vs-plate sign flip — Swift 2.02 dB lower on brace-L, 0.95 dB higher on
+single-tap-plate-L — is per-measurement buffer phase, still consistent with quantization. On the 3-tap
+plate Swift is uniformly low on all three phases.)*
 
 **Impact:** 0.087 Hz on 67 Hz = 0.13% → ~0.26% on Young's modulus (E ∝ f²). Immaterial per the standing
 call, but Swift's plate numbers *will* differ slightly from the other two in the PDF.
