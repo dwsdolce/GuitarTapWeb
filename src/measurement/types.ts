@@ -127,6 +127,7 @@ export const isMaterialMeasurement = (m: TapToneMeasurementModel): boolean => {
   return m.longitudinalSnapshot != null || m.selectedLongitudinalPeakID != null
 }
 
+// @parity model/material-selection tests=test/material-selection
 /** The peak IDs to render, annotate, and export for this measurement.
  *  - Guitar: the saved selection (`selectedPeakIDs`), or all peaks when none saved.
  *  - Material: **always all of `peaks`.** Plate/brace have no per-peak selection, and the saved

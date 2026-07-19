@@ -183,17 +183,23 @@ _Model helpers on `TapToneMeasurement`; save persists full set for material; loa
 - **Save:** ensure material `selectedPeakIDs` = full identified set.
 - **UI:** peak-visibility control → **All / None** for material. Guitar unchanged.
 
-### Step 6 — Documentation
-- User manual + in-app help / Quick-Start (all 3): material (plate/brace) peak visibility is **All /
-  None** — the identified L/C/FLC are the peaks; there is no per-peak selection (that's a guitar
-  feature). Regenerate the manual/quick-start PDFs where applicable.
+### Step 6 — Documentation — ✅ DONE 2026-07-18 (source; user regenerates manual HTML/PDF via pandoc)
+- ✅ **In-app Help / Quick-Start (all 3):** material Annotations note added (HelpView.swift /
+  help_view.py / QuickStartGuide.tsx) — plate/brace have no per-peak selection, so **All and Selected
+  both show all three (L/C/FLC), None hides** (the revised 3-state; NOT the stale "All / None").
+- ✅ **User Manual:** added the material Annotations detail to **ch06 §6.7 Annotation Modes**
+  (plate/brace: no per-peak selection → All and Selected both label all three, None hides; cross-ref
+  §4.9). §4.9 Detected-Peaks already documented the auto-selected/no-selection concept. ⏳ **user
+  regenerates the manual HTML/PDF + `Website/manual/` copies via pandoc.**
 
-### Step 7 — Tests
-- **Poisoned-fixture test (3-way):** a material `.guitartap` with `selectedPeakIDs = {C}` (disagreeing
-  with `peaks[]`/per-phase) → assert the render/peak-set = all three (L,C,FLC) on Swift, Python, web.
-  The two real iPad broken files are ready-made fixtures. New parity slug, e.g. `test/material-selection`.
-- Existing suites green (Swift, Python 488, web 278 — counts will move).
-- `parity --check` clean; regenerate the map.
+### Step 7 — Tests — ✅ DONE 2026-07-18
+- **Poisoned-fixture test (3-way):** ✅ real corrupt iPad plate `plate-umik-1-3-tap-swift-ipad-1784314709.guitartap`
+  (`selectedPeakIDs = {C}` while `peaks[]` holds all three) → `effectiveSelectedPeakIDs` heals to all three
+  (L 67 / C 117 / FLC 36) on Swift, Python, web. New impl slug `model/material-selection` + test slug
+  `test/material-selection`; fixture copied into each repo (next to the test / `test/fixtures/`).
+  Tests: Swift `MaterialSelectionTests`, Python `test_material_selection.py`, web `material-selection.test.ts`.
+- ✅ `parity --check` clean; map regenerated (76 groups). Existing suites unaffected (additive: new tests +
+  a comment anchor + a fixture). New-test counts: +1 each.
 
 ### Step 8 — Release notes + ship
 - Release notes entry (all 3): "Plate/brace reports and on-chart peaks could show only one of the three
