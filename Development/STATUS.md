@@ -21,8 +21,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 6 | **Project hub repo** (docs + cross-repo bug tracking) | 📋 IDEA, needs a spec; no action yet. Enabler = Swift going open source. | [PROJECT-HUB-REPO.md](PROJECT-HUB-REPO.md) |
 | 7 | **Material multi-tap: Swift ~2 dB / sub-bin below Python/web** | 🔶 NOT blocking (fL agrees; derived props follow frequency). **Same 4800-buffer cause as the Swift audio-buffer-size item** — resolve there, don't chase separately. | MATERIAL-MULTITAP §3 |
 | 8 | **Results panel cross-platform consistency** | 📋 Post-release; presentation only (numbers correct). 7 divergences pointing 3 ways (order · Showing-row · nesting · boxing · labels · title-colour · spacing) — this **includes** the Python Gore-box **nesting** (§3) and vertical **spacing** (§7) once mis-filed as separate "P/Q" items. Overall-Quality colour already fixed. Spec against Swift first. | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) |
-| 9 | **Threshold meter reads high on web during file playback** | ✅ **ROOT-CAUSED + FIXED 2026-07-18 — DEV-ONLY artifact; production was never affected.** NOT a meter/level bug: the web level math is exact (instrumented — `onLevel` == the file's true per-chunk RMS, −75/−85 floor). Cause = **React StrictMode's dev double-mount** raced the async `engine.start()`, leaking a 2nd live-mic engine whose ungated mic drove the meter (two `iid`s in dev; **one** under `npm run preview`, meter clean). Fixed by hardening `useAudioEngine.start()`: after `await engine.start()`, `if (engineRef.current !== engine) engine.stop()` — kills the orphaned engine (also guards any real remount). **User-verified in `npm run dev` (meter ignores voice during playback) 2026-07-18**; pending commit. | [MATERIAL-LIVE-ANNOTATION-DISPLAY.md](MATERIAL-LIVE-ANNOTATION-DISPLAY.md) §Still-open |
-| 10 | **Python: progress bar lingers after load-guitar-following-material** | ⏸ PARKED 2026-07-17 (user) — may just be reset-timing differing across platforms, not a real bug. **Confirm it reproduces before acting.** Progress bar = `_sb_progress` (`tap_tone_analysis_view.py`), visibility at `:2358`/`:3276`. | *(this row)* |
+| 9 | **Python: progress bar lingers after load-guitar-following-material** | ⏸ PARKED 2026-07-17 (user) — may just be reset-timing differing across platforms, not a real bug. **Confirm it reproduces before acting.** Progress bar = `_sb_progress` (`tap_tone_analysis_view.py`), visibility at `:2358`/`:3276`. | *(this row)* |
 
 ## Done (for reference)
 
@@ -40,6 +39,7 @@ Audit trail, not a to-do list.
 
 - **Missing-test parity slugs** ✅ committed 2026-07-18. `measurementTypeName` resolver extracted (non-private) + tested; the 3 untested `@parity` slugs (analysis-quality, mode-colors, quality-colors) now have tests on all 3; Python analysis-quality consolidated to one source (`extensions.py`); Swift annotation colour de-duped to `GuitarMode.color`. Parity `--check` fully clean (74 groups). | [ANALYSIS-QUALITY-MODECOLOR-CLEANUP.md](ANALYSIS-QUALITY-MODECOLOR-CLEANUP.md)
 - **Web ⋯ menu clipped by window bottom** ✅ fixed + verified 2026-07-18 (web-only, `@parity none`). `menuPlacement()` measures real height + flips/clamps; 14-test guard. | `test/menu-placement.test.ts`
+- **Threshold meter reads high on web during playback** ✅ root-caused + fixed + user-verified 2026-07-18 (commit pending; web-only, `@parity none`). **DEV-ONLY** — React StrictMode's dev double-mount raced the async `engine.start()` and leaked a 2nd live-mic engine (the web level math was exact all along); hardened `useAudioEngine.start()` to stop the orphaned engine. Production was never affected. | [MATERIAL-LIVE-ANNOTATION-DISPLAY.md](MATERIAL-LIVE-ANNOTATION-DISPLAY.md)
 
 **Older completed epics:**
 
@@ -70,7 +70,6 @@ Audit trail, not a to-do list.
 | [PROJECT-HUB-REPO.md](PROJECT-HUB-REPO.md) | 6 | idea: a repo for project docs + cross-repo issue tracking |
 | [MATERIAL-MULTITAP-DISCREPANCIES.md](MATERIAL-MULTITAP-DISCREPANCIES.md) | 4, 7 | multi-tap material analysis: buffer per-tap divergence, Gore-thickness validation |
 | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) | 8 | live Analysis Results panel — cross-platform divergences (screenshots in `images/`); §3 Gore nesting, §7 spacing |
-| [MATERIAL-LIVE-ANNOTATION-DISPLAY.md](MATERIAL-LIVE-ANNOTATION-DISPLAY.md) | 9 | the web threshold-meter finding (the live material annotation fix is done) |
 
 **Reference** (living — consult, don't complete)
 | Doc | Purpose |
@@ -89,6 +88,7 @@ Audit trail, not a to-do list.
 | [WEB-PDF-MATERIAL-LAYOUT.md](WEB-PDF-MATERIAL-LAYOUT.md) | web material PDF fixes A–L + the Swift/Python chart defects M–O (✅ done) |
 | [PYTHON-MULTITAP-MATERIAL-RESULTS.md](PYTHON-MULTITAP-MATERIAL-RESULTS.md) | Python results one-phase-lag bug + fix (✅ done) |
 | [ANALYSIS-QUALITY-MODECOLOR-CLEANUP.md](ANALYSIS-QUALITY-MODECOLOR-CLEANUP.md) | analysis-quality/mode-colour/quality-colour parity + tests (✅ done) |
+| [MATERIAL-LIVE-ANNOTATION-DISPLAY.md](MATERIAL-LIVE-ANNOTATION-DISPLAY.md) | live material annotation display (item 12R) + the web threshold-meter finding — both ✅ done (the latter a dev-only StrictMode engine leak) |
 | [FILE-PATHS-AND-NAMES-SPEC.md](FILE-PATHS-AND-NAMES-SPEC.md) | file-paths/names audit → 1.0.2 — ✅ all 8 steps committed |
 | [DECAY-AUDIO-CLOCK-FIX.md](DECAY-AUDIO-CLOCK-FIX.md) | ring-out measured in audio time — ✅ done |
 | [PLATFORM-PARITY-GAPS.md](PLATFORM-PARITY-GAPS.md) | Task 4 OUT-1…OUT-5 — ✅ all done |
