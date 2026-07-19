@@ -848,6 +848,11 @@ export default function App() {
         }
         setShowMultiTap(false)
         setShowMeasurements(false)
+        // Freeze the loaded measurement. The engine arms into 'listening' at startup, so without
+        // this it keeps listening over a frozen result and a stray tap can capture into it.
+        // Mirrors Swift `loadMeasurement` (documented: "Tap detection is disabled",
+        // isDetecting = false) and Python `load_measurement` (is_detecting = False). New Tap re-arms.
+        engineRef.current?.disarm()
         return
       }
       let live
@@ -899,6 +904,11 @@ export default function App() {
       setShowMultiTap(false)
       setComparison(null)
       setShowMeasurements(false)
+      // Freeze the loaded measurement — see the material branch above. Without this, isDetecting
+      // stays true alongside isMeasurementComplete (invariant I1), which both disables New Tap on a
+      // measurement whose own status bar says to press it AND lets ambient noise complete a capture
+      // that silently replaces the loaded result (onGuitarCapture clears loadedPeaks/Name/View).
+      engineRef.current?.disarm()
     },
     [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, restoreAnnotations, restoreMaterialOffsets, setView],
   )

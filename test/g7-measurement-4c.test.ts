@@ -21,7 +21,9 @@ describe('measurementWarning — tiering', () => {
   it('warns when the recorded mic is not the current input', () => {
     const w = measurementWarning(mk({ microphoneName: 'UMIK-1' }), { microphoneName: 'MacBook Pro Microphone', calibrationName: undefined })
     expect(w).toContain("'UMIK-1'")
-    expect(w).toContain("isn't the current input")
+    expect(w).toContain('is not the current input')
+    // Actionable guidance mirrors Swift/Python's wording.
+    expect(w).toContain('Select it in the microphone settings for accurate analysis')
     expect(w).toContain("'MacBook Pro Microphone'")
   })
 

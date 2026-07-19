@@ -238,7 +238,11 @@ export function measurementWarning(m: TapToneMeasurementModel, current: CaptureS
   const matched = current.microphoneName != null && normMic(recorded) === normMic(current.microphoneName)
   if (!matched) {
     const cur = current.microphoneName ? ` ('${current.microphoneName}')` : ''
-    return `This measurement was recorded with '${recorded}', which isn't the current input${cur}. A newly captured tap may not match the saved result.`
+    // Wording mirrors Swift/Python ("…select it in the microphone settings for accurate analysis").
+    // The CONDITION still differs and is stated truthfully: the natives enumerate devices and warn
+    // "is not currently connected"; the web only knows the selected input, so it warns "is not the
+    // current input". Full condition parity (enumerate + UID-first match) rides the mic-name item.
+    return `This measurement was recorded with '${recorded}', which is not the current input${cur}. Select it in the microphone settings for accurate analysis.`
   }
 
   const diffs: string[] = []
