@@ -46,7 +46,7 @@ export const RELEASES: RNRelease[] = [
     version: '1.0.2',
     // The git commit count at the release commit — the same number vite.config.ts stamps into
     // the app (`git rev-list --count HEAD`), so the notes and the About line always agree.
-    build: '112',
+    build: '116',
     since: '1.0.1',
     intro:
       'The browser edition has caught up with the macOS/iOS and desktop editions: ring-out measurement, the full Analysis Results panel, in-app help, live material spectra, phone support, and the same tap detection the other editions use. Everything below is new since the first release.',

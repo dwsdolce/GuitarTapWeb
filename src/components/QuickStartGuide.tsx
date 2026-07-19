@@ -285,7 +285,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Annotations',
         icon: 'eye',
-        body: 'Cycles through three label modes: All peaks annotated, Selected peaks only, or None.',
+        body: 'Cycles through three label modes: All peaks annotated, Selected peaks only, or None. For plate and brace there is no per-peak selection, so All and Selected show the same thing — all three identified frequencies (Longitudinal, Cross, and FLC) — while None hides them.',
       },
       {
         title: 'Peak Labels',
