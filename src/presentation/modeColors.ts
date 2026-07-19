@@ -1,4 +1,4 @@
-// @parity model/mode-colors
+// @parity model/mode-colors tests=test/mode-colors
 import type { ResolvedMode } from '../dsp/classify'
 
 /**

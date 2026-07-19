@@ -1,3 +1,4 @@
+// @parity test/analysis-quality
 import { describe, it, expect } from 'vitest'
 import {
   decayQuality,
