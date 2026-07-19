@@ -263,13 +263,30 @@ all four widths — bumping Babel changes nothing. The ` at ` comes from a *sepa
 document the intended output as the **comma** form (`"Jun 25, 2026, 2:34 PM"`); Python matches it, but
 Swift/web call the `dateStyle:'medium'/timeStyle:'short'` APIs which silently apply the `atTime` glue.
 
-**Fix (do Swift + web → comma; Python unchanged), locale-safe via field-based formatting:**
-- Swift `DateDisplay.string`: `date.formatted(.dateTime.year().month(.abbreviated).day().hour().minute())`
-- Web `formatDisplayDate`: `toLocaleString(undefined, { year:'numeric', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })`
+**⚠ Field-based is NOT enough** — confirmed 2026-07-18 in a real modern browser:
+`toLocaleString(undefined,{year,month,day,hour,minute})` still returns `"Jul 18, 2026 at 4:51 PM"`, and
+a fresh Swift build via `.formatted(.dateTime.year()…hour().minute())` did too. Modern ICU applies the
+`atTime` glue whenever **one** formatter combines a date **and** a time — `dateStyle`+`timeStyle` *and*
+field-based combos alike. (Older ICU, e.g. the Node here, doesn't, which is why the CLI check misled us.)
 
-Field-based formatting uses each locale's **standard** layout (not `atTime`), matches Python, and is
-exactly the shape the **compact** variants on both platforms already use (which is why those never showed
-` at `). Consistent with [[project_datetime_format_consistency]].
+**Fix (do Swift + web → comma; Python unchanged): format date and time in SEPARATE calls, join with
+", "** — no single formatter ever sees both, so `atTime` can't fire; the only glue is the literal `", "`
+(matches Python's en output / CLDR standard combine for Latin locales):
+- Swift `DateDisplay.string`:
+  `let d = date.formatted(.dateTime.year().month(.abbreviated).day()); let t = date.formatted(.dateTime.hour().minute()); "\(d), \(t)"`
+- Web `formatDisplayDate`:
+  `d.toLocaleDateString(undefined,{year,month,day}) + ", " + d.toLocaleTimeString(undefined,{hour,minute})`
+
+Consistent with [[project_datetime_format_consistency]].
+
+**Decision 2026-07-18 (user): the hardcoded `", "` glue is accepted.** Measured against Python's
+per-locale CLDR combine: `{1}, {0}` (so `", "` is *exact*) for every Western/European locale —
+en-US/AU/GB, **fr-FR, de-DE, es-ES, it-IT, ru-RU**. Only CJK (zh/ja/ko, which combine with a space)
+and Arabic (which uses `،`) diverge, and there the result is still legible, just non-idiomatic. Since
+the app isn't meaningfully localized, `", "` everywhere is the call; if it were ever localized we'd
+instead take whatever ICU/Babel produce per platform (the split). Babel confirmed to NOT expose the
+CLDR `atTime` variant (probed 2026-07-18: no atTime in the locale data; `format=atTime` → garbage
+`'PMtTi567'`), so "at" everywhere was never reachable without PyICU.
 
 ---
 
