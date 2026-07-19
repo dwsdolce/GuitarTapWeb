@@ -47,8 +47,14 @@ Two distinct Python-only sub-bugs surfaced while fixing (Swift's declarative Swi
 More testing tomorrow before stripping instrumentation.
 
 ## Still open / separate (NOT 12R)
-- **Threshold input-level meter reads high on web** vs Swift/Python for the same file. Detection still
-  succeeds everywhere → a level-*display* scaling difference, not a detection defect, and not touched by
-  the respin. Needs its own investigation (calibration/dBFS reference on the meter). New STATUS item.
+- **Threshold meter reads high on web during file playback** — ✅ **ROOT-CAUSED + FIXED 2026-07-18,
+  DEV-ONLY (production never affected).** It was NOT a level/display bug: instrumenting the web's `onLevel`
+  during playback showed it emits the file's *exact* per-chunk RMS (−75/−85 floor), identical to Python.
+  The real cause is **React StrictMode's dev double-mount**: `useAudioEngine.start()` is async, so the dev
+  mount→unmount→remount races it and leaves a **second, orphaned engine** with a live mic (never gated by
+  `playingFile`, since it never plays a file) whose room audio drives the meter. Proven by an instance-id
+  probe (two `iid`s in `npm run dev`, **one** in `npm run preview`). Fixed by hardening
+  `useAudioEngine.start()` to stop the orphaned engine (`engineRef.current !== engine → engine.stop()`).
+  Lesson: the web level math was correct the whole time; the "high meter" was a leaked live mic, not a scale.
 - **Progress bar** (Python: load guitar after material → bar lingers). **PARKED** — the user suspects it
   may just be reset-timing differing across platforms, not a real bug. Do not act without confirming.

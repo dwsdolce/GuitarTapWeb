@@ -241,6 +241,15 @@ export function useAudioEngine({
     analyzer.setDevice(engine) // the analyzer holds the device to orchestrate material (6-TEST 3c-C3)
     try {
       await engine.start(getSavedInputDeviceId())
+      // Remount / StrictMode guard: start() is async, so if this component was torn down mid-start the
+      // cleanup already nulled engineRef and a second start() may have created a replacement. This
+      // engine is orphaned — stop it (so its mic worklet doesn't keep feeding the pipeline as a ghost
+      // second instance) and bail before touching any React state. Without this, React's dev double-mount
+      // leaves two live mics, and any real remount would leak the same way. stop() is idempotent.
+      if (engineRef.current !== engine) {
+        void engine.stop()
+        return
+      }
       setSampleRate(engine.sampleRate)
       setAudioSettings(engine.audioSettings)
       setDeviceLabel(engine.deviceLabel)
