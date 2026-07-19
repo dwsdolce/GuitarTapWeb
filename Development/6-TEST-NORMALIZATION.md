@@ -410,7 +410,7 @@ lifecycle state; PC-3 is message normalization. All get fixed canonically, in on
     shared manual (`Documentation/Manual/ch03-guitar-mode.md`).
 
   **✅ PHASE 3 COMPLETE 2026-07-12** — 3a–3e done + PC-1 docs. (Remaining under Task-3/6-TEST: Phase 4 orphan
-  back-ports; annotation-state + frozen-peak-recalc's selection half ride P3 in the item-2 restructure.)
+  back-ports; annotation-state + frozen-peak-recalc's selection half ride P3 in the view-layer restructure.)
 - **Phase 4 — Resolve the 4 web-only test orphans (align to the Swift/Python structure).** The audit
   (Swift + Python coverage sweep) showed these are **not** four back-ports — two dissolve by structure
   alignment, two are genuine gaps:

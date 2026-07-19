@@ -1,4 +1,4 @@
-# Material live-annotation display during capture/playback (STATUS item 12R + related)
+# Material live-annotation display during capture/playback (the live material-annotation display + related)
 
 **Found 2026-07-17, root-caused + FIXED 2026-07-17 (user-verified same night; more testing tomorrow).**
 Repro: play `/Users/dws/Documents/GuitarTap/plate-umik-1-swift-mac-1784242582.wav` (Play-File) on Swift /

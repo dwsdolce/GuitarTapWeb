@@ -151,7 +151,7 @@ Leading suspects, all runtime and iOS-specific:
 - **An async between capture and Accept** (`Control.swift:393` FLC-cooldown `asyncAfter`) reordering
   relative to iOS timing.
 
-**This needs the on-device instrument-and-run method** (the one that cracked item 14). User has offered
+**This needs the on-device instrument-and-run method** (the one that cracked the Python one-phase-lag fix). User has offered
 ("we can instrument if we need to"). See the instrumentation plan below.
 
 ### ⚠ Second iPad trace (2026-07-16) — writes are ALL on MAIN; simple race RULED OUT; still not reproduced
@@ -278,7 +278,7 @@ Swift's phase handlers build `selectedPeakIDs` **cumulatively and correctly**
 **`{C}` matches none of these.** So on iPad something resets `selectedPeakIDs` to just the Cross peak
 **after** the FLC handler runs — an iPad/iOS-specific path (view interaction, annotation propagation,
 or timing) that macOS doesn't hit. Static reading can't pin it; needs an **on-device trace** (same
-method that cracked the Python one — item 14: instrument the selectedPeakIDs writes, run on iPad,
+method that cracked the Python one — the one-phase-lag fix: instrument the selectedPeakIDs writes, run on iPad,
 find which write lands last with `{C}`).
 
 ## ⚠ Why do the platforms resolve peaks *differently*? (user: "the divergence itself is frightening")
@@ -314,7 +314,7 @@ and Swift — nominal canon — is the one that should adopt the per-phase resol
 [[feedback_what_does_swift_do]]-corollary "the better alternative becomes the cross-platform standard"
 case). Aligning all three on the per-phase source removes the second copy as a divergence surface.
 
-## Related — this is the SAME FAMILY as STATUS item 12(R), but WORSE
+## Related — this is the SAME FAMILY as the live material-annotation display, but WORSE
 
 12(R): on **macOS**, plate chart **annotations** don't refresh live during capture (waveform + peak
 table do; the SAVED file is still correct). On **iPad** the same material-selection-state weakness
@@ -356,7 +356,7 @@ export. So the bad field survives the round-trip and re-poisons any Swift consum
    per-phase ids, **rebuild it from the per-phase ids** (the authoritative source) at parse time. Do it
    in all three editions. Then importing a poisoned file **cleans** it, and a web/Python re-export
    becomes a genuine repair tool (not just a correct-PDF tool). This is the cross-platform version of
-   the item-14 lesson.
+   the Python one-phase-lag lesson.
 3. **Best: remove the redundant surface** — treat the per-phase ids as the single source of truth for
    material and *derive* `selectedPeakIDs` from them (the web's fresh-capture `buildMaterialMeasurement`
    already does this; only the import passthrough doesn't). Then the two copies cannot disagree.
@@ -385,7 +385,7 @@ the correct per-phase ids) **and points at the fix.**
 2. **Defensive/robustness (RECOMMENDED — web/Python already do exactly this):** the Swift material PDF
    should resolve its peak set from the **authoritative per-phase ids** (`selectedLongitudinal/Cross/
    FlcPeakID`), not the aggregate `selectedPeakIDs`. It would make the PDF correct even when the
-   aggregate is wrong — including every already-saved iPad file — and mirrors the item-14 lesson
+   aggregate is wrong — including every already-saved iPad file — and mirrors the Python one-phase-lag lesson
    (resolve material from persistent per-phase state, not a transient aggregate). Note this makes the
    material PDF robust but does NOT fix the corrupted saved `selectedPeakIDs` itself (angle 1), which
    still affects on-chart annotations that key off the aggregate.
@@ -427,7 +427,7 @@ Swift + Python do). With A+B+C the two copies can never disagree.
 
 ### D. The live Swift `{C}` bug still needs attention
 With B/C the *saved* aggregate is derived-correct, but the **live** `selectedPeakIDs` during capture
-(what the on-chart annotations key off — item 12(R)) still collapses to `{C}` on iPad. Resolve the live
+(what the on-chart annotations key off — the live material-annotation display) still collapses to `{C}` on iPad. Resolve the live
 annotation path from per-phase ids too, or fix the reset. Fold 12(R) into this work.
 
 ### Verification — the fixture the well-formed suite never had
@@ -442,7 +442,7 @@ Since a new Swift build ships anyway, the "don't touch Swift" bar is lifted for 
   role suffixes — M/N share the chart-export path, both plate-PDF correctness, natural to bundle ·
   **12(R)** live plate annotations — related to D, likely shares the fix · **the uncommitted
   `@parity model/quality-colors` comment** — commit it now (build rolls regardless).
-- 🔶 **DEFER item 4** (the 4800-frame buffer) — large, risky, its own testing burden, repeatedly judged
+- 🔶 **DEFER the buffer-size item** (the 4800-frame buffer) — large, risky, its own testing burden, repeatedly judged
   immaterial to lutherie. Bundling it into a *correctness* release dilutes the test focus and expands
   the blast radius. Recommend a separate later build. **User's call.**
 

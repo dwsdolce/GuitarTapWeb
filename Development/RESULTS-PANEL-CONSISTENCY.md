@@ -26,7 +26,7 @@ and `.wav` files in `~/Documents/GuitarTap`, these are not reproducible after th
 <img src="images/results-panel-plate-python-2026-07-16.png" width="300" alt="Python Analysis Results — plate">
 <img src="images/results-panel-plate-web-2026-07-16.png" width="300" alt="Web Analysis Results — plate">
 
-The fL / thickness differences visible between them (66.9 vs 67.0; 2.81 vs 2.80) are **STATUS item 4's
+The fL / thickness differences visible between them (66.9 vs 67.0; 2.81 vs 2.80) are **the buffer-size item's
 first-tap gated-window defect — not a panel issue.** See
 [MATERIAL-MULTITAP-DISCREPANCIES.md](MATERIAL-MULTITAP-DISCREPANCIES.md) §3.
 
@@ -102,7 +102,7 @@ The web renders `Gore Target Thickness` and `Plate Properties` as **blue** headi
 text for both. Note the web applies it **selectively** — those two are blue while `Speed of Sound` and
 `Young's Modulus (E)` are not — so there is no consistent rule on the web today.
 
-⚠ **Overlaps [THEME-SPEC.md](THEME-SPEC.md) (STATUS item 3).** The **systemBlue token** is exactly that
+⚠ **Overlaps [THEME-SPEC.md](THEME-SPEC.md) (the Theme work).** The **systemBlue token** is exactly that
 work's seam ([[project_theme_light_dark]]). Settle *"are section titles ever coloured?"* **with** the
 theme work or the two efforts will fight over the same pixels.
 
@@ -125,20 +125,19 @@ those sections agree.
 
 ## Explicitly NOT divergences
 
-- **The web's dark theme.** That is [THEME-SPEC.md](THEME-SPEC.md) / STATUS item 3, not this.
+- **The web's dark theme.** That is [THEME-SPEC.md](THEME-SPEC.md) / the Theme work, not this.
 - **Badge hues** (L blue / C orange / FLC purple) — consistent across all three; only shade differs,
   which is theme.
-- **fL 66.9 vs 67.0 and 2.81 vs 2.80 mm** — STATUS item 4's first-tap gated-window defect. The numbers
+- **fL 66.9 vs 67.0 and 2.81 vs 2.80 mm** — the buffer-size item's first-tap gated-window defect. The numbers
   and algorithms are correct; see MATERIAL-MULTITAP-DISCREPANCIES.md §3.
 
 ## Before fixing
 
 1. **Spec it first**, against Swift, from scrolled-down screenshots of all three. Same approach that
    worked for `MEASUREMENT-DETAILS-CONSISTENCY.md`.
-2. **Coordinate with the theme work** (item 3) — divergence 6 is a theme question wearing a layout
+2. **Coordinate with the theme work** — divergence 6 is a theme question wearing a layout
    costume.
-3. **Consider folding into the view-layer restructure** ([[project_architectural_restructure]], STATUS
-   item 2). This panel is the view layer, and *"every web defect is the presentation layer re-deriving
+3. **Consider folding into the view-layer restructure** ([[project_architectural_restructure]]). This panel is the view layer, and *"every web defect is the presentation layer re-deriving
    what Swift's model owns"* is the recurring theme of this whole cycle — divergence 1 (the web
    re-deriving row order instead of taking the model's sorted peaks) is precisely that pattern again.
 4. Tests: order (1) and the "Showing" string (2) are testable as pure functions. Boxing/spacing/colour

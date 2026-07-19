@@ -42,7 +42,7 @@ Spectra **bit-identical** (`max|Δ| = 0.000000` over 16384 bins), and `numberOfT
 differing top-level field (excluding `id`/`timestamp`/spectrum). Capture and averaging provably
 untouched — the count was the whole bug.
 
-**Bonus: this validated the WAV-replay method** that §3 / STATUS item 9 depends on — the same recorded
+**Bonus: this validated the WAV-replay method** that §3 / the material multi-tap dB divergence depends on — the same recorded
 file through the same app reproduced a bit-identical spectrum, confirming the determinism that
 approach needs.
 
@@ -292,7 +292,7 @@ as a narrowing. The 3-TAP plate killed it.**
    diverge** — so the single-tap "fC/fFLC agree" was **coincidence** (those taps rounded to the same
    bin), not "later taps re-align."
 
-**Correct story = item 4's original root cause, un-narrowed:** the 4800-frame buffer misaligns the
+**Correct story = the buffer-size item's original root cause, un-narrowed:** the 4800-frame buffer misaligns the
 gated window on **every** tap; multi-tap averaging *exposes* it across all three phases rather than
 masking it. The pre-roll-depth-at-session-start idea is **OUT**. Fix **C** (anchor the gated window to
 the detected onset sample) applies **per tap**, not just the first.
@@ -348,7 +348,7 @@ theory says it must**:
    defect to one place rather than leaving "the plate maths might differ" open.
 
 **Do not "fix" this by changing the rounding or the thickness formula** — both are correct and identical
-on all three. The defect is upstream, in Swift's first-tap gated window (item 4), and 2.7 µm is far
+on all three. The defect is upstream, in Swift's first-tap gated window (the buffer-size item), and 2.7 µm is far
 below what any luthier can act on.
 
 ⚠ Swift is canonical ([[project_swift_canonical]]). If this is confirmed, it is Swift that needs the

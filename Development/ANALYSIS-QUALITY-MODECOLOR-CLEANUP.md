@@ -1,11 +1,11 @@
 # Analysis-quality + mode-color cleanup — ✅ COMPLETE (committed all 3, 2026-07-18)
 
-**✅ DONE + committed all 3 (2026-07-18).** Intermediate working doc for **STATUS item 8** (the
-missing-test parity sweep), reached while working **item 12-O**. Began as "lock the 3 untested `@parity`
+**✅ DONE + committed all 3 (2026-07-18).** Intermediate working doc for **the missing-test parity work** (the
+missing-test parity sweep), reached while working **the date-format item**. Began as "lock the 3 untested `@parity`
 groups with tests" (`dsp/analysis-quality`, `model/mode-colors`, `model/quality-colors`). Writing the
 Python test surfaced a real **Python structural divergence**, which the user turned into the three tasks
 below (all done + user-verified + committed). **All 3 slugs now have tests on all 3 platforms; parity
-`--check` is fully clean (74 groups).** The one thing still deferred to the styles work (STATUS item 3) is
+`--check` is fully clean (74 groups).** The one thing still deferred to the styles work (the Theme work) is
 the *layer violation* — Swift/Python hang `WoodQuality.color` off the model enum instead of presentation —
 which is architectural, not a missing test. This doc is now an audit-trail record; STATUS.md is the SSOT.
 
@@ -85,7 +85,7 @@ Python/web unchanged (already correct). ⚠ Needs: user run-review (guitar annot
 pure refactor, values verified identical) + commit.
 
 **DEFERRED TO THE STYLES/THEME WORK (user, 2026-07-18): "we are not touching color differences until we do
-the styles work."** No cross-platform color-VALUE reconciliation now — parked under STATUS item 3 (Theme
+the styles work."** No cross-platform color-VALUE reconciliation now — parked under the Theme work (Theme
 Light/Dark/System), not as standalone decisions:
 - The 3-way PDF palette difference (Swift+Python muted vs web brightened `MODE_COLOR`).
 - The untested `model/quality-colors` group (MaterialProperties) — leave as a documented gap for now.

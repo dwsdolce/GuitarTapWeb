@@ -1,6 +1,6 @@
 # Project hub repo — one home for project docs + cross-repo bug tracking
 
-**Status:** 📋 IDEA — captured 2026-07-16. No action yet; needs a spec. (STATUS.md item 6.)
+**Status:** 📋 IDEA — captured 2026-07-16. No action yet; needs a spec. (The project-hub-repo item in STATUS.)
 
 ## The idea
 
@@ -12,8 +12,8 @@ its **Issues as the single cross-repo bug tracker.**
 1. **The docs are split.** `Development/` (STATUS + every spec) lives in the **web** repo, while
    `PARITY-MAP.md` / `parity-index.json` / `TEST-COVERAGE.md` + the parity tooling live in canonical
    **GuitarTap**. Neither location is right — these describe **all three** editions.
-2. **Bugs are cross-repo.** The audio watchdog (STATUS item 5) is one bug in three codebases; the
-   buffer-size one (item 4) is a Swift defect currently tracked in the web repo.
+2. **Bugs are cross-repo.** The audio watchdog (the audio-watchdog item) is one bug in three codebases; the
+   buffer-size one is a Swift defect currently tracked in the web repo.
 
 **Enabler:** the Swift code is going open source → the public/private asymmetry disappears (GuitarTap
 is private today, the other two public), so the hub can be public, cross-repo issue refs resolve for
