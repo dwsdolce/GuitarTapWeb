@@ -17,9 +17,15 @@ export function formatDisplayDate(iso: string): string {
 }
 
 /** Compact variant (no year) for tight spots like chart titles / comparison legends:
- *  e.g. en-US "Jun 25, 2:34 PM"; de-DE "25.06., 14:34". */
+ *  e.g. en-US "Jun 25, 2:34 PM"; de-DE "25.06., 14:34".
+ *
+ *  Same rule as formatDisplayDate above: format date and time in SEPARATE calls joined with ", "
+ *  so modern ICU never applies the `atTime` glue ("… at …") that a single toLocaleString combining
+ *  date + time would. Matches Python's compact combine. */
 export function formatDisplayDateCompact(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const date = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return `${date}, ${time}`
 }

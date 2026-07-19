@@ -1,4 +1,4 @@
-// @parity model/quality-colors
+// @parity model/quality-colors tests=test/quality-colors
 import type { WoodQuality } from '../dsp/material'
 
 /**

@@ -277,6 +277,12 @@ field-based combos alike. (Older ICU, e.g. the Node here, doesn't, which is why 
 - Web `formatDisplayDate`:
   `d.toLocaleDateString(undefined,{year,month,day}) + ", " + d.toLocaleTimeString(undefined,{hour,minute})`
 
+**Also applies to the COMPACT variant (fixed 2026-07-18):** `DateDisplay.compact` (Swift) and
+`formatDisplayDateCompact` (web) combined date+time in a SINGLE formatter, so they still showed "at"
+(chart titles / comparison legends). Same split applied — separate calls joined with ", ". Python's
+`format_display_datetime_compact` already builds the parts separately and joins via the CLDR combine
+pattern, so it was already comma (unchanged).
+
 Consistent with [[project_datetime_format_consistency]].
 
 **Decision 2026-07-18 (user): the hardcoded `", "` glue is accepted.** Measured against Python's

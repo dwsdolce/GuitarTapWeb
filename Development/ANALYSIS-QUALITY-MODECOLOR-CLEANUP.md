@@ -1,9 +1,13 @@
-# Analysis-quality + mode-color cleanup (WIP — survives compaction)
+# Analysis-quality + mode-color cleanup — ✅ COMPLETE (committed all 3, 2026-07-18)
 
-**Started 2026-07-18.** Began as "lock the mode-colors + analysis-quality parity gaps with tests"
-(STATUS items were the 3 untested `@parity` groups: `dsp/analysis-quality`, `model/mode-colors`,
-`model/quality-colors`). Writing the Python test surfaced a real **Python structural divergence**, which
-the user turned into three tasks. **NOTHING here is committed yet.**
+**✅ DONE + committed all 3 (2026-07-18).** Intermediate working doc for **STATUS item 8** (the
+missing-test parity sweep), reached while working **item 12-O**. Began as "lock the 3 untested `@parity`
+groups with tests" (`dsp/analysis-quality`, `model/mode-colors`, `model/quality-colors`). Writing the
+Python test surfaced a real **Python structural divergence**, which the user turned into the three tasks
+below (all done + user-verified + committed). **All 3 slugs now have tests on all 3 platforms; parity
+`--check` is fully clean (74 groups).** The one thing still deferred to the styles work (STATUS item 3) is
+the *layer violation* — Swift/Python hang `WoodQuality.color` off the model enum instead of presentation —
+which is architectural, not a missing test. This doc is now an audit-trail record; STATUS.md is the SSOT.
 
 ## The user's 3 tasks
 1. **Fix the structural + nominative divergence** that made the tap-tone-ratio quality impossible to find.
