@@ -228,21 +228,26 @@ export function measurementWarning(m: TapToneMeasurementModel, current: CaptureS
   const recorded = m.microphoneName
   if (!recorded) return null
 
-  // `track.label` varies across browsers for the SAME physical device — e.g. Chrome
-  // reports "MacBook Pro Microphone (Built-in)" where Safari reports "MacBook Pro
-  // Microphone". Normalise (drop parenthetical suffixes, collapse whitespace, lowercase)
-  // so those cosmetic differences don't read as a different mic. (Swift matches on the
-  // stable CoreAudio UID; the web has only the label, so this is the closest equivalent.)
-  const normMic = (s: string): string =>
-    s.replace(/\s*\([^)]*\)/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+  // SAFE normalisation only — trim, collapse whitespace, lowercase. Deliberately NOT stripping
+  // parentheticals: Windows Chrome names USB inputs "Microphone (Umik-1  Gain: 18dB)", so dropping
+  // the parenthetical destroyed the device identity (everything collapsed to "microphone") and made
+  // every cross-platform load warn. It could also collapse two genuinely DIFFERENT mics onto the
+  // same token — suppressing a warning that should fire, which is the harmful direction.
+  //
+  // We no longer try to prove two labels are the same physical device: platform naming is outside
+  // our control and unverifiable (Swift stores "Umik-1  Gain: 18dB", Windows reports
+  // "Microphone (Umik-1  Gain: 18dB)" for the same mic). An exact match still correctly silences
+  // the common same-platform reload; anything else is reported as UNKNOWN, not as a wrong mic.
+  const normMic = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase()
   const matched = current.microphoneName != null && normMic(recorded) === normMic(current.microphoneName)
   if (!matched) {
-    const cur = current.microphoneName ? ` ('${current.microphoneName}')` : ''
-    // Wording mirrors Swift/Python ("…select it in the microphone settings for accurate analysis").
-    // The CONDITION still differs and is stated truthfully: the natives enumerate devices and warn
-    // "is not currently connected"; the web only knows the selected input, so it warns "is not the
-    // current input". Full condition parity (enumerate + UID-first match) rides the mic-name item.
-    return `This measurement was recorded with '${recorded}', which is not the current input${cur}. Select it in the microphone settings for accurate analysis.`
+    const cur = current.microphoneName ? `; currently using '${current.microphoneName}'` : ''
+    // Report UNKNOWN, not "wrong mic": the same physical device is named differently per platform,
+    // and we cannot verify identity from a display label. Impact is stated so the reader can judge —
+    // peak FREQUENCIES (the primary output, and the derived values built on them) are essentially
+    // mic-independent; levels, the tap trigger, peak SELECTION in marginal ranges, and faint peaks
+    // are not. Mirrors the Swift/Python wording for the same situation.
+    return `Recorded with '${recorded}'${cur}. Guitar Tap can't tell whether these are the same microphone. Peak frequencies should be comparable; input levels, the tap threshold, and faint peaks (such as FLC) may differ.`
   }
 
   const diffs: string[] = []

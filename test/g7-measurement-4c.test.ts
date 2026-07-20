@@ -18,28 +18,35 @@ describe('measurementWarning — tiering', () => {
     expect(measurementWarning(mk({ sampleRate: 44100 }), { microphoneName: 'Mic', sampleRate: 48000, calibrationName: undefined })).toBeNull()
   })
 
-  it('warns when the recorded mic is not the current input', () => {
+  it('reports UNKNOWN identity when the label differs from the current input', () => {
     const w = measurementWarning(mk({ microphoneName: 'UMIK-1' }), { microphoneName: 'MacBook Pro Microphone', calibrationName: undefined })
     expect(w).toContain("'UMIK-1'")
-    expect(w).toContain('is not the current input')
-    // Actionable guidance mirrors Swift/Python's wording.
-    expect(w).toContain('Select it in the microphone settings for accurate analysis')
     expect(w).toContain("'MacBook Pro Microphone'")
+    // We no longer assert "wrong mic" — a display label cannot prove device identity.
+    expect(w).toContain("can't tell whether these are the same microphone")
+    // Impact sentence is shared verbatim with Swift + Python.
+    expect(w).toContain('Peak frequencies should be comparable')
+    expect(w).toContain('faint peaks (such as FLC) may differ')
   })
 
-  it('treats the same mic with different browser labels as a match (no false warning)', () => {
-    // Chrome adds "(Built-in)"; Safari does not — same physical device.
+  it('labels differing only by a parenthetical are UNKNOWN, not a match', () => {
+    // Chrome adds "(Built-in)"; Safari does not. We deliberately no longer strip parentheticals:
+    // on Windows that collapsed "Microphone (Umik-1  Gain: 18dB)" to "microphone", and it could
+    // collapse two genuinely different mics onto one token — suppressing a warning that should
+    // fire. Unverifiable identity is now reported as unknown rather than forced into a match.
     const w = measurementWarning(
       mk({ microphoneName: 'MacBook Pro Microphone', sampleRate: 48000 }),
       { microphoneName: 'MacBook Pro Microphone (Built-in)', sampleRate: 48000, calibrationName: undefined },
     )
-    expect(w).toBeNull()
+    expect(w).toContain("can't tell whether these are the same microphone")
   })
 
-  it('still surfaces a sample-rate difference even when only the label suffix differs', () => {
+  it('surfaces a sample-rate difference when the mic label matches exactly', () => {
+    // An exact label match still silences the mic warning (the common same-platform reload),
+    // so the sample-rate check is reached.
     const w = measurementWarning(
       mk({ microphoneName: 'MacBook Pro Microphone', sampleRate: 48000 }),
-      { microphoneName: 'MacBook Pro Microphone (Built-in)', sampleRate: 44100, calibrationName: undefined },
+      { microphoneName: 'MacBook Pro Microphone', sampleRate: 44100, calibrationName: undefined },
     )
     expect(w).toContain('a different sample rate')
   })
