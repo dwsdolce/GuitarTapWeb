@@ -1,8 +1,38 @@
 # Dot list vs Annotation list — web divergence + a 3-platform test structure
 
-_Opened 2026-07-20, to tackle next. Grew out of the loaded-measurement peak-display fix
-(STATUS "Done" — web panel/dot parity), which was verified correct in the auto path but
-surfaced a deeper, still-open view-layer divergence. Two items below._
+_Opened 2026-07-20. Grew out of the loaded-measurement peak-display fix (STATUS "Done" — web
+panel/dot parity), which was verified correct in the auto path but surfaced a deeper view-layer
+divergence._
+
+**Progress (2026-07-21):**
+- **Item 1 — ✅ DONE, user-verified.** Web dot layer moved onto `isKnown`.
+- **Item 2 — ✅ DONE, user-verified.** `view/dot-layer` parity group added, all 3.
+- **Item 3 — 📋 OPEN.** Python recalculates + re-IDs peaks on every pan/zoom (see below).
+
+What landed for Items 1–2:
+
+| | Shared rule | View delegates to it | Test (DL1–DL7) |
+|---|---|---|---|
+| Swift | `GuitarMode.peaksInDisplayRange(...)` (co-located with `isKnown`) | `SpectrumView.allPeaksInRange` | `GuitarTapTests/DotLayerTests.swift` |
+| Python | `GuitarMode.peaks_in_display_range(...)` | `fft_canvas._on_peaks_changed_scatter` (**gains the range filter**) | `tests/test_dot_layer.py` |
+| Web | `peaksInDisplayRange(...)` + **new** `isKnown(...)` in `dsp/guitarModes.ts` | chart markers memo in `App.tsx` | `test/dot-layer.test.ts` |
+
+- Web fix: chart markers now derive from `peaksInDisplayRange(sortedPeaks, view.minHz, view.maxHz, …)`
+  — the `isKnown` rule against the **live zoom range** — instead of the assigned-mode `displayPeaks`.
+  The Results panel keeps `displayPeaksInRange` (assigned-mode), matching Swift's real two-filter
+  split. The markers memo was relocated below `useChartView` so it can see the live view range
+  (Swift's `minFreq`/`maxFreq` equivalent), which is what makes dots follow zoom.
+- Python: the scatter previously applied **no** range filter, relying on pyqtgraph clipping, which
+  left out-of-range peaks in `_current_peaks` — the click hit-test set — unlike Swift. Now filtered.
+  Hit-testing stays correct because `_current_peaks` and `setData` are assigned together, so the
+  scatter-index → peak mapping in `point_picked()` remains aligned.
+- Suites: Swift **415** · Python **535** · web **318** (each +7). Parity `--check` clean, **79 groups**.
+- Swift + Python source edits roll their build numbers; batch with the next native change.
+
+**Known gap — the wiring is still untested.** DL1–DL7 pin the *rule*, and all three apps now call
+that rule, so a regression *in the rule* fails everywhere. But nothing pins the *wiring*: if the web
+markers were re-pointed at `displayPeaks`, every test would still pass. Closing that needs a
+component-level test; the canvas render remains untestable in this harness.
 
 Canonical reference is Swift. Two peak sets drive the guitar view; they are **different sets
 with different rules**, and both matter:
@@ -96,3 +126,33 @@ edits (the extractions) roll their build numbers — batch with the next native 
 
 This is the concrete, testable wedge for the broader **view-layer architectural-parity** item: the
 view layer is where the ports diverge, and paired dot/annotation tests are how we make it provable.
+
+---
+
+## Item 3 — Python recalculates (and re-IDs) peaks on every pan/zoom
+
+Found while validating Item 1's impact. **Do this AFTER Items 1–2** — it touches the frozen-peak
+recalculation path (selection / override / offset remapping), the same area as the Peak Min
+selection work, so it must not be entangled with a test-hardening change.
+
+`views/fft_canvas.py::_refresh_peaks_for_viewport` is wired to `sigXRangeChanged` (`:570`) and calls
+`analyzer.recalculate_frozen_peaks_if_needed()` on **every pan and zoom**. For a complete/frozen
+measurement that is not a cheap no-op: it re-derives the peak set, **changes peak UUIDs** (its own
+comment: "Snapshot frequency-keyed state BEFORE UUIDs change"), then re-matches annotation offsets,
+mode overrides, and selection onto the new ids **by frequency with a 5 Hz tolerance**.
+
+Swift and web do none of this on pan/zoom — `allPeaksInRange` / the web dot loop are pure filters
+over an existing array. So Python alone churns peak identity and re-runs a lossy re-match of dragged
+labels, overrides, and selection every time the user pans a finished measurement. It probably lands
+on the same answer (frequencies don't move), but it is needless risk in exactly the code path we
+have been stabilising.
+
+**Fix:** on viewport change, re-apply the display-range/`isKnown` filter to the peaks that already
+exist and update the scatter directly — no analyzer recalculation, no UUID churn. Matches Swift/web.
+
+**Dependency:** once Item 1 puts the range filter in the scatter path, *something* must rebuild the
+scatter on pan/zoom, and today that something is this very call. So the cheap re-filter path has to
+land WITH its removal, not before.
+
+**Still to confirm:** read the tail of `recalculate_frozen_peaks_if_needed()` — the UUID-churn
+comment and the re-matching setup are confirmed; the full body is not yet reviewed.

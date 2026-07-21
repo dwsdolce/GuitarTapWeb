@@ -82,7 +82,7 @@ import {
 } from './components/MultiTapComparisonResultsView'
 import { type Peak } from './dsp/peaks'
 import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
-import { modeBands, type GuitarTypeName } from './dsp/guitarModes'
+import { modeBands, peaksInDisplayRange, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
 import {
   loadSettings,
@@ -581,17 +581,6 @@ export default function App() {
     return band ? p.frequency >= band.lo && p.frequency <= band.hi : null
   }
 
-  // Two layers, mirroring Swift (SpectrumView+ChartContent):
-  //   • dots — EVERY displayed peak always gets one (allPeaksInRange), mode-colored;
-  //   • annotation badges — gated by AnnotationVisibilityMode (visiblePeaks):
-  //     all = every displayed peak, selected = only chosen results, none = no badges.
-  // displayPeaks already applies the showUnknownModes filter, matching allPeaksInRange.
-  // Styled markers via the SHARED builder (measurementImage.ts) so the live view and the exported
-  // image (incl. saved-measurement export) use identical peak styling.
-  const markers = useMemo<PeakMarker[]>(
-    () => buildGuitarMarkers(displayPeaks, modeByPeak, selectedIds, overrides, annotationMode, annotationOffsets),
-    [displayPeaks, selectedIds, modeByPeak, overrides, annotationMode, annotationOffsets],
-  )
 
   // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors). Reuses the shared
   // annotation-offset store so L/C/FLC labels drag exactly like guitar labels (Swift/Python parity).
@@ -646,7 +635,6 @@ export default function App() {
     if (matSpectra.flc) out.push({ ...matSpectra.flc, color: MAT_FLC_COLOR, label: 'FLC' })
     return out
   }, [material, matSpectra])
-  const chartMarkers = material ? materialMarkers : markers
   // Per-measurement-type display range (plate 20–200, brace 30–1000, guitar 75–350),
   // matching Swift/Python — no special-cased material override.
   const chartMinHz = displayMinHz
@@ -664,6 +652,27 @@ export default function App() {
     updateSettings,
     updateDisplayRange,
   })
+
+  // Chart peak layers, mirroring Swift SpectrumView+ChartContent:
+  //   • dots   — EVERY peak in the visible range gets one (allPeaksInRange), mode-colored;
+  //   • badges — gated by AnnotationVisibilityMode (visiblePeaks):
+  //     all = every peak in range, selected = only chosen results, none = no badges.
+  // The candidate set is the SHARED dot-list rule (peaksInDisplayRange, `@parity view/dot-layer`):
+  // the CURRENT view range — so dots follow zoom/pan exactly like Swift's minFreq/maxFreq — then
+  // the `isKnown` frequency-band filter. Deliberately NOT the assigned-mode filter the Results
+  // panel uses (displayPeaksInRange): a peak carrying a freeform mode override still sits in a
+  // band, so Swift/Python keep its dot — the web used to drop it.
+  // Styled markers via the SHARED builder (measurementImage.ts) so the live view and the exported
+  // image (incl. saved-measurement export) use identical peak styling.
+  const chartPeaks = useMemo(
+    () => peaksInDisplayRange(sortedPeaks, view.minHz, view.maxHz, !material, showUnknownModes, guitarType),
+    [sortedPeaks, view.minHz, view.maxHz, material, showUnknownModes, guitarType],
+  )
+  const markers = useMemo<PeakMarker[]>(
+    () => buildGuitarMarkers(chartPeaks, modeByPeak, selectedIds, overrides, annotationMode, annotationOffsets),
+    [chartPeaks, selectedIds, modeByPeak, overrides, annotationMode, annotationOffsets],
+  )
+  const chartMarkers = material ? materialMarkers : markers
 
   const cycleAnnotations = useCallback(() => {
     updateSettings({ annotationVisibilityMode: ANNOTATION_NEXT[annotationMode] })

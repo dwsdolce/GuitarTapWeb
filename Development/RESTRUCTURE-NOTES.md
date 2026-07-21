@@ -96,6 +96,50 @@ divergence** surfaced that belongs to this restructure, not the state/audio cons
     D3b `userHasModifiedPeakSelection`/`resetToAutoSelection`, `AnnotationStateTests.swift`). Web-only gap until P3.
   When P3 lands, build both suites against the analyzer (mirroring Swift), so both slugs go 3-way.
 
+## Material peaks overload the guitar peak array (natives) — here the WEB is the correct model
+
+_Added 2026-07-21, from the loaded-plate fL bug. Prevention, not a bug fix — which is why it lives
+here rather than as its own STATUS item. Fully mapped; ~50 sites._
+
+Swift `TapToneAnalyzer.currentPeaks` and Python `current_peaks` hold **both** guitar peaks **and**
+material (plate/brace) peaks. That overloading is a bug factory: a *guitar-only* filter (Peak Min)
+reached into the array while a **material** measurement was loaded and deleted the fL peak (Peak Min
+−60 vs fL at −62.41 dB), losing it from the peak table *and* the chart annotations. Fixed on Python
+in `_emit_loaded_peaks_at_threshold`; Swift got the matching explicit guard (Stage 0).
+
+**Note the direction of travel:** normally the web is the port catching up. Here the **web has the
+right design and the natives don't** — its `peaks` array is guitar-only (`if (p.material) peaks = []`)
+with material in a `matPeaks { longitudinal, cross, flc }` struct, and a *separate save builder*
+`buildMaterialMeasurement` (`src/measurement/fromLive.ts:520`) that constructs the file's `peaks[]`
+straight from `matPeaks` and derives `selectedPeakIDs` from the same three. The bug is structurally
+impossible there. It is the reference implementation, and its files round-trip with both natives.
+
+**Replacement source (a trap):** the per-phase lists `longitudinalPeaks`/`crossPeaks`/`flcPeaks` are
+**NOT** a complete source — they are explicitly emptied on load (Swift `MeasurementManagement.swift:
+566,573,580`; Python `:536-538`, comment "peaks come from currentPeaks") and exist only during a live
+capture. The complete source is `selectedLongitudinalPeak`/`Cross`/`Flc` — i.e.
+`materialIdentifiedPeaks` / `material_identified_peaks` — repopulated on load, and exactly the three
+peaks the file format stores.
+
+**Sharp edges (what would NOT survive a naive change):**
+1. **File format.** For material, `guitarFullSavePeaks()` / `guitar_full_save_peaks()` returns
+   `currentPeaks` verbatim, so `peaks[]` in every material `.guitartap` comes from it. Guitar-only ⇒
+   new material files get `peaks: []`, orphaning `selectedLongitudinalPeakID`/`Cross`/`Flc`, which
+   every reader (including our own load path) resolves against `peaks[]`. Backward compatibility in
+   BOTH directions must be designed. Sequence it: make the material store the save/load source
+   FIRST, make the array guitar-only SECOND.
+2. **ID coherence** — the saved L/C/FLC ids line up with `peaks[]` today only because both come from
+   the same array.
+3. **~12 Swift `.disabled(currentPeaks.isEmpty)` guards** (`+Layouts.swift`/`+Controls.swift`) gate
+   Save/Export for ALL types — they would silently disable Save and Export for plate/brace.
+4. **Re-source, don't just guard:** the material Analysis Results table
+   (`TapAnalysisResultsView.swift:391`), the plate-property fallback (`:701-714`), and PDF/image
+   export (`TapToneAnalysisView+Export.swift:86,107,125,279,295,305`).
+
+**Verification bar:** round-trip `plate-umik-1-swift-iphone-1784499360.guitartap` (the fL case),
+`plate-umik-1-3-tap-swift-ipad-…` (the corrupt-aggregate heal) and the brace fixtures on all three
+platforms, byte-comparing saved output before/after.
+
 ## Open questions for the spec (later)
 - Which fan-outs earn their keep vs. should consolidate? (case-by-case, not a blanket rule)
 - Does consolidating hurt React testability enough to matter here? (probably not — DSP is already

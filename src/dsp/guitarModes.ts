@@ -80,3 +80,50 @@ const RANGES: Record<GuitarTypeName, ModeBand[]> = {
 export function modeBands(type: GuitarTypeName): ModeBand[] {
   return RANGES[type].map((b) => ({ ...b }))
 }
+
+/**
+ * True when `freq` falls within any named mode band for `guitarType`.
+ *
+ * Use this to filter peaks by visibility (the "hide unknown modes" setting) instead of
+ * classifying and comparing against `'unknown'`. It avoids any ambiguity around the overlap
+ * zone: a frequency in the Top/Back overlap is always "known" regardless of which mode
+ * `classifyAll` ultimately assigns it to.
+ *
+ * Mirrors Swift `GuitarMode.isKnown(frequency:guitarType:)` and Python `GuitarMode.is_known`.
+ */
+export function isKnown(freq: number, guitarType: GuitarTypeName): boolean {
+  return RANGES[guitarType].some((b) => freq >= b.lo && freq <= b.hi)
+}
+
+/**
+ * The peaks the chart draws a **dot** for: every peak inside the visible frequency range,
+ * **independent of annotation-visibility mode and of peak selection**.
+ *
+ * This is the "dot list" (the always-visible layer), deliberately NOT the annotation list:
+ * the annotation set narrows by all/selected/none and drives the badges, while every peak in
+ * range keeps its dot regardless. Gating dots on the annotation mode is a bug — it shipped
+ * here once, with dots following the selection — which is why this rule now carries a paired
+ * 3-platform test (`@parity view/dot-layer`).
+ *
+ * The unknown-mode filter uses {@link isKnown} (*frequency falls in a band*) rather than the
+ * mode assigned by `classifyAll`. The two agree for auto-classified peaks — `classifyAll`
+ * gives every in-band peak a band mode — and differ only under a user override; the
+ * positional test is the one that belongs on a chart layer.
+ *
+ * Callers pass the **display/viewport** range, which follows pan and zoom — not the analysis
+ * range used by peak detection.
+ *
+ * Mirrors Swift `GuitarMode.peaksInDisplayRange(...)` / Python `GuitarMode.peaks_in_display_range(...)`.
+ */
+export function peaksInDisplayRange<T extends { frequency: number }>(
+  peaks: readonly T[],
+  minFreq: number,
+  maxFreq: number,
+  isGuitar: boolean,
+  showUnknownModes: boolean,
+  guitarType: GuitarTypeName,
+): T[] {
+  const inRange = peaks.filter((p) => p.frequency >= minFreq && p.frequency <= maxFreq)
+  if (!isGuitar || showUnknownModes) return inRange
+  return inRange.filter((p) => isKnown(p.frequency, guitarType))
+}
