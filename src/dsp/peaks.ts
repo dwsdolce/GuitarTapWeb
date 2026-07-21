@@ -143,11 +143,26 @@ export function removeDuplicatePeaks(peaks: Peak[]): Peak[] {
 }
 
 /**
- * Detect, interpolate, and deduplicate peaks above threshold — mode-aware
- * two-pass strategy (Pass 1: strongest per known-mode band, low→high with a
- * claimed-bin cursor to prevent overlapping bands re-claiming a peak; Pass 2:
- * local maxima outside every known band). Assembly: one guaranteed slot per
- * mode, then all remaining peaks by descending magnitude, sorted by magnitude.
+ * Find every significant spectral peak within the configured frequency range.
+ *
+ * **Detection only — this function knows nothing about guitar modes.**
+ *
+ * A single sweep over the spectrum in ascending frequency order. Each bin is visited
+ * exactly once and mints at most one {@link Peak}, so two peaks can never describe the
+ * same spectral feature.
+ *
+ * This is deliberate and load-bearing. The previous implementation iterated the mode
+ * bands as its outer loop and the bins as its inner loop; because Top and Back overlap
+ * on every guitar type, a bin inside the overlap was scanned by two mode passes and
+ * `makePeak` was called on it twice, minting two peaks with two ids and otherwise
+ * identical values. The assembly step then reconciled two independently deduplicated
+ * lists **by id** and let the twin survive, so every guitar capture on every platform
+ * saved one duplicated peak. See Development/PEAK-FINDING-DUPLICATE-PEAKS.md.
+ *
+ * Classification and mode claiming belong to {@link classifyAll}, which operates on the
+ * returned peak *list* — where each peak has one identity and can be claimed exactly
+ * once. Do not reintroduce mode-band awareness here.
+ *
  * @param mags Magnitude spectrum, in dB.
  * @param freqs Bin centre frequencies, in Hz (same length as `mags`).
  * @param opts Guitar type, analysis range (`minHz`/`maxHz`), and magnitude gate.
@@ -158,7 +173,6 @@ export function findPeaks(mags: Spectrum, freqs: Spectrum, opts: FindPeaksOption
   const n = mags.length
   if (n !== freqs.length) return []
 
-  const guitarType = opts.guitarType ?? 'generic'
   const loFreq = opts.minHz ?? 30
   const hiFreq = opts.maxHz ?? 2000
   const threshold = opts.peakMinOverride ?? opts.peakMinThreshold ?? -60
@@ -166,82 +180,21 @@ export function findPeaks(mags: Spectrum, freqs: Spectrum, opts: FindPeaksOption
   const startIdx = indexWhere(freqs, (f) => f >= loFreq, 0)
   const endIdx = indexWhere(freqs, (f) => f > hiFreq, n - 1)
 
-  const modes = modeBands(guitarType).sort((a, b) => a.lo - b.lo)
+  // The ±WINDOW local-maximum test needs that many neighbours on each side.
+  const scanStart = startIdx + WINDOW
+  const scanEnd = endIdx - WINDOW
+  if (scanStart >= scanEnd) return []
 
   let nextId = 0
-  const strongestPerMode = new Map<number, Peak>()
-  const strongestBinPerMode = new Map<number, number>()
-  let lastClaimedBin = -1
-  const allPeaks: Peak[] = []
+  const peaks: Peak[] = []
 
-  // Pass 1 — known-mode bands.
-  for (let mi = 0; mi < modes.length; mi++) {
-    const m = modes[mi]!
-    let modeStart = Math.max(indexWhere(freqs, (f) => f >= m.lo, startIdx), startIdx)
-    const modeEnd = Math.min(indexWhere(freqs, (f) => f > m.hi, endIdx), endIdx)
-    if (modeStart >= modeEnd) continue
-    const claimedIdx = lastClaimedBin >= 0 ? lastClaimedBin + 1 : startIdx
-    const scanStart = Math.max(modeStart, claimedIdx, startIdx + WINDOW)
-    const scanEnd = Math.min(modeEnd, endIdx - WINDOW)
-    if (scanStart >= scanEnd) continue
-
-    for (let i = scanStart; i < scanEnd; i++) {
-      const mag = mags[i] as number
-      if (mag <= threshold) continue
-      if (!isLocalMax(mags, i)) continue
-      const peak = makePeak(nextId++, i, mags, freqs)
-      allPeaks.push(peak)
-      const existing = strongestPerMode.get(mi)
-      if (!existing || mag > existing.magnitude) {
-        strongestPerMode.set(mi, peak)
-        strongestBinPerMode.set(mi, i)
-      }
-    }
-
-    const claimed = strongestPerMode.get(mi)
-    if (claimed) {
-      let isDup = false
-      for (const [k, other] of strongestPerMode) {
-        if (k !== mi && Math.abs(other.frequency - claimed.frequency) < PEAK_PROXIMITY_HZ) {
-          isDup = true
-          break
-        }
-      }
-      if (isDup) {
-        strongestPerMode.delete(mi)
-        strongestBinPerMode.delete(mi)
-      } else {
-        lastClaimedBin = Math.max(lastClaimedBin, strongestBinPerMode.get(mi) ?? -1)
-      }
-    }
-  }
-
-  // Pass 2 — unknown / inter-mode peaks outside every known band.
-  const outerStart = startIdx + WINDOW
-  const outerEnd = endIdx - WINDOW
-  for (let i = outerStart; i < outerEnd; i++) {
-    const mag = mags[i] as number
-    if (mag <= threshold) continue
-    const freq = freqs[i] as number
-    let inKnown = false
-    for (const m of modes) {
-      if (m.lo <= freq && freq <= m.hi) {
-        inKnown = true
-        break
-      }
-    }
-    if (inKnown) continue
+  for (let i = scanStart; i < scanEnd; i++) {
+    if (mags[i]! <= threshold) continue
     if (!isLocalMax(mags, i)) continue
-    allPeaks.push(makePeak(nextId++, i, mags, freqs))
+    peaks.push(makePeak(nextId++, i, mags, freqs))
   }
 
-  // Assembly: guaranteed mode winners first, then the rest by descending magnitude.
-  const guaranteed = removeDuplicatePeaks([...strongestPerMode.values()])
-  const guaranteedIds = new Set(guaranteed.map((p) => p.id))
-  const dedupPool = removeDuplicatePeaks(allPeaks)
-  const others = dedupPool
-    .filter((p) => !guaranteedIds.has(p.id))
-    .sort((a, b) => b.magnitude - a.magnitude)
-
-  return [...guaranteed, ...others].sort((a, b) => b.magnitude - a.magnitude)
+  // Two adjacent bins can still resolve to interpolated vertices within PEAK_PROXIMITY_HZ
+  // of one another; collapse those, keeping the louder.
+  return removeDuplicatePeaks(peaks).sort((a, b) => b.magnitude - a.magnitude)
 }

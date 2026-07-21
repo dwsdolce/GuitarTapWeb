@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { findPeaks, removeDuplicatePeaks, type Peak } from '../src/dsp/peaks'
 import { averageSpectra } from '../src/dsp/spectrumAverage'
+import { classifyAll, resolvedModePeaks } from '../src/dsp/classify'
 import type { Spectrum } from '../src/dsp/guitarFFT'
 
 // Mirrors the Swift makeSpectrum helper: a Gaussian bump (a downward parabola in
@@ -123,5 +124,137 @@ describe('averageSpectra — power averaging (mirrors Python average_spectra)', 
     const a = spec([-10, -20])
     const r = averageSpectra([a, spec([-10])])
     expect(r).toBe(a)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Duplicate-peak regression  (D1, D2, D4)
+//
+// Development/PEAK-FINDING-DUPLICATE-PEAKS.md.
+//
+// findPeaks must never return two peaks for one spectral feature. It did: the
+// per-mode scan visited a bin once per overlapping mode range, minting a fresh id
+// each time, and the final assembly reconciled two independently deduplicated
+// lists **by id** — so the twin survived.
+//
+// Authored against the UNFIXED code; expected to fail until detection stops being
+// interleaved with classification.
+// ---------------------------------------------------------------------------
+
+const PEAK_PROXIMITY_HZ = 2
+
+/** D1 — the uniqueness invariant. */
+function expectNoDuplicatePeaks(peaks: Peak[], label: string): void {
+  const offenders: string[] = []
+  for (let i = 0; i < peaks.length; i++) {
+    for (let j = i + 1; j < peaks.length; j++) {
+      const delta = Math.abs(peaks[i]!.frequency - peaks[j]!.frequency)
+      if (delta < PEAK_PROXIMITY_HZ) {
+        offenders.push(
+          `${peaks[i]!.frequency.toFixed(5)} Hz @ ${peaks[i]!.magnitude.toFixed(2)} dB and ` +
+            `${peaks[j]!.frequency.toFixed(5)} Hz @ ${peaks[j]!.magnitude.toFixed(2)} dB ` +
+            `(${delta.toFixed(5)} apart)`,
+        )
+      }
+    }
+  }
+  expect(offenders, `${label}: findPeaks must return one peak per spectral feature`).toEqual([])
+}
+
+describe('D — duplicate-peak regression', () => {
+  // Generic ranges: Top 140–260 Hz, Back 180–300 Hz — overlapping at 180–260.
+  // Every duplicate observed in the field sits in that band.
+  //
+  // Resolution matters. The suite's default 2048-bin spectrum has a ~11.7 Hz bin
+  // width, so the ±5-bin local-max window spans ±58 Hz and two peaks 7 Hz apart can
+  // never both be detected. Real captures use 32768 bins (±3.7 Hz), which is why the
+  // field data shows adjacent overlap peaks the synthetic suite could not produce.
+  // Do NOT "simplify" binCount back to the default — it disarms the test.
+  //
+  // The weak peak must be far enough from the Back winner to survive as its own local
+  // maximum. An earlier version placed it at 232 Hz with halfWidth 8, where the 240 Hz
+  // peak's tail reaches -52.8 dB and buries a -56 dB peak entirely — so the spectrum only
+  // ever held TWO features, and `length === 3` passed only because the duplicate made up
+  // the number. That assertion would have masked the fix.
+  function overlapSpectrum() {
+    const bins = 32768
+    const top = makeSpectrum(195, -40, 4, bins) // Top winner
+    const weak = makeSpectrum(210, -56, 4, bins) // overlap, loser
+    const back = makeSpectrum(240, -50, 4, bins) // overlap, Back winner
+    return combine(combine(top, weak), back)
+  }
+
+  const opts = { guitarType: 'generic' as const, peakMinThreshold: -60, minHz: 30, maxHz: 2000 }
+
+  it('D2 — overlap zone returns one peak per spectral feature', () => {
+    const { mags, freqs } = overlapSpectrum()
+    const peaks = findPeaks(mags, freqs, opts)
+
+    expectNoDuplicatePeaks(peaks, 'Top/Back overlap')
+    expect(peaks.length, `got ${peaks.map((x) => x.frequency.toFixed(2)).join(', ')}`).toBe(3)
+  })
+
+  it('D2b — overlap zone still classifies Top and Back correctly', () => {
+    const { mags, freqs } = overlapSpectrum()
+    const peaks = findPeaks(mags, freqs, opts)
+    const modeMap = classifyAll(peaks, 'generic')
+
+    const top = peaks.find((x) => modeMap.get(x.id) === 'top')
+    const back = peaks.find((x) => modeMap.get(x.id) === 'back')
+
+    expect(top, 'no Top peak identified').toBeDefined()
+    expect(back, 'no Back peak identified').toBeDefined()
+    expect(Math.abs(top!.frequency - 195)).toBeLessThan(5)
+    expect(Math.abs(back!.frequency - 240)).toBeLessThan(5)
+  })
+
+  it('D1 — three distinct tones contain no duplicates', () => {
+    const p1 = makeSpectrum(400, -20, 15)
+    const p2 = makeSpectrum(700, -22, 15)
+    const p3 = makeSpectrum(1000, -25, 15)
+    const { mags, freqs } = combine(combine(p1, p2), p3)
+
+    expectNoDuplicatePeaks(
+      findPeaks(mags, freqs, { peakMinThreshold: -60, minHz: 50, maxHz: 2000 }),
+      'three distinct tones',
+    )
+  })
+
+  it('D4 — winner invariants hold on the overlap spectrum', () => {
+    const { mags, freqs } = overlapSpectrum()
+    const peaks = findPeaks(mags, freqs, opts)
+    const modeMap = classifyAll(peaks, 'generic')
+    const winners = resolvedModePeaks(peaks, 'generic')
+
+    // At most one peak per named mode is SELECTED.
+    //
+    // Note this counts *selected* peaks, not *labelled* ones. classifyAll deliberately
+    // labels additional peaks: an unclaimed peak above the claimed Top and inside the Back
+    // range resolves to 'back' too, so several peaks can carry the same label while only one
+    // is claimed as that mode's winner. An earlier version asserted at most one *labelled*
+    // peak per mode, which is not an invariant of the algorithm — it only appeared to hold
+    // because the overlap spectrum had a swamped third peak that was never detected.
+    const selectedIds = new Set([...winners.values()].map((w) => w.id))
+    const perMode = new Map<string, number>()
+    for (const pk of peaks) {
+      if (!selectedIds.has(pk.id)) continue
+      const m = modeMap.get(pk.id)
+      if (!m || m === 'unknown') continue
+      perMode.set(m, (perMode.get(m) ?? 0) + 1)
+    }
+    for (const [mode, count] of perMode) {
+      expect(count, `${mode} selected ${count} peaks; at most 1 expected`).toBeLessThanOrEqual(1)
+    }
+
+    // Back must be strictly above Top.
+    const top = peaks.find((x) => modeMap.get(x.id) === 'top')
+    const back = peaks.find((x) => modeMap.get(x.id) === 'back')
+    if (top && back) expect(back.frequency).toBeGreaterThan(top.frequency)
+
+    // Selection must be a subset of the returned peaks.
+    const ids = new Set(peaks.map((x) => x.id))
+    for (const w of winners.values()) {
+      expect(ids.has(w.id), 'selected peak absent from the peak list').toBe(true)
+    }
   })
 })

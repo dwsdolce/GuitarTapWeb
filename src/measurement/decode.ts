@@ -160,8 +160,56 @@ function decodeTapEntry(d: Obj): TapEntryModel {
 }
 
 // ── measurement ───────────────────────────────────────────────────────────────
+/** Peaks closer than this describe the same spectral feature (mirrors `PEAK_PROXIMITY_HZ`). */
+const HEAL_PROXIMITY_HZ = 2
+
+/**
+ * Collapse peaks that describe the same spectral feature.
+ *
+ * Files written before the `findPeaks` duplicate fix contain one bit-identical twin per
+ * capture (and one per tap entry in multi-tap files): the detector visited overlap bins once
+ * per overlapping mode band and minted a peak each time. Loaded peaks are authoritative and
+ * are never re-derived, so without this every existing file would show a phantom Analysis
+ * Results row forever. See Development/PEAK-FINDING-DUPLICATE-PEAKS.md.
+ *
+ * Keeps, in order of preference: the peak in `selectedIds` (the claimed mode winner), then
+ * the louder, then the first seen. `findPeaks` guarantees legitimately saved peaks are at
+ * least `HEAL_PROXIMITY_HZ` apart, so any closer pair is corruption by definition.
+ *
+ * Mirrors Swift `TapToneMeasurement.healDuplicatePeaks` / Python `heal_duplicate_peaks`.
+ */
+function healDuplicatePeaks(
+  peaks: ResonantPeakModel[],
+  selectedIds: Set<string>,
+): { peaks: ResonantPeakModel[]; removed: Set<string> } {
+  const kept: ResonantPeakModel[] = []
+  const removed = new Set<string>()
+
+  for (const peak of peaks) {
+    const idx = kept.findIndex((k) => Math.abs(k.frequency - peak.frequency) < HEAL_PROXIMITY_HZ)
+    if (idx === -1) {
+      kept.push(peak)
+      continue
+    }
+    const incumbent = kept[idx]!
+    const preferIncoming =
+      selectedIds.has(peak.id) !== selectedIds.has(incumbent.id)
+        ? selectedIds.has(peak.id)
+        : peak.magnitude > incumbent.magnitude
+
+    if (preferIncoming) {
+      removed.add(incumbent.id)
+      kept[idx] = peak
+    } else {
+      removed.add(peak.id)
+    }
+  }
+
+  return { peaks: kept, removed }
+}
+
 export function decodeMeasurement(d: Obj): TapToneMeasurementModel {
-  return {
+  const m: TapToneMeasurementModel = {
     id: strOpt(d.id) ?? '',
     timestamp: strOpt(d.timestamp) ?? '',
     peaks: decodePeaks(d.peaks),
@@ -194,6 +242,59 @@ export function decodeMeasurement(d: Obj): TapToneMeasurementModel {
       : undefined,
     tapEntries: Array.isArray(d.tapEntries) ? d.tapEntries.map((e) => decodeTapEntry(obj(e) ?? {})) : undefined,
   }
+
+  // Every read path reaches decodeMeasurement(): `.guitartap` import goes through it. The
+  // IndexedDB store does NOT — it holds already-decoded objects — so it calls healMeasurement
+  // directly on read (see store.ts). Both routes therefore repair pre-fix data.
+  healMeasurement(m)
+  return m
+}
+
+/**
+ * Repairs a decoded measurement in place, collapsing duplicate peaks in the measurement and in
+ * every tap entry, and dropping the removed ids from `selectedPeakIDs`, annotation offsets and
+ * mode overrides.
+ *
+ * Sets a transient `wasHealed` marker when anything changed. That marker is deliberately NOT
+ * part of the model's serialised shape: it describes what happened during one read, not a
+ * property of the file. The saved-measurements store reads it to force a re-save so the library
+ * repairs itself.
+ *
+ * @returns `true` when the measurement was modified.
+ */
+export function healMeasurement(m: TapToneMeasurementModel): boolean {
+  let healed = false
+
+  const { peaks, removed } = healDuplicatePeaks(m.peaks, new Set(m.selectedPeakIDs ?? []))
+  if (removed.size > 0) {
+    m.peaks = peaks
+    // Drop dangling references so nothing points at a peak that no longer exists.
+    if (m.selectedPeakIDs) m.selectedPeakIDs = m.selectedPeakIDs.filter((id) => !removed.has(id))
+    if (m.peakAnnotationOffsets) {
+      m.peakAnnotationOffsets = Object.fromEntries(
+        Object.entries(m.peakAnnotationOffsets).filter(([id]) => !removed.has(id)),
+      )
+    }
+    if (m.peakModeOverrides) {
+      m.peakModeOverrides = Object.fromEntries(
+        Object.entries(m.peakModeOverrides).filter(([id]) => !removed.has(id)),
+      )
+    }
+    healed = true
+  }
+
+  // Multi-tap files carry a duplicate inside every tap entry as well; the Taps view and the
+  // multi-tap PDF read those, so they need the same repair.
+  for (const te of m.tapEntries ?? []) {
+    const r = healDuplicatePeaks(te.peaks, new Set(te.selectedPeakIDs ?? []))
+    if (r.removed.size === 0) continue
+    te.peaks = r.peaks
+    te.selectedPeakIDs = (te.selectedPeakIDs ?? []).filter((id) => !r.removed.has(id))
+    healed = true
+  }
+
+  if (healed) (m as unknown as Record<string, unknown>).wasHealed = true
+  return healed
 }
 
 /** Parse a `.guitartap` document. The top-level value is an array of measurements

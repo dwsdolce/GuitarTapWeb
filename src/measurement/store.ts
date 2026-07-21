@@ -5,6 +5,7 @@
 // (plain, structured-clonable).
 
 import type { TapToneMeasurementModel } from './types'
+import { healMeasurement } from './decode'
 
 const DB_NAME = 'guitartap'
 const STORE = 'measurements'
@@ -62,13 +63,26 @@ export function saveMeasurement(m: TapToneMeasurementModel): Promise<void> {
 /** All saved measurements in insertion order (last saved/imported last), mirroring the
  *  Swift/Python `savedMeasurements` array. */
 export function listMeasurements(): Promise<TapToneMeasurementModel[]> {
-  return tx<StoredMeasurement[]>('readonly', (s) => s.getAll()).then((all) =>
-    all.sort((a, b) => orderOf(a) - orderOf(b)),
-  )
+  return tx<StoredMeasurement[]>('readonly', (s) => s.getAll()).then((all) => {
+    const sorted = all.sort((a, b) => orderOf(a) - orderOf(b))
+    // Unlike Swift/Python — whose library is a JSON file and therefore passes through the
+    // per-measurement decoder — this store holds already-decoded objects, so nothing here
+    // reaches decodeMeasurement(). Measurements written by the web before the findPeaks
+    // duplicate fix must be healed on read, or they stay corrupt forever.
+    const healed = sorted.filter((m) => healMeasurement(m))
+    if (healed.length > 0) {
+      // The library is ours: write the corrected form straight back, once.
+      void Promise.all(healed.map((m) => saveMeasurement(m)))
+    }
+    return sorted
+  })
 }
 
 export function getMeasurement(id: string): Promise<TapToneMeasurementModel | undefined> {
-  return tx<TapToneMeasurementModel | undefined>('readonly', (s) => s.get(id))
+  return tx<TapToneMeasurementModel | undefined>('readonly', (s) => s.get(id)).then((m) => {
+    if (m && healMeasurement(m)) void saveMeasurement(m)
+    return m
+  })
 }
 
 export function deleteMeasurement(id: string): Promise<void> {

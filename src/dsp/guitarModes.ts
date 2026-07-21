@@ -14,7 +14,23 @@ export const MODE_NAMES = ['air', 'top', 'back', 'dipole', 'ring', 'upper'] as c
 /** One of the {@link MODE_NAMES}. */
 export type ModeName = (typeof MODE_NAMES)[number]
 
-/** A named, inclusive `[lo, hi]` Hz band for one resonance mode. */
+/**
+ * A named, inclusive `[lo, hi]` Hz band for one resonance mode.
+ *
+ * **Bands overlap, by design.** Top and Back overlap on every guitar type — 40 Hz on
+ * classical, 50 on flamenco, 80 on generic — because a real instrument's top and back
+ * resonances are not separable by frequency alone. A single frequency can therefore fall
+ * in more than one band, and no code may assume otherwise.
+ *
+ * Resolving that ambiguity is `classifyAll`'s job: it claims the strongest peak per mode
+ * in ascending range order and constrains Back to sit above the claimed Top. Detection
+ * must not consult these bands at all — a detector that iterates them visits overlap bins
+ * more than once, which is what produced the duplicate-peak defect
+ * (Development/PEAK-FINDING-DUPLICATE-PEAKS.md).
+ *
+ * The values are approximations; `generic` deliberately spans them all and is the more
+ * useful setting in practice.
+ */
 export interface ModeBand {
   name: ModeName
   /** Low edge, inclusive, in Hz. */
@@ -34,8 +50,10 @@ const RANGES: Record<GuitarTypeName, ModeBand[]> = {
   ],
   flamenco: [
     { name: 'air', lo: 85, hi: 115 },
-    { name: 'top', lo: 190, hi: 250 },
-    { name: 'back', lo: 180, hi: 240 },
+    // Modern flamenco tops are built closer to classical, so the top band reaches 220 and
+    // overlaps the back band on 200–220. The back still sits above the top, as on every type.
+    { name: 'top', lo: 180, hi: 220 },
+    { name: 'back', lo: 200, hi: 250 },
     { name: 'dipole', lo: 350, hi: 450 },
     { name: 'ring', lo: 600, hi: 850 },
     { name: 'upper', lo: 850, hi: 20000 },
