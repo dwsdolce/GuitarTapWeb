@@ -34,6 +34,34 @@ describe('decode — canonical fields + legacy compromises', () => {
     expect(m.tapDetectionThreshold).toBe(-64)
   })
 
+  // Covered only by ACCIDENT until 2026-07-21: the Python copy of this fixture still carried the
+  // pre-rename `tapLocation` key while the Swift and web copies had been updated to
+  // `measurementName`, so the three platforms' "same" parity test silently exercised different
+  // branches. The fixture is now byte-identical everywhere and the fallback is pinned deliberately,
+  // here and in the Swift/Python twins.
+  it('maps the legacy `tapLocation` key onto `measurementName`', () => {
+    const legacy = [{
+      id: '6B29FC40-CA47-1067-B31D-00DD010662DA',
+      timestamp: 1774731564,
+      peaks: [],
+      tapLocation: 'Contreras Classical',
+    }]
+    const [decoded] = parseGuitarTapFile(JSON.stringify(legacy))
+    expect(decoded!.measurementName).toBe('Contreras Classical')
+  })
+
+  it('never writes the legacy `tapLocation` key back out', () => {
+    const legacy = [{
+      id: '6B29FC40-CA47-1067-B31D-00DD010662DA',
+      timestamp: 1774731564,
+      peaks: [],
+      tapLocation: 'Contreras Classical',
+    }]
+    const out = serializeGuitarTapFile(parseGuitarTapFile(JSON.stringify(legacy)))
+    expect(out).not.toContain('tapLocation')
+    expect(out).toContain('measurementName')
+  })
+
   it('maps the legacy `peakThreshold` key onto `peakMinThreshold`', () => {
     expect(raw.peakThreshold).toBe(-78) // present in the file…
     expect(raw.peakMinThreshold).toBeUndefined() // …under the old name only

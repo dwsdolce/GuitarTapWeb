@@ -7,7 +7,15 @@ divergence._
 **Progress (2026-07-21):**
 - **Item 1 — ✅ DONE, user-verified.** Web dot layer moved onto `isKnown`.
 - **Item 2 — ✅ DONE, user-verified.** `view/dot-layer` parity group added, all 3.
-- **Item 3 — 📋 OPEN.** Python recalculates + re-IDs peaks on every pan/zoom (see below).
+- **Item 3 — ⏳ CODE WRITTEN, NOT USER-VERIFIED.** `_refresh_peaks_for_viewport` now re-emits
+  `current_peaks` unchanged instead of calling `recalculate_frozen_peaks_if_needed()`; the
+  range-dependent `peaksChanged` consumers re-filter themselves. Python suite 535 green.
+  **Correction to the original claim below:** the UUID churn only affected the **live/frozen**
+  path (`find_peaks` re-run at `peak_analysis.py:226`); a **loaded** measurement took the filter
+  branch (`:175`) and reused the same peak objects, so it never churned identity.
+  **No test added** — nothing in the suite constructs `FftCanvas`, so pinning this would mean
+  building canvas-level test infrastructure; and there is no Swift/web counterpart to pair with,
+  because their correctness here is the *absence* of a call. Relies on run-review.
 
 What landed for Items 1–2:
 
