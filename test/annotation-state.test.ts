@@ -15,8 +15,10 @@
 //
 // REGRESSION (2026-07-16, found in 1.0.2 testing): a 3-app simultaneous capture of ONE tap
 // showed the web PDF/PNG reporting "Detected Peaks: 47" against Swift's 6, summarising the
-// lowest-frequency peaks rather than the selected ones, and dotting every detected peak.
-// The header/summary/dots ignored `annotated`. These tests fail against that code.
+// lowest-frequency peaks rather than the selected ones. The header/summary ignored `annotated`.
+// These tests pin `annotated` = the visiblePeaks rule, which drives the BADGE layer and the
+// report summary. (The chart DOT layer is separate — Swift Layer 1 `allPeaksInRange` dots every
+// in-range peak regardless of annotation mode; that is the renderer's job, not this flag's.)
 import { describe, it, expect } from 'vitest'
 import { buildGuitarMarkers } from '../src/presentation/measurementImage'
 import { reportPeaks } from '../src/presentation/spectrumExport'
@@ -85,8 +87,9 @@ describe('annotation-state — the report is about the visible peaks (regression
     expect(reportPeaks(markers).map((m) => m.frequency)).toEqual([97.4, 994.5])
   })
 
-  it('marks exactly the selected peaks as annotated — dots follow the same flag', () => {
-    // The chart dots are gated on `annotated` too, so this pins dots and summary together.
+  it('marks exactly the selected peaks as annotated — badges + report follow this flag', () => {
+    // `annotated` drives the BADGE layer (Swift visiblePeaks) and the report summary. The chart
+    // DOT layer is NOT gated on it (Swift Layer 1 allPeaksInRange dots every in-range peak).
     const markers = build('selected', [1, 3])
     expect(markers.map((m) => m.annotated)).toEqual([true, false, true])
   })

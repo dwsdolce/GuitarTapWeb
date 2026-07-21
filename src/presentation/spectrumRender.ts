@@ -257,13 +257,14 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (spectrum) drawCurve(spectrum.frequencies, spectrum.magnitudesDb, th.curve)
   for (const ov of overlays) drawCurve(ov.frequencies, ov.magnitudesDb, ov.color)
 
-  // Peak dots — ONLY for annotated peaks, mirroring Swift/Python `visiblePeaks`
-  // (annotationVisibilityMode + selectedPeakIDs). `annotated` already encodes that rule:
-  // all → every peak, selected → selectedPeakIDs only, none → nothing.
-  // This used to dot EVERY detected peak (unannotated ones just smaller), which diverged
-  // from the native editions: with mode=selected they draw 6 dots where the web drew 47.
+  // Peak dots — Layer 1: EVERY in-range peak gets a dot, independent of annotation mode,
+  // mirroring Swift's `allPeaksInRange` (SpectrumView+ChartContent peakAnnotationContent Layer 1).
+  // The marker SET already encodes which peaks belong: guitar markers are display-range +
+  // unknown-mode filtered upstream; material markers are ONLY the fL/fC/fLC peaks. So this loop
+  // must NOT re-gate on `annotated` — annotation-mode filtering is the badge layer's job (Layer 2).
+  // Peaks below the visible dB floor are omitted (Swift `.filter { $0.magnitude >= minDB }`).
   for (const m of markers) {
-    if (!m.annotated || m.frequency < minHz || m.frequency > maxHz) continue
+    if (m.frequency < minHz || m.frequency > maxHz || m.magnitude < minDb) continue
     ctx.beginPath()
     ctx.arc(xFor(m.frequency), yFor(m.magnitude), 4, 0, Math.PI * 2)
     ctx.fillStyle = m.color ?? '#8a96a5'
@@ -303,9 +304,11 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.textAlign = 'left'
   }
 
-  // Annotation badges (drawn after restore so they may overflow the plot slightly).
+  // Annotation badges — Layer 2: only annotation-visible peaks, mirroring Swift's `visiblePeaks`
+  // (annotationVisibilityMode + selectedPeakIDs). Drawn after restore so they may overflow the plot
+  // slightly. Same visible-dB-floor omission as the dot layer.
   for (const m of markers) {
-    if (!m.annotated || m.frequency < minHz || m.frequency > maxHz) continue
+    if (!m.annotated || m.frequency < minHz || m.frequency > maxHz || m.magnitude < minDb) continue
     // Anchor = badge bottom-center. Default: just above the peak dot. Dragged: the stored
     // data-space position (so the label stays put under the peak through zoom/pan).
     const anchorX = m.annoOffset ? xFor(m.annoOffset[0]) : xFor(m.frequency)

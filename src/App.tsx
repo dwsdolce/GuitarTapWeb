@@ -525,6 +525,15 @@ export default function App() {
         : sortedPeaks.filter((p) => (modeByPeak.get(p.id) ?? 'unknown') !== 'unknown'),
     [sortedPeaks, modeByPeak, showUnknownModes],
   )
+  // Results-panel list is filtered to the DISPLAY range, mirroring Swift's
+  // TapAnalysisResultsView.sortedPeaksWithModes (currentPeaks → [minFreq, maxFreq]). A loaded
+  // full-peak-set measurement therefore lists only in-range peaks. The chart's dot/badge layers
+  // apply their own per-marker range guard, so `markers` stays on displayPeaks (which lets a zoom
+  // reveal out-of-band dots, matching Swift's zoomable allPeaksInRange).
+  const displayPeaksInRange = useMemo(
+    () => displayPeaks.filter((p) => p.frequency >= displayMinHz && p.frequency <= displayMaxHz),
+    [displayPeaks, displayMinHz, displayMaxHz],
+  )
   const bandByMode = useMemo(() => {
     const m = new Map<string, { lo: number; hi: number }>()
     for (const b of modeBands(guitarType)) m.set(b.name, { lo: b.lo, hi: b.hi })
@@ -777,9 +786,13 @@ export default function App() {
         deviceLabel,
         microphoneUID: currentDeviceId ?? undefined,
         calibrationName: calibrationRef.current?.name,
+        // A still-loaded measurement (loadedPeaks not yet cleared by Re-analyze) keeps its
+        // authoritative saved peaks; live captures and re-analyzed measurements persist the full set.
+        isLoadedMeasurement: loadedPeaks != null,
+        userModified,
       })
     },
-    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, loadedDecayTime, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId],
+    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, loadedDecayTime, loadedPeaks, userModified, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId],
   )
 
   const onSaveMeasurement = useCallback(
@@ -883,6 +896,7 @@ export default function App() {
         overridesByFreq: live.overridesByFreq,
         annotationOffsetsByFreq: live.annotationOffsetsByFreq,
         selectedIndices: live.selectedIndices,
+        userModified: live.userModified,
       })
       // Load-time provenance check (mic / calibration / sample rate) — closes the web
       // side of the sample-rate epic. Cleared on New Tap / fresh capture.
@@ -1373,9 +1387,9 @@ export default function App() {
             <MultiTapComparisonResultsView taps={tapRows} avg={avgModes} />
           ) : (
             <>
-              {displayPeaks.length > 0 ? (
+              {displayPeaksInRange.length > 0 ? (
                 <div className="cards">
-                  {displayPeaks.map((p) => {
+                  {displayPeaksInRange.map((p) => {
                     const mode = modeByPeak.get(p.id) ?? 'unknown'
                     const note = pitch.note(p.frequency)
                     return (

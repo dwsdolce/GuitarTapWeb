@@ -221,6 +221,7 @@ export function decodeMeasurement(d: Obj): TapToneMeasurementModel {
     peakAnnotationOffsets: decodeOffsets(d.peakAnnotationOffsets),
     selectedPeakIDs: strArrOpt(d.selectedPeakIDs),
     selectedPeakFrequencies: numArrOpt(d.selectedPeakFrequencies),
+    userModifiedSelection: typeof d.userModifiedSelection === 'boolean' ? d.userModifiedSelection : undefined,
     annotationVisibilityMode: annModeOpt(d.annotationVisibilityMode),
     tapDetectionThreshold: numOpt(d.tapDetectionThreshold),
     numberOfTaps: numOpt(d.numberOfTaps),

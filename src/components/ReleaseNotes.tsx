@@ -104,6 +104,10 @@ export const RELEASES: RNRelease[] = [
             body: 'Cancel restarts the tap sequence rather than leaving it half-finished, and New Tap is available whenever a measurement is not actively being captured, so you can always start a fresh one. The Taps (multi-tap comparison) toggle is enabled and disabled in place instead of appearing and disappearing.',
           },
           {
+            title: 'Peak Min',
+            body: 'A saved guitar measurement now keeps every detected peak down to −100 dB (the lowest Peak Min can be set), not only those above the Peak Min in effect when it was saved. Lowering Peak Min on a loaded measurement now reveals fainter peaks — including a low Air resonance — exactly as it does during a live measurement. Measurements saved before this update keep only the peaks that were above their Peak Min at the time; use Re-analyze to re-derive the full set from the spectrum, then Save.',
+          },
+          {
             title: 'Display',
             body: 'The display frequency range is remembered per measurement type, so guitar, plate and brace each keep their own view. Mode colours now match the other editions exactly.',
           },
@@ -138,7 +142,7 @@ export const RELEASES: RNRelease[] = [
             body: 'Loading a saved measurement always warned that it “was recorded with a different calibration”, even when the microphone and calibration in use were exactly the ones it was recorded with. The check never looked at the calibration you currently have loaded, so every calibrated measurement raised the warning. It now warns only when something genuinely differs.',
           },
           {
-            body: 'The spectrum chart and the exported image and PDF report showed the wrong peaks. Every detected peak was dotted rather than the ones your annotation setting selects, and the report’s Detected Peaks summary listed the lowest-frequency peaks instead of the selected ones — leaving out selected peaks that sit outside the plotted frequency range. The chart, the image and the report now all show exactly the selected peaks, matching the App Store and open-source editions.',
+            body: 'The Analysis Results panel, the spectrum chart, and the exported image and PDF report showed the wrong peaks. The panel listed every detected peak, including ones outside the plotted frequency range; and the report’s Detected Peaks summary listed the lowest-frequency peaks instead of the ones your annotation setting selects, leaving out selected peaks that sit outside the plotted range. Now the panel lists only the peaks within the displayed range, the chart marks every peak in that range with a dot and shows labels on the ones your annotation setting selects, and the report summarises the selected peaks — all matching the App Store and open-source editions.',
           },
           {
             body: 'Playing a measurement from a file did not detect taps the same way a live measurement does — it used a fixed threshold rather than tracking the noise floor. File playback now behaves exactly like a live measurement, which also means a recording needs a short lead-in before its first tap (see the Quick Start guide).',

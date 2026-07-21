@@ -4,7 +4,7 @@
 // into the view. Guitar measurements only for now (material persistence is a follow-up).
 
 import { type Spectrum } from '../dsp/guitarFFT'
-import type { Peak } from '../dsp/peaks'
+import { findPeaks, type Peak } from '../dsp/peaks'
 import type { TapEntry } from '../state/tapToneAnalyzer'
 import type { MaterialPeak } from '../dsp/gatedCapture'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
@@ -80,13 +80,26 @@ export interface BuildMeasurementArgs {
   annotationOffsetsByFreq?: Map<string, [number, number]>
   /** Measured ring-out time (s) from the engine, or null/undefined if not measured. */
   decayTime?: number | null
+  /** Whether the current selection is user-modified (vs automatic) — persisted so a reloaded
+   *  measurement re-runs auto-selection on Peak Min change when automatic. Omitted defaults to
+   *  automatic (a fresh build that never touched selection). */
+  userModified?: boolean
+  /** True when saving a still-loaded measurement (loadedPeaks != null) — its authoritative saved
+   *  peaks are kept verbatim, no full-set re-derivation. Live captures and re-analyzed measurements
+   *  (loadedPeaks cleared) omit this / pass false, so they persist the full set. */
+  isLoadedMeasurement?: boolean
 }
+
+/** Absolute magnitude floor (dBFS) for the persisted guitar peak set — the chart floor and the
+ *  Peak Min slider's lower bound. See PEAK-MIN-SEMANTICS.md. */
+const PEAK_DETECTION_FLOOR = -100
 
 /** Construct a guitar TapToneMeasurementModel from the current frozen result. */
 export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurementModel {
   const pitch = new Pitch(440)
   const timestamp = isoNow()
   const guitarTypeRaw = GUITAR_TYPE_RAW[a.settings.measurementType] ?? 'Generic'
+  const guitarTypeName = GUITAR_TYPE_NAME_FROM_RAW[guitarTypeRaw] ?? 'generic'
   const measurementTypeRaw = MEASUREMENT_FULL_NAME[a.settings.measurementType]
 
   // Assign a stable UUID per peak; remember each peak's frequency for the parallel maps.
@@ -110,6 +123,37 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
       pitchFrequency: pitch.freq0(p.frequency),
       modeLabel: override ?? MODE_DISPLAY_NAME[mode],
     })
+  }
+
+  // Full-set save (Option 4; PEAK-MIN-SEMANTICS.md). A freshly captured (or re-analyzed) guitar
+  // measurement persists every peak down to the −100 dB floor, not just those above the current
+  // Peak Min, so a reloaded measurement can reveal peaks below the capture-time Peak Min exactly as
+  // the live one can — filtering the saved full set by Peak Min == re-detecting at that Peak Min.
+  // `a.peaks` (≥ Peak Min, with their modes / selection / annotations) are kept; only the
+  // sub-Peak-Min peaks are appended (unclassified, unselected). A still-loaded measurement keeps its
+  // authoritative saved peaks (Re-analyze regenerates them).
+  if (!a.isLoadedMeasurement) {
+    const full = findPeaks(a.spectrum.magnitudesDb, a.spectrum.frequencies, {
+      guitarType: guitarTypeName,
+      peakMinThreshold: PEAK_DETECTION_FLOOR,
+      minHz: a.settings.analysisMinHz,
+      maxHz: a.settings.analysisMaxHz,
+    })
+    for (const p of full) {
+      if (p.magnitude >= a.settings.peakMinThreshold) continue // already in a.peaks
+      peakModels.push({
+        id: uuid(),
+        frequency: p.frequency,
+        magnitude: p.magnitude,
+        quality: p.quality,
+        bandwidth: p.bandwidth,
+        timestamp,
+        pitchNote: pitch.note(p.frequency),
+        pitchCents: pitch.cents(p.frequency),
+        pitchFrequency: pitch.freq0(p.frequency),
+        modeLabel: MODE_DISPLAY_NAME.unknown,
+      })
+    }
   }
 
   const snapshot: SpectrumSnapshotModel = {
@@ -137,7 +181,6 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
 
   // Per-tap entries for the multi-tap comparison view (mirrors Swift tapEntries):
   // each tap's spectrum snapshot + its peaks + the auto-selected per-mode peak IDs.
-  const guitarTypeName = GUITAR_TYPE_NAME_FROM_RAW[guitarTypeRaw] ?? 'generic'
   const tapEntries: TapEntryModel[] | undefined =
     a.tapEntries && a.tapEntries.length > 1
       ? a.tapEntries.map((entry) => {
@@ -173,6 +216,7 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
     notes: a.notes.trim() || undefined,
     spectrumSnapshot: snapshot,
     selectedPeakIDs: selected.map((p) => idForNumeric.get(p.id)!),
+    userModifiedSelection: a.userModified ?? false,
     selectedPeakFrequencies: selected.map((p) => p.frequency),
     annotationVisibilityMode: a.settings.annotationVisibilityMode,
     tapDetectionThreshold: a.settings.tapDetectionThreshold,
@@ -310,6 +354,8 @@ export interface LiveRestore {
   loadedPeaks: Peak[]
   /** Numeric ids (indices) of the selected peaks. */
   selectedIndices: Set<number>
+  /** Whether the saved selection was hand-modified (default true for legacy files). */
+  userModified: boolean
   /** Per-frequency overrides to restore (keyed by `frequency.toFixed(1)`). */
   overridesByFreq: Map<string, string>
   /** Dragged annotation-label positions to restore (keyed by `frequency.toFixed(1)`). */
@@ -366,6 +412,7 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
 
   return {
     measurementType,
+    userModified: m.userModifiedSelection ?? true,
     captured: { magnitudesDb: snap.magnitudes, frequencies: snap.frequencies },
     view: { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB },
     settingsPatch,

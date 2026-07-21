@@ -127,9 +127,9 @@ identical Unknown frequencies. Unknown detection is untouched by the rewrite, ac
 This is a stronger result than D5, which pinned a single threshold; it is worth promoting into the
 suite as a threshold-sweep regression test.
 
-## 6. The manual is wrong — three places
+## 6. The manual — three places (now corrected)
 
-This is where the expectation came from. All three ship with the release.
+This is where the expectation came from. All three shipped before 1.0.2 and are now fixed.
 
 **§2.7 (ch02-getting-started.md)** — the primary description:
 
@@ -144,17 +144,29 @@ This is where the expectation came from. All three ship with the release.
 Both read as display filters. Neither states that peaks below the value are never detected and
 therefore never saved.
 
-**§3.6 (ch03-guitar-mode.md)** — and this one hides the remedy:
+**§3.6 (ch03-guitar-mode.md)** — this one names the wrong remedy.
 
 > "the wand **re-classifies the visible peaks** against the current Peak Min and re-selects one per
 > mode window."
 
-`reanalyzePeaks()` does considerably more than re-classify visible peaks: it clears
-`loadedMeasurementPeaks` and **re-detects from the frozen spectrum**. Described as a selection
-refresh, a reader with exactly this problem would never think to press it.
+That sentence is actually correct about the **wand** — but the wand is not the remedy for hidden
+peaks. The two are *different buttons*, and an earlier draft of this doc conflated them:
 
-Missing everywhere: *Peak Min gates detection; the saved file contains only peaks above the
-capture-time value; the wand recovers the rest from the saved spectrum.*
+- **Wand** (`wand.and.stars`, TapAnalysisResultsView.swift:257) → `resetToAutoSelection()` —
+  re-*selects* one peak per mode window among the peaks already visible at the current Peak Min. It
+  deliberately does **not** nil `loadedMeasurementPeaks`, so it never re-detects.
+- **Re-analyze** (TapAnalysisResultsView.swift:207) → `reanalyzePeaks()` — clears
+  `loadedMeasurementPeaks` and **re-detects** from the frozen spectrum. *This* is the button that
+  recovers peaks below the capture-time Peak Min from an old file.
+
+The original defect: *Peak Min gated detection at save time; a pre-1.0.2 file contains only peaks
+above the capture-time value; only **Re-analyze** (not the wand) recovers the rest from the saved
+spectrum, and the manual never pointed there.*
+
+**RESOLVED by Option 4 (full-set save).** As of 1.0.2 a guitar measurement saves its full peak set
+(every peak above −100 dB), so lowering Peak Min on a loaded measurement reveals the quieter peaks
+directly — no Re-analyze needed. Re-analyze remains the fallback for pre-1.0.2 files (and for
+changing the analysis range / guitar type). The manual now states all of this (§2.7, §3.6, §8).
 
 ## 7. RESOLVED — the All/Selected/None symptom was not a defect
 

@@ -175,6 +175,7 @@ export function encodeMeasurement(m: TapToneMeasurementModel): JsonObj {
   if (m.flcSnapshot) d.flcSnapshot = encodeSnapshot(m.flcSnapshot)
   put(d, 'selectedPeakIDs', m.selectedPeakIDs)
   put(d, 'selectedPeakFrequencies', m.selectedPeakFrequencies?.map((v) => f32(v)))
+  put(d, 'userModifiedSelection', m.userModifiedSelection)
   put(d, 'annotationVisibilityMode', m.annotationVisibilityMode)
 
   if (m.peakModeOverrides) {

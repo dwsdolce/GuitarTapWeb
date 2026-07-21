@@ -91,6 +91,11 @@ export interface TapToneMeasurementModel {
   peakAnnotationOffsets?: AnnotationOffsets
   selectedPeakIDs?: string[]
   selectedPeakFrequencies?: number[]
+  /** Whether the saved selection was hand-modified (vs the automatic mode-priority selection).
+   *  Restored on load so a loaded measurement behaves like a live one: an automatic selection
+   *  re-runs auto-selection on Peak Min change; a manual one is parked. Absent in older files —
+   *  those default to manual. Mirrors Swift/Python userModifiedSelection. */
+  userModifiedSelection?: boolean
   annotationVisibilityMode?: AnnotationMode
   tapDetectionThreshold?: number
   numberOfTaps?: number

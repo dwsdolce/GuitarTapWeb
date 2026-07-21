@@ -29,6 +29,9 @@ export interface AnnotationRestore {
   overridesByFreq: Map<string, string>
   annotationOffsetsByFreq: Map<string, [number, number]>
   selectedIndices: Set<number>
+  /** Whether the loaded selection was hand-modified (default true for legacy files). An automatic
+   *  selection re-runs auto-selection on Peak Min change; a manual one is parked. */
+  userModified: boolean
 }
 
 export interface AnnotationsModel {
@@ -136,7 +139,10 @@ export function useAnnotations({ peaks, guitarType, captured, material }: UseAnn
     setOverrides(r.overridesByFreq)
     setAnnotationOffsets(r.annotationOffsetsByFreq)
     setSelectedIds(r.selectedIndices)
-    setUserModified(true)
+    // Restore the manual/auto flag instead of forcing manual: an AUTOMATIC loaded measurement then
+    // re-runs auto-selection on Peak Min change (revealing a peak selects it as its mode winner),
+    // matching live. Legacy files (no flag) arrive as true = manual. Mirrors Swift/Python.
+    setUserModified(r.userModified)
   }, [])
 
   // Material load: the capture-reset effect is suppressed in material mode, so just set the offsets
