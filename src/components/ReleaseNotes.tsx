@@ -129,6 +129,12 @@ export const RELEASES: RNRelease[] = [
         heading: 'Bug Fixes',
         items: [
           {
+            body: 'Every guitar measurement quietly included one extra peak — a duplicate of a real resonance in the Top/Back overlap region — which appeared as a repeated row in the Analysis Results and in the exported spectrum. It is no longer produced, and any existing measurement is corrected automatically when you open it.',
+          },
+          {
+            body: 'Flamenco guitar Top and Back resonances could be identified in reverse — the frequency windows for the two modes were set the wrong way round, so the stronger, lower resonance could be labelled Back and the higher one Top. The windows are corrected, so both modes are now identified correctly.',
+          },
+          {
             body: 'Loading a saved measurement always warned that it “was recorded with a different calibration”, even when the microphone and calibration in use were exactly the ones it was recorded with. The check never looked at the calibration you currently have loaded, so every calibrated measurement raised the warning. It now warns only when something genuinely differs.',
           },
           {
