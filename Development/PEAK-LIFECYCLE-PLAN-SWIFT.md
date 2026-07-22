@@ -119,7 +119,7 @@ display projection. Golden fixtures must be unchanged — if they move, stop.
 **Risk:** medium. Touches the freeze transition and the save path. Watch for the sub-Peak-Min Air now
 being selected at freeze (intended, and it fixes the ratio immediately after capture).
 
-### ✅ Phase 1 COMPLETE — suite green (418) + USER-VERIFIED invisible (2026-07-21). UNCOMMITTED.
+### ✅ Phase 1 COMPLETE — suite green (418) + USER-VERIFIED invisible (2026-07-21). Committed `9f9bc89`.
 
 **Design chosen (Option B of two):** add `allPeaks` as the durable set; `currentPeaks` becomes
 `@Published private(set)` and *derived* — `allPeaks` filtered by Peak Min, handing back **the same
@@ -158,8 +158,9 @@ detection is unchanged, only its timing).
 **Run-reviewed by the user: "I see no changes."** — which is exactly the pass condition for a
 phase whose whole purpose is to be behaviourally invisible.
 
-**Uncommitted:** the 5 Swift sources + 4 Swift test files above, this doc, and (unrelated, held back
-deliberately) `guitar_tap/src/guitar_tap/views/fft_canvas.py`.
+**Committed** with Phase 2 in a single Swift commit, `9f9bc89` (they had become entangled by the time
+either was ready). Still held back deliberately, and unrelated to this phase:
+`guitar_tap/src/guitar_tap/views/fft_canvas.py` — it is rewritten by the Python port (Phase 9).
 
 ### Port ledger — Phase 1
 
@@ -200,12 +201,16 @@ it. Both ports will present exactly the same temptation at the same two places.
 
 **Goal:** a Peak Min move recomputes the projection and mutates nothing.
 
-- `recalculateFrozenPeaksIfNeeded()` (`+PeakAnalysis.swift:141-276`): delete the live/frozen
-  re-detect branch (`:243-275`). A Peak Min change recomputes the display projection only.
-- **Delete `applyFrozenPeakState` entirely** (`:485-553`) — the ±5 Hz remapping of offsets, overrides
-  and selection.
-- **Delete `selectedPeakFrequencies`** (`TapToneAnalyzer.swift:583`) and its seeding
-  (`+MeasurementManagement.swift:755-761`).
+**All three bullets below are SUPERSEDED — see the decision in the completion block. The goal was met
+by decoupling the trigger; none of the three is deleted.**
+
+- ~~`recalculateFrozenPeaksIfNeeded()` (`+PeakAnalysis.swift:141-276`): delete the live/frozen
+  re-detect branch (`:243-275`).~~ **KEPT.** A Peak Min change recomputes the display projection only
+  — achieved via the didSet, not by deleting the branch.
+- ~~**Delete `applyFrozenPeakState` entirely**~~ (`:485-553`) — the ±5 Hz remapping of offsets,
+  overrides and selection. **KEPT.**
+- ~~**Delete `selectedPeakFrequencies`**~~ (`TapToneAnalyzer.swift:583`) and its seeding
+  (`+MeasurementManagement.swift:755-761`). **KEPT.**
 
 **Bugs fixed here, all for free:**
 - deselected peaks re-selecting on any slider move (the stale cache);
@@ -226,7 +231,7 @@ peak and back down; assert all three are byte-identical afterwards. This is the 
 
 **Risk:** high — the largest single change. Best run-review checkpoint.
 
-### 🟡 Phase 2 — core landed, planned deletions NOT done. Suite green (419). USER-VERIFIED. UNCOMMITTED.
+### ✅ Phase 2 COMPLETE — suite green (419) + USER-VERIFIED (2026-07-22). Committed `9f9bc89`.
 
 **Done — and this is the whole first-order effect:** `peakMinThreshold.didSet`
 (`TapToneAnalyzer.swift:231-241`) no longer calls `recalculateFrozenPeaksIfNeeded()`. It re-projects
@@ -242,14 +247,39 @@ Separately, the annotation leader line detached during a drag: `PeakAnnotations.
 endpoints at drag start, but only the label anchor (`frozenChartPosition`) needs freezing; the dot
 does not move. `frozenPeakPosition` deleted.
 
-**NOT done — and possibly no longer correct.** The three planned deletions are all still in place:
-the live/frozen re-detect branch, `applyFrozenPeakState` (`+PeakAnalysis.swift:495`) and
-`selectedPeakFrequencies` (`TapToneAnalyzer.swift:618`). The plan assumed they existed only to service
-Peak Min. They do not: with the didSet decoupled, that machinery now runs **only on load and on
-explicit Re-analyze** — paths where re-detection genuinely happens and peak identity genuinely does
-change, so a frequency-keyed carry-forward is exactly the right tool. **Decide before Phase 3
-whether these deletions are still wanted, or reduce to "keep, and document why."** Do not delete on
-the strength of the original bullet.
+**DECISION 2026-07-22 — all three planned deletions are CANCELLED.** The live/frozen re-detect branch,
+`applyFrozenPeakState` and `selectedPeakFrequencies` are all KEPT.
+
+The plan assumed all three existed only to service Peak Min, so decoupling the slider would leave
+them dead. That assumption was wrong. Decoupling the didSet did not make them dead — it made them
+**correctly scoped**. `recalculateFrozenPeaksIfNeeded()` now runs on exactly two paths:
+
+- **load** — saved peaks arrive with their own UUIDs, which cannot match anything already in memory;
+- **explicit Re-analyze** — `findPeaks` re-runs and mints entirely new `ResonantPeak` identities.
+
+On both, peak identity genuinely does change, and the user's offsets, overrides and selection are
+keyed by the *old* identities. Taken one at a time:
+
+- **The live/frozen re-detect branch** *is* Re-analyze. Deleting it would leave the one operation
+  whose entire purpose is to re-run detection with nothing to run. The branch was never the problem;
+  reaching it from a slider move was.
+- **`applyFrozenPeakState`** is how per-peak state survives a legitimate re-detection. Matching
+  offsets, overrides and selection forward by frequency within ±5 Hz is precisely the right tool when
+  identities have been re-minted. Deleting it would silently discard dragged labels and custom mode
+  names on every Re-analyze and on every load.
+- **`selectedPeakFrequencies`** is the frequency-keyed selection cache that carry-forward reads. Its
+  stale-cache bug was a symptom of the slider driving recalc, not of the cache itself.
+
+**What made the difference:** the fix was never "delete the machinery", it was "stop firing it for a
+display change." Once Peak Min no longer triggers recalc, the bugs the deletions were meant to fix
+(deselected peaks re-selecting, offsets on hidden peaks destroyed, identity churning per tick) are
+already gone — they were all downstream of the trigger, not of the mechanism. The machinery that
+remains now runs only where it is genuinely needed.
+
+**Consequence for the ports:** Python's `_apply_frozen_peak_state` and its selection cache
+(`…_measurement_management.py:702`) are likewise kept. The web has neither, and after Phase 9 will
+**need** the equivalent — it currently destroys per-peak state whenever peaks are re-minted, which is
+the same hole from the other direction.
 
 **User-verified 2026-07-22:** Re-analyze with everything hidden, wand with partial visibility, fresh
 capture → save → reload (Air selected, Back stays Back), annotation leader line — all good.
