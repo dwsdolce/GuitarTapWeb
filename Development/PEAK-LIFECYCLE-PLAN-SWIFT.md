@@ -18,14 +18,21 @@ user-verified.** Do not start the ports early — the spec will move under them.
 - **Each phase ends green** (full suite + golden fixtures) and is independently committable.
 - Per-phase commits; the user commits. Build numbers roll on every source edit.
 - **Every completed phase carries a Port ledger, written the SAME turn the phase lands.** Not
-  reconstructed at Phase 8 — by then the reasoning is buried under several compactions. Swift *code*
-  does not port; the **rule** and the **test list** do. Four fields, no more:
-  1. **Rule** — one platform-independent sentence. This is what Python and the web implement.
-  2. **Swift** — the symbols changed.
-  3. **Python / web counterparts** — looked up *now*, while the context is live. Name the symbol even
-     when the answer is "doesn't exist yet"; that absence *is* the port work.
-  4. **Tests** — added / deleted / inverted, with the `@parity` slug. Python's turn then reduces to
-     "make these named tests exist and pass", and `gen_parity_map.py --check` flags any that never got
+  reconstructed at Phase 8 — by then the reasoning is buried under several compactions.
+
+  **Purpose (sharpened 2026-07-22): the ledger's load-bearing content is the faithful record of what
+  was done TO SWIFT. The ports are *generated from that record* by reproducing it non-divergently —
+  "read what Swift did, replicate it." Swift *code* does not port; the rule and the tests do.** The
+  ledger is authoritative about Swift and *only* Swift.
+
+  1. **Rule** — one platform-independent sentence. What every platform must end up doing.
+  2. **Swift** — the symbols changed. This, with the Rule and Tests, is the authoritative record.
+  3. **Ports (UNVERIFIED)** — a *prediction* of the Python/web shape, to **verify against the code at
+     port time, never trust from this doc**. These are guesses that point where to look; three of
+     them have already proven wrong this session. A wrong prediction here must not become an
+     instruction to implement. See the Phase 9 warning.
+  4. **Tests** — added / deleted / inverted, with the `@parity` slug. The port then reduces to "make
+     these named tests exist and pass", and `gen_parity_map.py --check` flags any that never got
      twins. A missed port becomes a build-visible orphan instead of a bug found in six months.
 - **Spec corrections go into the spec.** When a phase discovers [PEAK-LIFECYCLE-SPEC.md](PEAK-LIFECYCLE-SPEC.md)
   was wrong (Phase 1 already amended it — live path stays cheap at Peak Min), amend the spec, not just
@@ -37,7 +44,12 @@ user-verified.** Do not start the ports early — the spec will move under them.
 
 The counterpart lookup, done once. Phase ledgers reference these rather than repeating them.
 
-| Concept | Swift | Python | Web |
+> **The Swift column is authoritative. The Python and Web columns are UNVERIFIED predictions —
+> confirm each against the code at port time, never trust them from this doc.** They point where to
+> look; they are not a specification. Symbol names and "none" claims may already be stale, and three
+> such predictions elsewhere in this plan proved wrong when checked.
+
+| Concept | Swift (authoritative) | Python (unverified) | Web (unverified) |
 |---|---|---|---|
 | Durable full set | `allPeaks` (`TapToneAnalyzer.swift`) | **none** — `current_peaks` (`tap_tone_analyzer.py:278`) is the only set | **none** |
 | Display projection | `currentPeaks` + `refreshDisplayedPeaks()` (`TapToneAnalyzer.swift:387`) | **none** | `recalculatePeaks` (`state/tapToneAnalyzer.ts:305`) |
@@ -172,7 +184,7 @@ objects*, so filtering can never disturb identity. Auto-selection at freeze runs
 `@Published private(set)` projection via `refreshDisplayedPeaks()`; `peakMinOverride:
 peakDetectionFloor` at the capture sites only; `guitarFullSavePeaks()` collapsed to `allPeaks`.
 
-**Python.** No durable set exists — `current_peaks` (`tap_tone_analyzer.py:278`) *is* the working set,
+**Python (UNVERIFIED — confirm at port time).** No durable set exists — `current_peaks` (`tap_tone_analyzer.py:278`) *is* the working set,
 written from ~12 sites across `_control`, `_spectrum_capture`, `_measurement_management`. The port is
 the same Option B split: add `all_peaks`, make `current_peaks` a read-only projection, then convert
 each write site. Unlike Swift there is **no compiler** to enumerate them — so grep `current_peaks =`
@@ -180,7 +192,7 @@ and `self.current_peaks` and work the list explicitly; this is the highest-risk 
 port. `guitar_full_save_peaks` equivalent (`…_measurement_management.py:198-222`) collapses the same
 way, deleting the re-detect-and-append dance.
 
-**Web.** Also no durable set. `recalculatePeaks` (`tapToneAnalyzer.ts:305`) computes *and* filters in
+**Web (UNVERIFIED — confirm at port time).** Also no durable set. `recalculatePeaks` (`tapToneAnalyzer.ts:305`) computes *and* filters in
 one pass; the split is to store the unfiltered result and expose the projection separately. Detection
 floor: pass `peakMinOverride: -100` at the frozen-capture call, leaving `dsp/peaks.ts:178`'s default
 untouched.
@@ -294,14 +306,14 @@ classification call site must read the durable set, never the displayed one.**
 **Swift.** didSet → `refreshDisplayedPeaks()` only; `allPeaks` at the four selection/classification
 sites; `frozenPeakPosition` removed from `PeakAnnotations.swift`.
 
-**Python.** Peak Min reaches peaks through `recalculate_frozen_peaks_if_needed()`
+**Python (UNVERIFIED — confirm at port time).** Peak Min reaches peaks through `recalculate_frozen_peaks_if_needed()`
 (`…_peak_analysis.py:120`) and `_emit_loaded_peaks_at_threshold()` (`:826`). Same decoupling: a
 threshold change re-emits the projection, never re-enters detection or classification. Python's
 selection UI is additionally **not routed through the analyzer** at all — see
 [PEAK-SELECTION-SURVIVES-SLIDER.md](PEAK-SELECTION-SURVIVES-SLIDER.md); that routing is a prerequisite,
 not a detail. `views/fft_canvas.py` is deliberately held uncommitted because it is rewritten here.
 
-**Web.** The fix is structurally different — remove `peakMin` from the `useLayoutEffect` dependency
+**Web (UNVERIFIED — confirm at port time).** The fix is structurally different — remove `peakMin` from the `useLayoutEffect` dependency
 array (`App.tsx:512-514`) so the slider stops re-entering `recalculatePeaks`, and apply it in a
 display selector alongside range and unknown filtering. Until that lands the web destroys per-peak
 state on every slider tick (no carry-forward exists to soften it). Overlaps the already-logged
@@ -422,7 +434,7 @@ values resolve selection over the durable set, never over the Peak Min projectio
 **Swift.** `recalculateTapEntryPeaks()` + 3 call sites deleted; `TapToneAnalyzer.selectedPeaks` added
 and adopted by the two multi-tap averaged-row consumers.
 
-**Python.** `_recalculate_tap_entry_peaks` (`…_peak_analysis.py:254`) with **three** call sites,
+**Python (UNVERIFIED — confirm at port time).** `_recalculate_tap_entry_peaks` (`…_peak_analysis.py:254`) with **three** call sites,
 matching Swift exactly: `…_peak_analysis.py:216`, `:246`, `…_measurement_management.py:846`. Delete
 all three.
 
@@ -434,13 +446,14 @@ tapEntries` changes, so Swift needs no counterpart. Not a divergence, a framewor
 the port the per-tap table no longer changes with Peak Min, so decide whether the `peaksChanged`
 subscription still earns its keep.
 
-**Ordering constraint, verified:** Python's per-tap capture at `…_spectrum_capture.py:2021` calls
+**Ordering constraint (read against the code 2026-07-22 — still re-confirm at port time, the file may
+have moved):** Python's per-tap capture at `…_spectrum_capture.py:2021` calls
 `self.find_peaks(t_mags, t_freqs)` with **no `peak_min_override`** — Phase 1's −100 floor was never
 applied to Python's tap entries. So **Phase 1's Python port must land before Phase 3's**, or deleting
 the recompute would freeze a Peak-Min-*filtered* set permanently. Swift did not have this hazard
 (`+SpectrumCapture.swift:1664` already passes the override).
 
-**Web.** Per-tap entries are `capturedTaps` (`state/tapToneAnalyzer.ts:91`), whose comment already
+**Web (UNVERIFIED — confirm at port time).** Per-tap entries are `capturedTaps` (`state/tapToneAnalyzer.ts:91`), whose comment already
 records the defect: *"Each entry's peaks are (re)found by recalculatePeaks at the current Peak Min."*
 Same rule, same shape as the web's Phase 2 work — the per-tap re-find comes out of the Peak Min
 recompute path.
@@ -567,7 +580,7 @@ nothing is filtered anywhere.
 
 **Swift.** As above.
 
-**Python / web.** Both carry the `view/dot-layer` twins committed 2026-07-21 and both need: the
+**Python / web (UNVERIFIED — confirm at port time).** Both carry the `view/dot-layer` twins committed 2026-07-21 and both need: the
 predicate, the `overridden_peak_ids` / `overriddenPeakIds` parameter on their
 `peaks_in_display_range` / `peaksInDisplayRange`, all four consumers converted, the same doc-comment
 reversal, and DL8–DL10. **Verify each platform's consumer list rather than assuming it is four** —
@@ -677,7 +690,7 @@ as a display bug rather than a data bug.
 **Risk:** medium. The rename is mechanical and compiler-checked, but the seven fixes are real
 behaviour changes and the Save guard is user-visible in the live state.
 
-### ✅ Phase 4a COMPLETE — suite green (426), parity clean + USER-VERIFIED (2026-07-22). UNCOMMITTED.
+### ✅ Phase 4a COMPLETE — suite green (426), parity clean + USER-VERIFIED (2026-07-22). Committed `f5fd2ce`.
 
 **Run-review found one bug, deferred to Phase 6 by decision, not fixed here:** the tap-tone ratio
 ignores mode overrides, so renaming the Top peak still yields a ratio. Predates the rework. See
@@ -709,17 +722,180 @@ intact.
 Then: with Peak Min above every peak, confirm **Save** is enabled and the saved file reloads complete;
 and confirm Save is still disabled before any measurement exists.
 
+### Port ledger — Phase 4a
+
+**Rule.** The Peak-Min-filtered set is a display projection named as such (`peaksAbovePeakMin` /
+`peaks_above_peak_min`), not "the peaks". Every question *about the measurement* — save, selection,
+classification, per-peak state carry-forward, whether a measurement exists — reads the durable set.
+
+**Swift.** Rename (97 refs) + seven durable-vs-displayed fixes + Save gated on `isMeasurementComplete`
++ four material sites made explicit.
+
+**Python (UNVERIFIED — confirm at port time).** `current_peaks` → `peaks_above_peak_min`, and the **same seven-site audit**: the port must
+re-derive the equivalent of each fixed Swift site, NOT transcribe them — grep `current_peaks` in
+`_peak_analysis.py` / `_measurement_management.py` and classify each as durable-vs-displayed. Save
+guard: find the "no peaks" disable and move it to the completeness flag. Python has no compiler, so
+this is the highest-miss-risk port in the plan.
+
+**Web (UNVERIFIED — confirm at port time).** `state/tapToneAnalyzer.ts` — the projection is computed inside `recalculatePeaks`, so there
+is no stored `currentPeaks` to rename; the durable-vs-displayed split has to be *introduced*, not
+renamed. Re-verify against the code (this is exactly the entry the Phase 9 warning was written for).
+
+**Tests, slug `test/frozen-peak-recalc`.** Two **inverted** (the phase's best evidence):
+`loadedPath_offsetForFilteredOutPeak_isDropped` → `_survives`, and the override twin — both asserted a
+hidden peak's state is *destroyed*; they now assert it survives. One new:
+`reanalyzePreservesStateOfPeaksHiddenByPeakMin`. New fixture `gaussianSpectrum`/`freezeOnRealSpectrum`
+— **both ports need the equivalent**, because the flat-spectrum trap (recalc early-returns → vacuous
+pass) exists identically in Python and the web. Also slug `test/annotation-state`:
+`selectNoPeaks_clearsAll` and `noneMode_returnsEmpty` had incidental `selectAllPeaks()` setup rewritten
+to select explicitly (they must not depend on a feature Phase 5 removes).
+
 ## Phase 5 — The selection model
 
-- Air/Top/Back: at most one holder each. Enforce on **toggle** and on **mode override** (assigning
-  Air/Top/Back displaces the current holder; the displaced peak stays a candidate).
-- Overriding *away* from Air/Top/Back leaves the mode with no holder — do **not** auto-promote.
-- **Remove Select All**: the button (all layouts), `selectAllPeaks()`, and its tests
-  (`AnnotationStateTests.selectAllPeaks_selectsAllCurrentPeaks`, `selectAllPeaks_setsModifiedFlag`) —
-  deleted with the feature, not rewritten. **Keep Select None.**
+### The rule, in the user's terms (2026-07-22)
 
-**Risk:** medium — user-visible UI change. **Test:** selecting a second Top displaces the first;
-overriding a peak to Top displaces the holder; Upper Modes still allows several.
+**Classification and selection are independent. Do not conflate them.**
+
+- **Classification** — band membership, plus any user override. **Many peaks per mode**: five peaks
+  inside the Air band are five Air peaks. Selection never changes it. *Deselecting a peak does not
+  relabel it* — it stays an Air/Top/Back peak, it just stops being the definitive one.
+- **Selection** — which one of those candidates is **definitive**. This is what Phase 5 constrains.
+
+**The invariant:** *at most one selected peak per Air, Top and Back.* The selected one is **the
+definitive Air/Top/Back**; every other peak of that mode is a candidate. Dipole / Ring / Upper Modes
+are unconstrained — they are clusters, not single physical resonances.
+
+**Enforcement is invariant maintenance, not two special cases.** The plan previously listed separate
+rules for toggle and for mode override; they collapse. Only two things can break the invariant:
+
+1. **Selecting a peak** whose mode already has a definitive holder → the previous holder is
+   deselected (it remains a candidate, still classified, merely no longer definitive).
+2. **Changing the mode of an ALREADY-SELECTED peak** so that its new mode now has two selected peaks.
+   Overriding an *unselected* peak to Top does nothing to selection — it just becomes another Top
+   candidate.
+
+**No auto-promotion**, and it needs no special rule: override the definitive Top away from Top and
+Top simply has no definitive peak until one is chosen. Nothing promotes because nothing is promoting.
+**Select None is likewise a legitimate state** — a full set of classified Air/Top/Back peaks with no
+definitive ones.
+
+**Resolve the mode through `peakMode(for:)` — the override-aware path — NOT `identifiedModes`.** The
+latter is built from `classifyAll` alone and never consults overrides (the defect logged in Phase 6);
+using it here would make Phase 5 inherit that bug on day one.
+
+**Why this matters is Phase 6's half:** the definitive Air/Top/Back must be used **consistently by
+every consumer** — the tap-tone ratio, the PDF, the measurements list, the multi-tap table —
+*"whether it was defined by the auto-select or by the user select."* Phase 5 establishes the
+definitive peak; Phase 6 makes everything read it.
+
+### The work
+
+- Enforce the invariant in `togglePeakSelection` (`TapToneAnalyzer.swift:736`) and on mode change for
+  an already-selected peak (`setModeOverride`, `:680` — which today writes `peakModeOverrides` and
+  touches selection not at all).
+- **Remove Select All**: `selectAllPeaks()` (`:749`) and the button. **Keep Select None** (`:755`).
+
+**Verified corrections to the original bullets:**
+- *"the button (all layouts)"* — there is only **one** Select All button
+  (`TapAnalysisResultsView.swift:231`), sharing an `HStack` with Select None and the wand. Unlike the
+  Save/Annotations guards, it is not repeated per layout.
+- A **third** use of `selectAllPeaks()` the plan did not name: `noneMode_returnsEmpty`
+  (`AnnotationStateTests.swift:237`) calls it incidentally as setup for an unrelated assertion. That
+  one is **rewritten** to select explicitly, not deleted with the feature. The two named tests
+  (`selectAllPeaks_selectsAllCurrentPeaks:101`, `selectAllPeaks_setsModifiedFlag:145`) do go.
+
+**Risk:** medium — user-visible UI change. **Tests:** selecting a second Top deselects the first and
+leaves it classified Top; overriding an already-selected peak to Top displaces the previous definitive
+Top; overriding an *unselected* peak to Top changes no selection; overriding the definitive Top away
+leaves Top with no definitive peak; Dipole/Ring/Upper still allow several; Select None leaves
+classification intact.
+
+### ⏳ Phase 5 CODE WRITTEN — suite green (430), parity clean, NOT yet run-reviewed. UNCOMMITTED.
+
+**Changed (Swift):**
+- `TapToneAnalyzer.singleHolderModes` = `[.air, .top, .back]`, and
+  `enforceDefinitiveModeUniqueness(preferring:)` — the one place the invariant is maintained. It only
+  ever *removes* other peaks from the selection: it never reclassifies and never promotes.
+  Guitar-gated (material has no per-peak selection). Resolves the mode through `peakMode(for:)`, the
+  override-aware path, so Phase 5 does not inherit the Phase 6 blindness.
+- Called from the two places that can break the invariant: `togglePeakSelection` (on select only) and
+  `setModeOverride` (both the main-thread and the async branch).
+- `selectAllPeaks()` and its button removed; the results-panel header comment rewritten to say why
+  there is no Select All. `selectNoPeaks()` untouched.
+
+**Tests 426 → 430** (+6 new, −2 removed): `DefinitiveModeUniqueness` suite D11–D16 covering all six
+cases above. Parity clean at 79 groups.
+
+**Correction to the verification, found while editing:** there were **four** uses of
+`selectAllPeaks()` in the tests, not three. The two named in the plan were deleted with the feature;
+**two** incidental setup uses were rewritten to select explicitly — `noneMode_returnsEmpty`
+(`AnnotationStateTests.swift:237`) *and* `selectNoPeaks_clearsAll` (`:119`), which the earlier count
+missed.
+
+**Open question for the user — legacy files, NOT addressed here.** `loadMeasurement` restores
+`selectedPeakIDs` straight from the file, with no enforcement. A measurement saved before Phase 5 can
+therefore contain two selected Top peaks, and loading it reproduces that state; the invariant then
+holds for every subsequent interaction but not for what is on screen at load. Deliberately not
+"fixed" on my own initiative, because silently changing what a saved measurement shows is the user's
+call: heal on load, leave as-is, or flag it.
+
+**Run-review script:** select a second Top → the first deselects and its row still reads Top ·
+relabel an already-selected peak to Top → it becomes the definitive Top and the previous one is
+displaced · relabel an *unselected* peak to Top → nothing about the selection changes · relabel the
+definitive Top to a freeform name → Top has no definitive peak and nothing is promoted · select
+several Dipole peaks → all stay · Select None → all peaks keep their mode labels · confirm the Select
+All button is gone and Select None and the wand still work.
+
+### Port ledger — Phase 5
+
+**Rule.** At most one **selected** peak per Air / Top / Back — the selected one is the *definitive*
+Air/Top/Back. Classification is independent and unconstrained (many peaks per mode); deselecting never
+relabels. Dipole / Ring / Upper allow several. The invariant is maintained in ONE place, called from
+the only two things that can break it: selecting a peak, and changing the mode of an already-selected
+peak. Never auto-promote. Resolve the mode via the **override-aware** path.
+
+**Swift.** `singleHolderModes` + `enforceDefinitiveModeUniqueness(preferring:)`, called from
+`togglePeakSelection` (select branch) and `setModeOverride` (both threads). `selectAllPeaks()` + its
+one button removed; `selectNoPeaks()` kept.
+
+**Python (UNVERIFIED — confirm at port time).** `toggle_peak_selection` / `set_mode_override` in `tap_tone_analyzer.py` — same enforcement,
+resolving mode through the override-aware accessor (`peak_mode`, NOT `identified_modes`). Remove the
+Select All action + button; keep Select None. **Also required first:** Python's selection UI is not
+routed through the analyzer today ([[project_peak_selection_slider_bug]]), so the enforcement has
+nowhere to live until that routing lands — a prerequisite, not a detail.
+
+**Web (UNVERIFIED — confirm at port time).** `state/tapToneAnalyzer.ts` selection actions; remove the Select All control in `App.tsx`.
+Same override-aware resolution.
+
+**Tests, slug `test/annotation-state`.** New `DefinitiveModeUniqueness` suite, six cases: second Top
+displaces first (and the displaced peak stays classified Top); Dipole allows several; override an
+already-selected peak into Top displaces the holder; override an *unselected* peak changes no
+selection; override the definitive Top away leaves it holderless (no promotion); Select None leaves
+classification intact. **Deleted with the feature:** `selectAllPeaks_selectsAllCurrentPeaks`,
+`selectAllPeaks_setsModifiedFlag` — the ports delete their twins, they are not re-created.
+
+### Reset-to-Auto label fix — independent bug, found in the Phase 5 run-review
+
+**Not a lifecycle phase.** Predates the rework; ported alongside Phase 5 because it was fixed here.
+
+**Rule.** The "Reset to Auto-Detected (X)" menu item names the mode the reset **restores to** — the
+override-blind auto-classification — not the peak's current (possibly overridden) label. Applies to
+the two interactive paths (desktop menu + iOS sheet); they must not diverge. Read-only rows show no
+reset item, so they are unaffected.
+
+**Swift.** New model accessor `autoDetectedMode(for:)` (override-blind: reads `identifiedModes`,
+falls back to `classifyAll`). `CombinedPeakModeRowView` gains an `autoDetectedMode` parameter used by
+both reset labels; the Results call site passes it; `MeasurementDetailView` (read-only) needs
+nothing. `.unknown` is shown parenthesised like any other mode (user: *"Unknown is unknown - a
+legitimate state"*).
+
+**Python / web (UNVERIFIED — confirm at port time).** Both have the same reset control and the same latent bug — the reset label reads the
+current mode. Add the equivalent override-blind accessor and feed it to the reset label on both
+platforms, both interactive paths, no divergence. **Verify** each has the desktop-vs-mobile split
+Swift has before assuming two paths.
+
+**Test, slug `test/annotation-state`.** `autoDetectedMode_ignoresOverride` (D8b): a peak overridden to
+another mode still reports its auto-detected mode. Both ports need the twin.
 
 ---
 
@@ -810,6 +986,32 @@ code "looks like" the Swift.
 through a React dependency array and has no carry-forward machinery at all, so its fix is a different
 edit expressing the same rule. Python has no compiler to enumerate the `current_peaks` write sites
 that Swift's type system handed us for free.
+
+### ⚠️ Re-verify every Python and web claim in the ledgers at port time
+
+**The ledgers' cross-platform entries are a map of where to look, not evidence of what is there.**
+Treat each one as a starting point to be re-checked against the code, never as a fact to build on.
+
+This is not generic caution. Over the Phase 3 and 4a work the following went into these documents
+stated as fact and were wrong, each caught only because the user challenged it:
+
+- an instance-vs-static `resolvedModePeaks` divergence that does not exist — the call sites were
+  traced, the *inputs* to them were not (retracted in Phase 3);
+- Python having "four call sites, one more than Swift" — the fourth was a **docstring mention**
+  inside a Qt repaint handler (corrected in the Phase 3 ledger);
+- ten `.disabled(currentPeaks.isEmpty)` guards described as covering the export buttons — they cover
+  Annotations and Save; the export buttons have no guard at all (corrected in Phase 4a).
+
+The failure mode is consistent: **a grep hit counted as evidence without opening it**, and confidence
+tracking how much reasoning went in rather than how much was actually read. Two of those three
+claims lived in this file, trusted, until challenged.
+
+That matters more here than anywhere else in the plan. A wrong claim in conversation costs a
+correction; a wrong claim in this file becomes the specification Python and the web are built against
+months later, when nobody remembers which entries were read and which were assembled. So at port
+time: open the cited file at the cited line, confirm it says what the ledger claims, and correct the
+ledger in the same change when it does not. **A ledger entry that cannot be confirmed is a bug in
+the ledger, not a feature to implement.**
 
 ---
 
