@@ -17,6 +17,44 @@ user-verified.** Do not start the ports early — the spec will move under them.
   the phase, with the reason in the commit message.
 - **Each phase ends green** (full suite + golden fixtures) and is independently committable.
 - Per-phase commits; the user commits. Build numbers roll on every source edit.
+- **Every completed phase carries a Port ledger, written the SAME turn the phase lands.** Not
+  reconstructed at Phase 8 — by then the reasoning is buried under several compactions. Swift *code*
+  does not port; the **rule** and the **test list** do. Four fields, no more:
+  1. **Rule** — one platform-independent sentence. This is what Python and the web implement.
+  2. **Swift** — the symbols changed.
+  3. **Python / web counterparts** — looked up *now*, while the context is live. Name the symbol even
+     when the answer is "doesn't exist yet"; that absence *is* the port work.
+  4. **Tests** — added / deleted / inverted, with the `@parity` slug. Python's turn then reduces to
+     "make these named tests exist and pass", and `gen_parity_map.py --check` flags any that never got
+     twins. A missed port becomes a build-visible orphan instead of a bug found in six months.
+- **Spec corrections go into the spec.** When a phase discovers [PEAK-LIFECYCLE-SPEC.md](PEAK-LIFECYCLE-SPEC.md)
+  was wrong (Phase 1 already amended it — live path stays cheap at Peak Min), amend the spec, not just
+  the phase notes. The spec is the artifact Python and the web are built against.
+
+---
+
+## Cross-platform anchor map
+
+The counterpart lookup, done once. Phase ledgers reference these rather than repeating them.
+
+| Concept | Swift | Python | Web |
+|---|---|---|---|
+| Durable full set | `allPeaks` (`TapToneAnalyzer.swift`) | **none** — `current_peaks` (`tap_tone_analyzer.py:278`) is the only set | **none** |
+| Display projection | `currentPeaks` + `refreshDisplayedPeaks()` (`TapToneAnalyzer.swift:387`) | **none** | `recalculatePeaks` (`state/tapToneAnalyzer.ts:305`) |
+| Peak Min trigger | `peakMinThreshold.didSet` (`TapToneAnalyzer.swift:231`) | `recalculate_frozen_peaks_if_needed()` (`…_peak_analysis.py:120`) | `useLayoutEffect` dep array (`App.tsx:512-514`) |
+| Loaded-peak branch | `recalculateFrozenPeaksIfNeeded` (`+PeakAnalysis.swift:206`) | `_emit_loaded_peaks_at_threshold()` (`…_peak_analysis.py:826`) | `p.loadedPeaks.filter(magnitude >= peakMin)` (`tapToneAnalyzer.ts`) |
+| Detection floor | `peakDetectionFloor` (−100) via `peakMinOverride:` | `find_peaks(peak_min_override=)` (`…_peak_analysis.py:389,443`) | `peakMinOverride ?? peakMinThreshold ?? -60` (`dsp/peaks.ts:178`) |
+| ±5 Hz carry-forward | `applyFrozenPeakState` (`+PeakAnalysis.swift:495`) | `_apply_frozen_peak_state` (`…_peak_analysis.py:116`) | **none** — peaks are re-minted, per-peak state is simply lost |
+| Selection cache | `selectedPeakFrequencies` (`TapToneAnalyzer.swift:618`) | `…_measurement_management.py:702` | **none** |
+| Full save set | `guitarFullSavePeaks()` (`+MeasurementManagement.swift`) | re-detect-and-append (`…_measurement_management.py:198-222`) | **none** |
+
+**The structural warning this map surfaces:** the web reaches the same defect by a different
+mechanism. `peakMin` sits in the **dependency array** of the recompute effect, so a slider tick
+re-runs `findPeaks` on the frozen spectrum and mints new peak objects — and because the web has no
+carry-forward remap at all, offsets and overrides keyed by peak id are destroyed outright rather than
+approximately preserved. The web port is therefore *not* a transcription of the Swift diff: it is
+"remove `peakMin` from the recompute inputs, apply it in a separate display selector." Same rule,
+different surgery.
 
 ---
 
@@ -30,6 +68,30 @@ user-verified.** Do not start the ports early — the spec will move under them.
    them is caught deliberately rather than noticed late.
 
 **Exit:** baseline captured and recorded in this doc.
+
+### ✅ Phase 0 COMPLETE — baseline recorded 2026-07-21
+
+| Item | Value |
+|---|---|
+| Swift suite | **418 passed**, 93 suites, EXIT 0 (`xcodebuild test -scheme guitar_tap -destination 'platform=macOS'`) |
+| Golden peak baseline | `peak-baseline-expected.json` = **`5c264de3941837f8`** — byte-identical in all 3 repos. **If this moves, STOP.** |
+| Shared fixtures | all `.guitartap` fixtures now hash identically across the 3 repos |
+| Python suite | 535 passed (unchanged by Phase 0) |
+
+**Found and fixed during Phase 0:** the `contreras-classical` fixture had drifted — Python's copy
+still used the pre-rename `tapLocation` key while Swift/web used `measurementName`, so the shared
+`test/measurement-codable` parity fixture was not actually shared and the three platforms exercised
+different decode branches. Fixture aligned (all now `9472da20a5e84ba1`) and the legacy fallback
+pinned deliberately on all three (it had been covered only by that accident). Committed separately:
+Swift `c38f6f4`, Python `098b12c`, web `67545e1`.
+
+**Note on the scheme:** it is `guitar_tap` (lower-case), not `GuitarTap`. A stale DerivedData
+signature caused a spurious `CodeSign ... code object is not signed at all` build failure mid-Phase-0;
+`xcodebuild clean` cleared it.
+
+**Playback-validation harness:** deliberately NOT baselined. It is slow, manual, needs the WAV corpus,
+and Phases 1–2 do not change detection *results* — only when detection runs. Run it only if the
+golden baseline moves, or at Phase 8.
 
 ---
 
@@ -56,6 +118,81 @@ display projection. Golden fixtures must be unchanged — if they move, stop.
 
 **Risk:** medium. Touches the freeze transition and the save path. Watch for the sub-Peak-Min Air now
 being selected at freeze (intended, and it fixes the ratio immediately after capture).
+
+### ✅ Phase 1 COMPLETE — suite green (418) + USER-VERIFIED invisible (2026-07-21). UNCOMMITTED.
+
+**Design chosen (Option B of two):** add `allPeaks` as the durable set; `currentPeaks` becomes
+`@Published private(set)` and *derived* — `allPeaks` filtered by Peak Min, handing back **the same
+`ResonantPeak` objects** so filtering can never disturb identity. Rejected Option A (make
+`currentPeaks` the full set) because it silently changes the meaning of a property with **70 read
+sites**; Option B has 17 **compiler-checked** write sites instead. The compiler duly found two
+assignments a regex had missed.
+
+**THE INVARIANT — do not break it:** `allPeaks` is ALWAYS the durable full set. It must never be
+assigned a filtered view. I did exactly that in both `recalculateFrozenPeaksIfNeeded` branches and it
+was a real **data-loss** defect: the durable set shrank as Peak Min rose, and since the save path now
+reads `allPeaks`, saving after raising the slider would have written fewer peaks. Caught by
+`loadedMeasurementIsNotUpgraded`. Both branches now set `allPeaks` whole and take
+`let peaks = currentPeaks` for the legacy downstream remapping — which keeps Phase 1 behaviourally
+invisible instead of dragging Phase 2 forward.
+
+**Changed (Swift):**
+- `TapToneAnalyzer.swift` — `allPeaks` + derived `currentPeaks` + `refreshDisplayedPeaks()`;
+  `peakMinThreshold.didSet` re-projects before calling the recalc.
+- Detection floor → `peakDetectionFloor` (−100) at the CAPTURE sites only:
+  `+SpectrumCapture.swift` gated capture / `processMultipleTaps` (freeze) / per-tap entries, and the
+  recalc's live-frozen branch. **Live path (`+PeakAnalysis.swift:110`) and material (adaptive median)
+  deliberately unchanged** — per the spec amendment, live stays cheap.
+- `guitarFullSavePeaks()` collapsed to `allPeaks` (the re-detect-and-append dance is redundant, and
+  it minted throwaway UUIDs).
+- 17 write sites `currentPeaks =` → `allPeaks =`.
+- Tests: `.allPeaks` for setup in 4 files; `prep()` in `PeakFindingTests` now seeds the FULL set;
+  `loadedMeasurementIsNotUpgraded` simulates load properly; 3 more tests in
+  `RecalculateFrozenPeaksIntegration` pinned to `.generic` (Peak Min filtering is guitar-gated now,
+  so they were relying on inherited global state).
+
+**Verified:** production build EXIT 0; test build EXIT 0; **full suite 418 passed, 0 issues**;
+**golden baseline UNMOVED — `5c264de3941837f8` in all 3 repos** (the key Phase 1 criterion:
+detection is unchanged, only its timing).
+
+**Run-reviewed by the user: "I see no changes."** — which is exactly the pass condition for a
+phase whose whole purpose is to be behaviourally invisible.
+
+**Uncommitted:** the 5 Swift sources + 4 Swift test files above, this doc, and (unrelated, held back
+deliberately) `guitar_tap/src/guitar_tap/views/fft_canvas.py`.
+
+### Port ledger — Phase 1
+
+**Rule.** Detection stores the FULL peak set, found at a fixed −100 dB floor at capture time. Peak Min
+never reaches detection; it is applied afterwards as a projection that hands back *the same peak
+objects*, so filtering can never disturb identity. Auto-selection at freeze runs over the full set.
+
+**Swift.** `allPeaks` added as the durable set; `currentPeaks` demoted to a derived
+`@Published private(set)` projection via `refreshDisplayedPeaks()`; `peakMinOverride:
+peakDetectionFloor` at the capture sites only; `guitarFullSavePeaks()` collapsed to `allPeaks`.
+
+**Python.** No durable set exists — `current_peaks` (`tap_tone_analyzer.py:278`) *is* the working set,
+written from ~12 sites across `_control`, `_spectrum_capture`, `_measurement_management`. The port is
+the same Option B split: add `all_peaks`, make `current_peaks` a read-only projection, then convert
+each write site. Unlike Swift there is **no compiler** to enumerate them — so grep `current_peaks =`
+and `self.current_peaks` and work the list explicitly; this is the highest-risk part of the Python
+port. `guitar_full_save_peaks` equivalent (`…_measurement_management.py:198-222`) collapses the same
+way, deleting the re-detect-and-append dance.
+
+**Web.** Also no durable set. `recalculatePeaks` (`tapToneAnalyzer.ts:305`) computes *and* filters in
+one pass; the split is to store the unfiltered result and expose the projection separately. Detection
+floor: pass `peakMinOverride: -100` at the frozen-capture call, leaving `dsp/peaks.ts:178`'s default
+untouched.
+
+**Tests.** `PeakMinDurabilityTests` (new suite, 5 tests, pinned `.generic`);
+`PeakFindingTests.prep()` reseeds the full set; `loadedMeasurementIsNotUpgraded` simulates load
+properly; 3 `RecalculateFrozenPeaksIntegration` tests pinned `.generic`. Parity slug:
+`test/frozen-peak-recalc`. **Golden baseline `5c264de3941837f8` must not move on any platform** — it
+is the proof that only detection's *timing* changed.
+
+**Trap, learned the hard way.** `allPeaks` must NEVER be assigned a filtered view. Doing so in the two
+recalc branches was real data loss: the durable set shrank as Peak Min rose, and the save path reads
+it. Both ports will present exactly the same temptation at the same two places.
 
 ---
 
@@ -89,6 +226,66 @@ peak and back down; assert all three are byte-identical afterwards. This is the 
 
 **Risk:** high — the largest single change. Best run-review checkpoint.
 
+### 🟡 Phase 2 — core landed, planned deletions NOT done. Suite green (419). USER-VERIFIED. UNCOMMITTED.
+
+**Done — and this is the whole first-order effect:** `peakMinThreshold.didSet`
+(`TapToneAnalyzer.swift:231-241`) no longer calls `recalculateFrozenPeaksIfNeeded()`. It re-projects
+and nothing else. A slider sweep now detects nothing, classifies nothing and touches no per-peak
+state.
+
+**Also fixed here** (three regressions the user's run-review caught, all ONE root cause — selection
+and classification were reading the *display* set): `resetToAutoSelection`, both
+`recalculateFrozenPeaksIfNeeded` branches and `reclassifyPeaks()` now read `allPeaks`. Symptoms were
+Re-analyze selecting nothing when Peak Min hid everything, the wand choosing from the single visible
+peak, and — because the Top and Back bands overlap — a **Back peak becoming Top** on reload.
+Separately, the annotation leader line detached during a drag: `PeakAnnotations.swift` froze *both*
+endpoints at drag start, but only the label anchor (`frozenChartPosition`) needs freezing; the dot
+does not move. `frozenPeakPosition` deleted.
+
+**NOT done — and possibly no longer correct.** The three planned deletions are all still in place:
+the live/frozen re-detect branch, `applyFrozenPeakState` (`+PeakAnalysis.swift:495`) and
+`selectedPeakFrequencies` (`TapToneAnalyzer.swift:618`). The plan assumed they existed only to service
+Peak Min. They do not: with the didSet decoupled, that machinery now runs **only on load and on
+explicit Re-analyze** — paths where re-detection genuinely happens and peak identity genuinely does
+change, so a frequency-keyed carry-forward is exactly the right tool. **Decide before Phase 3
+whether these deletions are still wanted, or reduce to "keep, and document why."** Do not delete on
+the strength of the original bullet.
+
+**User-verified 2026-07-22:** Re-analyze with everything hidden, wand with partial visibility, fresh
+capture → save → reload (Air selected, Back stays Back), annotation leader line — all good.
+
+### Port ledger — Phase 2
+
+**Rule.** A Peak Min change recomputes the display projection and mutates nothing else. Detection,
+classification and selection are facts about the *measurement*; only display may depend on Peak Min.
+Corollary, and the source of three separate bugs in one session: **every auto-selection and
+classification call site must read the durable set, never the displayed one.**
+
+**Swift.** didSet → `refreshDisplayedPeaks()` only; `allPeaks` at the four selection/classification
+sites; `frozenPeakPosition` removed from `PeakAnnotations.swift`.
+
+**Python.** Peak Min reaches peaks through `recalculate_frozen_peaks_if_needed()`
+(`…_peak_analysis.py:120`) and `_emit_loaded_peaks_at_threshold()` (`:826`). Same decoupling: a
+threshold change re-emits the projection, never re-enters detection or classification. Python's
+selection UI is additionally **not routed through the analyzer** at all — see
+[PEAK-SELECTION-SURVIVES-SLIDER.md](PEAK-SELECTION-SURVIVES-SLIDER.md); that routing is a prerequisite,
+not a detail. `views/fft_canvas.py` is deliberately held uncommitted because it is rewritten here.
+
+**Web.** The fix is structurally different — remove `peakMin` from the `useLayoutEffect` dependency
+array (`App.tsx:512-514`) so the slider stops re-entering `recalculatePeaks`, and apply it in a
+display selector alongside range and unknown filtering. Until that lands the web destroys per-peak
+state on every slider tick (no carry-forward exists to soften it). Overlaps the already-logged
+[WEB-CHART-INTERACTION-BUGS.md](WEB-CHART-INTERACTION-BUGS.md) — pan/zoom re-selecting deselected
+peaks is the same root cause reached from a different input.
+
+**Tests.** `loadedPeaks_allBelowThreshold_clearsBothCollections` → renamed
+`…_clearsDisplayButKeepsClassification` and **inverted**: `currentPeaks` empties, `allPeaks` and
+`identifiedModes` survive. It had been pinning the defect. Slug `test/frozen-peak-recalc`; both ports
+need the inverted twin, not the original. Still owed on all three: a durability test that sets an
+offset + override + selection, sweeps Peak Min past the peak and back, and asserts all three
+byte-identical — it needs a realistic Gaussian-spectrum harness, because `freeze()` installs a flat
+−100 spectrum that makes the recalc early-return and any test built on it vacuous.
+
 ---
 
 ## Phase 3 — Per-tap entries computed once
@@ -114,6 +311,32 @@ peak and back down; assert all three are byte-identical afterwards. This is the 
 must be updated when their turn comes.
 
 ---
+
+## Phase 4a — Retire `currentPeaks`
+
+**Goal:** two concepts, not three.
+
+Phase 1 deliberately leaves `currentPeaks` in place as a Peak-Min-filtered projection so the other
+~70 read sites keep working unchanged. But it is a **half-filtered intermediate** — Peak Min applied
+at the model, range and unknown applied again in each view — and that halfway state is exactly why
+the results table and the dot layer drifted apart in the first place. Leaving a misleadingly-named
+property behind is how the next round of confusion starts.
+
+End state:
+
+- **`allPeaks`** — the durable set. Everything non-display reads this: save, load, selection,
+  derived values.
+- **one display projection** — `allPeaks` → Peak Min → display range → `isUnknown` — consumed by the
+  results table, the dot layer and exports. This is `peaksInDisplayRange` (built 2026-07-21 for the
+  dot layer, extended by Phase 4 with the `isUnknown` predicate) with Peak Min added as a parameter.
+- **`currentPeaks` deleted.**
+
+**Why here and not in Phase 1:** retiring it means classifying all ~70 read sites into "wants the
+durable set" vs "wants the displayed set". Doing that audit while behaviour is also changing makes
+any regression unattributable. By this phase the behaviour is settled and verified, so a
+mis-classification shows up as a display bug rather than a data bug.
+
+**Risk:** medium, but mechanical — the compiler finds every site once the property is removed.
 
 ## Phase 5 — The selection model
 
@@ -177,7 +400,27 @@ overriding a peak to Top displaces the holder; Upper Modes still allows several.
 
 ---
 
+## Phase 9 — The ports
+
+Held until Swift is user-verified: starting earlier means Python absorbs every spec correction twice.
+
+**Replay the port ledgers phase by phase — do not port the accumulated Swift diff in one pass.** Each
+phase's ledger is a rule plus a named test list, so each replays as a small independently-verifiable
+step. Python first, then web ([[feedback_what_does_swift_do]]: Swift → Python → web, every time).
+
+Per phase, per platform: implement the **Rule**, create the counterpart tests named in the ledger,
+update `@parity` tags, run `gen_parity_map.py --check` and confirm zero new orphans, confirm the
+golden baseline is unmoved. A phase is ported when its tests pass on that platform — not when the
+code "looks like" the Swift.
+
+**Do not transcribe the Swift diff.** The anchor map above shows why: the web reaches the same defect
+through a React dependency array and has no carry-forward machinery at all, so its fix is a different
+edit expressing the same rule. Python has no compiler to enumerate the `current_peaks` write sites
+that Swift's type system handed us for free.
+
+---
+
 ## Suggested checkpoints for the user
 
 Phases 1–2 together are the substance and the risk; stop for run-review there. Phases 3–7 are smaller
-and can be batched. Phase 8 gates the ports.
+and can be batched. Phase 8 gates the ports; Phase 9 is the ports themselves.
