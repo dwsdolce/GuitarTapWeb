@@ -537,7 +537,7 @@ part of this phase, not left contradicting the code.
 when Show Unknown Modes is on. (Downgraded from "low-medium": the concern was that it touches a
 three-platform rule, but the ports are Phase 9 and the ledger carries the re-spec.)
 
-### ✅ Phase 4 COMPLETE — suite green (425), parity clean + USER-VERIFIED (2026-07-22). UNCOMMITTED.
+### ✅ Phase 4 COMPLETE — suite green (425), parity clean + USER-VERIFIED (2026-07-22). Committed `08c66d5`.
 
 **Changed (Swift):**
 - `TapToneAnalyzer.isUnknown(_:)` — the one predicate. Plus `overriddenPeakIDs`, the analyzer's set
@@ -589,9 +589,11 @@ should pass **before and after** the port, which makes them a useful pre-flight 
 
 ---
 
-## Phase 4a — Retire `currentPeaks`
+## Phase 4a — Rename `currentPeaks` → `peaksAbovePeakMin`
 
-**Goal:** two concepts, not three.
+**Goal:** a name that states what the stage is, and an audit of every site that reads it.
+*(Originally "Retire `currentPeaks` — two concepts, not three". See the verification below for why
+deletion was the wrong end state.)*
 
 Phase 1 deliberately leaves `currentPeaks` in place as a Peak-Min-filtered projection so the other
 ~70 read sites keep working unchanged. But it is a **half-filtered intermediate** — Peak Min applied
@@ -599,21 +601,113 @@ at the model, range and unknown applied again in each view — and that halfway 
 the results table and the dot layer drifted apart in the first place. Leaving a misleadingly-named
 property behind is how the next round of confusion starts.
 
-End state:
+### Verified 2026-07-22 — the "delete it" premise is WRONG. Rename instead.
 
-- **`allPeaks`** — the durable set. Everything non-display reads this: save, load, selection,
-  derived values.
-- **one display projection** — `allPeaks` → Peak Min → display range → `isUnknown` — consumed by the
-  results table, the dot layer and exports. This is `peaksInDisplayRange` (built 2026-07-21 for the
-  dot layer, extended by Phase 4 with the `isUnknown` predicate) with Peak Min added as a parameter.
-- **`currentPeaks` deleted.**
+The three stages are not redundant; they have **different scopes**, and that is why a middle stage
+has to exist somewhere:
 
-**Why here and not in Phase 1:** retiring it means classifying all ~70 read sites into "wants the
-durable set" vs "wants the displayed set". Doing that audit while behaviour is also changing makes
-any regression unattributable. By this phase the behaviour is settled and verified, so a
-mis-classification shows up as a display bug rather than a data bug.
+| Stage | Scope | Changes when |
+|---|---|---|
+| `allPeaks` | the measurement | a new capture or an explicit Re-analyze |
+| Peak Min filter | a **setting**, model-level, global to the measurement | the user moves the slider |
+| display range + `isUnknown` | the **viewport**, view-level | pan, zoom, or a different chart instance |
 
-**Risk:** medium, but mechanical — the compiler finds every site once the property is removed.
+The model genuinely needs the Peak-Min stage on its own: `visiblePeaks`
+(`TapToneAnalyzer.swift:766`) picks annotation candidates after Peak Min but **before** any range,
+because the view applies range afterwards. Deleting the stored property turns that into an inline
+`allPeaks.filter { $0.magnitude >= peakMinThreshold }` repeated at every such site — which is exactly
+how the divergences these phases have been removing get reintroduced.
+
+**Decision (user, 2026-07-22): rename, don't delete** — *"as long as it clearly indicates purpose and
+why it is there."* `currentPeaks` → **`peaksAbovePeakMin`**, carrying a doc comment that states the
+three scopes above, so the property can never again be read as "the peaks". This achieves the stated
+goal — *"leaving a misleadingly-named property behind is how the next round of confusion starts"* —
+while keeping a stage that earns its place. The compiler still forces the same whole-codebase audit,
+because every reference has to be touched and classified.
+
+### The seven durable-vs-displayed defects the audit surfaced
+
+Classifying the sites is what finds these; they are the same defect class fixed in Phases 2, 3 and 4 —
+code that wants a **fact about the measurement** but reads the **display projection**.
+
+| Site | What it does | Why wrong |
+|---|---|---|
+| `+PeakAnalysis.swift:170` | selection carry-forward fallback | selection is a fact |
+| `+PeakAnalysis.swift:178` | annotation-offset snapshot | a hidden peak's dragged label is dropped, then lost on Re-analyze |
+| `+PeakAnalysis.swift:184` | mode-override snapshot | same — a hidden peak's custom name is lost |
+| `+PeakAnalysis.swift:577` | `guitarModeSelectedPeakIDs` default arg | auto-selection over the visible set; every explicit caller now passes `allPeaks`, so the default is a loaded gun |
+| `+MeasurementManagement.swift:371` | saved `selectedPeakFrequencies` | a selected sub-Peak-Min peak's frequency never reaches the file |
+| `+MeasurementManagement.swift:1099` | `avgSelectedPeaks` | the **third** copy of the expression fixed at two sites in Phase 3 — use `selectedPeaks` |
+| `TapToneAnalyzer.swift:731` | `selectAllPeaks()` | selects only what is visible (dies in Phase 5 regardless) |
+
+Note 178/184: Phase 2 removed the *trigger* (the slider) for the "offsets and overrides on hidden
+peaks are destroyed" bug, but **Re-analyze still reaches this code**, so the loss still happens there.
+
+### The Save guard
+
+**Corrected scope:** the ten `.disabled(currentPeaks.isEmpty …)` sites are **not** on the export
+buttons — Export PDF and Export Spectrum are unguarded entirely (`TapAnalysisResultsView.swift:358`).
+They are on exactly two controls repeated across five layouts: **Annotations** and **Save**.
+
+`macosSaveButton` has no other gate, so `currentPeaks.isEmpty` doubles as the "is there a measurement"
+test — and does it badly: during live detection `currentPeaks` tracks the live spectrum, so whether
+Save is enabled mid-capture depends on how much room noise clears Peak Min.
+
+**Decision (user, 2026-07-22):** WYSIWYG — *"Save is only disabled when there is no measurement to
+save - even if the graph shows no peak annotations."* The reasoning: the save is non-destructive (the
+full −100 set plus the Peak Min setting are written since Phase 1), so a measurement saved with
+everything hidden reloads and reveals everything when the slider drops. And *"a capture that detected
+nothing is not a capture"* — the empty case the guard imagines does not occur.
+
+```swift
+.disabled(!tap.isMeasurementComplete && tap.displayMode != .comparison)
+```
+
+Annotations keeps its existing guard — with nothing displayed there is nothing to cycle.
+
+**Not a bug, ruled 2026-07-22:** a PDF exported with Peak Min hiding everything shows an empty chart
+on page 1 next to a fully-populated multi-tap table on page 2. Each page renders what was on screen.
+*"It saved exactly what was displayed on the screen. That sounds correct."* Do not re-file.
+
+**Why here and not in Phase 1:** the audit means classifying every read site into "wants the durable
+set" vs "wants the displayed set". Doing that while behaviour is also changing makes any regression
+unattributable. By this phase the behaviour is settled and verified, so a mis-classification shows up
+as a display bug rather than a data bug.
+
+**Risk:** medium. The rename is mechanical and compiler-checked, but the seven fixes are real
+behaviour changes and the Save guard is user-visible in the live state.
+
+### ✅ Phase 4a COMPLETE — suite green (426), parity clean + USER-VERIFIED (2026-07-22). UNCOMMITTED.
+
+**Run-review found one bug, deferred to Phase 6 by decision, not fixed here:** the tap-tone ratio
+ignores mode overrides, so renaming the Top peak still yields a ratio. Predates the rework. See
+Phase 6.
+
+**Changed (Swift):** the rename (97 references), all seven fixes, the Save guard, and four
+material-path sites made explicit (`allPeaks` rather than relying on the two being equal for
+material). `TapAnalysisResultsView:239`'s Select All enable-test also moved to `allPeaks.count`, or it
+would never have matched after `selectAllPeaks()` started selecting the durable set.
+
+**Two existing tests inverted — and this is the phase's best evidence.**
+`loadedPath_offsetForFilteredOutPeak_isDropped` and `..._overrideForFilteredOutPeak_isDropped`
+asserted that a hidden peak's dragged label and custom name **are destroyed**. Both are on the Phase 2
+plan's "asserts destruction, must assert survival" list, and both **outlived Phase 2** — because that
+phase removed the slider as a *trigger* without changing the code, and Re-analyze still reaches it.
+They now assert survival and are renamed `..._survives`. The green suite before this phase was
+therefore *pinning the defect in place*.
+
+**New test:** `reanalyzePreservesStateOfPeaksHiddenByPeakMin`, driven through a new
+`gaussianSpectrum` / `freezeOnRealSpectrum` fixture. The flat −100 spectrum installed by `freeze()`
+makes `findPeaks` detect nothing, so the recalc early-returns and any test built on it passes
+vacuously — the trap that produced a worthless deselect guard earlier in this work. The new fixture
+asserts its own preconditions (two peaks detected) so it cannot rot into vacuity.
+
+**Run-review script:** take a peak that already shows an annotation badge, **drag that badge to a new
+position** and give the peak a custom mode name → raise Peak Min until the peak is hidden →
+**Re-analyze** → lower Peak Min. The badge must return to the dragged position with its custom name
+intact.
+Then: with Peak Min above every peak, confirm **Save** is enabled and the saved file reloads complete;
+and confirm Save is still disabled before any measurement exists.
 
 ## Phase 5 — The selection model
 
@@ -633,6 +727,24 @@ overriding a peak to Top displaces the holder; Upper Modes still allows several.
 
 - `getPeak(for:)` / `calculateTapToneRatio()` (`+AnalysisHelpers.swift:75-102`) → the **selected
   holder** of the mode.
+- **AND the mode must be the EFFECTIVE one — respect user overrides.** Found in the Phase 4a
+  run-review (user, 2026-07-22): *"If I rename the top peak to unknown and then reanalyze there is
+  still a tap ratio shown - although there is now no top peak identified."*
+
+  Same shape as Phase 4, different predicate. There are two notions of "what mode is this peak":
+  `peakMode(for:)` (**override-aware**, used by the results table, the dot layer and the annotation
+  badges) and `identifiedModes` (**override-blind** — `reclassifyPeaks()` builds it straight from
+  `GuitarMode.classifyAll(allPeaks)`). `getPeak(for:)` reads the second. So renaming the Top peak
+  removes it from every display surface while `identifiedModes` still files it as Top, and the ratio
+  divides by a peak the app is simultaneously reporting is not a Top.
+
+  Phase 4 unified the *"is this unknown?"* question; this is the *"which mode is it?"* question,
+  still split. Expect `TapToneMeasurement.tapToneRatio` to share the blindness — on-screen and saved
+  values would then agree with each other while both being wrong, so agreement is not sufficient
+  evidence here.
+
+  Predates the whole lifecycle rework; not introduced by any phase. Deferred from 4a deliberately
+  (user: *"log it in phase 6 so we can close out 4a"*).
 - `TapToneMeasurement.tapToneRatio` (`TapToneMeasurement.swift:476-483`) → the same rule, replacing
   "first Air/Top in array order".
 - Legacy `selectedPeakIDs == nil` keeps meaning "all"; identical result, no migration.
