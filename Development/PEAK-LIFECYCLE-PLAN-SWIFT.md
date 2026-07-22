@@ -386,7 +386,7 @@ files agree with fresh captures — a correction, but a **visible** one on exist
   direct guard against the deleted call being reintroduced;
 - a selected peak below Peak Min still appears in the averaged mode row.
 
-### ✅ Phase 3 COMPLETE — suite green (422) + USER-VERIFIED (2026-07-22). UNCOMMITTED.
+### ✅ Phase 3 COMPLETE — suite green (422) + USER-VERIFIED (2026-07-22). Committed `11689b6`.
 
 **Changed (Swift):**
 - `recalculateTapEntryPeaks()` deleted from `+PeakAnalysis.swift`, with its three call sites (both
@@ -452,14 +452,140 @@ recompute path.
 
 ## Phase 4 — One unknown predicate
 
-- Add `isUnknown(peak) = assignedMode == .unknown && !hasManualOverride(peak)`.
-- Consume it in **both** the results table and the dot layer; delete the two divergent criteria.
-- **Fixes:** a custom-labelled peak currently vanishes from both when Show Unknown Modes is off.
-- **Re-spec the `view/dot-layer` parity group**: DL1/DL2/DL6/DL7 stand; DL3/DL4/DL5 change from
-  `isKnown(frequency)` to the new predicate. `GuitarMode.peaksInDisplayRange` loses its `isKnown` half.
+### Verified against the code 2026-07-22, and the rule settled with the user
 
-**Risk:** low-medium; touches a rule committed today across three platforms, so the Python/web twins
-must be updated when their turn comes.
+**The agreed rule.** With **Show Unknown Modes off**:
+
+| Surface | Shown when |
+|---|---|
+| Results table row | the peak is **identified** |
+| Chart dot | the peak is **identified** — independent of selection *and* of annotation mode |
+| Annotation badge | the peak is **identified** *and* admitted by annotation visibility: `Selected` → must be selected · `All` → any identified peak · `None` → nothing |
+
+"Identified" means *not* unknown, by **either** route — auto-classification or a user override. A peak
+the user has named is identified by definition (user, 2026-07-21: *"a peak that has a custom mode is
+NOT unknown"*). `All` genuinely means all: an identified but unselected peak still gets a badge —
+that is the point of the three-state control (user, 2026-07-22: *"ALL means all — that is why the
+annotation visibility has All/Selected/None"*).
+
+**The workflow this exists to serve — and the reason it can only be tested in two steps.** With Show
+Unknown Modes **off** an unknown peak has no row, no dot and no badge, so there is **nothing to
+right-click**: a user can never name an out-of-band peak while the setting is off. The real sequence
+is therefore: turn Show Unknown Modes **on** to go looking → find something real (a wolf note, a
+mode outside the expected band) → **name it** → turn the setting back **off** to declutter. Before
+Phase 4 that last step *threw the work away* — the peak the user had just identified vanished from
+all three surfaces. Any run-review script that says "with the setting off, label an unknown peak" is
+impossible as written.
+
+With **Show Unknown Modes on**, nothing is filtered on any of the three surfaces. Both criteria
+short-circuit today (`TapAnalysisResultsView.swift:408`'s second term; `GuitarMode.swift:276`'s
+`guard`), and that is unchanged. **The whole phase is scoped to one setting state** — which shrinks
+the test matrix to the off-cases plus a single "nothing is filtered" assertion per platform.
+
+**Correction to the plan's premise — there are FOUR copies of the criterion, not two:**
+
+| # | Site | Surface | Criterion today |
+|---|---|---|---|
+| 1 | `TapAnalysisResultsView.swift:408` | table row | **assigned mode** |
+| 2 | `GuitarMode.swift:277` via `peaksInDisplayRange` | chart dots | positional `isKnown` |
+| 3 | `TapToneAnalyzer.swift:745` `visiblePeaks` | annotation badges | positional `isKnown` |
+| 4 | `SpectrumView.swift:422` `visiblePeaks` legacy fallback | annotations, for call sites that pass no explicit list | positional `isKnown` |
+
+The original bullet named 1 and 2 only. Converting those alone would have *created* an inconsistency
+rather than removing one: a custom-labelled peak would regain its row and its dot but still lose its
+badge.
+
+**Correction to a claim made earlier in this work:** `classifyAll` does **not** leave unclaimed
+in-band peaks unknown — `GuitarMode.swift:207` falls back to per-frequency lookup for anything the
+one-per-mode claiming pass did not take. Therefore, for a peak with **no override**,
+`assignedMode == .unknown` is *equivalent* to "outside every band" — exactly what
+`isKnown(frequency:)` tests. **The four criteria agree everywhere except under a user override**, so
+this phase is behaviour-preserving for every non-overridden peak.
+
+**What actually diverges today** (all three cases require an override):
+
+| Case | Table row | Chart dot |
+|---|---|---|
+| Freeform label ("Wolf note"), in-band | hidden | **shown** |
+| Freeform label, out-of-band | hidden | hidden |
+| Relabelled to a known mode, out-of-band | **shown** | hidden |
+
+The original bullet described only the middle row. The first and third are the visible
+inconsistencies — name a peak and its row vanishes while its dot stays. The mechanism: an override of
+`.assigned(label)` is run through `GuitarMode.fromDisplayName(label)`; a real mode name yields that
+mode, a freeform label yields `.unknown` (`+AnalysisHelpers.swift:49`). The dot never consults the
+override at all.
+
+**This reverses a deliberate, documented decision — not an oversight.** `GuitarMode.swift:251-254`
+argues explicitly that the two "differ only under a user override; the positional test is the one
+that belongs on a chart layer." That comment predates the user's ruling and must be **rewritten** as
+part of this phase, not left contradicting the code.
+
+### The work
+
+- Add the predicate. Consume it at **all four** sites; delete the four divergent criteria.
+- **API shape (agreed):** `peaksInDisplayRange` gains `overriddenPeakIDs: Set<UUID> = []`. Sites 2 and
+  4 have no analyzer reference, and the overrides live on the analyzer. A set parameter keeps the
+  function **static and pure**, keeps the parity tests trivial, and ports to Python and TypeScript
+  unchanged — preferred over passing a closure or the analyzer itself. Site 3 needs nothing: it is on
+  the analyzer already.
+- Rewrite the `GuitarMode.swift:251-254` doc comment to state the new rule and why it changed.
+- **Re-spec the `view/dot-layer` parity group**: DL1/DL2/DL6/DL7 stand; DL3/DL4/DL5 change from
+  `isKnown(frequency)` to the new predicate.
+
+**Risk:** low — behaviour is unchanged for every peak without a user override, and unchanged entirely
+when Show Unknown Modes is on. (Downgraded from "low-medium": the concern was that it touches a
+three-platform rule, but the ports are Phase 9 and the ledger carries the re-spec.)
+
+### ✅ Phase 4 COMPLETE — suite green (425), parity clean + USER-VERIFIED (2026-07-22). UNCOMMITTED.
+
+**Changed (Swift):**
+- `TapToneAnalyzer.isUnknown(_:)` — the one predicate. Plus `overriddenPeakIDs`, the analyzer's set
+  of user-named peaks, for the static/view sites.
+- `GuitarMode.peaksInDisplayRange` gains `overriddenPeakIDs: Set<UUID> = []`; a named peak is kept
+  regardless of position. Its doc comment, which argued the opposite, rewritten with a `- Note:`
+  recording what changed and why.
+- All four consumers converted: results table (`TapAnalysisResultsView.swift`), dot layer and the
+  legacy annotation fallback (`SpectrumView.swift`, which derives the set from the `modeOverrides`
+  it is already handed — **no new view parameter needed**), and `TapToneAnalyzer.visiblePeaks`.
+
+**Test re-spec — and the plan's prediction here was wrong.** It expected DL3/DL4/DL5 to change and
+DL7 to stand. In fact **no existing assertion changed at all**: DL3/DL4/DL5 are non-override cases
+where the old and new rules provably agree, and DL7's in-band override was kept under both rules.
+Only DL7's *rationale* needed rewriting — it used to hold because the layer was positional, it now
+holds because a named peak is known. The behaviour change had **no** coverage, so three tests were
+added (422 → 425): **DL8** an out-of-band peak becomes visible once named (the Phase 4 change
+itself), **DL9** the same via a real-mode relabel, **DL10** table, dot and badge all agree on a
+user-named peak.
+
+### Port ledger — Phase 4
+
+**Rule.** A peak is unknown only when auto-classification placed it in no mode band **and** the user
+has not named it. Naming a peak makes it known. One predicate governs all three display surfaces;
+the annotation surface additionally applies its All/Selected/None gate. With Show Unknown Modes on,
+nothing is filtered anywhere.
+
+**Swift.** As above.
+
+**Python / web.** Both carry the `view/dot-layer` twins committed 2026-07-21 and both need: the
+predicate, the `overridden_peak_ids` / `overriddenPeakIds` parameter on their
+`peaks_in_display_range` / `peaksInDisplayRange`, all four consumers converted, the same doc-comment
+reversal, and DL8–DL10. **Verify each platform's consumer list rather than assuming it is four** —
+Swift's fourth site is a legacy view fallback that may have no counterpart, and the web's dot/panel
+split lives in `spectrumRender.ts` + `App.tsx` (`displayPeaksInRange`) rather than one shared helper.
+
+**Tests.** DL1–DL10, slug `view/dot-layer`. DL8 is the one that proves the change landed; DL1–DL7
+should pass **before and after** the port, which makes them a useful pre-flight check.
+
+**Run-review script (all three platforms) — note the two-step shape, per the workflow above:**
+1. Show Unknown Modes **on**; name an out-of-band peak (the Back/Dipole gap is the easiest). Row, dot
+   and badge all present.
+2. Show Unknown Modes **off**. The named peak **stays** — all three surfaces. *This is the change.*
+3. Repeat with a real mode name ("Top") instead of a freeform label — same outcome.
+4. Setting off: an **in-band** custom-labelled peak shows everywhere (the table row is the part that
+   used to be missing).
+5. Setting off: an **unnamed** out-of-band peak is still hidden everywhere — the filter still works.
+6. Setting on: everything appears, exactly as before the phase.
 
 ---
 
