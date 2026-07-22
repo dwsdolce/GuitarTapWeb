@@ -320,12 +320,133 @@ byte-identical — it needs a realistic Gaussian-spectrum harness, because `free
 
 ## Phase 3 — Per-tap entries computed once
 
-- Delete `recalculateTapEntryPeaks()` (`+PeakAnalysis.swift:287-299`) and its calls at `:235`, `:274`,
-  `+MeasurementManagement.swift:859-861`.
+### Verified 2026-07-22 before starting — the deletion is right, but not for the reason the plan said
+
+Unlike Phase 2's cancelled deletions, `recalculateTapEntryPeaks()` is not merely redundant, it is
+**actively destructive**. Four findings:
+
+1. **Capture already stores the full set.** `+SpectrumCapture.swift:1664` builds each `TapEntry` with
+   `peakMinOverride: TapToneAnalyzer.peakDetectionFloor`. Phase 1 closed this.
+2. **`recalculateTapEntryPeaks()` undoes it.** `+PeakAnalysis.swift:295` calls
+   `findPeaks(magnitudes:frequencies:)` with **no override**, falling back to `peakMinThreshold`. Each
+   run overwrites the durable per-tap set with a filtered one, mints fresh UUIDs and rebuilds
+   `selectedPeakIDs`. **`tapEntries` is persisted**, so this is the same data-loss shape as the
+   `allPeaks` invariant breach: load a multi-tap measurement with Peak Min raised, save, and the
+   per-tap sets are permanently truncated.
+3. **The load caller's own comment states the defect.** `+MeasurementManagement.swift:850-858`
+   justifies itself with "the saved tapEntries may contain peaks detected at a different threshold …
+   re-running findPeaks ensures consistency" — i.e. re-detecting a loaded measurement, straight
+   against [[project_loaded_peaks_authoritative]].
+4. **A live inconsistency exists right now.** Since Phase 2 the recalc no longer fires on a slider
+   move, so a *fresh* multi-tap capture keeps its −100 entries while a *reloaded* one has them
+   re-detected at Peak Min. Same measurement, two different per-tap sets.
+
+**Risk is NOT low — correct the original rating.** `GuitarMode.classifyAll` claims one peak per mode
+in ascending frequency, so changing the *size* of the set can change the assignments (the same
+overlapping-Top/Back hazard that produced Back→Top in Phase 2). Deleting the function makes reloaded
+files agree with fresh captures — a correction, but a **visible** one on existing multi-tap files.
+
+### The work
+
+- Delete `recalculateTapEntryPeaks()` (`+PeakAnalysis.swift:293-305`) and its three call sites:
+  `:240` (loaded branch), `:280` (live branch), `+MeasurementManagement.swift:858`. Drop the stale
+  load-path comment with it. *(This also disposes of a duplicated doc-comment block on the function —
+  lines 286-289 repeat two sentences verbatim, and their "Called from … (slider changes)" note was
+  made false by Phase 2. No separate fix needed; the comment dies with the function.)*
 - Per-tap peaks + their Air/Top/Back are computed at capture and never re-derived; the multi-tap table
   is independent of Peak Min (spec §5).
+- **RETRACTED — the "instance vs static `resolvedModePeaks` divergence" is NOT REAL.** An earlier
+  revision of this phase claimed the on-screen multi-tap table and the PDF could name different
+  Air/Top/Back peaks, because the table calls `entry.resolvedModePeaks(guitarType:)` (which filters by
+  `selectedPeakIDs` first) while export/list/detail call the static
+  `TapToneAnalyzer.resolvedModePeaks(peaks:guitarType:)` (which does not). **I read the call sites
+  without reading their inputs.** Every static caller receives peaks that were *already*
+  selection-filtered when the entry was built — `+Export.swift:361` (`entry.peaks.filter {
+  selectedIDs.contains($0.id) }`), `MeasurementsListView.swift:483`,
+  `+MeasurementManagement.swift:977` (`effectiveSelectedPeakIDs`), `MeasurementDetailView.swift:293`.
+  Classifying a pre-filtered set is the same computation the instance form performs internally, so the
+  two paths agree. No `TapEntry` is ever passed raw to the static resolver. **Nothing to fix; do not
+  re-file this.** The general lesson is recorded under the checkpoints section.
 
-**Risk:** low. **Test:** change Peak Min, open the Taps table, assert per-tap values unchanged.
+- **The real defect in the same code — selection resolved over the DISPLAY set.** Two sites filter
+  `currentPeaks` by `selectedPeakIDs` to build the *averaged* row:
+  `TapAnalysisResultsView.swift:450` (on screen) and `TapToneAnalysisView+Export.swift:378` (the
+  multi-tap PDF). Since Phase 1 auto-selects over the full set, a selected peak may legitimately sit
+  below Peak Min — and then it silently vanishes from the averaged Air/Top/Back row, on screen and in
+  the PDF, as the slider moves. This is the exact defect class fixed at four sites in Phase 2:
+  **selection is a fact about the measurement; resolve it over `allPeaks`.** Both sites move to
+  `allPeaks`. (Left alone: `+Export.swift:125` and `:305`, which build `rangeFilteredPeaks` for the
+  exported peak *table* — that table is a picture of what is displayed, so `currentPeaks` is correct
+  there. And `TapAnalysisResultsView.swift:239`, a Select All enable-test, dies with Phase 5.)
+
+**Tests:**
+- change Peak Min, assert `tapEntries` (peaks *and* `selectedPeakIDs`) are unchanged — via the
+  `peakMinThreshold` property, the real user path, not by calling the recalc directly;
+- call `recalculateFrozenPeaksIfNeeded()` on both branches and assert `tapEntries` unchanged — the
+  direct guard against the deleted call being reintroduced;
+- a selected peak below Peak Min still appears in the averaged mode row.
+
+### ✅ Phase 3 COMPLETE — suite green (422) + USER-VERIFIED (2026-07-22). UNCOMMITTED.
+
+**Changed (Swift):**
+- `recalculateTapEntryPeaks()` deleted from `+PeakAnalysis.swift`, with its three call sites (both
+  recalc branches and `loadMeasurement`). Both removal points carry a comment saying what used to be
+  there and why it went, so it is not "restored" later as a missing recompute.
+- New `TapToneAnalyzer.selectedPeaks` — `allPeaks.filter { selectedPeakIDs.contains($0.id) }`. The
+  on-screen multi-tap table (`TapAnalysisResultsView.swift:450`) and the multi-tap PDF
+  (`TapToneAnalysisView+Export.swift:378`) both had this expression inline over `currentPeaks`;
+  they now share the one property. Two birds: the Peak Min leak is fixed, and the two paths are
+  structurally incapable of drifting apart.
+
+**Tests (+3, 419 → 422):** `peakMinSweep_leavesTapEntriesUntouched` (drives the slider property),
+`recalculateFrozenPeaks_leavesTapEntriesUntouched` (both branches — the direct guard against the
+deleted call returning), `selectedPeaks_resolveOverDurableSet_notTheDisplayProjection`. Parity map
+clean: 79 groups, no orphans; no new file, so `test/frozen-peak-recalc` covers them.
+
+**Run-reviewed by the user 2026-07-22, all four checks pass:** a pre-existing multi-tap file holds its
+Taps table steady across a Peak Min sweep; a fresh capture saved and reloaded now agrees with itself;
+the multi-tap PDF's per-tap and Averaged rows match the screen; and a selected peak raised above Peak
+Min stays in the Averaged row in both. The predicted visible change on older multi-tap files was not
+disruptive in practice.
+
+*(One false alarm during the review, worth not re-investigating: an apparently hung PDF export was a
+save panel hidden behind the window. No defect. It did surface a genuine robustness gap — no
+re-entrancy guard on the export/save actions — logged as STATUS item 13, outside this plan.)*
+
+### Port ledger — Phase 3
+
+**Rule.** A `TapEntry` is detected, classified and selected **once, at capture**, over the full −100 dB
+set, and is thereafter durable — nothing may re-derive it, least of all a display control. Derived
+values resolve selection over the durable set, never over the Peak Min projection.
+
+**Swift.** `recalculateTapEntryPeaks()` + 3 call sites deleted; `TapToneAnalyzer.selectedPeaks` added
+and adopted by the two multi-tap averaged-row consumers.
+
+**Python.** `_recalculate_tap_entry_peaks` (`…_peak_analysis.py:254`) with **three** call sites,
+matching Swift exactly: `…_peak_analysis.py:216`, `:246`, `…_measurement_management.py:846`. Delete
+all three.
+
+Also touch, but do not treat as a call site: `views/tap_tone_analysis_view.py:4302`
+`_on_peaks_changed_multi_tap`. It only calls `_populate_multi_tap_results_view()`; its *docstring*
+cites `_recalculate_tap_entry_peaks()` and goes stale with the deletion. The handler exists because
+Qt is imperative — SwiftUI re-renders `TapAnalysisResultsView` automatically when `@Published
+tapEntries` changes, so Swift needs no counterpart. Not a divergence, a framework consequence. After
+the port the per-tap table no longer changes with Peak Min, so decide whether the `peaksChanged`
+subscription still earns its keep.
+
+**Ordering constraint, verified:** Python's per-tap capture at `…_spectrum_capture.py:2021` calls
+`self.find_peaks(t_mags, t_freqs)` with **no `peak_min_override`** — Phase 1's −100 floor was never
+applied to Python's tap entries. So **Phase 1's Python port must land before Phase 3's**, or deleting
+the recompute would freeze a Peak-Min-*filtered* set permanently. Swift did not have this hazard
+(`+SpectrumCapture.swift:1664` already passes the override).
+
+**Web.** Per-tap entries are `capturedTaps` (`state/tapToneAnalyzer.ts:91`), whose comment already
+records the defect: *"Each entry's peaks are (re)found by recalculatePeaks at the current Peak Min."*
+Same rule, same shape as the web's Phase 2 work — the per-tap re-find comes out of the Peak Min
+recompute path.
+
+**Tests.** The three above; slug `test/frozen-peak-recalc`. Both ports need all three, and the
+`selectedPeaks` twin needs a home property (neither platform has one — the expression is inline).
 
 ---
 
@@ -390,6 +511,10 @@ overriding a peak to Top displaces the holder; Upper Modes still allows several.
   "first Air/Top in array order".
 - Legacy `selectedPeakIDs == nil` keeps meaning "all"; identical result, no migration.
 
+**Scope note:** this phase is the *aggregate* measurement's derived values. Anything per-tap belongs
+to **Phase 3**. (An earlier revision routed a supposed per-tap `resolvedModePeaks` divergence here and
+then to Phase 3; it was retracted as not real — see Phase 3.)
+
 **Risk:** medium — numbers change for any measurement where a winner was deselected (intended).
 **Test:** the on-screen ratio and the saved-list ratio agree for the same measurement.
 
@@ -452,5 +577,20 @@ that Swift's type system handed us for free.
 
 ## Suggested checkpoints for the user
 
-Phases 1–2 together are the substance and the risk; stop for run-review there. Phases 3–7 are smaller
+Phases 1–2 together are the substance and the risk; stop for run-review there — done 2026-07-22.
+
+**Phase 3 needs its own run-review** and should not be batched: verification upgraded it from "low
+risk" to a visible change on existing multi-tap files (see its findings block). Phases 4–7 are smaller
 and can be batched. Phase 8 gates the ports; Phase 9 is the ports themselves.
+
+**Standing lesson from Phases 2 and 3: verify each phase's bullets against the code before executing
+them.** Both were written from the gap analysis, before Phases 1–2 changed the ground. Phase 2's
+deletions turned out to be wrong; Phase 3's turned out to be right but for a different reason and at a
+different risk level. Neither would have been caught by executing the bullet as written.
+
+**And verify the findings too, not just the plan.** Phase 3's "instance vs static `resolvedModePeaks`"
+item was *my own* finding, added during verification, and it was wrong — I traced which resolver each
+call site used but never traced what was passed *into* it. A finding about a data-flow divergence is
+not established until both ends have been read. When a claim is "these two paths disagree", read the
+inputs before writing it down; the plan is load-bearing and a confident wrong entry costs more than a
+missing one.
