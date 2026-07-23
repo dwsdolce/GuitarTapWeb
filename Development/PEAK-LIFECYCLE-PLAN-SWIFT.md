@@ -810,7 +810,7 @@ Top; overriding an *unselected* peak to Top changes no selection; overriding the
 leaves Top with no definitive peak; Dipole/Ring/Upper still allow several; Select None leaves
 classification intact.
 
-### ⏳ Phase 5 CODE WRITTEN — suite green (430), parity clean, NOT yet run-reviewed. UNCOMMITTED.
+### ✅ Phase 5 COMPLETE — suite green (431 incl. the reset-label fix), parity clean + USER-VERIFIED (2026-07-22). Committed `5836489`.
 
 **Changed (Swift):**
 - `TapToneAnalyzer.singleHolderModes` = `[.air, .top, .back]`, and
@@ -932,6 +932,180 @@ then to Phase 3; it was retracted as not real — see Phase 3.)
 **Risk:** medium — numbers change for any measurement where a winner was deselected (intended).
 **Test:** the on-screen ratio and the saved-list ratio agree for the same measurement.
 
+### ✅ Phase 6 CORE COMPLETE — suite green (441), parity clean + USER-VERIFIED (2026-07-22). UNCOMMITTED (batches with 6b).
+
+**One rule, one resolver.** Added `GuitarMode.effectiveMode(override:auto:)` — a resolvable override
+wins, a freeform override → `.unknown`, else the auto-classification. The single definition of
+"which mode is this peak, really." `peakMode(for:)` now delegates to it (behaviour-preserving; D7/D8
+pass unchanged).
+
+**The definitive peak** — the *selected* peak whose *effective* mode is that mode:
+- Analyzer `getPeak(for:)` rewritten to this. Fixes the user's bug: rename the Top peak and
+  `getPeak(.top)` → nil → no ratio, matching every other surface. Deselecting the Top does the same.
+- `TapToneMeasurement.tapToneRatio` gets a `definitivePeak(for:)` helper applying the identical rule
+  over `effectiveSelectedPeakIDs` (guitar: saved selection or all; material: all, moot). The
+  prediction held exactly — the struct ratio was override-blind AND selection-blind (`peaks.first`,
+  array order). Both ratios now compute by one rule and cannot disagree.
+- `resolvedModePeaks` (static) gained an `overrides:` parameter and is override-aware; the on-screen
+  **multi-tap averaged row** now passes `analyzer.peakModeOverrides` through
+  `MultiTapComparisonResultsView`.
+
+**Legacy heal at decode** (Decision 1, agreed): guitar files with a nil selection are auto-selected
+to the definitive set; a pre-Phase-5 selection holding two Air/Top/Backs is pruned to the strongest
+per mode. Sets the same `wasHealed` flag as the duplicate-peak heal, so the library re-saves
+identically (Decision: *"if one change forces a save the other should"*). Also closes the Phase 5
+open question — a loaded legacy file can no longer show two selected Tops.
+
+**Scope limit, logged not skipped:** `ComparisonEntry` carries no `peakModeOverrides`, so the
+cross-measurement comparison tables/PDF and the multi-tap **PDF** averaged row still resolve modes
+override-blind. Making them override-aware needs overrides stored in `ComparisonEntry` — a
+`.guitartap` schema addition. **Follow-up item, not part of Phase 6.**
+
+**Two visible changes to expect on existing files** (both intended, both flagged to the user): a
+legacy saved-list ratio may move (old rule was `peaks.first` = lowest-frequency, ~meaningless), and a
+legacy multi-tap file with a bad selection is silently corrected + re-saved on first load.
+
+**Tests +10 (431 → 441).** Analyzer `DefinitivePeakAndRatio` D17–D20 (selected-holder-not-strongest;
+the rename-drops-ratio repro; deselect-drops-ratio; override-retargets-Top). Struct `TapToneRatio`
++3 (freeform override → nil; override retargets Top; deselected Top → nil). `SelectionHealOnDecode`
++3 (nil → healed; two Tops → pruned; valid → not reflagged). Slug `test/annotation-state` +
+`test/measurement-codable`.
+
+**Run-review script:** rename the Top peak → the ratio disappears (screen and PDF); deselect the Top
+→ ratio disappears; relabel another peak to Top → ratio returns using it; open an old multi-tap or
+guitar measurement saved before this work → it shows a sensible ratio and (if its selection was bad)
+is silently repaired; on-screen ratio == saved-list ratio for the same measurement.
+
+### Port ledger — Phase 6
+
+**Rule.** Every derived "the Air/Top/Back" value reads the **definitive** peak: the *selected* peak
+whose *override-aware* mode is that mode. One shared effective-mode resolver feeds the analyzer, the
+saved measurement's ratio, and the static resolver. Legacy files are healed to a valid definitive
+selection on read, re-saving under the same flag as the duplicate-peak heal.
+
+**Swift.** `GuitarMode.effectiveMode(override:auto:)`; `peakMode` delegates; `getPeak` → definitive;
+`TapToneMeasurement.definitivePeak(for:)` + `tapToneRatio`; static `resolvedModePeaks(overrides:)`;
+`MultiTapComparisonResultsView` averaged row; decode heal in `init(from:)`.
+
+**Python / web (UNVERIFIED — confirm at port time).** Both have the same two blind ratios (a live
+`calculate_tap_tone_ratio` reading auto-classification, and a saved-measurement ratio) and both need
+the shared effective-mode resolver + definitive-peak rule. Expect the same `ComparisonEntry`-style
+limitation for comparison paths. The decode heal maps to each platform's measurement-decode path
+(Python `TapToneMeasurement` decode / web reader); mirror the "same repair, same re-save" contract.
+
+**Tests, slugs `test/annotation-state` + `test/measurement-codable`.** D17–D20, the three struct-ratio
+override/selection cases, and the three decode-heal cases. **Fixture caution recorded for the ports:**
+mode-band frequencies are per guitar type — the Swift tests broke twice on frequencies assumed to be
+in a band that weren't (classical Top is 170–230, generic 140–260). Pick fixture frequencies against
+the actual band table, and put a peak below the Back lower bound when you need it Top-only.
+
+### Phase 6b — Definitive modes for the two override-blind surfaces  ✅ CODE WRITTEN, suite green (447), parity clean, UNCOMMITTED
+
+**Multi-tap Averaged-row bug found + fixed in run-review (2026-07-22, USER-VERIFIED).** The Averaged
+row used `resolvedModePeaks` (strongest-per-mode over a re-classified subset), so overriding an
+out-of-band peak to Top showed a louder Back-band peak as Top and left Back empty (user's 3-tap file:
+Top→138.2 gave Top=233, Back empty). Root cause: it wasn't the definitive rule the rest of the app
+uses. Fix: the Averaged row is now `analyzer.definitiveModeInfo()` / `measurement.definitiveModeInfo()`
+(= `getPeak` per mode + an override flag); per-tap rows stay each tap's own auto-classification (a
+tap's peaks are unrelated to the averaged override — user's call, no frequency-matching). An
+overridden Averaged value is shown **italic with `*`**, the SAME convention page 1's peak table uses
+(user asked for consistency; replaced an earlier tag glyph). Tests D21/D22. **Comparison-measurement
+self-describing behaviour (Track 1) built but not separately run-reviewed yet.**
+
+**Documentation deliverables now captured** — see the "Documentation deliverables" section under Phase
+8. The `.guitartap` `modePeakIDs` field must be documented in the manual's format appendix with its
+introducing version.
+
+Found after the Phase 6 core landed: two surfaces still resolve modes override-blind. The user
+corrected a conceptual conflation I was making — **these are two UNRELATED things** that merely share
+the `ComparisonEntry` struct as a container, and must be kept separate:
+
+**Track 1 — Comparison MEASUREMENT (overlays several *separate* saved measurements). NEEDS A FORMAT
+CHANGE.** It aggregates *other* measurements, so their override context is not otherwise in this file.
+User ruling (2026-07-22): *"If a user decides that Top is different from the auto and saves that in
+the measurement then the comparison has to use it."* Approach chosen = **B (store the resolved
+mapping, not the overrides)**, because the file must be self-describing — an independent reader must
+reproduce the displayed Air/Top/Back **without reimplementing `classifyAll`** and without needing
+override data that would be absent. Decisions locked:
+- Add `modePeakIDs: [String: UUID]?` to the persisted `ComparisonEntry` **and** the in-memory
+  `comparisonSpectra` tuple (`TapToneAnalyzer.swift:1116`), keyed by canonical mode name
+  (`{"Air (Helmholtz)": uuid, "Top": uuid, "Back": uuid}`) so Python/web read it directly. Peak IDs
+  reference the entry's own stored peaks — self-contained. (User: *"As long as peakID works on all
+  ports then peakID is fine"* — peak UUIDs already round-trip in the format on all 3; **pin this as a
+  must-verify in the port ledger, don't assume**.)
+- Populate at **build-from-source** (`+MeasurementManagement.swift` ~975, `spectraAndSnapshots`,
+  where the full source `TapToneMeasurement`s with overrides are in hand): definitive mode→peakID via
+  the effective-mode rule.
+- Build site to persist: `saveComparison` (`+MeasurementManagement.swift:1028`, the only ComparisonEntry
+  construction that is saved).
+- Render: `ComparisonResultsView.swift:30` (on-screen, reads the tuple) + the saved-comparison PDF
+  read the stored mapping; re-derive only as a fallback when absent.
+- **Heal legacy on decode + re-save** (`ComparisonEntry` decode / measurement decode), same
+  `wasHealed`-style contract. Caveat, accepted: a pre-existing saved comparison never stored
+  overrides, so its heal reproduces only what the old app showed (override-blind); comparisons created
+  after this change are fully correct. No way to recover an override never written.
+
+**Track 2 — Multi-tap MEASUREMENT (one measurement, many taps). NO FORMAT CHANGE.** All its data —
+`peaks`, `selectedPeakIDs`, `peakModeOverrides`, `tapEntries` — is already in its own `.guitartap`
+file. The averaged row just resolves override-aware from data it already owns; per-tap rows stay
+positional (different UUIDs, no per-tap overrides). **On-screen averaged row is already done** (Phase
+6 core: `MultiTapComparisonResultsView` takes `overrides`). Remaining = the **three multi-tap PDF
+paths** pass `peakModeOverrides` to `resolvedModePeaks` inline: `TapToneAnalysisView+Export.swift:389`
+(uses `tap.peakModeOverrides`), `MeasurementDetailView.swift:300` and `MeasurementsListView.swift`
+(use `measurement.peakModeOverrides`). The `ComparisonEntry` reuse here is a throwaway PDF container,
+**not** a comparison — keep that distinction in the code comments and the ports.
+
+**Was about to start building both tracks when the user broke.** Next action: get the go (Track 1
+changes the `.guitartap` format) and build.
+
+### What was built (Swift)
+
+**Track 1 — comparison measurement (format change).** New `ComparisonEntry.modePeakIDs: [String:
+UUID]?` — the definitive `{mode name: peak id}` per overlaid spectrum, resolved override-aware from
+the source at build (`loadComparison(measurements:)` via `measurement.definitivePeak(for:)`). Carried
+on the in-memory `comparisonSpectra` tuple (added a `modeIDs` element — the compiler found all tuple
+sites; the multi-tap chart-overlay population sets `[:]` since its table is separate). `saveComparison`
+persists it; `loadComparison`-from-entries reads it; `ComparisonResultsView`, the on-screen detail
+view, and both comparison PDFs read the stored map (`ComparisonEntry.modeFrequency(_:)`), re-deriving
+positionally only as a fallback. **Legacy heal at decode:** a pre-6b entry (nil `modePeakIDs`) is
+filled positionally and flagged `wasHealed` → the library re-saves, same contract as the other heals.
+Self-describing: a reader reproduces the table by peak-ID lookup, no `classifyAll`, no override data.
+
+**Track 2 — multi-tap measurement (no format change).** The three multi-tap PDF averaged rows now
+pass the measurement's own `peakModeOverrides` to `resolvedModePeaks` (a no-op for per-tap rows —
+disjoint UUIDs). On-screen was already done in the Phase 6 core.
+
+**Tests +4 (441 → 445), `ComparisonModePersistence` suite:** a source override shows as the
+comparison's Top; `modeFrequency` reads the stored map even when it deliberately disagrees with
+`classifyAll` (proves the file is authoritative); `modePeakIDs` round-trips; a legacy entry heals +
+flags re-save. Slug `test/comparison`.
+
+**Run-review:** compare measurements where one has a renamed Top → the comparison table + PDF show the
+rename; save, reload → still correct; open a comparison saved before this build → sensible values, and
+it re-saves; a multi-tap PDF's Averaged row respects an override.
+
+### Port ledger — Phase 6b
+
+**Rule.** A comparison measurement stores its resolved definitive Air/Top/Back as **mode→peakID** per
+overlaid spectrum (computed override-aware from each source), so the saved file is self-describing —
+reproducible by peak-ID lookup without re-running classification or needing the sources' overrides.
+Multi-tap tables need no format change: they resolve override-aware from the single measurement's own
+already-stored data. **These two are unrelated — keep them conceptually separate in code and ports.**
+
+**Swift.** `ComparisonEntry.modePeakIDs` + `modeIDMap`/`modeFrequency`; `comparisonSpectra` tuple gains
+`modeIDs`; populate at `loadComparison(measurements:)`; persist at `saveComparison`; read at every
+comparison render; decode heal. Multi-tap: overrides passed inline at the 3 PDF sites.
+
+**Python / web (UNVERIFIED — confirm at port time).** Add the `modePeakIDs` field to the comparison
+entry in each platform's `.guitartap` reader/writer (Python `ComparisonEntry` twin, web reader),
+keyed by the SAME canonical mode names. **VERIFY peak UUIDs round-trip through comparison entries on
+each platform before relying on peakID** (user's condition) — if a platform doesn't preserve them,
+that must be fixed first. Populate override-aware at build; heal legacy on read + re-save. Multi-tap:
+pass the measurement's overrides to the averaged-row resolution.
+
+**Tests, slug `test/comparison`.** The four above. The self-describing test (stored map wins over
+`classifyAll`) is the important one — it pins that the reader must NOT re-classify.
+
 ---
 
 ## Phase 7 — The remaining triggers
@@ -965,7 +1139,65 @@ then to Phase 3; it was retracted as not real — see Phase 3.)
    - on-screen ratio == saved-list ratio;
    - start a new measurement → no labels/overrides inherited from the previous one;
    - material: Peak Min disabled, L/C/FLC unaffected.
-3. Only then: Python, then web.
+3. **Documentation deliverables (below) complete** — the plan is not done until these are.
+4. Only then: Python, then web.
+
+---
+
+## Documentation deliverables — REQUIRED before the lifecycle plan is complete
+
+Flagged by the user 2026-07-22: *"we have to update the user manual with the file format changes …
+and the version that they are made in. This is in addition to any behavioral changes as well as the
+changes in the release notes."* These were missing from the plan. All three must be done, on **all
+three platforms** where applicable, and each format change must name the **version/build it was
+introduced in** (build number = `git rev-list --count HEAD`; fill in at ship time). Editable doc
+surfaces per repo: see [[project_doc_surfaces]]. Manual audience: [[project_user_manual_audience]].
+
+### 1. `.guitartap` file-format changes (manual App. B / format appendix + the reader/writer docs)
+
+**Verified 2026-07-22 by diffing every format struct against the tagged `1.0.1` source (build 332):
+exactly TWO format additions since 1.0.1, no others.** `SpectrumSnapshot`, `TapEntry`, `ResonantPeak`
+and `UserAssignedMode` are unchanged. Both additions are backward-compatible optional fields
+(tolerant reader / minimal writer).
+
+| Field | Struct | Introduced | Status |
+|---|---|---|---|
+| `userModifiedSelection` | `TapToneMeasurement` | **1.0.2** (build 398, released) | shipped |
+| `modePeakIDs` | `ComparisonEntry` | **next version** (Phase 6b) | uncommitted at time of writing |
+
+- **`userModifiedSelection`** — manual/auto selection-persistence flag; legacy files with no field
+  default to manual (`true`). Shipped in **1.0.2** but **may not yet be in the manual's format
+  appendix — audit and add it, named with version 1.0.2.**
+- **`ComparisonEntry.modePeakIDs`** — `{canonical mode name: peak UUID}`; makes a saved comparison
+  self-describing. Document field, shape, and its ship version (fill in at ship time).
+- **Re-save-on-heal behaviours** (schema unchanged, written content changes on first load of an old
+  file): the selection heal (nil / invariant-violating guitar selection → definitive set) and the
+  comparison-entry heal. Note that opening + saving a pre-lifecycle file normalises it.
+
+### 2. Behavioural changes (user manual body)
+
+The user-facing behaviour the lifecycle phases changed — each needs a manual pass:
+- Peak Min is **display-only** — hiding a peak never un-detects, un-selects, un-classifies or
+  un-labels it; a hidden peak returns exactly as left (Phases 1–2, 4a).
+- **Naming a peak makes it known** — a custom-labelled peak stays visible with Show Unknown Modes off
+  (Phase 4).
+- **Definitive Air/Top/Back** — at most one selected per mode; the selected one is *the* Air/Top/Back
+  and drives every derived value (ratio, PDF, list, multi-tap Averaged row); **Select All removed**,
+  Select None kept (Phases 5–6).
+- **Ratio & derived values respect overrides** — rename the Top and the ratio/derived values follow
+  or clear (Phase 6).
+- **Multi-tap Taps table** — per-tap rows are each tap's own auto-classification; the **Averaged row**
+  is the definitive (override-aware) result, an overridden value shown *italic with `*`*, matching
+  the PDF peak table (Phase 6b + fix).
+- **Reset-to-Auto** menu names the auto-detected target mode, not the current label (reset-label fix).
+- Peak Min **disabled for material**; Save enabled whenever a measurement exists (even with all peaks
+  hidden) (Phase 4a).
+
+### 3. Release notes (per repo, per [[project_release_notes_conventions]])
+
+Summarise the behavioural changes above for users, plus a one-line note that the `.guitartap` format
+gained a comparison field (self-describing comparison modes) and that older files are upgraded
+automatically on open. Match wording across Swift / Python / web when the ports land.
 
 ---
 
