@@ -184,8 +184,10 @@ objects*, so filtering can never disturb identity. Auto-selection at freeze runs
 `@Published private(set)` projection via `refreshDisplayedPeaks()`; `peakMinOverride:
 peakDetectionFloor` at the capture sites only; `guitarFullSavePeaks()` collapsed to `allPeaks`.
 
-**Python (UNVERIFIED — confirm at port time).** No durable set exists — `current_peaks` (`tap_tone_analyzer.py:278`) *is* the working set,
-written from ~12 sites across `_control`, `_spectrum_capture`, `_measurement_management`. The port is
+**Python (VERIFIED 2026-07-23 — see `PEAK-LIFECYCLE-PLAN-PYTHON.md`).** No durable set exists — `current_peaks` (`tap_tone_analyzer.py:278`) *is* the working set,
+written from **17** analyzer sites (not ~12): `_spectrum_capture` (6), `_peak_analysis` (6),
+`_control` (4), `_measurement_management` (1). (`views/fft_canvas.py` writes a view-local
+`_current_peaks` — out of scope.) The port is
 the same Option B split: add `all_peaks`, make `current_peaks` a read-only projection, then convert
 each write site. Unlike Swift there is **no compiler** to enumerate them — so grep `current_peaks =`
 and `self.current_peaks` and work the list explicitly; this is the highest-risk part of the Python
@@ -1170,7 +1172,7 @@ the user in discussion — recorded here because the reasoning is not obvious fr
 
 **Risk:** low individually; several small independent fixes.
 
-### ⏳ Phase 7 CODE WRITTEN — suite green (447), parity clean, NOT yet run-reviewed. UNCOMMITTED.
+### ✅ Phase 7 COMPLETE — suite green (447), parity clean + USER-VERIFIED (6 UI tests). Committed `e3a7303` (with the analysis-range removal + deinit fix).
 
 **Done:** item 1 (guitar-type change = clean slate via `reclassifyForGuitarTypeChange`, gated on the
 type actually changing; display-only Applies leave selection/classification alone; the wand stays the
@@ -1223,7 +1225,7 @@ QObject GC race pattern: [[project_python_playback_gc_race]]).
 **Tests.** No new unit tests (UI-triggered behaviours + a deinit race); covered by the run-review
 script. Both ports: add run-review items, not unit tests, for these.
 
-### Run-review script — Phase 7 (owed; user runs it, then commit)
+### Run-review script — Phase 7 (✅ user ran items 1–6, 2026-07-22; item 7 = the soak/stress harness, ongoing)
 
 1. **Guitar-type change = clean slate.** Override a peak's mode and select a couple of peaks; Settings
    → change guitar type (Classical → Flamenco) → Apply → everything re-classified for the new type,
@@ -1256,6 +1258,14 @@ script. Both ports: add run-review items, not unit tests, for these.
    - material: Peak Min disabled, L/C/FLC unaffected.
 3. **Documentation deliverables (below) complete** — the plan is not done until these are.
 4. Only then: Python, then web.
+
+**STATUS 2026-07-23:** (2) run-review checks — user-verified across prior sessions; (3) doc
+deliverables — ✅ COMPLETE (release notes + HelpView + manual), user-reviewed & approved. (1) full
+Swift suite green + golden baseline clean. **User considers Phase 8 done.** The one still-open thread
+is the **deinit-crash verification** (soak `b91i6q8b3`, N=1000, crash-report-detecting) — treat as the
+final gate: Phase 8 is closed once it lands with zero new crash reports (else the deinit fix needs the
+heavier `var`-optional escalation). Playback-validation-vs-Phase-0-baseline was not separately re-run
+this pass — covered by the green suite unless the user wants it explicitly.
 
 ---
 
@@ -1308,6 +1318,91 @@ The user-facing behaviour the lifecycle phases changed — each needs a manual p
 - Peak Min **disabled for material**; Save enabled whenever a measurement exists (even with all peaks
   hidden) (Phase 4a).
 
+### 0. ✅ DONE 2026-07-23 — doc-deliverables authoring pass (Swift first)
+
+*(This §0 is the working-notes / inventory block for the doc pass; it sits ahead of the numbered
+subsections §1–§3 below. All surfaces complete — see the PROGRESS 2026-07-23 block near the end of
+this block. User reviewed the doc changes 2026-07-23 and approved.)*
+
+**1.0.2 has NEVER been released** (still `MARKETING_VERSION 1.0.2`, build 418). So ALL changes since
+1.0.1 — the earlier 1.0.2 work AND lifecycle Phases 1–7 — go in the ONE file
+`Documentation/ReleaseNotes-1.0.2-398.md` (edit in place; build number is a placeholder). Surfaces
+(Swift first, all confirmed in scope incl. manual): release notes → `HelpView.swift` →
+`Documentation/Manual/ch*.md`+`app-*.md`. I edit `.md`/source only; user regens PDFs/quick-start.
+
+**Lifecycle user-visible changes to ADD (not yet in the notes)** — the current 1.0.2 notes cover the
+*earlier* 1.0.2 work but NONE of the lifecycle rework:
+1 Peak Min is a pure display filter (hidden peak returns exactly as left — selection/label/position);
+2 naming a peak makes it "known" (stays visible with Show Unknown Modes off);
+3 one definitive Air/Top/Back (selected = the one; 2nd Top displaces 1st; **Select All removed**,
+Select None stays); 4 ratio + all derived values follow selection AND overrides (rename Top → ratio
+follows/clears; screen/list/PDF agree); 5 multi-tap Taps table (per-tap = own detection; Averaged =
+definitive override-aware, overridden value italic+" *"); 6 comparisons self-describing (records
+Air/Top/Back, reflects source overrides); 7 Reset-to-Auto names the auto-detected target; 8
+guitar-type change = clean slate (reclassify+reselect, clears labels; display-only Apply disturbs
+nothing); 9 Analysis Frequency Range setting REMOVED (fixed 30–2000; field+Help gone); 10 new
+measurement starts clean (no carry-over); 11 Save works when Peak Min hides all peaks.
+**UPDATE** the existing "Peak Min" + "Re-analyze" entries to reconcile with 1–4.
+**Deinit crash fix = NOT user-facing** → omit from notes (or one-line "stability") — user to confirm.
+File-format for App. B: `userModifiedSelection` (1.0.2), `modePeakIDs` (this respin) + a one-line note
+that old comparison files upgrade on open.
+
+**User-confirmed 2026-07-22:** D (deinit fix) = **omit from all docs**. A–C = **complete**. KEY: docs
+have been updated as items landed (release notes already carry the earlier 1.0.2 work; analysis-range
+Help entry already removed; manual full-set-save / wand-vs-Re-analyze already corrected). So the pass
+is **check each surface and fill GAPS**, not write from scratch — gaps ≈ the lifecycle A/B items not
+yet present. Verify what's already there before adding.
+
+**PROGRESS 2026-07-23 (Swift, uncommitted):**
+- ✅ **Release notes** (`ReleaseNotes-1.0.2-398.md`): added a **"Peaks & Modes"** subsection (7 bullets:
+  naming-identifies; one definitive Air/Top/Back + Select All removed; derived-follow-selection/overrides;
+  multi-tap Taps table honours overrides; comparisons self-describing; guitar-type clean slate; new-tap
+  clean) + appended the pure-display-filter sentence to the existing **Peak Min** entry; added the
+  **Analysis Frequency Range removed** line under Measurements; added **Save-when-all-peaks-hidden** under
+  Bug Fixes. Re-analyze entry left as-is (already consistent).
+- ✅ **HelpView.swift** — 3 CORRECTIONS (were factually wrong under the lifecycle model). **These port
+  near-verbatim to Python/web Help/Quick-Start:**
+  1. **Re-analyze Peaks**: dropped "loaded-measurement only" + "analysis range"; now "any completed guitar
+     measurement, live or loaded — re-detect + re-classify from scratch + selection back to auto; custom
+     names kept though the carrier may deselect; no longer self-disables; not for plate/brace." (matches
+     `canReanalyze` = guitar && complete && has-frozen-spectrum.)
+  2. **Peak Min (slider, Tap Controls)** + 3. **Peak Min (Settings Reference)**: removed "re-runs peak
+     finding and updates selections"; now "display filter over the stored peaks — shows/hides only, never
+     re-detects/re-selects/re-classifies; hidden-then-revealed returns exactly as it was; every detected
+     peak is kept with the saved measurement regardless of Peak Min." (matches `peakMinThreshold.didSet` →
+     `refreshDisplayedPeaks()`, a pure filter of `allPeaks`.)
+- ⏳ **NOTED for a later source sweep (not doc):** `TapToneAnalyzer+PeakAnalysis.swift:358–362` code
+  comment still says Re-analyze uses "analysis range" — stale, separate file; not swept yet.
+- ✅ **User manual** (`Documentation/Manual/`, **SWIFT REPO ONLY** — a single manual, hosted online,
+  serves all three platforms; there is NO separate Python/web manual to edit). Explore-audited all 14
+  files; fixed **12 now-wrong passages** + added the missing lifecycle sections. The behaviours below
+  are what the Python/web apps must MATCH; the manual text itself is authored once, here:
+  - **ch02 §2.7**: Peak Min rewritten as pure display filter (hidden-then-shown returns exactly as
+    left); dropped the "press wand after moving Peak Min" framing.
+  - **ch03**: added **Taps table** description (per-tap = own detection; Averaged = definitive
+    override-aware, italic+`*`) replacing a broken `§6.x` ref; added **new-tap-starts-clean** note;
+    §3.6 wand now "resets selection, keeps overrides", **"Select All" removed** (Select None only) +
+    new **"One peak per structural mode"** (definitive Air/Top/Back, 2nd Top displaces 1st,
+    Dipole/Ring/Upper are clusters); §3.7 added **guitar-type-change clears overrides**; §3.8 ratio
+    now "definitive override-aware"; §3.9 comparison now "self-describing + older files upgrade".
+  - **ch07 §7.1**: Save is never blocked by hiding peaks (Peak Min / None).
+  - **ch08 §8.5**: **removed the Analysis Frequency Range setting entry**; Peak Min = display filter.
+  - **ch09**: Re-analyze = any completed guitar meas. (live or loaded), re-classify + selection→auto,
+    no self-disable, not plate/brace; Peak Min slider = display filter.
+  - **ch10**: replaced the "narrow Analysis Frequency Range" troubleshooting row.
+  - **app-b (App. B)**: fixed the stale `selectedPeakFrequencies` note; **added `userModifiedSelection`**
+    (bool, guitar-only, absence read as `true`) to the measurement table; **added `modePeakIDs`**
+    (object, mode-name→peak-UUID, plain JSON object not a flat map, healed on open) to ComparisonEntry.
+- **CORRECTION applied to release notes too:** the guitar-type clean-slate is gated on the **guitar
+  type value changing** (`onApply` `guitarTypeChanged` → `reclassifyForGuitarTypeChange()` clears
+  overrides + reclassifies + resets selection **unconditionally**), NOT on "the classification result
+  actually changing" — my first release-notes wording over-specified that and was fixed.
+- **Swift doc deliverables (release notes + Help + manual) = COMPLETE, uncommitted, not run-reviewed.**
+- **NEXT:** await the deinit verification run (`b5zdkiqfw`, N=1000); then commit messages for the two
+  Swift commits (deinit fix — separate; doc surfaces — release notes + HelpView + manual) + confirm
+  whether the deinit fix rides with Phase 7 or lands on its own. Then Phase 8 validation, then Phase 9
+  ports (Python → web) replaying each ledger incl. these doc edits + the crash-detecting soak harness.
+
 ### 3. Release notes (per repo, per [[project_release_notes_conventions]])
 
 Summarise the behavioural changes above for users, plus a one-line note that the `.guitartap` format
@@ -1359,6 +1454,39 @@ months later, when nobody remembers which entries were read and which were assem
 time: open the cited file at the cited line, confirm it says what the ledger claims, and correct the
 ledger in the same change when it does not. **A ledger entry that cannot be confirmed is a bug in
 the ledger, not a feature to implement.**
+
+### Phase 9 item — a soak / stress harness on all three platforms (agreed with the user 2026-07-22)
+
+**Purpose.** Surface *nondeterministic* failures — teardown/GC races and hangs — that a single test
+run hides. This project keeps hitting exactly that class: the Python playback **QObject GC race**
+([[project_python_playback_gc_race]]) and the Swift **Combine deinit race** (Phase 7, `TapToneAnalyzer`).
+Both were invisible in a normal single run and only showed under repetition. The user has a **reported
+crash on Python they believe is in this same family and may already be fixed**, and wants the soak
+harness there to gain confidence the fix holds and nothing else lurks.
+
+**What it is** — a dev tool, NOT a CI test: build once, then loop the **fast** unit suite (skip the
+slow playback tests) many times, watching for crashes and hangs. Optional/on-demand.
+
+- **Swift** — `xcodebuild build-for-testing` once, then loop
+  `xcodebuild test-without-building … -skip-testing:GuitarTapTests/FilePlaybackRegressionTests`
+  (~4 s/run, 440 tests; the analyzer-churning suites stay, the slow WAV playback is skipped).
+  **Harness gotcha, learned the hard way:** `test-without-building` does **not** print
+  `** TEST SUCCEEDED **`; detect success from the swift-testing line `Test run with N tests … passed
+  after …`, and detect failure from `SIGSEGV`/`EXC_BAD`/`deinit`/`Segmentation`/`failed after`/
+  `recorded an issue`. (A first cut grepped the wrong marker and mislabelled every green run.)
+- **Python** — `pytest` with `pytest-repeat` (`--count=N`) or a shell loop, **plus `pytest-timeout`**
+  to catch *hangs* (not just crashes). Skip the slow playback tests.
+- **Web** — `vitest` repeat (`--repeat=N` or a loop) with a per-test timeout for hangs. Analog bug =
+  React effect-cleanup / async teardown.
+
+**Three caveats to bake in:** (1) optional/on-demand, not CI — it is N× slower and probabilistic;
+(2) a green soak is *confidence, not proof* — you cannot prove the absence of a race, only make it
+unlikely; (3) **faithfulness matters** — the loop must exercise the *real* teardown conditions (the
+real test runner tearing objects down off-main / under GC). A synthetic same-thread create/destroy
+loop would NOT reproduce the Swift async-deinit race and would give false confidence — verified
+reasoning, not speculation.
+
+Deliverable: a small documented `soak`/`stress` script per repo.
 
 ---
 

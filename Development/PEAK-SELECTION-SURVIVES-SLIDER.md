@@ -1,6 +1,6 @@
 # Deselecting a peak doesn't survive a Peak Min slider move
 
-_Opened 2026-07-21 from run-review. **Root-caused, NOT fixed. Nothing has been edited for this.**
+_Opened 2026-07-21 from run-review. **RESOLVED 2026-07-22 (Swift) by the Phase 2 peak-lifecycle decoupling — see the resolution note at the bottom. Originally: root-caused, not fixed.**
 This is a defect in **canonical Swift**, mirrored by Python — not a port divergence._
 
 ## Repro (user, on Swift)
@@ -86,7 +86,21 @@ analyzer and then re-emits `peaksChanged` — that is the established pattern to
 2. **Web: peaks appear/disappear during slider moves unrelated to their level.** Reported by the
    user; the web otherwise "kind of works" for the deselect case. **Not investigated at all.**
 
-## State
+## State — RESOLVED
 
-Root cause established by code inspection on both sides. No fix written, no files edited for this.
+Root cause established by code inspection on both sides.
+
+**Fixed in Swift by the Phase 2 peak-lifecycle decoupling (2026-07-22).** A Peak Min change no longer
+runs `recalculateFrozenPeaksIfNeeded` → `applyFrozenPeakState`, so the carry-forward that read the
+stale `selectedPeakFrequencies` cache never fires on a slider move — the deselect survives.
+
+**The proposed incremental-cache fix above was NOT the path taken, and is superseded.** Verified
+2026-07-23: Swift's `togglePeakSelection` was not changed — it updates only `selectedPeakIDs` +
+`userHasModifiedPeakSelection` (plus Phase 5's `enforceDefinitiveModeUniqueness` on the insert side).
+So the doc's *diagnosis* is correct but its *proposed remedy* did not ship; decoupling made the stale
+cache harmless without touching the toggle.
+
+**Python port:** mirrors the same decoupling (Phase 2 **A** — the Peak Min slider →
+`refresh_displayed_peaks()`, done 2026-07-23). The remaining Python-specific work is the separate
+defect below — routing its selection UI through the analyzer — landing as Phase 2 **C**.
 Next decision needed: confirm the incremental-cache approach, then Swift → Python → parity test.
