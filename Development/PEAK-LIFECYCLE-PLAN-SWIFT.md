@@ -932,7 +932,7 @@ then to Phase 3; it was retracted as not real — see Phase 3.)
 **Risk:** medium — numbers change for any measurement where a winner was deselected (intended).
 **Test:** the on-screen ratio and the saved-list ratio agree for the same measurement.
 
-### ✅ Phase 6 CORE COMPLETE — suite green (441), parity clean + USER-VERIFIED (2026-07-22). UNCOMMITTED (batches with 6b).
+### ✅ Phase 6 CORE COMPLETE — suite green (441), parity clean + USER-VERIFIED (2026-07-22). Committed `4984ed0` (with 6b).
 
 **One rule, one resolver.** Added `GuitarMode.effectiveMode(override:auto:)` — a resolvable override
 wins, a freeform override → `.unknown`, else the auto-classification. The single definition of
@@ -999,7 +999,7 @@ mode-band frequencies are per guitar type — the Swift tests broke twice on fre
 in a band that weren't (classical Top is 170–230, generic 140–260). Pick fixture frequencies against
 the actual band table, and put a peak below the Back lower bound when you need it Top-only.
 
-### Phase 6b — Definitive modes for the two override-blind surfaces  ✅ CODE WRITTEN, suite green (447), parity clean, UNCOMMITTED
+### Phase 6b — Definitive modes for the two override-blind surfaces  ✅ COMPLETE, suite green (447), parity clean, USER-VERIFIED. Committed `4984ed0`.
 
 **Multi-tap Averaged-row bug found + fixed in run-review (2026-07-22, USER-VERIFIED).** The Averaged
 row used `resolvedModePeaks` (strongest-per-mode over a re-classified subset), so overriding an
@@ -1110,20 +1110,135 @@ pass the measurement's overrides to the averaged-row resolution.
 
 ## Phase 7 — The remaining triggers
 
-- **Guitar-type change** (`TapToneAnalysisView+Layouts.swift:101-108`, `:251-258`): reclassify;
-  **stop** calling `resetToAutoSelection()`, which currently wipes manual selection on *every*
-  Settings→Apply including display-only changes.
-- **Stop the unconditional `peakMinThreshold` write** (`TapSettingsView+Actions.swift:152`) that fires
-  the didSet on any Apply, in any measurement type.
-- **Analysis frequency range** (`TapToneAnalyzer.swift:241-244`): explicit re-analyze on change, for
-  loaded measurements too (today it does nothing for them).
-- **`startTapSequence`** (`+Control.swift:112-275`): clear `peakAnnotationOffsets`,
-  `peakModeOverrides`, `userHasModifiedPeakSelection`. Fixes state leaking into the next measurement
-  and being written to its file.
-- **Material:** add the explicit `isGuitar` guard to the live/frozen branch (`+PeakAnalysis.swift:151-155`)
-  rather than relying on material clearing the frozen spectrum.
+Each bullet verified against the current code 2026-07-22; line numbers refreshed. Decisions taken with
+the user in discussion — recorded here because the reasoning is not obvious from the diff.
+
+- **1. Guitar-type change — `Option 1` (clean slate). DECIDED with the user.** Today
+  `TapToneAnalysisView+Layouts.swift:105-106`/`:255-256` call `reclassifyPeaks()` +
+  `resetToAutoSelection()` on **every** non-measurement-changing Settings→Apply, wiping manual
+  selection even on a display-only change (Peak Min, dB, range). Fix: fire this **only when the guitar
+  type actually changed**, and on that change treat it as a full re-derivation for the new type —
+  reclassify, clear `peakModeOverrides` (labels were made against the *old* bands' meaning),
+  re-auto-select. One-sentence contract: *"Changing the guitar type re-analyses every peak for the
+  new type; manual labels and selections are cleared."*
+
+  *Rejected `Option 2` (preserve overrides + selections, re-map the rest):* more respectful of manual
+  work but cannot be stated without an "except", and has a genuinely ambiguous case Option 1 avoids —
+  a peak manually *selected but not labelled* whose mode flips under the new bands (still "my Top", or
+  now "the Back"?). Consistency also favours Option 1: a full measurement-type change already
+  re-captures, so a guitar-subtype change re-deriving (without re-capture) is the natural softer
+  analogue, and an override made under the old bands can mislead under the new.
+
+- **2. Unconditional `peakMinThreshold` write** (`TapSettingsView+Actions.swift:152`) — **CANCELLED.**
+  The plan item predates Phase 2. That write fires the didSet, but Phase 2 reduced the didSet to a
+  cheap non-mutating `refreshDisplayedPeaks()`, so it is now harmless. Nothing to do.
+
+- **3. Analysis frequency range → REPLACED: remove the SETTING, keep the concept as a constant.**
+  DECIDED with the user 2026-07-22. The original bullet (re-analyze on range change) is moot because
+  the setting is going away. The analysis range is legacy — the user has **never** changed it and sees
+  no reason to. It is a real, fixed bound on where useful modes live (**30…2000 Hz**: 30 reaches the
+  material fLC; nothing useful above 2000). Verified default is exactly 30/2000, single value, and it
+  is **NOT persisted in the `.guitartap` format** (UserDefaults only). So:
+  - `TapDisplaySettings.analysisMin/MaxFrequency` become constants returning the 30/2000 defaults (no
+    UserDefaults read/write). `findPeaks` still restricts detection to the range — **the concept
+    stays, only the knob goes.** Zero behavioural change (everyone used the default).
+  - Remove the two analysis-frequency fields + their validation from the Settings sheet; the old
+    UserDefaults keys are left orphaned (harmless, ignored).
+  - **Do not touch the display/pan-zoom range** — separate concept, stays user-controllable.
+  - The old UI bound the analyzer's `minFrequency`/`maxFrequency` to those fields; confirm they simply
+    stay seeded at the constant once the bindings go.
+  - **Checked read-only surfaces (Swift, 2026-07-22):** NOT shown in the Measurement Details pane or
+    any PDF/export. It DID appear in **two in-app Help entries** (`HelpView.swift`: the "Analysis
+    Frequency Range" row and an "Advanced Settings" mention) — both removed. So the surfaces to clear
+    per platform are: the **setting control**, the **in-app Help/manual entry**, and a check that it
+    is not shown read-only in details/exports.
+  - **All three platforms (user emphasised):** the setting, its UI, AND its in-app help text exist on
+    Python and web too. Phase 9 removes all of them there; check each platform's details/export
+    surfaces as well. Swift analyzer keeps `minFrequency`/`maxFrequency` seeded from the 30/2000
+    constant (mechanism unchanged) — mirror that (keep the detection range, drop the knob).
+  - **Doc:** user-visible removal → release notes + a manual note (settings + any manual section that
+    described the analysis range), all three platforms.
+
+- **4. `startTapSequence` state leak** (`+Control.swift`): CONFIRMED. It clears `allPeaks` /
+  `identifiedModes` but **not** `peakModeOverrides`, `peakAnnotationOffsets`, `selectedPeakIDs`,
+  `selectedPeakFrequencies`, `userHasModifiedPeakSelection` — stale entries (dead UUIDs, invisible on
+  screen) get written into the next measurement's file. Clear them all in `startTapSequence`.
+
+- **5. Material `isGuitar` guard** — likely already satisfied: the Peak Min projection is guitar-gated
+  in `refreshDisplayedPeaks()`, so material is never filtered. Confirm at build; probably a no-op or a
+  clarifying comment.
 
 **Risk:** low individually; several small independent fixes.
+
+### ⏳ Phase 7 CODE WRITTEN — suite green (447), parity clean, NOT yet run-reviewed. UNCOMMITTED.
+
+**Done:** item 1 (guitar-type change = clean slate via `reclassifyForGuitarTypeChange`, gated on the
+type actually changing; display-only Applies leave selection/classification alone; the wand stays the
+pure-auto action); item 3 → the analysis-range **setting removed** (fixed 30–2000 constant; UI + help
+gone; no format change); item 4 (`startTapSequence` now clears `peakModeOverrides`,
+`peakAnnotationOffsets`, `selectedPeakIDs`, `selectedPeakFrequencies`, `userHasModifiedPeakSelection`
+— no leak into the next file). Item 2 cancelled (obsolete). Item 5 confirmed already satisfied
+(projection is guitar-gated). No new model tests — items are UI-triggered; covered by run-review.
+
+### Crash fix — `TapToneAnalyzer` deinit Combine race (found during Phase 7 testing)
+
+A user-supplied crash report (and an intermittent suite abort — 301 tests in 3 s then SIGSEGV) showed
+`TapToneAnalyzer.deinit` → `Set<AnyCancellable>` teardown → `PublishedSubject.Conduit.cancel()` →
+`os_unfair_lock_lock` at `0x0`. Root cause: the analyzer subscribes to `fftAnalyzer.$magnitudes` /
+`$frequencies` / … via `.receive(on:).sink` in `cancellables`; the **synthesized** deinit releases
+stored properties in an unspecified order, so when `fftAnalyzer` (and its `@Published` subjects)
+released before `cancellables`, cancelling a subscription locked a **freed** subject. Fix: an explicit
+`deinit { cancellables.forEach { $0.cancel() } }` — the deinit body runs before ivar release, so
+subscriptions tear down while the subjects are alive; the later release drops already-cancelled
+(idempotent) cancellables.
+
+**Scope/severity, verified — NOT a user-facing crash:** the app holds exactly **one**
+`TapToneAnalyzer` per session (macOS single `Window` +
+`applicationShouldTerminateAfterLastWindowClosed → true`; iOS single `WindowGroup` with URL routing),
+so it only deinits as the app terminates, where a teardown crash is invisible. The suite hit it
+because it creates/destroys thousands of analyzers. Only theoretical user path = iPad multi-window
+scene close, and even then it is a race. Latent since the subscriptions were added; **not** a Phase 7
+regression. Kept because it is cheap, correct, and unblocks the suite. Verified: full suite green
+(447) across repeated runs (a race is made unlikely, not proven gone).
+
+### Port ledger — Phase 7 (+ analysis-range removal + deinit fix)
+
+**Rules.** (1) A guitar-type change re-derives classification and selection for the new type and
+clears manual labels (clean slate); a display-only settings change disturbs nothing; the pure-auto
+reset stays reachable (the wand). (2) A new capture clears ALL per-peak state so nothing leaks into
+the next file. (3) The analysis range is a fixed 30–2000 constant, not a setting. (4) Tear down
+`@Published` subscriptions deterministically in `deinit`.
+
+**Swift.** `reclassifyForGuitarTypeChange`; `onApply(measurementChanged:guitarTypeChanged:)`;
+`startTapSequence` clears; `analysisMin/MaxFrequency` constants + Settings/Help removal; explicit
+`deinit`.
+
+**Python / web (UNVERIFIED — confirm at port time).** Same four rules. The analysis-range setting +
+its UI + in-app help exist on both — remove all three, keep detection fed by the 30–2000 constant,
+and check each platform's details/export surfaces. The Combine-deinit race is Swift-specific; the
+Python/web equivalents (Qt signal teardown / React effect cleanup) have their **own** lifecycle — do
+NOT transcribe the deinit; verify each platform's teardown independently (Python has a related
+QObject GC race pattern: [[project_python_playback_gc_race]]).
+
+**Tests.** No new unit tests (UI-triggered behaviours + a deinit race); covered by the run-review
+script. Both ports: add run-review items, not unit tests, for these.
+
+### Run-review script — Phase 7 (owed; user runs it, then commit)
+
+1. **Guitar-type change = clean slate.** Override a peak's mode and select a couple of peaks; Settings
+   → change guitar type (Classical → Flamenco) → Apply → everything re-classified for the new type,
+   manual labels cleared, fresh auto-selection.
+2. **Display-only Apply disturbs nothing.** Same measurement; change only Peak Min or dB (leave type)
+   → Apply → selection and labels untouched.
+3. **Wand still = pure auto.** Press the wand → selection resets to pure auto.
+4. **No state leak.** On a measurement with a custom label + a dragged annotation + a selection: save;
+   New Tap; capture a fresh measurement; save; reload → the new file has none of the previous
+   labels/offsets/selection.
+5. **Analysis-range setting gone.** Settings → no "Analysis Frequency Range" field; detection still
+   finds peaks; Help no longer lists it.
+6. **Material unaffected.** Plate/brace: Peak Min disabled, L/C/FLC identified as before.
+7. **(deinit fix)** Sanity: general use, quit/relaunch cleanly. (Not reliably user-observable — a
+   teardown race only exercised at scale; the suite is the real evidence.)
 
 ---
 
