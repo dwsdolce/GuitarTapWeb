@@ -60,6 +60,10 @@ the user`) and keep the **`### Port ledger — Phase N`** (the durable `Rule.`).
 
 ## Phase 1 — The stored set becomes the FULL set
 
+**Goal.** Peaks are captured at the −100 dB floor and stored as the durable `all_peaks`; `current_peaks`
+becomes a Peak-Min-filtered *projection* handing back the same objects, so the user sees exactly what they
+see today. No visible change. **Invariant:** `all_peaks` must NEVER be assigned a filtered view.
+
 ### ✅ Phase 1 COMPLETE — suite green (530), parity 79 + USER-VERIFIED (2026-07-23). Committed `6068d1a` (with Phase 2).
 
 **Changed (Python):**
@@ -94,6 +98,10 @@ freeze runs over the full set. **Guardrail:** `all_peaks` must NEVER be assigned
 ---
 
 ## Phase 2 — Peak Min becomes a pure filter *(core change)*
+
+**Goal.** A Peak Min change recomputes only the display projection — it detects nothing, classifies nothing,
+selects nothing. Selection and classification are facts about the *measurement*; only display depends on
+Peak Min. Every auto-selection / classification call site reads the durable `all_peaks`, never the display.
 
 ### ✅ Phase 2 COMPLETE — suite green (532), parity 79 + USER-VERIFIED (2026-07-23). Committed `6068d1a` (with Phase 1).
 
@@ -139,6 +147,10 @@ classification and selection are facts about the *measurement*; only display dep
 ---
 
 ## Phase 3 — Per-tap entries computed once
+
+**Goal.** Each per-tap `TapEntry` is detected, classified and selected once, at capture, over the full
+−100 dB set, and is durable thereafter — nothing re-derives it, least of all a display control. Derived
+values (the averaged row) resolve selection over the durable set (`selected_peaks`), never the projection.
 
 ### ✅ Phase 3 COMPLETE — suite green (535), parity 79 + USER-VERIFIED (2026-07-23). Committed `a3c5f02` (mirrors Swift `11689b6`).
 
@@ -220,68 +232,13 @@ durable thereafter — nothing may re-derive it. Derived values (the averaged ro
 durable set (`selected_peaks`), never the Peak Min projection.
 
 ## Phase 4 — One unknown predicate
-**Rule.** A peak is unknown only when auto-classification placed it in no mode band **and** the user
-has not named it. **Naming a peak makes it known.** One predicate governs all three display surfaces; the
-annotation surface additionally applies its All/Selected/None gate. With Show Unknown Modes on, nothing is
-filtered anywhere. (Swift `08c66d5`.)
 
-### Verified against the Python code 2026-07-23 — the port is a 1:1 mirror of Swift `08c66d5`
+**Goal.** A peak is unknown only when auto-classification placed it in no mode band **and** the user has not
+named it. **Naming a peak makes it known.** One predicate governs all three display surfaces (results panel,
+dot layer, annotation badges); the annotation surface additionally applies its All/Selected/None gate. With
+Show Unknown Modes on, nothing is filtered anywhere.
 
-**Consumer list confirmed = FOUR** (the Swift ledger warned "verify rather than assume four"; Python has all
-four, each a clean counterpart — Swift's 4th site, the `SpectrumView` legacy fallback, maps to the export
-chart's own `visible_peaks`):
-
-| # | Surface | Python site | Criterion today → change to |
-|---|---|---|---|
-| 1 | Results panel row | `views/tap_tone_analysis_view.py:2682` | `m != GuitarMode.UNKNOWN` (assigned mode) → `not analyzer.is_unknown(p)` |
-| 2 | Chart dots | `views/fft_canvas.py:1757` via `peaks_in_display_range` | positional `is_known` → pass `overridden_peak_ids=self.analyzer.overridden_peak_ids` |
-| 3 | Annotation badges (`visible_peaks`) | `models/tap_tone_analyzer.py:1452` | positional `is_known` → `not self.is_unknown(p)` |
-| 4 | Export-chart legacy fallback (`visible_peaks`) | `views/exportable_spectrum_chart.py:228` | positional `is_known` → route through `peaks_in_display_range` with `overridden_peak_ids` from `self.mode_overrides` |
-
-Behaviour-preserving for every peak WITHOUT an override (Python's `peak_mode` falls back to a per-frequency
-`classify_all` lookup, so `assigned == UNKNOWN` ≡ "outside every band" ≡ `is_known(freq)` is false), and
-entirely unchanged when Show Unknown Modes is on. What diverges today (all require an override): a
-freeform-named in-band peak loses its results row but keeps its dot; a freeform-named out-of-band peak loses
-everything; an out-of-band peak relabelled to a real mode gains a row but no dot.
-
-### The work
-- **Two model additions** (mirror `TapToneAnalyzer.isUnknown(_:)` + `overriddenPeakIDs`), placed with the
-  peak-mode helpers (`is_unknown` depends on `peak_mode` + `has_manual_override`):
-  - `is_unknown(self, peak)` → `self.peak_mode(peak).normalized == GuitarMode.UNKNOWN and not self.has_manual_override(peak.id)`
-  - `overridden_peak_ids` property → `set(self.peak_mode_overrides.keys())`. Python's `peak_mode_overrides`
-    is `dict[str, str]` and every entry IS a user assignment, so this is the faithful equivalent of Swift's
-    `.assigned`-case `compactMap` (same set `has_manual_override` tests membership in).
-- **The pure function** — `guitar_mode.py:392` `peaks_in_display_range` gains `overridden_peak_ids: set =
-  frozenset()`; filter becomes `p.id in overridden_peak_ids or GuitarMode.is_known(p.frequency, guitar_type)`.
-  Kept static/pure — a set parameter, not a closure or analyzer ref — so parity tests stay trivial (mirrors
-  the Swift API-shape decision).
-- **Doc-comment reversal** — `guitar_mode.py:409-413` currently argues "the positional test is the one that
-  belongs on a chart layer." Rewrite with a `Note:` recording what changed and why (mirrors Swift's
-  `GuitarMode.swift:251-254` rewrite).
-- **Two override-blind sites derive the set locally**: the dot layer (#2) reads `self.analyzer.overridden_peak_ids`
-  (FftCanvas holds `self.analyzer`); the export chart (#4) derives from `self.mode_overrides` it is already
-  handed — exactly like Swift's `SpectrumView`. Site #3 is on the analyzer already; site #1 has the analyzer.
-
-### Tests — slug `view/dot-layer`, `tests/test_dot_layer.py`
-Pre-flight: DL1–DL7 green BEFORE any edit (all non-override cases; they stay green after — a useful check).
-Add three (expect 535 → 538): **DL8** an out-of-band peak becomes visible once named (the change itself);
-**DL9** the same via a real-mode relabel; **DL10** results row, dot and badge all agree on a user-named peak.
-
-### Parity / verification
-`@parity` tags on the two new analyzer members mirroring Swift; regenerate PARITY-MAP. Full fast suite +
-`gen_parity_map.py --check` (79 groups) + golden `5c264de3941837f8` unmoved.
-
-### User verification — run-review script (from the Swift ledger; note the two-step shape)
-1. Show Unknown Modes **on**; name an out-of-band peak (the Back/Dipole gap is the easiest). Row, dot and
-   badge all present.
-2. Show Unknown Modes **off**. The named peak **stays** — all three surfaces. *This is the change.*
-3. Repeat with a real mode name ("Top") instead of a freeform label — same outcome.
-4. Setting off: an **in-band** custom-labelled peak shows everywhere (the table row is the part that used to
-   be missing).
-5. Setting off: an **unnamed** out-of-band peak is still hidden everywhere — the filter still works.
-6. Setting on: everything appears, exactly as before the phase.
-
-### ✅ Phase 4 COMPLETE — suite green (538), parity 79 + USER-VERIFIED (2026-07-23). Committed `<hash>` (mirrors Swift `08c66d5`).
+### ✅ Phase 4 COMPLETE — suite green (538), parity 79 + USER-VERIFIED (2026-07-23). Committed `6b6cc7d` (mirrors Swift `08c66d5`).
 
 **Changed (Python):**
 - `TapToneAnalyzer.is_unknown(peak)` (`peak_mode(peak).normalized == UNKNOWN and not has_manual_override`)
@@ -290,11 +247,14 @@ Add three (expect 535 → 538): **DL8** an out-of-band peak becomes visible once
 - `GuitarMode.peaks_in_display_range` gained `overridden_peak_ids: set = frozenset()`; filter is now
   `p.id in overridden_peak_ids or is_known(...)`. Doc comment reversed (it argued the positional test belongs
   on a chart layer), mirroring Swift.
-- All four consumers routed through the one predicate: results panel (`tap_tone_analysis_view.py:2682`),
+- All four consumers routed through the one predicate (consumer list **confirmed = four**, each a clean Swift
+  counterpart): results panel (`tap_tone_analysis_view.py:2682`, `m != UNKNOWN` → `not analyzer.is_unknown(p)`),
   dot layer (`fft_canvas.py:1757`, passes `self.analyzer.overridden_peak_ids`), annotation badges
   (`visible_peaks`, `tap_tone_analyzer.py:1452`), export-chart legacy fallback
   (`exportable_spectrum_chart.py` `visible_peaks`, derives from `self.mode_overrides`). Dead
-  `GuitarMode.UNKNOWN` import removed from the results-panel block.
+  `GuitarMode.UNKNOWN` import removed from the results-panel block. Behaviour-preserving for every peak
+  WITHOUT an override (Python's `peak_mode` falls back to a per-frequency `classify_all` lookup, so
+  `assigned == UNKNOWN` is out-of-band); unchanged entirely when Show Unknown Modes is on.
 
 **Tests (+3, 535 → 538):** slug `view/dot-layer`, `tests/test_dot_layer.py`. DL7 rationale rewritten
 (assertion holds; reason changed) + `dots_with_overrides` helper; DL8 (out-of-band peak becomes visible once
@@ -304,13 +264,14 @@ user-named peak). Parity 79; golden `5c264de3941837f8` unmoved.
 **Verified-not-assumed:** `@parity` tags are file-level (nothing per-member to add); the consumer list is
 four (Swift warned it might not be).
 
-**Run-review found ONE issue, DEFERRED to Phase 5 (not a Phase 4 defect):** with Show Unknown Modes off,
-give a selected Top peak a custom mode label, then toggle Show Unknown Modes → the peak is **deselected** in
-the UI. Root-caused: the analyzer's `selected_peak_ids` survives the whole sequence (proven by a model-level
-repro); the deselection is a **Qt view-layer sync** limitation in the peak-widget rebuild, which Phase 4
-merely made *reachable* (before Phase 4 a freeform-labelled peak was hidden with the setting off). Swift is
-immune (SwiftUI derives the star from `selectedPeakIDs`). This is Phase-5 territory — see the note under
-Phase 5. Phase 4's predicate itself is correct and green.
+**Run-reviewed by the user 2026-07-23 — verified; found ONE issue, DEFERRED to Phase 5 (not a Phase 4
+defect):** with Show Unknown Modes off, give a selected Top peak a custom mode label, then toggle Show
+Unknown Modes → the peak is **deselected** in the UI. Root-caused: the analyzer's `selected_peak_ids`
+survives the whole sequence (proven by a model-level repro); the deselection is a **Qt view-layer sync**
+limitation in the peak-widget rebuild, which Phase 4 merely made *reachable* (before Phase 4 a
+freeform-labelled peak was hidden with the setting off). Swift is immune (SwiftUI derives the star from
+`selectedPeakIDs`). This is Phase-5 territory — see the note under Phase 5. Phase 4's predicate itself is
+correct and green.
 
 ### Port ledger — Phase 4
 **Rule.** A peak is unknown only when auto-classification placed it in no mode band **and** the user has not
@@ -318,9 +279,80 @@ named it. Naming a peak makes it known. One predicate governs all three display 
 layer, annotation badges); the annotation surface additionally applies its All/Selected/None gate. With Show
 Unknown Modes on, nothing is filtered anywhere.
 
-## Phase 4a — Rename `current_peaks` → `peaks_above_peak_min`  ⬜
-**Rule.** The Peak-Min-filtered set is a display projection named as such
-(`peaks_above_peak_min ↔ peaksAbovePeakMin`). (Follows Phase 1's projection; rename at port time.)
+**Run-review script (from the Swift ledger; note the two-step shape) — this is the definition of "user-verified":**
+1. Show Unknown Modes **on**; name an out-of-band peak (the Back/Dipole gap is the easiest). Row, dot and
+   badge all present.
+2. Show Unknown Modes **off**. The named peak **stays** — all three surfaces. *This is the change.*
+3. Repeat with a real mode name ("Top") instead of a freeform label — same outcome.
+4. Setting off: an **in-band** custom-labelled peak shows everywhere (the table row is the part that used to
+   be missing).
+5. Setting off: an **unnamed** out-of-band peak is still hidden everywhere — the filter still works.
+6. Setting on: everything appears, exactly as before the phase.
+
+## Phase 4a — Rename `current_peaks` → `peaks_above_peak_min`  🟡
+
+**Goal.** The Peak-Min-filtered set is a display projection named as such (`peaks_above_peak_min ↔
+peaksAbovePeakMin`), not "the peaks". Every question *about the measurement* — save, selection,
+classification, per-peak state carry-forward, whether a measurement exists — reads the durable `all_peaks`;
+only display reads the projection. (Swift `f5fd2ce`.)
+
+### Verified against the Python code 2026-07-23 — Python's 4a is MUCH lighter than Swift's
+The Swift ledger warned this is "the highest-miss-risk port." Verified: Python's **Phase 2 corollary B** (route
+every selection/classification site to `all_peaks`) and the Phase-1 `guitar_full_save_peaks()` (returns
+`all_peaks`) **already did most of Swift's seven-site audit.** Swift's fixes mapped against the Python source:
+
+| Swift fix (f5fd2ce) | Python site | Status |
+|---|---|---|
+| 1 selection carry-forward → `selectedPeaks` | `_peak_analysis.py` snapshot `previously_selected_freqs` | ✅ already `all_peaks`/selected (Phase 2) |
+| 2 annotation-offset snapshot → `allPeaks` | `_peak_analysis.py:149` | ✅ already `all_peaks` (Phase 2) |
+| 3 mode-override snapshot → `allPeaks` | `_peak_analysis.py:157` | ✅ already `all_peaks` (Phase 2) |
+| 4 `guitarModeSelectedPeakIDs` default → `allPeaks` | `_peak_analysis.py:644` | ✅ code already `all_peaks`; **docstring stale** ("defaults to self.current_peaks") → fix text |
+| 5 saved `selectedPeakFrequencies` → `allPeaks` | `_measurement_management.py:311-314` (save) | ✅ already over `all_peaks` (`peaks = guitar_full_save_peaks()`) |
+| 6 comparison averaged row → `selectedPeaks` | `_measurement_management.py:921` | ❌ **FIX** → `self.selected_peaks` |
+| 7 `selectAllPeaks` → `allPeaks` | `analyzer.select_all_peaks` (routed Phase 2C) | verify (dies in Phase 5 anyway) |
+| material persist → `allPeaks` | `_measurement_management.py:311` (save) | ✅ already `all_peaks` |
+| Save gated on completeness, not peaks-visible | `set_measurement_complete(checked)` `view:2465` | ✅ already gated on complete; no `current_peaks` Save-disable exists |
+
+**Still real (all LOAD-path restores over the projection instead of the durable set):**
+- `_measurement_management.py:667` material restore `selected_peak_ids = {p.id for p in current_peaks}` → `all_peaks`
+- `_measurement_management.py:671` guitar no-saved-selection restore → `all_peaks`
+- `_measurement_management.py:679` frequency-cache seed on load → `all_peaks`
+- `_measurement_management.py:921` comparison averaged row → `self.selected_peaks`
+
+### The work
+1. **Rename** the analyzer attribute `current_peaks` → `peaks_above_peak_min` and every `.current_peaks`
+   read across models / views / tests (~50 model refs + view/test refs). Add a doc comment on the projection
+   stating the three scopes (`all_peaks` = measurement · Peak Min = a setting · display range = viewport) and
+   that anything asking about the measurement reads `all_peaks`. **No compiler → grep-driven; run the full
+   suite + a manual `grep current_peaks` sweep after to catch misses.** Display emits
+   (`peaksChanged.emit(...)`), logs and the ±5 Hz remap lookup (`:615`) are pure renames.
+1b. **Also rename `fft_canvas._current_peaks` → `_all_peaks_in_range`** — this is NOT the analyzer's
+   projection; it is the *viewport dot set* (`peaks_above_peak_min` further filtered by display range +
+   unknown/override via `peaks_in_display_range`), index-aligned with the scatter arrays for click
+   hit-testing. It is Python's stored equivalent of Swift's `SpectrumView.allPeaksInRange` (Swift recomputes
+   it each render; pyqtgraph forces us to store it) — so mirror that name rather than leaving a second,
+   misleading "current_peaks". Refs: `fft_canvas.py:632` (init), `:1169-1170` (`point_picked` hit-test),
+   `:1706-1707`, `:1721-1723` (`setData`), `:1768`/`:1773` (assignment). The stale comment at `:1748` ("unlike
+   Swift") updates to name `allPeaksInRange`.
+2. **Four fixes:** the three load-path restores (`:667`, `:671`, `:679`) → `all_peaks`; the comparison
+   averaged row (`:921`) → `self.selected_peaks`. Plus the `guitar_mode_selected_peak_ids` **docstring** →
+   `all_peaks` (code is already correct).
+
+### Tests — slug `test/frozen-peak-recalc`
+Python's **Phase 2 `TestPeakMinDurability`** already asserts identity / selection / override / offset survive a
+Peak Min sweep — i.e. Swift's two *inverted* tests (`..._offsetForFilteredOutPeak_survives` + override twin)
+are already in survival form here. **Verify** that coverage, then add the one genuinely new test:
+`test_reanalyze_preserves_state_of_peaks_hidden_by_peak_min` — driven through a **Gaussian-spectrum fixture**
+(`freeze_on_real_spectrum`) so `find_peaks` actually detects peaks; the flat −100 spectrum trap makes recalc
+early-return and any test built on it pass *vacuously* (same trap Swift flagged). The test asserts its own
+preconditions. Parity 79; golden `5c264de3941837f8` unmoved.
+
+### User verification — run-review script (from the Swift ledger)
+1. Re-analyze a frozen measurement that has a dragged badge and a custom mode name on a peak **hidden by
+   Peak Min** → both survive.
+2. Freeze with Peak Min hiding everything → **Save is enabled**; the saved file reloads complete (drop Peak
+   Min → peaks reappear).
+3. Before any measurement exists → **Save is disabled**.
 
 ## Phase 5 — The selection model  ⬜
 **Rule.** At most one **selected** peak per Air / Top / Back — the selected one is the *definitive* peak.
