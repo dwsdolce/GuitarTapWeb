@@ -12,7 +12,7 @@
 // @parity audio/tap-analyzer  tests=test/tap-decisions
 import { averageSpectra } from '../dsp/spectrumAverage'
 import type { Spectrum } from '../dsp/guitarFFT'
-import { findPeaks, type Peak } from '../dsp/peaks'
+import { findPeaks, PEAK_DETECTION_FLOOR, type Peak } from '../dsp/peaks'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { PLATE_PHASES, BRACE_PHASE, findDominantPeak } from '../dsp/gatedCapture'
@@ -310,13 +310,15 @@ export class TapToneAnalyzer {
     guitarType: GuitarTypeName
     minHz: number
     maxHz: number
-    peakMin: number
   }): void {
+    // Phase 1: detection stores the FULL peak set, found at the fixed -100 dB floor — Peak Min is NOT
+    // an input here (it moved to a display selector in App, so a slider tick no longer re-mints peaks
+    // or destroys per-peak state). Mirrors Swift `allPeaks` found via `peakMinOverride: peakDetectionFloor`.
     let peaks: Peak[]
     if (p.material) {
       peaks = [] // peaks are guitar-only; material uses matPeaks
     } else if (p.loadedPeaks) {
-      peaks = p.loadedPeaks.filter((pk) => pk.magnitude >= p.peakMin) // loaded peaks are authoritative
+      peaks = p.loadedPeaks // loaded peaks are the authoritative FULL set; Peak Min projects them for display
     } else {
       // Peaks follow the DISPLAYED spectrum: the frozen result once complete, otherwise the live
       // spectrum while waiting/detecting — so the list + annotations update on each live FFT frame,
@@ -330,20 +332,20 @@ export class TapToneAnalyzer {
               guitarType: p.guitarType,
               minHz: p.minHz,
               maxHz: p.maxHz,
-              peakMinThreshold: p.peakMin,
+              peakMinOverride: PEAK_DETECTION_FLOOR,
             })
           : []
     }
     this.peaks = peaks
     this.modeByPeak = classifyAll(peaks, p.guitarType)
-    // Per-tap peaks (Swift recalculateTapEntryPeaks): re-find each entry's peaks at the current Peak Min.
+    // Per-tap peaks (Swift recalculateTapEntryPeaks): each entry's FULL peak set at the -100 floor.
     // Guitar-only, and the default findPeaks range (matches the multi-tap table's modePeaksFromSpectrum).
     if (!p.material && this.tapEntries.length > 0) {
       this.tapEntries = this.tapEntries.map((e) => ({
         ...e,
         peaks: findPeaks(e.spectrum.magnitudesDb, e.spectrum.frequencies, {
           guitarType: p.guitarType,
-          peakMinThreshold: p.peakMin,
+          peakMinOverride: PEAK_DETECTION_FLOOR,
         }),
       }))
     }

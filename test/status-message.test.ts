@@ -115,7 +115,7 @@ describe('statusMessage — guitar detection-loop strings', () => {
     a.frozenFrequencies = spectrum(60).frequencies
     a.isMeasurementComplete = true
     const recalc = (peakMin: number) =>
-      a.recalculatePeaks({ material: false, loadedPeaks: null, liveSpectrum: null, guitarType: 'generic', minHz: 0, maxHz: 20000, peakMin })
+      a.recalculatePeaks({ material: false, loadedPeaks: null, liveSpectrum: null, guitarType: 'generic', minHz: 0, maxHz: 20000 })
     recalc(-100)
     const announced = a.statusMessage
     expect(announced).toMatch(/^Analysis complete! \d+ peaks identified \(from 2 averaged taps\)\.$/)
@@ -132,7 +132,7 @@ describe('statusMessage — guitar detection-loop strings', () => {
     a.loadMeasurement({ magnitudes: [1, 2], frequencies: [1, 2] })
     expect(a.statusMessage).toBe('Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.')
     // A recalc on the loaded measurement must NOT flip it to "Analysis complete" (capturedTaps cleared).
-    a.recalculatePeaks({ material: false, loadedPeaks: [], liveSpectrum: null, guitarType: 'generic', minHz: 0, maxHz: 20000, peakMin: -100 })
+    a.recalculatePeaks({ material: false, loadedPeaks: [], liveSpectrum: null, guitarType: 'generic', minHz: 0, maxHz: 20000 })
     expect(a.statusMessage).toBe('Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.')
   })
 })

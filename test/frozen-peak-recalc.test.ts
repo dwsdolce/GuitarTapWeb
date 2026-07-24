@@ -40,7 +40,11 @@ const combine = (a: { mags: number[]; freqs: number[] }, b: { mags: number[]; fr
 const peak = (frequency: number, magnitude: number, id = frequency): Peak => ({ id, frequency, magnitude, quality: 0, bandwidth: 0 })
 const near = (peaks: Peak[], hz: number, tol = 20) => peaks.some((p) => Math.abs(p.frequency - hz) < tol)
 
-/** Drive recalculatePeaks with sensible defaults (guitar, generic, 80–1200 Hz, threshold -60). */
+/** Drive recalculatePeaks with sensible defaults (guitar, generic, 80–1200 Hz).
+ *  Phase 1: recalculatePeaks stores the FULL set at the -100 floor — Peak Min is NOT an input; it is a
+ *  display projection at the App layer (`peaksAbovePeakMin = allPeaks.filter(mag >= peakMin)`). Tests
+ *  that used to assert the analyzer's `peaks` shrank with Peak Min now assert the full set + the
+ *  projection separately. */
 function recalc(a: TapToneAnalyzer, over: Partial<Parameters<TapToneAnalyzer['recalculatePeaks']>[0]> = {}) {
   a.recalculatePeaks({
     material: false,
@@ -49,10 +53,11 @@ function recalc(a: TapToneAnalyzer, over: Partial<Parameters<TapToneAnalyzer['re
     guitarType: 'generic',
     minHz: 80,
     maxHz: 1200,
-    peakMin: -60,
     ...over,
   })
 }
+/** The Peak-Min display projection (App `peaksAbovePeakMin`): the SAME peak objects, filtered. */
+const project = (peaks: Peak[], peakMin: number) => peaks.filter((p) => p.magnitude >= peakMin)
 function frozen(a: TapToneAnalyzer, mags: number[], freqs: number[]) {
   a.frozenMagnitudes = mags
   a.frozenFrequencies = freqs
@@ -69,29 +74,34 @@ describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () =
     expect(near(a.peaks, 200)).toBe(true)
   })
 
-  it('PR-A2: raising the threshold removes a weak peak on recalc', () => {
+  it('PR-A2: a weak peak is KEPT in the durable set (detection floors at -100); Peak Min only projects it', () => {
     const a = new TapToneAnalyzer()
     const { mags, freqs } = makeSpectrum(200, -50)
     frozen(a, mags, freqs)
-    recalc(a, { peakMin: -60 })
-    expect(near(a.peaks, 200)).toBe(true)
-    recalc(a, { peakMin: -40 })
-    expect(near(a.peaks, 200)).toBe(false)
+    recalc(a)
+    expect(near(a.peaks, 200)).toBe(true) // the full set holds the -50 peak regardless of any Peak Min
+    // The App projection is what hides/shows it — and it hands back the SAME peak object.
+    expect(near(project(a.peaks, -60), 200)).toBe(true)
+    expect(near(project(a.peaks, -40), 200)).toBe(false)
   })
 
-  it('PR-A3: loaded-measurement path filters by threshold', () => {
+  it('PR-A3: the loaded path keeps the FULL authoritative set (not filtered at the analyzer)', () => {
     const a = new TapToneAnalyzer()
     frozen(a, [100, 200, 400], [100, 200, 400]) // non-empty frozen (matches Swift guard); loaded path ignores it
-    recalc(a, { loadedPeaks: [peak(200, -25), peak(400, -65)], peakMin: -60 })
-    expect(a.peaks).toHaveLength(1)
+    recalc(a, { loadedPeaks: [peak(200, -25), peak(400, -65)] })
+    expect(a.peaks).toHaveLength(2) // both kept — Peak Min is a display projection, not a detection gate
     expect(near(a.peaks, 200, 1)).toBe(true)
+    expect(near(a.peaks, 400, 1)).toBe(true)
+    // The projection filters the faint one for display, keeping the strong one's object.
+    expect(project(a.peaks, -60).map((p) => p.frequency)).toEqual([200])
   })
 
-  it('PR-A4: all loaded peaks below threshold → empty', () => {
+  it('PR-A4: loaded peaks below the current Peak Min are KEPT in the set (projected out only for display)', () => {
     const a = new TapToneAnalyzer()
     frozen(a, [100, 200, 400], [100, 200, 400])
-    recalc(a, { loadedPeaks: [peak(200, -70), peak(400, -65)], peakMin: -60 })
-    expect(a.peaks).toHaveLength(0)
+    recalc(a, { loadedPeaks: [peak(200, -70), peak(400, -65)] })
+    expect(a.peaks).toHaveLength(2) // durable set keeps them — save must not prune
+    expect(project(a.peaks, -60)).toHaveLength(0) // display projection hides both at Peak Min -60
   })
 
   it('PR-A5: empty frozen magnitudes → no peaks (no crash)', () => {
@@ -106,20 +116,20 @@ describe('frozen-peak-recalc — loaded peaks are authoritative (PR2c) + live/ma
   it('PR2c: the loaded path returns saved peaks, does NOT re-analyse the frozen spectrum', () => {
     const a = new TapToneAnalyzer()
     frozen(a, new Array(512).fill(-100), Array.from({ length: 512 }, (_, i) => i * 47)) // flat → findPeaks would find nothing
-    recalc(a, { loadedPeaks: [peak(300, -25)], peakMin: -80 })
+    recalc(a, { loadedPeaks: [peak(300, -25)] })
     expect(near(a.peaks, 300, 1)).toBe(true) // survives — proves the saved peak is used, not the flat spectrum
   })
 
-  it('PR2 (two peaks): raising the threshold drops the weaker of two frozen peaks', () => {
+  it('PR2 (two peaks): both frozen peaks are in the durable set; Peak Min projects the weaker', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -55))
     frozen(a, s.mags, s.freqs)
-    recalc(a, { peakMin: -60 })
+    recalc(a)
     expect(near(a.peaks, 200)).toBe(true)
-    expect(near(a.peaks, 400)).toBe(true)
-    recalc(a, { peakMin: -40 })
-    expect(near(a.peaks, 200)).toBe(true) // strong survives
-    expect(near(a.peaks, 400)).toBe(false) // weak dropped
+    expect(near(a.peaks, 400)).toBe(true) // the full set holds the -55 peak
+    expect(near(project(a.peaks, -60), 400)).toBe(true) // shown at -60
+    expect(near(project(a.peaks, -40), 200)).toBe(true) // strong shown at -40
+    expect(near(project(a.peaks, -40), 400)).toBe(false) // weak projected out at -40
   })
 
   it('live-spectrum path: peaks track the live spectrum while not complete (Swift analyzeMagnitudes / P1b)', () => {
@@ -135,6 +145,42 @@ describe('frozen-peak-recalc — loaded peaks are authoritative (PR2c) + live/ma
     const { mags, freqs } = makeSpectrum(200, -20)
     recalc(a, { material: true, liveSpectrum: { magnitudesDb: mags, frequencies: freqs }, loadedPeaks: [peak(200, -20)] })
     expect(a.peaks).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Phase 1 durability — the durable set is the FULL set; Peak Min never shrinks it, and projecting
+// hands back the SAME peak objects so per-peak state (selection/overrides/offsets) survives a slider
+// move. Mirrors Swift PeakMinDurabilityTests / the "never assign the durable set a filtered view" trap.
+// ---------------------------------------------------------------------------
+describe('frozen-peak-recalc — Peak-Min durability (Phase 1)', () => {
+  it('the durable set holds a sub-Peak-Min peak (found at the -100 floor, not at Peak Min)', () => {
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -80)) // -80 is below any normal Peak Min
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    expect(near(a.peaks, 400)).toBe(true) // kept — so lowering the slider can later reveal it
+  })
+
+  it('a peak hidden then revealed via Peak Min returns the SAME object (id/identity intact)', () => {
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -50))
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    const before = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    expect(project(a.peaks, -40).some((p) => p === before)).toBe(false) // hidden at -40
+    const revealed = project(a.peaks, -60).find((p) => Math.abs(p.frequency - 400) < 20)!
+    expect(revealed).toBe(before) // SAME object reference — identity/id preserved across the slider
+  })
+
+  it('recalc does not shrink the durable set as a (former) Peak Min would rise', () => {
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -55))
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    const n = a.peaks.length
+    recalc(a) // re-run (what the effect does when non-peakMin inputs change) — the set must not shrink
+    expect(a.peaks.length).toBe(n)
   })
 })
 

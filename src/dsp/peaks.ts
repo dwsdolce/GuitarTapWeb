@@ -27,6 +27,11 @@ export interface Peak {
 const WINDOW = 5 // ±5-bin local-max window
 const PEAK_PROXIMITY_HZ = 2.0
 
+/** The fixed detection floor (dB): capture always finds peaks down to this, and Peak Min is applied
+ *  afterwards as a display projection. Mirrors Swift `TapToneAnalyzer.peakDetectionFloor` (−100). The
+ *  lowest the Peak Min slider reaches, so the stored set holds every peak the user could ever reveal. */
+export const PEAK_DETECTION_FLOOR = -100
+
 /** Optional inputs to {@link findPeaks}: mode-band selection, analysis range, and magnitude gate. */
 export interface FindPeaksOptions {
   /** Guitar type selecting the known-mode bands (default `'generic'`). */

@@ -509,15 +509,27 @@ export default function App() {
   // (complete) they use the frozen result, so gate the live spectrum off after completion to avoid
   // recomputing frozen peaks on every continuous FFT frame.
   const liveForPeaks = snapshot.isMeasurementComplete ? null : liveSpectrum
+  // Phase 1: Peak Min is NOT an input here — detection stores the FULL set at the -100 floor, and the
+  // Peak Min slider is applied afterwards as the `peaksAbovePeakMin` projection below. So a slider tick
+  // no longer re-runs findPeaks or re-mints peaks, and per-peak state (selection/overrides/offsets)
+  // survives it. Mirrors Swift `allPeaks` (durable) + `currentPeaks` (Peak-Min projection).
   useLayoutEffect(() => {
-    analyzer.recalculatePeaks({ material, loadedPeaks, liveSpectrum: liveForPeaks, guitarType, minHz: analysisMinHz, maxHz: analysisMaxHz, peakMin })
-  }, [analyzer, material, loadedPeaks, liveForPeaks, guitarType, analysisMinHz, analysisMaxHz, peakMin, captured])
-  const peaks = snapshot.peaks
+    analyzer.recalculatePeaks({ material, loadedPeaks, liveSpectrum: liveForPeaks, guitarType, minHz: analysisMinHz, maxHz: analysisMaxHz })
+  }, [analyzer, material, loadedPeaks, liveForPeaks, guitarType, analysisMinHz, analysisMaxHz, captured])
+  const peaks = snapshot.peaks // the durable FULL set (down to -100) — used for selection state + save
   const modeByPeak = snapshot.modeByPeak
 
-  const sortedPeaks = useMemo(() => [...peaks].sort((a, b) => a.frequency - b.frequency), [peaks])
+  // The Peak-Min display projection: the same peak objects, filtered to the slider. Material passes
+  // through (its Peak Min never gates — the tap capture uses its own adaptive floor). The display list,
+  // chart dots/markers, and the live ratio read THIS; selection state + the save path read the full set.
+  const peaksAbovePeakMin = useMemo(
+    () => (material ? peaks : peaks.filter((pk) => pk.magnitude >= peakMin)),
+    [peaks, peakMin, material],
+  )
+
+  const sortedPeaks = useMemo(() => [...peaksAbovePeakMin].sort((a, b) => a.frequency - b.frequency), [peaksAbovePeakMin])
   // Live tap-tone ratio (f_Top / f_Air) for the Analysis Results panel — same fn the PDF uses.
-  const tapRatio = useMemo(() => (material ? null : tapToneRatio(peaks, guitarType)), [material, peaks, guitarType])
+  const tapRatio = useMemo(() => (material ? null : tapToneRatio(peaksAbovePeakMin, guitarType)), [material, peaksAbovePeakMin, guitarType])
   const displayPeaks = useMemo(
     () =>
       showUnknownModes
@@ -602,11 +614,11 @@ export default function App() {
       }),
     [tapEntries, guitarType],
   )
-  // Averaged row uses the displayed peaks (respects loaded-authoritative peaks).
+  // Averaged row uses the displayed (Peak-Min-projected) peaks (respects loaded-authoritative peaks).
   const avgModes = useMemo<TapModeFreqs>(() => {
-    const m = resolvedModePeaks(peaks, guitarType)
+    const m = resolvedModePeaks(peaksAbovePeakMin, guitarType)
     return { air: m.get('air')?.frequency ?? null, top: m.get('top')?.frequency ?? null, back: m.get('back')?.frequency ?? null }
-  }, [peaks, guitarType])
+  }, [peaksAbovePeakMin, guitarType])
   const multiTapOverlays = useMemo<SpectrumOverlay[]>(() => {
     const out: SpectrumOverlay[] = tapEntries.map((e, i) => ({
       magnitudesDb: e.spectrum.magnitudesDb,
