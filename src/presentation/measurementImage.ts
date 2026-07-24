@@ -6,7 +6,7 @@
 import type { Peak } from '../dsp/peaks'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
-import { MODE_COLOR, MODE_DISPLAY_NAME } from './modeColors'
+import { MODE_COLOR, MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, USER_MODE_COLOR } from './modeColors'
 import { WOOD_QUALITY_COLOR } from './qualityColors'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
@@ -88,12 +88,18 @@ export function buildGuitarMarkers(
     const key = p.frequency.toFixed(1)
     const mode = modeByPeak.get(p.id) ?? 'unknown'
     const override = overridesByFreq.get(key)
+    // Override wins for color too (like the label): a predefined override uses that mode's color, a
+    // freeform label is user-defined; else the auto-classified mode's color. Mirrors Swift peakColor /
+    // Python peak_color — so the callout AND the Detected Peaks Summary chip match the override.
+    const overrideMode = override != null ? MODE_BY_DISPLAY_NAME[override] : undefined
     const annotated = annotationMode === 'all' ? true : annotationMode === 'selected' ? selectedIds.has(p.id) : false
     const note = pitch.note(p.frequency)
     return {
       frequency: p.frequency,
       magnitude: p.magnitude,
-      color: mode !== 'unknown' ? MODE_COLOR[mode] : undefined,
+      color: override != null
+        ? (overrideMode ? MODE_COLOR[overrideMode] : USER_MODE_COLOR)
+        : (mode !== 'unknown' ? MODE_COLOR[mode] : undefined),
       label: override ?? MODE_DISPLAY_NAME[mode],
       note: note ?? undefined,
       cents: note ? pitch.cents(p.frequency) : undefined,

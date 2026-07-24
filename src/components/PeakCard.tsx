@@ -42,7 +42,7 @@ export interface PeakCardProps {
   mode: ResolvedMode
   /** The displayed label: the auto mode's name, or a manual override. */
   effectiveLabel: string
-  /** Whether {@link effectiveLabel} is a manual override (shows italic + ✎). */
+  /** Whether {@link effectiveLabel} is a manual override (shows italic + trailing " *"). */
   isManualOverride: boolean
   /** true = in mode's ideal range, false = out, null = no indicator (unknown/upper). */
   inRange: boolean | null
@@ -67,7 +67,7 @@ const CUSTOM = '__custom__'
  * One resonant-peak card, mirroring Swift `CombinedPeakModeRowView`:
  * `[star] [mode glyph + in-range badge] [mode label · freq / pitch / Q · BW · mag]`.
  * The star toggles the chart annotation; the label is a dropdown that assigns a mode
- * override (a manual override renders italic + ✎ and offers "Reset to Auto").
+ * override (a manual override renders italic + trailing " *" and offers "Reset to Auto").
  */
 export function PeakCard({
   peak,
@@ -138,7 +138,7 @@ export function PeakCard({
             {options.map((l) => (
               <option key={l} value={l}>
                 {l}
-                {isManualOverride && l === effectiveLabel ? ' ✎' : ''}
+                {isManualOverride && l === effectiveLabel ? ' *' : ''}
               </option>
             ))}
             <option value={CUSTOM}>Custom…</option>

@@ -380,7 +380,8 @@ function drawPeaks(cur: Cur, data: PdfReportData) {
     if (isGuitar) {
       font(doc, 10, p.isOverride ? 'italic' : 'normal')
       setColor(doc, p.modeColor ? hexToRgb(p.modeColor) : SECONDARY)
-      doc.text(p.modeLabel || '–', cMode, cur.y)
+      // Overridden mode: italic + trailing " *" — the one convention used everywhere.
+      doc.text((p.modeLabel || '–') + (p.isOverride ? ' *' : ''), cMode, cur.y)
     } else {
       font(doc, 10, 'normal')
       setColor(doc, PRIMARY)

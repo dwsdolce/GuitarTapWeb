@@ -136,10 +136,14 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
     const cy = y + 32
     for (const m of chips) {
       const color = m.color ?? MODE_COLOR.unknown
-      const lines = [`${m.frequency.toFixed(1)} Hz`, m.label ?? '', `${m.magnitude.toFixed(1)} dB`]
+      // Override-aware, matching the callout and the results list: an overridden mode chip is italic
+      // with a trailing " *" (m.label + m.color are already override-aware from buildGuitarMarkers).
+      const modeText = (m.label ?? '') + (m.isOverride ? ' *' : '')
+      const modeFont = FONT(12, m.isOverride ? 'italic' : '')
+      const lines = [`${m.frequency.toFixed(1)} Hz`, modeText, `${m.magnitude.toFixed(1)} dB`]
       ctx.font = FONT(13, 'bold')
       let cw = ctx.measureText(lines[0]!).width
-      ctx.font = FONT(12)
+      ctx.font = modeFont
       cw = Math.max(cw, ctx.measureText(lines[1]!).width, ctx.measureText(lines[2]!).width) + 20
       if (cx + cw > W - PAD) break
       ctx.fillStyle = hexA(color, 0.1)
@@ -151,7 +155,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
       ctx.font = FONT(13, 'bold')
       ctx.fillText(lines[0]!, cx + cw / 2, cy + 18)
       ctx.fillStyle = color
-      ctx.font = FONT(12)
+      ctx.font = modeFont
       ctx.fillText(lines[1]!, cx + cw / 2, cy + 34)
       ctx.fillStyle = th.axis
       ctx.fillText(lines[2]!, cx + cw / 2, cy + 50)

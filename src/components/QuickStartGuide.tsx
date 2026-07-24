@@ -167,7 +167,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Overriding Mode Classification',
-        body: 'If a peak is labelled Unknown, or misclassified, click it in the Results list and assign the correct mode manually. Your override is saved with the measurement.',
+        body: 'If a peak is labelled Unknown, or misclassified, click it in the Results list and assign the correct mode manually. An overridden mode is shown in italics with a trailing asterisk (*) so it stands out from the automatic classification. Your override is saved with the measurement.',
       },
       {
         title: 'Step 6 — Save',

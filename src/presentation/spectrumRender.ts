@@ -412,7 +412,7 @@ function drawBadge(
   const padY = 5
   const lineH = 14
   const lines: { text: string; color: string; font: string }[] = [
-    { text: (m.label ?? '') + (m.isOverride ? ' ✎' : ''), color, font: `${m.isOverride ? 'italic ' : ''}bold 11px system-ui, sans-serif` },
+    { text: (m.label ?? '') + (m.isOverride ? ' *' : ''), color, font: `${m.isOverride ? 'italic ' : ''}bold 11px system-ui, sans-serif` },
   ]
   if (m.note) {
     const c = Math.round(m.cents ?? 0)
