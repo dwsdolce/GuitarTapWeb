@@ -273,10 +273,75 @@ at load. `findPeaks` is deterministic and the golden is frozen, so this equals t
    Qt view-reset find — verify the React analogue is absent, which it should be: `tapEntries.length > 1`
    gates it reactively).
 
-### Phase 4 — One "unknown" predicate  ⬜
-**Goal.** A single `isUnknown(peak)` + `overriddenPeakIDs`, threaded through every consumer (results
-table, chart dots, annotations, legacy fallback). Naming a peak identifies it. *(Web assess: web dots
-filter by assigned-mode, not `isKnown` — the tracked divergence in [[project_dot_annotation_parity]].)*
+### Phase 4 — One "unknown" predicate  ✅
+### ✅ Phase 4 COMPLETE — fast suite green (319), golden `5c264de3941837f8` unmoved, parity 79 + USER-VERIFIED (2026-07-24). Committed `969eac7`.
+**Changed (web):** `peaksInDisplayRange` (`dsp/guitarModes.ts`) gained `overriddenPeakIds: Set<number>`
+(Swift's param order); filter `overriddenPeakIds.has(p.id) || isKnown(freq)`; doc comment reversed with a
+`- Note:`. `overriddenPeakIds` built once at the App (`App.tsx`) from the freq-keyed overrides
+(`peaks.filter(overrides.has(keyOf)).map(id)` — freq→id isolated there); `displayPeaks` (table) ORs the
+override in, moved below `useAnnotations`; `chartPeaks` passes the set. Badges derive from the dot set.
+Tests (`test/dot-layer.test.ts`): DL8 (named out-of-band peak visible with setting off), DL9 (override
+kind irrelevant to dots), DL10 (named peak gets dot + badge; unnamed out-of-band gets neither); DL1–7
+stand. **Also (bundled):** `PeakCard.tsx` — the "Reset to Auto" menu item moved to the TOP, matching
+Swift/Python. **Run-reviewed by the user 2026-07-24** (name out-of-band peak, setting off → stays; menu
+order correct).
+
+**Rule (from Swift `08c66d5`).** A peak is unknown only when auto-classification placed it in no mode band
+**and** the user has not named it — **naming a peak makes it known**. One predicate governs the display
+surfaces; the annotation surface additionally applies its All/Selected/None gate. With Show Unknown Modes
+**on**, nothing is filtered anywhere. Behaviour-preserving for every non-overridden peak (assigned-unknown
+≡ positionally-out-of-band, because `classifyAll` falls back to a per-frequency lookup).
+
+**Exact Swift shapes (read from the diff):**
+- `overriddenPeakIDs = Set(peakModeOverrides where .assigned)` — the ids of user-named peaks.
+- `isUnknown(peak) = peakMode(peak).normalized == .unknown && !hasManualOverride(peak.id)` (the table).
+- `peaksInDisplayRange` gains `overriddenPeakIDs: Set<UUID> = []`; filter becomes
+  `overriddenPeakIDs.contains($0.id) || isKnown(frequency:)` (the dots) — kept static + pure.
+- The `GuitarMode.peaksInDisplayRange` doc comment (which argued "the positional test belongs on a chart
+  layer") is **reversed** with a `- Note:` recording what changed and why.
+
+### Verified against the web code 2026-07-24
+| Swift site | Web site (verified) | Action |
+|---|---|---|
+| table `!isUnknown` | `displayPeaks` (`App.tsx:537`): `(modeByPeak.get(p.id) ?? 'unknown') !== 'unknown'` — assigned-mode, override-blind | keep the assigned-mode form but OR in the override: `… !== 'unknown' \|\| overridden` |
+| dots `peaksInDisplayRange` | `peaksInDisplayRange` (`dsp/guitarModes.ts:118`): `isKnown(p.frequency, guitarType)` — positional, override-blind; the doc comment `:108-111` argues positional-belongs-on-chart (the reversible one) | add `overriddenPeakIds: Set<number> = new Set()`; filter `overriddenPeakIds.has(p.id) \|\| isKnown(...)`; **rewrite the doc comment** |
+| dots caller | `chartPeaks` (`App.tsx:682`) | pass `overriddenPeakIds` (built at App from the freq-keyed overrides) |
+| annotation badges | derived from `chartPeaks` via `buildGuitarMarkers(chartPeaks, …, annotationMode, …)` (`App.tsx:686`) — the All/Selected/None gate is inside `buildGuitarMarkers` | **no change** — badges are a subset of the (now override-aware) dot set |
+| Swift's 4th "legacy fallback" site | **none** — the saved-measurement export (`measurementImage.ts:181`) passes ALL `loadedPeaks` to `buildGuitarMarkers` (no unknown filter), so it never hides a named peak. Not a Phase-4 site. | confirm the render doesn't separately filter dots by known-ness |
+
+**Web override key = frequency** (`keyOf(p) = p.frequency.toFixed(1)`, `App.tsx:588`), not a UUID like
+Swift. So `overriddenPeakIds` is built at the App call site:
+`new Set(peaks.filter(p => overrides.has(keyOf(p))).map(p => p.id))` — the freq-key→id conversion stays at
+the App layer (the standing web override-keying divergence; the selection-ownership restructure will
+re-key onto the model). `peaksInDisplayRange` then checks by `id`, mirroring Swift's `Set<UUID>`.
+
+**Stale-memory correction:** [[project_dot_annotation_parity]] says "web dots filter by assigned-mode, not
+`isKnown`". Not any more — DL7 (committed 2026-07-21) already made the dots positional. The web is exactly
+at Swift's pre-Phase-4 state: dots positional, table assigned-mode, **both override-blind**. Phase 4 adds
+override-awareness to both. (Update that memory when this lands.)
+
+### The work
+1. **`peaksInDisplayRange`** (`guitarModes.ts`): constrain `<T extends { frequency: number; id: number }>`,
+   add `overriddenPeakIds: Set<number> = new Set()`, filter `overriddenPeakIds.has(p.id) || isKnown(...)`,
+   and **rewrite the doc comment** with a `- Note:` (mirror Swift).
+2. **`chartPeaks`** (`App.tsx:682`): pass the App-built `overriddenPeakIds`.
+3. **`displayPeaks`** (`App.tsx:537`): OR the override into the assigned-mode test.
+4. Confirm badges (derive from `chartPeaks`) + the saved-export render.
+
+### Tests — slug `view/dot-layer` (`test/dot-layer.test.ts`)
+DL1–DL7 stand (non-override cases where positional ≡ assigned-unknown; DL7's in-band override stays shown,
+rationale note updated). Add, mirroring Swift: **DL8** an out-of-band peak becomes visible once named
+(freeform), **DL9** the same via a real-mode relabel, **DL10** table/dot/badge all agree on a user-named
+peak. `gen_parity_map --check` 79; golden `5c264de3941837f8` unmoved.
+
+### User verification — run-review script (from the Swift ledger; two-step by nature)
+1. Show Unknown Modes **on**; name an out-of-band peak (the Back/Dipole gap is easiest) → row, dot, badge
+   all present.
+2. Show Unknown Modes **off** → the named peak **stays** on all three surfaces. *This is the change.*
+3. Repeat with a real mode name ("Top") instead of a freeform label → same.
+4. Setting off: an **in-band** custom-labelled peak shows everywhere (the table row is what used to vanish).
+5. Setting off: an **unnamed** out-of-band peak is still hidden everywhere — the filter still works.
+6. Setting on: everything appears, exactly as before.
 
 ### Phase 4a — Rename to `peaksAbovePeakMin`  ⬜
 **Goal.** The display projection is named `peaksAbovePeakMin` (mirror Swift/Python); the durable set is
