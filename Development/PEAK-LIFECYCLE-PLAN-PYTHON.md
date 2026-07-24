@@ -684,9 +684,17 @@ implement time so `--check` stays clean); golden unmoved.
 ---
 
 ## Cross-cutting deliverables (all ports)
-- **Docs:** release notes (Python repo) + in-app Help/Quick-Start (Python has one) mirror the Swift
-  wording (the 3 HelpView corrections + the "Peaks & Modes" behaviours). Manual is Swift-only — nothing
-  to port, but Python behaviour must MATCH it. (Swift did these as ONE docs commit at the end — mirror that.)
+- **✅ Docs (Python) COMPLETE — committed `5b18b45` (2026-07-24).** In-app Help (`help_view.py`)
+  realigned to Swift's canonical wording — the 3 changed entries (**Re-analyze Peaks**, **Peak Min**
+  slider + Settings: now "a display filter … never re-detects/re-selects/re-classifies") + dropped the
+  stale "analysis range" mention in Advanced Settings; the rest already matched. Release notes
+  (`docs/ReleaseNotes-1.0.2-440.md`) mirrored Swift's 1.0.2 notes — added the **Peaks & Modes** section
+  (naming identifies · one definitive Air/Top/Back + Select All removed · derived values follow
+  selection/overrides · multi-tap Taps honours overrides · comparisons self-describing · guitar-type
+  clean slate · new sequence starts clean), the "Peak Min is purely display" bullet, the "Analysis
+  Frequency Range removed" note, and fixed a stale Select-All bullet. One docs commit (mirrors Swift).
+  Manual is Swift-only — nothing to port, but Python behaviour MATCHES it. (User regenerates the
+  Quick-Start + release-notes PDFs; I edit `.md`/source only.)
 - **Soak/stress harness** (Phase 9 deliverable): `pytest` + `pytest-repeat` + `pytest-timeout`, skip slow
   playback; detect crashes/hangs. Mirror the Swift harness's lesson — watch for crash artifacts, not just
   the runner's exit text.
