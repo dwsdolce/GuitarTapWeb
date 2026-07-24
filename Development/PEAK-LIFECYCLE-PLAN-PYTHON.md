@@ -264,9 +264,12 @@ user-named peak). Parity 79; golden `5c264de3941837f8` unmoved.
 **Verified-not-assumed:** `@parity` tags are file-level (nothing per-member to add); the consumer list is
 four (Swift warned it might not be).
 
-**Run-reviewed by the user 2026-07-23 — verified; found ONE issue, DEFERRED to Phase 5 (not a Phase 4
-defect):** with Show Unknown Modes off, give a selected Top peak a custom mode label, then toggle Show
-Unknown Modes → the peak is **deselected** in the UI. Root-caused: the analyzer's `selected_peak_ids`
+**Run-reviewed by the user 2026-07-23 — verified; found ONE issue, DEFERRED to Phase 5 → ✅ RESOLVED in
+Phase 5** (the real root was the mode-override routing gap: naming a peak never reached
+`analyzer.set_mode_override`, so the analyzer's override/classification was inconsistent across the toggle;
+Phase 5's `modeOverrideChanged` routing fixed it). Original capture: with Show Unknown Modes off, give a
+selected Top peak a custom mode label, then toggle Show Unknown Modes → the peak is **deselected** in the UI.
+Root-caused: the analyzer's `selected_peak_ids`
 survives the whole sequence (proven by a model-level repro); the deselection is a **Qt view-layer sync**
 limitation in the peak-widget rebuild, which Phase 4 merely made *reachable* (before Phase 4 a
 freeform-labelled peak was hidden with the setting off). Swift is immune (SwiftUI derives the star from
@@ -289,85 +292,121 @@ Unknown Modes on, nothing is filtered anywhere.
 5. Setting off: an **unnamed** out-of-band peak is still hidden everywhere — the filter still works.
 6. Setting on: everything appears, exactly as before the phase.
 
-## Phase 4a — Rename `current_peaks` → `peaks_above_peak_min`  🟡
+## Phase 4a — Rename `current_peaks` → `peaks_above_peak_min`
 
 **Goal.** The Peak-Min-filtered set is a display projection named as such (`peaks_above_peak_min ↔
 peaksAbovePeakMin`), not "the peaks". Every question *about the measurement* — save, selection,
-classification, per-peak state carry-forward, whether a measurement exists — reads the durable `all_peaks`;
-only display reads the projection. (Swift `f5fd2ce`.)
+classification, per-peak state carry-forward, whether a measurement exists — reads the durable
+`all_peaks`; only display reads the projection.
 
-### Verified against the Python code 2026-07-23 — Python's 4a is MUCH lighter than Swift's
-The Swift ledger warned this is "the highest-miss-risk port." Verified: Python's **Phase 2 corollary B** (route
-every selection/classification site to `all_peaks`) and the Phase-1 `guitar_full_save_peaks()` (returns
-`all_peaks`) **already did most of Swift's seven-site audit.** Swift's fixes mapped against the Python source:
+### ✅ Phase 4a COMPLETE — suite green (539), parity 79 + USER-VERIFIED (2026-07-23). Committed `b406690` (mirrors Swift `f5fd2ce`; merged with the select_peak crash fix).
 
-| Swift fix (f5fd2ce) | Python site | Status |
-|---|---|---|
-| 1 selection carry-forward → `selectedPeaks` | `_peak_analysis.py` snapshot `previously_selected_freqs` | ✅ already `all_peaks`/selected (Phase 2) |
-| 2 annotation-offset snapshot → `allPeaks` | `_peak_analysis.py:149` | ✅ already `all_peaks` (Phase 2) |
-| 3 mode-override snapshot → `allPeaks` | `_peak_analysis.py:157` | ✅ already `all_peaks` (Phase 2) |
-| 4 `guitarModeSelectedPeakIDs` default → `allPeaks` | `_peak_analysis.py:644` | ✅ code already `all_peaks`; **docstring stale** ("defaults to self.current_peaks") → fix text |
-| 5 saved `selectedPeakFrequencies` → `allPeaks` | `_measurement_management.py:311-314` (save) | ✅ already over `all_peaks` (`peaks = guitar_full_save_peaks()`) |
-| 6 comparison averaged row → `selectedPeaks` | `_measurement_management.py:921` | ❌ **FIX** → `self.selected_peaks` |
-| 7 `selectAllPeaks` → `allPeaks` | `analyzer.select_all_peaks` (routed Phase 2C) | verify (dies in Phase 5 anyway) |
-| material persist → `allPeaks` | `_measurement_management.py:311` (save) | ✅ already `all_peaks` |
-| Save gated on completeness, not peaks-visible | `set_measurement_complete(checked)` `view:2465` | ✅ already gated on complete; no `current_peaks` Save-disable exists |
+**Python's 4a was much lighter than Swift's** — Phase 2 corollary B + the Phase-1
+`guitar_full_save_peaks()` already routed most of Swift's seven-site audit to the durable set. Already
+correct, NOT re-touched: the offset/override/prev-selected snapshots (`all_peaks` since Phase 2), the
+saved `selected_peak_frequencies` + material persist (over `guitar_full_save_peaks` = `all_peaks`), and
+the Save guard (gated on `set_measurement_complete`, never peaks-visible).
 
-**Still real (all LOAD-path restores over the projection instead of the durable set):**
-- `_measurement_management.py:667` material restore `selected_peak_ids = {p.id for p in current_peaks}` → `all_peaks`
-- `_measurement_management.py:671` guitar no-saved-selection restore → `all_peaks`
-- `_measurement_management.py:679` frequency-cache seed on load → `all_peaks`
-- `_measurement_management.py:921` comparison averaged row → `self.selected_peaks`
+**Changed (Python):**
+- **Rename** `current_peaks` → `peaks_above_peak_min` (~50 model refs + view/test refs) with a 3-scope
+  doc comment (`all_peaks` = measurement · Peak Min = a setting · viewport dot set = the view). Two
+  view-local sets renamed with it: `fft_canvas._current_peaks` → `_all_peaks_in_range` (the viewport
+  dot set, index-aligned for click hit-testing = Swift's `SpectrumView.allPeaksInRange`); the results
+  cache `_current_peaks_all` → `_peaks_above_peak_min`.
+- **Four fixes** (a fact resolved over the durable set): the three load-path selection restores
+  (material `:667`, no-saved-selection `:671`, frequency-cache seed `:679`) → `all_peaks`; the multi-tap
+  comparison averaged row (`:921`) → the shared `selected_peaks` property; `select_all_peaks` →
+  `all_peaks` ("all" means all; removed in Phase 5); `guitar_mode_selected_peak_ids` docstring corrected
+  (code was already `all_peaks`).
+- **select_peak crash fix** (pre-existing, unrelated to the rename): `saved_peaks` is populated only on
+  load, so clicking a peak after a LIVE capture raised `IndexError` on an empty lookup. Now resolves the
+  highlight magnitude from the dot set (live + loaded), falls back to `saved_peaks` (out-of-viewport
+  results-panel selection), and guards the no-match case.
 
-### The work
-1. **Rename** the analyzer attribute `current_peaks` → `peaks_above_peak_min` and every `.current_peaks`
-   read across models / views / tests (~50 model refs + view/test refs). Add a doc comment on the projection
-   stating the three scopes (`all_peaks` = measurement · Peak Min = a setting · display range = viewport) and
-   that anything asking about the measurement reads `all_peaks`. **No compiler → grep-driven; run the full
-   suite + a manual `grep current_peaks` sweep after to catch misses.** Display emits
-   (`peaksChanged.emit(...)`), logs and the ±5 Hz remap lookup (`:615`) are pure renames.
-1b. **Also rename `fft_canvas._current_peaks` → `_all_peaks_in_range`** — this is NOT the analyzer's
-   projection; it is the *viewport dot set* (`peaks_above_peak_min` further filtered by display range +
-   unknown/override via `peaks_in_display_range`), index-aligned with the scatter arrays for click
-   hit-testing. It is Python's stored equivalent of Swift's `SpectrumView.allPeaksInRange` (Swift recomputes
-   it each render; pyqtgraph forces us to store it) — so mirror that name rather than leaving a second,
-   misleading "current_peaks". Refs: `fft_canvas.py:632` (init), `:1169-1170` (`point_picked` hit-test),
-   `:1706-1707`, `:1721-1723` (`setData`), `:1768`/`:1773` (assignment). The stale comment at `:1748` ("unlike
-   Swift") updates to name `allPeaksInRange`.
-2. **Four fixes:** the three load-path restores (`:667`, `:671`, `:679`) → `all_peaks`; the comparison
-   averaged row (`:921`) → `self.selected_peaks`. Plus the `guitar_mode_selected_peak_ids` **docstring** →
-   `all_peaks` (code is already correct).
+**Tests (+1, 538 → 539):** new `test_reanalyze_preserves_state_of_peaks_hidden_by_peak_min`, driven
+through a new `_gaussian_spectrum` / `_freeze_on_real_spectrum` fixture (faithful ports of Swift's
+`gaussianSpectrum` / `freezeOnRealSpectrum`) so real `find_peaks` detection runs and the test can't pass
+vacuously on the flat-spectrum trap; it asserts its own preconditions. The select_all / none-mode tests
+rewritten to select explicitly (not via `select_all`, removed in Phase 5) + reseeded over `all_peaks`; the
+two `current_peaks` test names updated. Parity 79; golden `5c264de3941837f8` unmoved. **Follow-up logged**
+(STATUS 14 / `FROZEN-RECALC-TEST-PARITY.md`): Python's frozen-recalc tests drive real detection where Swift
+injects peaks — same slug, divergent approach, which `--check` misses.
 
-### Tests — slug `test/frozen-peak-recalc`
-Python's **Phase 2 `TestPeakMinDurability`** already asserts identity / selection / override / offset survive a
-Peak Min sweep — i.e. Swift's two *inverted* tests (`..._offsetForFilteredOutPeak_survives` + override twin)
-are already in survival form here. **Verify** that coverage, then add the one genuinely new test:
-`test_reanalyze_preserves_state_of_peaks_hidden_by_peak_min` — driven through a **Gaussian-spectrum fixture**
-(`freeze_on_real_spectrum`) so `find_peaks` actually detects peaks; the flat −100 spectrum trap makes recalc
-early-return and any test built on it pass *vacuously* (same trap Swift flagged). The test asserts its own
-preconditions. Parity 79; golden `5c264de3941837f8` unmoved.
+**Run-reviewed by the user 2026-07-23:** Re-analyze preserves a dragged badge + custom name on a
+Peak-Min-hidden peak; Save enabled with everything hidden (file reloads complete); Save disabled before a
+measurement exists; clicking a peak after a live capture highlights instead of crashing.
 
-### User verification — run-review script (from the Swift ledger)
-1. Re-analyze a frozen measurement that has a dragged badge and a custom mode name on a peak **hidden by
-   Peak Min** → both survive.
-2. Freeze with Peak Min hiding everything → **Save is enabled**; the saved file reloads complete (drop Peak
-   Min → peaks reappear).
+### Port ledger — Phase 4a
+**Rule.** The Peak-Min-filtered set is a display projection named as such (`peaks_above_peak_min`), not
+"the peaks". Every question about the measurement — save, selection, classification, per-peak
+carry-forward, whether a measurement exists — reads the durable `all_peaks`.
+
+**Run-review script (from the Swift ledger):**
+1. Re-analyze a frozen measurement with a dragged badge + custom mode name on a peak **hidden by Peak
+   Min** → both survive.
+2. Freeze with Peak Min hiding everything → **Save is enabled**; the saved file reloads complete.
 3. Before any measurement exists → **Save is disabled**.
 
-## Phase 5 — The selection model  ⬜
-**Rule.** At most one **selected** peak per Air / Top / Back — the selected one is the *definitive* peak.
-Selecting a 2nd Top displaces the 1st. `select_all_peaks` REMOVED (note: `tap_tone_analyzer.py:1309`).
-Reset-to-Auto menu names the mode it restores to. (Verify at port time.)
+## Phase 5 — The selection model
 
-**🔎 CARRIED IN FROM PHASE 4 RUN-REVIEW (2026-07-23) — VERIFY FIXED HERE:** With Show Unknown Modes off,
-give a *selected* Top peak a custom mode label (freeform), then toggle Show Unknown Modes → the peak gets
-**deselected** in the UI. The analyzer's `selected_peak_ids` is intact throughout (model-level repro proves
-it); the loss is a **Qt view-layer sync** in the peak-widget rebuild, exposed (not caused) by Phase 4.
-Swift is correct because SwiftUI derives the star from `selectedPeakIDs`. Phase 5 restructures exactly this
-area — Swift `5836489` touched `TapAnalysisResultsView.swift` + `CombinedPeakModeRowView.swift`, and this
-ledger's **prerequisite** ("Python's selection UI isn't routed through the analyzer" — [[project_peak_selection_slider_bug]])
-is the likely root. **When porting Phase 5, reproduce this exact sequence and confirm the selection
-survives the toggle** before marking Phase 5 user-verified.
+**Goal.** Classification and selection are **independent**. Classification is band membership (+ any
+override) — **many peaks per mode**; deselecting never relabels. Selection is which candidate is
+**definitive**. **Invariant: at most one selected peak per Air / Top / Back**; Dipole / Ring / Upper are
+unconstrained (clusters). Enforced as invariant maintenance in ONE place, called from selecting a peak and
+from changing the mode of an already-selected peak. **No auto-promotion.** Mode resolved via the
+override-aware `peak_mode`, not `identified_modes`.
+
+### ✅ Phase 5 COMPLETE — suite green (544), parity 79 + USER-VERIFIED (2026-07-23). Committed `<hash>` (mirrors Swift `5836489` + the reset-label fix).
+
+**Changed (Python):**
+- **`enforce_definitive_mode_uniqueness(preferring)` + `single_holder_modes` {AIR, TOP, BACK}** — faithful
+  port of Swift's (guitar-only; resolve `peak_mode(winner).normalized`; deselect other selected peaks of
+  that mode; never reclassify, never promote). Called from `toggle_peak_selection` (select branch) and
+  `set_mode_override`.
+- **Select All removed** — model `select_all_peaks`, the button, its connect, the `_on_select_all_peaks`
+  handler, and the enable/visible lines. Select None kept.
+- **Reset-to-auto label — a REAL bug here, not just divergence.** Added `TapToneAnalyzer.auto_detected_mode`
+  (override-blind: `identified_modes` → `classify_all` → UNKNOWN) and routed the label through it via a new
+  `PeaksModel._analyzer` back-ref. The old `PeaksModel.peak_mode` read the override-AWARE `_auto_mode_map`
+  (it drives mode colours), so "Reset to Auto-Detected (X)" showed the *current* label — verified against the
+  code, not the docstring, which lied.
+- **Mode-override routing (Qt vs `@Published`) — the two-Top fix.** The live card mode change wrote only the
+  view-model (`model.modes`), never `analyzer.set_mode_override`, so `enforce` never ran (relabelling a
+  selected Air→Top left TWO selected Tops) AND the analyzer's override state was bypassed. New
+  `modeOverrideChanged` signal routes it through the analyzer → `set_mode_override` → `enforce` →
+  `peaksChanged`, mirroring the Phase 2 selection routing. **This also resolved the Phase-4-deferred
+  Show-Unknown deselection bug** — the override now reaches the analyzer, so classification/selection stay
+  consistent across the toggle.
+- **Dot-click star.** `canvas.peakSelected` was wired only to `peak_widget.select_row` (table row), never
+  `_on_peak_selected` (which draws the graph's red-star `selected_point`). Added the connection so a dot
+  click marks the star exactly as a table click does.
+
+**Tests (slug `test/annotation-state`):** new `DefinitiveModeUniqueness` D11–D16 + `auto_detected_mode_ignores_override`;
+deleted the two select-all tests (feature gone); the select-none / none-mode tests select explicitly (Phase 4a).
+Suite 544; parity 79; golden `5c264de3941837f8` unmoved.
+
+**Not-in-the-original-plan, found in run-review:** the mode-override routing gap and the dot-click wiring gap
+were both Qt-vs-SwiftUI view-layer omissions (Phase 2 had routed *selection* through the analyzer but not
+mode overrides). The reset-label was a genuine bug, not merely a structural divergence.
+
+**Run-reviewed by the user 2026-07-23:** all consistent with Swift — selecting a 2nd Top displaces the first
+(still classified Top); Dipole allows several; overriding a selected peak into Top displaces the holder;
+overriding it away leaves Top holderless; "Reset to Auto-Detected" names the auto mode; dot click marks the
+star; and the previously-deferred Show-Unknown deselection is gone.
+
+### Port ledger — Phase 5
+**Rule.** At most one **selected** peak per Air / Top / Back — the selected one is the definitive Air/Top/Back;
+every other peak of that mode is a candidate. Classification is independent (many per mode) and unaffected by
+selection; deselecting never relabels. Dipole/Ring/Upper are unconstrained. Enforced in one place, called on
+selecting a peak and on changing the mode of an already-selected peak; no auto-promotion; mode resolved
+override-aware. `select_all` removed; Select None kept. The reset-to-auto label names the override-blind auto
+mode.
+
+**Run-review script (from the Swift ledger):**
+1. Select a Top, then a second Top → first deselects, still labelled Top.
+2. Dipole/Ring/Upper: several stay selected.
+3. Override a selected peak into Top → displaces the definitive Top; override it away → Top holderless.
+4. "Reset to Auto-Detected (X)" names the **auto** mode, not the overridden one.
 
 ## Phase 6 — Derived values unified  ⬜
 **Rule.** Every derived "the Air/Top/Back" value reads the **definitive** peak (selected + override-aware).
@@ -417,3 +456,11 @@ audit ([[project_python_playback_gc_race]]) + the soak/stress harness deliverabl
   view-layer sync bug exposed (not caused) by Phase 4; the model keeps `selected_peak_ids` (proven by repro);
   Swift immune via SwiftUI. Logged under Phase 5 to verify-fixed there. **Commit pending** (user commits code;
   header hash filled in after). **RESUME at Phase 4a** (rename `current_peaks` → `peaks_above_peak_min`).
+- 2026-07-23 — **Phase 4a DONE + user-verified**, committed `b406690` (mirrors Swift `f5fd2ce`; merged with a
+  pre-existing `select_peak` live-capture crash fix). Much lighter than Swift's — Phase 2 + Phase 1 already
+  did most of the seven-site audit; only the rename (+ `_current_peaks`→`_all_peaks_in_range`,
+  `_current_peaks_all`→`_peaks_above_peak_min`), four load-path/comparison fixes, `select_all`→`all_peaks`,
+  and the new reanalyze test on the mirrored `_gaussian_spectrum` fixture. Logged the Python↔Swift
+  frozen-recalc test-fixture divergence (STATUS 14 / `FROZEN-RECALC-TEST-PARITY.md`). **RESUME at Phase 5**
+  (the selection model). *(Doc marked complete after the code+docs commits — sequencing to fix next phase:
+  mark complete BEFORE handing over the commit messages.)*
