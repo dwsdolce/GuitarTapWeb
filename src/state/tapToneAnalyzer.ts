@@ -214,10 +214,18 @@ export class TapToneAnalyzer {
     const avg = averageSpectra(spectra)
     this.frozenMagnitudes = avg.magnitudesDb
     this.frozenFrequencies = avg.frequencies
-    // Per-tap entries only for a genuine multi-tap capture (Swift tapEntries gate: count > 1). Peaks
-    // start empty and are filled by recalculatePeaks (App drives it right after completion).
+    // Per-tap entries only for a genuine multi-tap capture (Swift tapEntries gate: count > 1). Phase 3:
+    // each entry's peaks are found ONCE here, at the -100 floor, and are thereafter DURABLE —
+    // recalculatePeaks no longer re-derives them (mirrors Swift building tapEntries at capture +
+    // deleting recalculateTapEntryPeaks). findPeaks ignores guitarType; classification is at render.
     this.tapEntries =
-      this.capturedTaps.length > 1 ? spectra.map((sp, i) => ({ tapIndex: i + 1, spectrum: sp, peaks: [] })) : []
+      this.capturedTaps.length > 1
+        ? spectra.map((sp, i) => ({
+            tapIndex: i + 1,
+            spectrum: sp,
+            peaks: findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR }),
+          }))
+        : []
     this.isMeasurementComplete = true
     this.notify()
   }
@@ -245,7 +253,14 @@ export class TapToneAnalyzer {
   loadMeasurement(snapshot: { magnitudes: number[]; frequencies: number[]; taps?: Spectrum[] }): void {
     this.frozenMagnitudes = snapshot.magnitudes
     this.frozenFrequencies = snapshot.frequencies
-    this.tapEntries = (snapshot.taps ?? []).map((sp, i) => ({ tapIndex: i + 1, spectrum: sp, peaks: [] }))
+    // Phase 3: per-tap peaks found ONCE from the saved per-tap spectrum at the -100 floor and durable
+    // thereafter. findPeaks is deterministic + the golden is frozen, so this equals the file's saved
+    // per-tap peaks (which the web restores as spectra, not peaks).
+    this.tapEntries = (snapshot.taps ?? []).map((sp, i) => ({
+      tapIndex: i + 1,
+      spectrum: sp,
+      peaks: findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR }),
+    }))
     this.capturedTaps = [] // a loaded measurement has no raw taps (Swift doesn't restore them) — keeps
     this.analysisAnnounced = false // the "Analysis complete" guard off so load shows "Loaded measurement (frozen)"
     this.isMeasurementComplete = true
@@ -338,17 +353,10 @@ export class TapToneAnalyzer {
     }
     this.peaks = peaks
     this.modeByPeak = classifyAll(peaks, p.guitarType)
-    // Per-tap peaks (Swift recalculateTapEntryPeaks): each entry's FULL peak set at the -100 floor.
-    // Guitar-only, and the default findPeaks range (matches the multi-tap table's modePeaksFromSpectrum).
-    if (!p.material && this.tapEntries.length > 0) {
-      this.tapEntries = this.tapEntries.map((e) => ({
-        ...e,
-        peaks: findPeaks(e.spectrum.magnitudesDb, e.spectrum.frequencies, {
-          guitarType: p.guitarType,
-          peakMinOverride: PEAK_DETECTION_FLOOR,
-        }),
-      }))
-    }
+    // Phase 3: per-tap entry peaks are NO LONGER re-derived here. They are found ONCE when the entry is
+    // built (processMultipleTaps / loadMeasurement) at the -100 floor and are durable — nothing may
+    // re-derive them, least of all a display control. (This was the web's `recalculateTapEntryPeaks`
+    // equivalent; deleted, mirroring Swift 11689b6. Do not reintroduce it as a "missing" recompute.)
     // Guitar completion string — set ONCE at completion, matching Swift/Python (which set it in the guitar
     // processing path, not in the peak recalc — so N is FROZEN at completion, unaffected by later Peak-Min
     // slider moves). The web computes peaks here (App-driven), so the first post-completion recalc announces

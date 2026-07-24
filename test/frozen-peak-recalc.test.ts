@@ -185,6 +185,49 @@ describe('frozen-peak-recalc — Peak-Min durability (Phase 1)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Phase 3 — per-tap entries computed ONCE at build, then durable. Nothing re-derives them (the web's
+// recalculateTapEntryPeaks equivalent is deleted from recalculatePeaks). Mirrors Swift 11689b6.
+// ---------------------------------------------------------------------------
+describe('frozen-peak-recalc — per-tap entries computed once (Phase 3)', () => {
+  const twoTaps = (a: TapToneAnalyzer, faintDB = -80) => {
+    const s1 = combine(makeSpectrum(200, -20), makeSpectrum(400, faintDB))
+    const s2 = combine(makeSpectrum(200, -22), makeSpectrum(400, faintDB - 2))
+    a.recordGuitarTap({ magnitudesDb: s1.mags, frequencies: s1.freqs })
+    a.recordGuitarTap({ magnitudesDb: s2.mags, frequencies: s2.freqs })
+    a.processMultipleTaps()
+  }
+
+  it('processMultipleTaps finds each per-tap peak set once, at the -100 floor', () => {
+    const a = new TapToneAnalyzer()
+    twoTaps(a) // the 400 Hz per-tap peak is -80 dB — below any normal Peak Min
+    expect(a.tapEntries).toHaveLength(2)
+    expect(a.tapEntries.every((e) => near(e.peaks, 400))).toBe(true) // faint peak kept (floored at -100)
+    expect(a.tapEntries.every((e) => near(e.peaks, 200))).toBe(true)
+  })
+
+  it('recalculatePeaks does NOT re-derive tapEntries — they are durable, not re-minted', () => {
+    const a = new TapToneAnalyzer()
+    twoTaps(a, -55)
+    const beforeEntries = a.tapEntries
+    const beforePeaks0 = a.tapEntries[0]!.peaks
+    recalc(a) // a non-peakMin input change drives this — it must not touch the per-tap entries
+    expect(a.tapEntries).toBe(beforeEntries) // same array reference — not rebuilt
+    expect(a.tapEntries[0]!.peaks).toBe(beforePeaks0) // same peaks array — not re-found
+  })
+
+  it('loaded per-tap entries are found once from the saved spectra (deterministic, floored)', () => {
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -70))
+    a.loadMeasurement({ magnitudes: s.mags, frequencies: s.freqs, taps: [{ magnitudesDb: s.mags, frequencies: s.freqs }] })
+    expect(a.tapEntries).toHaveLength(1)
+    expect(near(a.tapEntries[0]!.peaks, 400)).toBe(true) // -70 peak kept — not gated at Peak Min
+    const before = a.tapEntries[0]!.peaks
+    recalc(a, { loadedPeaks: [peak(200, -20)] })
+    expect(a.tapEntries[0]!.peaks).toBe(before) // durable across recalc
+  })
+})
+
+// ---------------------------------------------------------------------------
 // PR8: canReanalyze — when the Re-analyze button is offered
 // ---------------------------------------------------------------------------
 //

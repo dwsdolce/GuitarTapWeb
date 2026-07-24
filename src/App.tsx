@@ -614,11 +614,13 @@ export default function App() {
       }),
     [tapEntries, guitarType],
   )
-  // Averaged row uses the displayed (Peak-Min-projected) peaks (respects loaded-authoritative peaks).
+  // Averaged row resolves over the DURABLE set, not the Peak-Min projection (Phase 3): the multi-tap
+  // table is a fact about the measurement, independent of the slider (spec §5). Mirrors Swift resolving
+  // the averaged row over allPeaks. (Selection-over-durable, Swift `selectedPeaks`, arrives in Phase 5.)
   const avgModes = useMemo<TapModeFreqs>(() => {
-    const m = resolvedModePeaks(peaksAbovePeakMin, guitarType)
+    const m = resolvedModePeaks(peaks, guitarType)
     return { air: m.get('air')?.frequency ?? null, top: m.get('top')?.frequency ?? null, back: m.get('back')?.frequency ?? null }
-  }, [peaksAbovePeakMin, guitarType])
+  }, [peaks, guitarType])
   const multiTapOverlays = useMemo<SpectrumOverlay[]>(() => {
     const out: SpectrumOverlay[] = tapEntries.map((e, i) => ({
       magnitudesDb: e.spectrum.magnitudesDb,
