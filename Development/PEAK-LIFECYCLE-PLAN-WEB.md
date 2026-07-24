@@ -199,14 +199,79 @@ regression + oracle MUST NOT move** — the proof only detection's *timing* chan
 4. **Save keeps the full set:** save after raising Peak Min; reload; lower Peak Min → the fainter peaks
    are still there (they were not pruned on save).
 
-### Phase 2 — Peak Min becomes a pure filter  ⬜
+### Phase 2 — Peak Min becomes a pure filter  ✅ *(landed WITH Phase 1 — one web surgery, committed `302a4b3`, user-verified 2026-07-24)*
 **Goal.** A Peak Min change recomputes only the display projection — detects nothing, classifies nothing,
 selects nothing. Selection and classification are facts about the *measurement*; only display depends on
-Peak Min. *(Web assess: where does Peak Min currently feed — does it re-run `findPeaks`/`classifyAll`?)*
+Peak Min.
 
-### Phase 3 — Multi-tap  ⬜
-**Goal.** Per-tap durable sets + the averaged set; the multi-tap Taps view reads each tap's own selection.
-*(Web assess: `multiTapComparisonEntries` / the multi-tap image + table already exist — how close?)*
+**Done in the Phase 1 (+2) commit** (see the Phase 1 ✅ block above): `peakMin` was removed from
+`recalculatePeaks`' inputs + the `useLayoutEffect` dep array, and Peak Min became the App-level
+`peaksAbovePeakMin = peaks.filter(mag >= peakMin)` display selector. So a slider tick no longer re-runs
+`findPeaks`/`classifyAll` or re-mints peaks — exactly the structural-warning surgery. The "pure filter"
+Rule is satisfied; classification (`modeByPeak`) is computed once over the durable set, not per Peak Min.
+
+### Phase 3 — Per-tap entries computed once  ✅
+**Rule (from Swift `11689b6`).** A `TapEntry` is detected and classified **once, when it is built**, over
+the full −100 dB set, and is thereafter durable — nothing may re-derive it, least of all a display
+control. Derived values (the multi-tap Averaged row) resolve over the **durable** set, never the Peak Min
+projection.
+
+### ✅ Phase 3 COMPLETE — fast suite green (316), golden `5c264de3941837f8` unmoved, parity 79 + USER-VERIFIED (2026-07-24). Committed `9a92a41`.
+
+**Changed (web):** `processMultipleTaps` + `loadMeasurement` (`state/tapToneAnalyzer.ts`) build each
+`TapEntry` with its peaks found **once** at the −100 floor (`findPeaks(..., peakMinOverride:
+PEAK_DETECTION_FLOOR)`); the per-tap re-find was **deleted** from `recalculatePeaks` (the web's
+`recalculateTapEntryPeaks` equivalent — comment left saying what went + why). `avgModes` (`App.tsx`)
+resolves over the durable `peaks`, not `peaksAbovePeakMin`, so the multi-tap Averaged Air/Top/Back is
+Peak-Min-independent (spec §5). Tests (`test/frozen-peak-recalc.test.ts`, +3): per-tap sets found once at
+the floor; `recalculatePeaks` does NOT re-derive `tapEntries` (same array/object refs); loaded per-tap
+path durable. **Named divergence:** load restores per-tap spectra, so the web re-derives per-tap peaks
+from them once (deterministic + golden frozen ⇒ equals the saved peaks). Selection-over-durable (Swift
+`selectedPeaks`) deferred to Phase 5 (needs the selection-ownership restructure).
+
+**Run-reviewed by the user 2026-07-24** (Taps table steady across a Peak Min sweep; fresh vs reloaded
+agree; PDF matches screen; a sub-Peak-Min peak stays in the Averaged row; single-tap load leaves no stale
+table).
+
+### Verified against the web code 2026-07-24
+| Swift (`11689b6`) | Web site (verified) | Action |
+|---|---|---|
+| `recalculateTapEntryPeaks()` re-finds per-tap peaks — DELETE it + 3 call sites | the web's equivalent is **inline in `recalculatePeaks`** (`state/tapToneAnalyzer.ts:341-348`): it re-`findPeaks` every entry on every recompute (now at −100 after Phase 1, but still re-derived) | **REMOVE** the per-tap re-find block from `recalculatePeaks` |
+| per-tap peaks computed once at capture (`+SpectrumCapture.swift:1664`, `peakMinOverride: floor`) | `processMultipleTaps` (`:220`) and `loadMeasurement` (`:248`) build `tapEntries` with **`peaks: []`**, filled later by recalc | **BUILD** the entries with `peaks: findPeaks(sp, { peakMinOverride: PEAK_DETECTION_FLOOR })` once, at construction. (`findPeaks` ignores `guitarType` — confirmed `peaks.ts:169` — so no guitar-type needed; classification stays at render via `resolvedModePeaks(e.peaks, guitarType)`.) |
+| averaged row resolves selection over `allPeaks`, not the projection (`selectedPeaks`) | `avgModes` uses `resolvedModePeaks(peaksAbovePeakMin, …)` (the projection — set in Phase 1) (`App.tsx:618`) | **CHANGE** to `resolvedModePeaks(peaks, …)` (the durable full set) → the multi-tap table becomes Peak-Min-independent (spec §5). *(Selection-based `selectedPeaks` is Phase 5 — web has no selection model for the averaged row yet; strongest-over-durable is the Phase-3 shape.)* |
+| per-tap rows over each tap's own set | `tapRows` uses `resolvedModePeaks(e.peaks, …)` (`App.tsx:609`) — `e.peaks` becomes the durable per-tap set after the change | **no change** (already per-tap; durable once the entry is built once) |
+
+**Named web divergence (verified):** load restores per-tap **spectra** (`App.tsx:910` passes
+`e.snapshot`), NOT the saved per-tap peaks — so the web re-derives per-tap peaks from the spectra **once**
+at load. `findPeaks` is deterministic and the golden is frozen, so this equals the saved peaks; it stays
+"computed once, then durable". (Swift restores the saved peaks directly — same durable result.)
+
+### The work
+1. **`processMultipleTaps` + `loadMeasurement`** build each `TapEntry` with its peaks found once at the
+   −100 floor (`peaks: findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR })`).
+2. **Delete the per-tap re-find** from `recalculatePeaks` (`:341-348`) — leave a comment saying what went
+   and why, so it isn't "restored" as a missing recompute (mirror Swift's removal-point comments).
+3. **`avgModes`** resolves over the durable `peaks`, not `peaksAbovePeakMin` — the Averaged Air/Top/Back
+   no longer changes with Peak Min.
+
+### Tests — slug `test/frozen-peak-recalc`
+- **`peakMinSweep_leavesTapEntriesUntouched`** — with Peak Min out of the recompute this is structurally
+  true, but assert it via the analyzer: build entries, then `recalculatePeaks()` again (a non-peakMin
+  input change) and assert each `tapEntry.peaks` is the SAME array/objects (not re-minted).
+- **`recalculatePeaks_leavesTapEntriesUntouched`** — the direct guard against the deleted re-find
+  returning: after building entries, `recalculatePeaks()` must not change them.
+- **averaged row keeps a sub-Peak-Min peak** — the durable-set resolution (Swift's
+  `selectedPeaks_resolveOverDurableSet`; here: `resolvedModePeaks(peaks)` includes a peak the projection
+  would hide). Golden `5c264de3941837f8` unmoved; parity 79.
+
+### User verification — run-review script (from the Swift ledger)
+1. A pre-existing multi-tap measurement holds its **Taps** table steady across a Peak Min sweep.
+2. A fresh multi-tap capture, saved and reloaded, **agrees with itself** (per-tap + Averaged rows).
+3. The multi-tap PDF's per-tap and Averaged rows match the screen.
+4. A peak below the current Peak Min still appears in the **Averaged** Air/Top/Back row.
+5. Loading a **single-tap** measurement does not leave a stale Taps table showing (the Python Phase-3
+   Qt view-reset find — verify the React analogue is absent, which it should be: `tapEntries.length > 1`
+   gates it reactively).
 
 ### Phase 4 — One "unknown" predicate  ⬜
 **Goal.** A single `isUnknown(peak)` + `overriddenPeakIDs`, threaded through every consumer (results
@@ -217,12 +282,24 @@ filter by assigned-mode, not `isKnown` — the tracked divergence in [[project_d
 **Goal.** The display projection is named `peaksAbovePeakMin` (mirror Swift/Python); the durable set is
 `allPeaks`. *(Web assess: current names in `App.tsx` / `fromLive`.)*
 
+### Selection-ownership restructure — PREREQUISITE for Phase 5  ⬜
+**Decided 2026-07-24.** Swift keeps `selectedPeakIDs` + `peakModeOverrides` (and the
+`enforceDefinitiveModeUniqueness` invariant) on the **analyzer/model**; the web keeps `selectedIds` +
+`overrides` in the **view** (`useAnnotations`) — the standing architectural divergence
+([[project_architectural_restructure]], `RESTRUCTURE-NOTES.md` "Peak-selection & annotation ownership →
+analyzer"). Porting Phase 5's rules **non-divergently requires** that state on the model, so this
+restructure lands as a **discrete step right before Phase 5**: move `selectedIds`/`overrides` (+ dragged
+offsets) off `useAnnotations` onto `TapToneAnalyzer`, the view reduced to read/dispatch. Then Phase 5 is
+purely "port the enforce-uniqueness rules onto the now-model-owned state" (mirroring how Swift's Phase 5
+was just the rules), and Phase 3's `selectedPeaks` + Phase 6's definitive values read that same model
+selection. **From Phase 5 onward the web's selection architecture mirrors Swift's.**
+
 ### Phase 5 — The selection model  ⬜
 **Goal.** Classification (band membership + override) is independent of selection (which candidate is
 definitive). **Invariant: at most one selected peak per Air/Top/Back**; Dipole/Ring/Upper unconstrained.
 Enforced in ONE place, from select-a-peak and from change-mode-of-a-selected-peak. No auto-promotion.
-*(Web assess: `selectedIndices` / `overridesByFreq` model in `App.tsx`; the React-reactivity analogue of
-the Qt view-sync gap.)*
+*(Runs on the model-owned selection state from the restructure above; the enforce logic becomes an
+analyzer method, mirroring Swift `enforceDefinitiveModeUniqueness`.)*
 
 ### Phase 6 — Derived values unified  ⬜
 **Goal.** Every derived "the Air/Top/Back" reads the DEFINITIVE peak (selected + override-aware mode) via
