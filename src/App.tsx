@@ -530,22 +530,8 @@ export default function App() {
   const sortedPeaks = useMemo(() => [...peaksAbovePeakMin].sort((a, b) => a.frequency - b.frequency), [peaksAbovePeakMin])
   // Live tap-tone ratio (f_Top / f_Air) for the Analysis Results panel — same fn the PDF uses.
   const tapRatio = useMemo(() => (material ? null : tapToneRatio(peaksAbovePeakMin, guitarType)), [material, peaksAbovePeakMin, guitarType])
-  const displayPeaks = useMemo(
-    () =>
-      showUnknownModes
-        ? sortedPeaks
-        : sortedPeaks.filter((p) => (modeByPeak.get(p.id) ?? 'unknown') !== 'unknown'),
-    [sortedPeaks, modeByPeak, showUnknownModes],
-  )
-  // Results-panel list is filtered to the DISPLAY range, mirroring Swift's
-  // TapAnalysisResultsView.sortedPeaksWithModes (currentPeaks → [minFreq, maxFreq]). A loaded
-  // full-peak-set measurement therefore lists only in-range peaks. The chart's dot/badge layers
-  // apply their own per-marker range guard, so `markers` stays on displayPeaks (which lets a zoom
-  // reveal out-of-band dots, matching Swift's zoomable allPeaksInRange).
-  const displayPeaksInRange = useMemo(
-    () => displayPeaks.filter((p) => p.frequency >= displayMinHz && p.frequency <= displayMaxHz),
-    [displayPeaks, displayMinHz, displayMaxHz],
-  )
+  // displayPeaks / displayPeaksInRange are defined below useAnnotations — they now depend on the
+  // override state (a user-named peak is "known"), which the hook provides.
   const bandByMode = useMemo(() => {
     const m = new Map<string, { lo: number; hi: number }>()
     for (const b of modeBands(guitarType)) m.set(b.name, { lo: b.lo, hi: b.hi })
@@ -587,6 +573,31 @@ export default function App() {
 
   const keyOf = (p: Peak) => p.frequency.toFixed(1)
   const labelFor = (p: Peak, mode: ResolvedMode) => overrides.get(keyOf(p)) ?? MODE_DISPLAY_NAME[mode]
+
+  // Phase 4: the ids of user-NAMED peaks. A named peak is "known" everywhere — the ONE predicate the
+  // results table + chart dots + badges share, so it never vanishes when Show Unknown Modes is off.
+  // Mirrors Swift `overriddenPeakIDs` / Python `overridden_peak_ids` (both id-keyed). Web overrides are
+  // frequency-keyed, so convert here (the standing web keying divergence, isolated to this one line;
+  // the selection-ownership restructure will re-key onto ids on the model).
+  const overriddenPeakIds = useMemo(
+    () => new Set(peaks.filter((p) => overrides.has(keyOf(p))).map((p) => p.id)),
+    [peaks, overrides],
+  )
+  // Results-panel list: hide unknown peaks when Show Unknown Modes is off, UNLESS the user named one
+  // (override-aware — mirrors Swift `!isUnknown`). Then filtered to the DISPLAY range (Swift
+  // TapAnalysisResultsView.sortedPeaksWithModes → [minFreq, maxFreq]); the chart's dot/badge layers
+  // apply their own per-marker range guard so a zoom can reveal out-of-band dots.
+  const displayPeaks = useMemo(
+    () =>
+      showUnknownModes
+        ? sortedPeaks
+        : sortedPeaks.filter((p) => (modeByPeak.get(p.id) ?? 'unknown') !== 'unknown' || overriddenPeakIds.has(p.id)),
+    [sortedPeaks, modeByPeak, showUnknownModes, overriddenPeakIds],
+  )
+  const displayPeaksInRange = useMemo(
+    () => displayPeaks.filter((p) => p.frequency >= displayMinHz && p.frequency <= displayMaxHz),
+    [displayPeaks, displayMinHz, displayMaxHz],
+  )
   const inRangeFor = (p: Peak, mode: ResolvedMode): boolean | null => {
     if (mode === 'unknown' || mode === 'upper') return null
     const band = bandByMode.get(mode)
@@ -679,8 +690,8 @@ export default function App() {
   // Styled markers via the SHARED builder (measurementImage.ts) so the live view and the exported
   // image (incl. saved-measurement export) use identical peak styling.
   const chartPeaks = useMemo(
-    () => peaksInDisplayRange(sortedPeaks, view.minHz, view.maxHz, !material, showUnknownModes, guitarType),
-    [sortedPeaks, view.minHz, view.maxHz, material, showUnknownModes, guitarType],
+    () => peaksInDisplayRange(sortedPeaks, view.minHz, view.maxHz, !material, showUnknownModes, overriddenPeakIds, guitarType),
+    [sortedPeaks, view.minHz, view.maxHz, material, showUnknownModes, overriddenPeakIds, guitarType],
   )
   const markers = useMemo<PeakMarker[]>(
     () => buildGuitarMarkers(chartPeaks, modeByPeak, selectedIds, overrides, annotationMode, annotationOffsets),

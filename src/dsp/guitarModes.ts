@@ -105,25 +105,34 @@ export function isKnown(freq: number, guitarType: GuitarTypeName): boolean {
  * here once, with dots following the selection — which is why this rule now carries a paired
  * 3-platform test (`@parity view/dot-layer`).
  *
- * The unknown-mode filter uses {@link isKnown} (*frequency falls in a band*) rather than the
- * mode assigned by `classifyAll`. The two agree for auto-classified peaks — `classifyAll`
- * gives every in-band peak a band mode — and differ only under a user override; the
- * positional test is the one that belongs on a chart layer.
+ * A peak is kept when it is `overriddenPeakIds.has(p.id)` (the user named it) **or**
+ * `isKnown(frequency)` (it falls in a band). The positional test alone is equivalent to the
+ * analyzer's assigned-mode test for every peak *without* an override, because `classifyAll` falls
+ * back to a per-frequency lookup for peaks its one-per-mode claiming pass did not take; the two
+ * differ only under a user override.
+ *
+ * Note: this previously applied the positional test unconditionally, on the argument that a chart
+ * layer should be positional. That was wrong — it discarded the user's own identification, so a peak
+ * labelled "Wolf note" lost its dot while keeping its table row (or lost both, if it sat outside every
+ * band). One predicate now governs the results table, this dot layer, and the annotation badges — a
+ * named peak is known everywhere (Phase 4).
  *
  * Callers pass the **display/viewport** range, which follows pan and zoom — not the analysis
- * range used by peak detection.
+ * range used by peak detection. `overriddenPeakIds` is a `Set` of peak ids (kept static + pure,
+ * ported unchanged from Swift's `Set<UUID>` / Python's `overridden_peak_ids`).
  *
  * Mirrors Swift `GuitarMode.peaksInDisplayRange(...)` / Python `GuitarMode.peaks_in_display_range(...)`.
  */
-export function peaksInDisplayRange<T extends { frequency: number }>(
+export function peaksInDisplayRange<T extends { frequency: number; id: number }>(
   peaks: readonly T[],
   minFreq: number,
   maxFreq: number,
   isGuitar: boolean,
   showUnknownModes: boolean,
+  overriddenPeakIds: ReadonlySet<number>,
   guitarType: GuitarTypeName,
 ): T[] {
   const inRange = peaks.filter((p) => p.frequency >= minFreq && p.frequency <= maxFreq)
   if (!isGuitar || showUnknownModes) return inRange
-  return inRange.filter((p) => isKnown(p.frequency, guitarType))
+  return inRange.filter((p) => overriddenPeakIds.has(p.id) || isKnown(p.frequency, guitarType))
 }

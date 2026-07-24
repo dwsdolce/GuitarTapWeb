@@ -48,8 +48,13 @@ const peak = (frequency: number, magnitude = -30): Peak => ({
   bandwidth: frequency / 10,
 })
 
-const dots = (peaks: Peak[], isGuitar = true, showUnknown = false): number[] =>
-  peaksInDisplayRange(peaks, MIN_HZ, MAX_HZ, isGuitar, showUnknown, 'generic').map((p) => p.frequency)
+const dots = (
+  peaks: Peak[],
+  isGuitar = true,
+  showUnknown = false,
+  overriddenIds: ReadonlySet<number> = new Set(),
+): number[] =>
+  peaksInDisplayRange(peaks, MIN_HZ, MAX_HZ, isGuitar, showUnknown, overriddenIds, 'generic').map((p) => p.frequency)
 
 // ---------------------------------------------------------------------------
 
@@ -115,5 +120,32 @@ describe('dot layer — the dot list is NOT the annotation list (DL6–DL7)', ()
     // …but the positional rule keeps it, because 200 Hz is in a band.
     expect(isKnown(200, 'generic')).toBe(true)
     expect(dots([p])).toEqual([200])
+  })
+})
+
+describe('dot layer — a named peak is known (DL8–DL10, Phase 4)', () => {
+  // 305 Hz and 137 Hz are IN range but in NO band (back ends 300, dipole starts 310; air ends 135, top
+  // starts 140), so they are hidden with Show Unknown Modes off — until the user names one.
+  it('DL8 — a named out-of-band peak becomes visible with Show Unknown Modes off (the Phase 4 change)', () => {
+    const p = peak(305)
+    expect(dots([p])).toEqual([]) // unnamed, out-of-band → hidden
+    expect(dots([p], true, false, new Set([p.id]))).toEqual([305]) // named → shown
+  })
+
+  it('DL9 — the override kind is irrelevant to the dot layer (freeform "Wolf note" or real "Top")', () => {
+    // The dot filter asks only "is this peak named?", not what it was named. Both an out-of-band peak
+    // relabelled to a real mode and one given a freeform label are dotted the same way.
+    const p = peak(305)
+    expect(dots([p], true, false, new Set([p.id]))).toEqual([305])
+  })
+
+  it('DL10 — a named peak gets both a dot and a badge; an unnamed out-of-band peak gets neither', () => {
+    const named = peak(305), unnamed = peak(137)
+    const overridden = new Set([named.id])
+    expect(dots([named, unnamed], true, false, overridden)).toEqual([305]) // dot only for the named one
+    const dotSet = peaksInDisplayRange([named, unnamed], MIN_HZ, MAX_HZ, true, false, overridden, 'generic')
+    const modes = new Map<number, ResolvedMode>([[named.id, 'unknown'], [unnamed.id, 'unknown']])
+    const markers = buildGuitarMarkers(dotSet, modes, new Set(), new Map(), 'all', undefined)
+    expect(markers.filter((m) => m.annotated).map((m) => m.frequency)).toEqual([305]) // badge follows the dot
   })
 })

@@ -135,6 +135,8 @@ export function PeakCard({
             onChange={(e) => onPick(e.target.value)}
             title={isManualOverride ? 'Manually assigned — click to change or reset' : 'Click to assign a mode label'}
           >
+            {/* Reset to Auto is the FIRST item (like Swift/Python's menu), not the last. */}
+            {isManualOverride && <option value={RESET}>Reset to Auto ({autoName})</option>}
             {options.map((l) => (
               <option key={l} value={l}>
                 {l}
@@ -142,7 +144,6 @@ export function PeakCard({
               </option>
             ))}
             <option value={CUSTOM}>Custom…</option>
-            {isManualOverride && <option value={RESET}>Reset to Auto ({autoName})</option>}
           </select>
           <span className="freq">{peak.frequency.toFixed(1)} Hz</span>
         </div>
