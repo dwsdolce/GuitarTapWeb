@@ -33,184 +33,166 @@ Python repo: `/Users/dws/src/guitar_tap` (lowercase; NOT the Swift `GuitarTap`).
 
 ---
 
-## Phase 1 — The stored set becomes the FULL set  🟡 (code + verification DONE 2026-07-23; mirror durability tests pending)
+## Phase 1 — The stored set becomes the FULL set
 
-**Step 3 DONE:** `guitar_full_save_peaks()` collapsed to `return list(self.all_peaks)` (mirrors Swift
-`{ allPeaks }`; deleted the re-detect-and-append dance). Updated the two ledger-named tests to the new model
-(`TestGuitarFullSavePeaks._prep` seeds `all_peaks` with the full −100 set = fresh capture;
-`test_loaded_measurement_is_not_upgraded` sets `all_peaks = displayed` = a loaded durable set that is NOT
-re-detected). **Verification: suite 530 passed / 7 deselected; parity `--check` clean (79 groups); golden
-`peak-baseline-expected.json` unmoved (`test_peak_fixture_regression` green).** Parity tool lives in the
-SWIFT repo (`GuitarTap/Tooling/parity/gen_parity_map.py`), not the Python repo.
+### ✅ Phase 1 COMPLETE — suite green (530), parity 79 + USER-VERIFIED (2026-07-23). Committed `6068d1a` (with Phase 2).
 
-**REMAINING for Phase 1:** port the Swift **`PeakMinDurabilityTests`** (new suite, ~5 tests, pinned generic) —
-the new-capability proof (full set saved to −100; lowering Peak Min reveals a sub-Peak-Min Air peak; hidden
-peak returns with same id). NOTE: the *sweep-preserves-offset/override/selection* durability test belongs to
-**Phase 2** (Peak Min still triggers recalc until Phase 2 decouples it).
+**Changed (Python):**
+- `all_peaks` added as the durable set — a `_all_peaks` backing store + an `all_peaks` property whose setter
+  calls `refresh_displayed_peaks()` (mirrors Swift `allPeaks` `@Published` + `didSet`). `current_peaks`
+  demoted to its Peak-Min display projection via `refresh_displayed_peaks()` (guitar filters by
+  `peak_min_threshold`; material passes `all_peaks` through).
+- The 17 `current_peaks =` write sites converted to feed `all_peaks` (capture / detect / load / clear /
+  material-accept), mirroring Swift's `allPeaks =` sites. `peak_min_override=PEAK_DETECTION_FLOOR` (−100)
+  added at the capture / frozen-re-detect / guitar-averaged `find_peaks` calls. The loaded recalc branch and
+  `_emit_loaded_peaks_at_threshold` now assign the FULL saved set (the `>= peak_min` pre-filter removed — the
+  data-loss trap). LEFT as-is: the guitar LIVE FFT path keeps `live_threshold` (Swift captures the full set
+  at freeze, not the live path); `_emit_peaks_array` keeps its no-op `current_peaks` passthrough.
+- `guitar_full_save_peaks()` collapsed to `return list(self.all_peaks)` (mirrors Swift `{ allPeaks }`;
+  deleted the re-detect-and-append dance).
 
-**Step 1 DONE (additive, no behaviour change yet):** added `self._all_peaks` (durable) + an `all_peaks`
-property whose setter calls `refresh_displayed_peaks()` (mirrors Swift `allPeaks` `@Published` + `didSet`),
-and `refresh_displayed_peaks()` (mirrors `refreshDisplayedPeaks()` — guitar filters by `peak_min_threshold`,
-material passes `all_peaks` through). Uses `self._tds.measurement_type().is_guitar` (`_tds` is a per-method
-local elsewhere; instance ref is the safe one post-init). `PEAK_DETECTION_FLOOR = -100.0` already existed on
-the PeakAnalysis mixin. Fast suite: **530 passed, 7 deselected**.
+**Ledger correction:** 17 analyzer write sites in Python (`_spectrum_capture` 6, `_peak_analysis` 6,
+`_control` 4, `_measurement_management` 1), not the "~12" the Swift ledger guessed; `views/fft_canvas.py`
+writes a view-local `_current_peaks`, out of scope.
 
-**Step 2 DONE (16 durable-set conversions; suite still 530 green):** converted the `current_peaks =` writes
-to `all_peaks =` at all capture/detect/load/clear/material-accept sites, mirroring Swift's `allPeaks =`
-sites. Non-trivial ones: loaded recalc branch + `_emit_loaded_peaks_at_threshold` now assign the FULL saved
-set (removed the `>= peak_min` pre-filter — the data-loss trap) and emit the projection; live-tap frozen
-re-detect + guitar-averaged capture now pass `peak_min_override=self.PEAK_DETECTION_FLOOR`. LEFT: the guitar
-LIVE path keeps `live_threshold` (Swift captures the full set at freeze, not the live FFT path); and
-`_emit_peaks_array` (`_spectrum_capture.py:2078`) keeps its no-op `current_peaks = peaks` passthrough (always
-called with `self.current_peaks`). Only `refresh_displayed_peaks` (`tap_tone_analyzer.py:999`) and that
-passthrough still assign `current_peaks`. Green passed because fixtures' peaks sit above the default Peak Min
-(projection == full), so **step 3's durability test is what actually proves the new capability**.
+**Tests:** `TestGuitarFullSavePeaks._prep` reseeds `all_peaks` with the full −100 set;
+`test_loaded_measurement_is_not_upgraded` seeds a loaded durable set that is NOT re-detected (the two
+ledger-named tests, updated in place). Suite 530; parity 79; golden `peak-baseline-expected.json` unmoved.
 
-**NEXT — step 3:** collapse `guitar_full_save_peaks()` → `all_peaks`; add `test_peak_min_durability`
-(offset+override+selection survive a Peak Min sweep past a peak); reseed full set in peak-finding prep;
-`gen_parity_map.py --check` (zero new orphans) + golden `5c264de3941837f8` unmoved.
+**Run-reviewed by the user 2026-07-23: "things seem to still work."**
 
+### Port ledger — Phase 1
 **Rule.** Detection stores the FULL peak set (fixed −100 dB floor at capture). Peak Min never reaches
-detection; it is applied afterward as a projection handing back *the same peak objects*. Auto-selection
-at freeze runs over the full set.
-
-**Swift reference.** `allPeaks` (durable) added; `currentPeaks` → derived `@Published private(set)`
-projection via `refreshDisplayedPeaks()`; `peakMinOverride: peakDetectionFloor` at capture sites only;
-`guitarFullSavePeaks()` collapsed to `allPeaks`.
-
-**Python — VERIFIED against code 2026-07-23 (corrects the Swift ledger's "~12 sites"):**
-- No durable set today — `current_peaks` (`tap_tone_analyzer.py:278`, `= []  # mirrors currentPeaks`)
-  IS the working set.
-- **17 analyzer write sites** (`current_peaks =`), not ~12:
-  - `_spectrum_capture.py`: 1493, 1510, 1672, 1784, 1978, 2074 (guitar + material capture)
-  - `_peak_analysis.py`: 87, 181, 186, 228, 233, 854
-  - `_control.py`: 349, 728, 997, 1051
-  - `_measurement_management.py`: 491 (load)
-- `views/fft_canvas.py:1763/1768` write `_current_peaks` — a **view-local** variable, NOT the
-  analyzer's set. Out of scope for Phase 1.
-- `guitar_full_save_peaks()` (`_measurement_management.py:191`, caller :321) collapses to `all_peaks`.
-
-**Python plan.**
-1. Add `self.all_peaks: list = []` (durable) beside `current_peaks`.
-2. `refresh_displayed_peaks()` (mirror `refreshDisplayedPeaks`): `current_peaks = [p for p in all_peaks
-   if p.magnitude >= peak_min_threshold]` for guitar, `= all_peaks` for material.
-3. Convert the 17 write sites: detection/capture write `all_peaks` then re-project; clears clear both.
-4. Detection floor: pass the −100 floor at the capture/detect calls only.
-5. Collapse `guitar_full_save_peaks()` → `all_peaks`.
-
-**Guardrail (ledger's hard-won trap).** `all_peaks` must NEVER be assigned a filtered view — it shrinks
-the durable set as Peak Min rises and the save path reads it (real data loss). Two recalc branches
-present this temptation.
-
-**Tests.** New `test_peak_min_durability` (mirror `PeakMinDurabilityTests`, pinned generic); reseed the
-full set in peak-finding test prep; frozen-recalc integration tests. Parity slug `test/frozen-peak-recalc`.
-Golden `5c264de3941837f8` unmoved.
+detection; it is applied afterward as a projection handing back the *same peak objects*. Auto-selection at
+freeze runs over the full set. **Guardrail:** `all_peaks` must NEVER be assigned a filtered view.
 
 ---
 
-## Phase 2 — Peak Min becomes a pure filter *(core change)*  🟡 (A–E DONE 2026-07-23, suite 532 / parity 79; C user-verified; needs a final run-review of the peak_min property change)
+## Phase 2 — Peak Min becomes a pure filter *(core change)*
 
-**E DONE + `peak_min_threshold` made a property (didSet mirror):**
-- Converted `peak_min_threshold` to a `@property` whose setter calls `refresh_displayed_peaks()` — mirrors
-  Swift `@Published var peakMinThreshold { didSet { refreshDisplayedPeaks() } }` and matches the `all_peaks`
-  precedent. Init sets the `_peak_min_threshold` backing field directly (Swift `didSet` doesn't fire on init;
-  a Python setter would, before `_all_peaks` exists). Persistence + the `peaksChanged` emit stay at the call
-  sites (Python `current_peaks` isn't signal-backed, so emitting in the setter would fire prematurely during
-  capture/load). `set_threshold` (fft_canvas + control) folded down to `peak_min_threshold = …` + emit.
-- **Tests:** inverted `PRA4` (`..._clears_display_keeps_durable_set` — display empties, `all_peaks` survives);
-  added `TestPeakMinDurability` — the sweep test (identity/selection/override/offset survive a Peak Min sweep,
-  driving `peak_min_threshold =` directly now that it re-projects) + the deselect-survives-slider guard.
-  **532 passed** (+2), parity clean (79), golden unmoved.
-- **D = CLOSED (verified at code level, not assumed):** Swift's `frozenPeakPosition` was DELETED in Phase 2
-  (freezing the dot endpoint was the bug); the non-divergent target is its absence. Python's leader line
-  (`peak_annotations._update_arrow`) already draws from the LIVE peak coords (`_peak_freq`/`_peak_mag`) to the
-  dragged label — no frozen peak. Swift also keeps `frozenChartPosition` (freezes the LABEL anchor so a
-  mid-drag axis change doesn't move it) — a SwiftUI mechanism (positions recomputed from data each render).
-  Python has no analog because `update_annotation` NEVER repositions an existing on-screen label (the
-  `idx >= 0` branch only updates html/color/pen — no `setPos`); the saved offset is applied ONLY in the
-  new-annotation `else` branch. So the `sigXRangeChanged → peaksChanged → update_annotation` path leaves a
-  being-dragged label untouched, and the label (a data-coord `pg.TextItem`) stays put across a range change.
-  No `frozen_peak_position` and no `frozen_chart_position` needed — framework-forced view-layer divergence,
-  allowed by the porting rules.
-- **Annotation "Reset Position" PARITY FIX (run-review find, 2026-07-23; pre-existing bug, compare-to-Swift):**
-  Python conflated the annotation's default with its saved offset — `create_annotation` set
-  `_default_pos = xy_text`, and `refresh_annotations` always `clearAnnotations`+rebuilds, so after any rebuild
-  of a moved label (reset-to-auto, pan/zoom, mode-change) `_default_pos` became the DRAGGED position →
-  "Reset Position" disabled + reset-to-saved-offset. Swift bases `isMoved` on `offset != .zero` and
-  `calculateChartPosition()` always ignores the offset; reset = `resetAnnotationOffset(for:)`. FIX (mirrors
-  Swift): `_default_pos` is now the computed default `(freq, mag + _LABEL_OFFSET_DB)` always; "Reset Position"
-  calls `analyzer.reset_annotation_offset(peak_id)` (pops the stored offset, mirroring Swift's `removeValue`)
-  + moves to the true default, so it survives the next rebuild. Threaded `peak_id`/`analyzer` into
-  `create_annotation`→`connect_arrow`→`DraggableTextItem`. Suite 532 + 46 annotation tests green.
-  **✔️ USER-VERIFIED 2026-07-23** (move label → reset-to-auto → Reset Position still enabled + returns to default).
-- **Owed:** re-confirm the Peak Min **sweep** + selection still work after the `peak_min_threshold` property
-  conversion (the annotation fix is verified; the sweep re-check is the one item not explicitly reconfirmed).
+### ✅ Phase 2 COMPLETE — suite green (532), parity 79 + USER-VERIFIED (2026-07-23). Committed `6068d1a` (with Phase 1).
 
-**A follow-up FIX (user run-review found it):** decoupling A swapped `recalculate_frozen_peaks_if_needed()`
-(which ended by emitting `peaksChanged`) for `refresh_displayed_peaks()` (which emitted nothing) — so a Peak
-Min sweep re-projected but the view never redrew ("no peaks come or go"). Python `current_peaks` is a plain
-attr, not Swift's `@Published peaksAbovePeakMin`, so it needs an explicit emit. Fixed: `set_threshold`
-(`fft_canvas.py` + `control.py`) now emits `peaksChanged(current_peaks)` AFTER `refresh_displayed_peaks()`.
-Deliberately NOT inside `refresh_displayed_peaks()` (would fire premature emits during capture). **User-verified:
-lower Peak Min reveals fainter peaks, raise hides; toggle/select-all/none route through the analyzer; deselect
-survives a Peak Min sweep.**
+**Changed (Python):**
+- **A — decouple.** The live Peak Min slider (`fft_canvas.set_threshold:1698`) and the parallel
+  `control.py:1105` now call `refresh_displayed_peaks()` instead of `recalculate_frozen_peaks_if_needed()`
+  — Peak Min re-projects, never re-detects (mirrors `peakMinThreshold.didSet`). `peak_min_threshold` was made
+  a `@property` whose setter re-projects (init sets the `_peak_min_threshold` backing field directly, since a
+  Python setter fires on init unlike Swift `didSet`). An explicit `peaksChanged.emit` was added AFTER the
+  projection in `set_threshold` — `current_peaks` isn't `@Published`, so the view must be told (a run-review
+  found the missing emit: "no peaks come or go").
+- **B — corollary.** Every selection/classification site reads the durable `all_peaks` — the recalc snapshot
+  (offsets/overrides/prev-selected), `reset_to_auto_selection`, `guitar_mode_selected_peak_ids` default, and
+  `reclassify_peaks`.
+- **C — selection routed through the analyzer.** New `PeaksModel.selectionToggled(peak_id)` signal (emitted
+  from `set_show_value` on a user toggle) → `_on_peak_selection_toggled` → `analyzer.toggle_peak_selection`
+  + `peaksChanged.emit`; select-all/none route to `analyzer.select_all_peaks()` / `select_no_peaks()`. The
+  existing push-over then syncs the widget model from the analyzer — no longer discards the user's choice.
+  Fixes the deselect-not-surviving-a-slider defect (`PEAK-SELECTION-SURVIVES-SLIDER.md`, resolved by the A
+  decoupling, as in Swift). No incremental `selected_peak_frequencies` cache (Swift keeps none — verified).
+- **D — non-item (verified).** Python's leader line already draws from the live peak coords, so Swift's
+  `frozenPeakPosition` bug has no Python analog. Also fixed a *pre-existing* annotation "Reset Position" bug
+  found in run-review (`_default_pos` was conflated with the saved offset) — now uses the computed default
+  and clears the offset via `reset_annotation_offset`, mirroring Swift `isMoved` / `resetAnnotationOffset`.
+- **Ledger corrections:** `_emit_loaded_peaks_at_threshold` is the LOAD path, NOT a Peak-Min trigger (the
+  Swift ledger's claim was wrong). The `TapToneAnalyzer.deinit` crash is a SEPARATE parked concern —
+  `DEINIT-CRASH-INVESTIGATION.md`.
 
-**Verified decouple map (2026-07-23):** the LIVE Peak Min slider is `_on_peak_min_changed` →
-`fft_canvas.set_threshold` (VIEW `:1686`, which sets `peak_min_threshold` at `:1689`) → recalc at `:1698`.
-The model `control.py:1105 set_threshold` is a parallel path (not called from views). `fft_canvas:1364`
-= x-axis RANGE (Phase 7), `view:7006` = Settings-apply (Phase 7 reshapes), `_emit_loaded_*` calls = C.
+**Tests (+2, 530 → 532):** inverted `test_PRA4_...clears_display_keeps_durable_set` (display empties,
+`all_peaks` survives); new `TestPeakMinDurability` — the sweep test (identity / selection / override / offset
+survive a Peak Min sweep, driving `peak_min_threshold =` directly) + the deselect-survives-slider guard. One
+reset-to-auto test reseeded to `all_peaks`. Parity 79; golden unmoved.
 
-**A — decouple DONE:** `control.py:1105` and **`fft_canvas.py:1698`** recalc → `refresh_displayed_peaks()`
-(the live slider now re-projects, never re-detects). Mirrors Swift `peakMinThreshold.didSet`.
-**B — corollary DONE:** `current_peaks` → `all_peaks` at recalc snapshot (offsets/overrides/prev-selected),
-`reset_to_auto_selection`, `guitar_mode_selected_peak_ids` default, `reclassify_peaks` (classify input +
-identified_modes comprehension; emit stays projection). One test reseeded (`test_D3b_reset_to_auto…` →
-`all_peaks`), same pattern as Phase 1. **530 passed, parity clean (79), golden unmoved.**
+**Run-reviewed by the user 2026-07-23, all checks pass:** Peak Min sweep reveals/hides peaks; toggle /
+select-all / none route through the analyzer; a deselected peak survives a sweep; and "Reset Position" is
+enabled after reset-to-auto and returns the label to its true default.
 
-**REMAINING:**
-- **C — CORE DONE 2026-07-23 (view-layer; NEEDS RUN-REVIEW — Qt wiring not unit-tested):**
-  routed selection through the analyzer, mirroring Swift's row `onToggleSelection`.
-  - `peaks_model.py`: new `selectionToggled(str)` signal, emitted from `set_show_value` on a USER toggle
-    (skipped for programmatic bulk updates via `_programmatic_update`).
-  - `tap_tone_analysis_view.py`: connect `selectionToggled` → `_on_peak_selection_toggled` →
-    `analyzer.toggle_peak_selection(id)` + `peaksChanged.emit`; `_on_select_all/deselect_all` now route to
-    `analyzer.select_all_peaks()` / `select_no_peaks()` + emit (were widget-local). The existing push-over
-    (`view:2617`) syncs the widget model back from the analyzer — no longer discards the user's choice.
-  - **NO incremental `selected_peak_frequencies` cache maintenance** — superseded by the A decoupling
-    (verified Swift's `togglePeakSelection` keeps no cache); doc updated.
-  - **LEDGER CORRECTION:** `_emit_loaded_peaks_at_threshold` is the **LOAD path** (`fft_canvas:767` def
-    "called by guitar_tap.py after loading"; `view:4514` load-restore), **NOT** a Peak-Min trigger — the
-    Swift Phase 2 ledger's claim that "Peak Min reaches peaks through `_emit_loaded_peaks_at_threshold`" is
-    inaccurate. No redirect needed (C-3 was a non-item; verified before acting).
-  - **Still owed:** run-review (toggle a peak in the table → analyzer selection + annotations update; select
-    all/none; deselect survives a Peak Min sweep).
-- **D:** annotation leader-line — mirror Swift `frozenPeakPosition` removal (freeze only the label anchor).
-- **E (tests):** rework `test_frozen_peak_recalculation.py` (invert `PRA4` → display empties but
-  `all_peaks`+`identified_modes` survive; adjust `PRA2/PRA3`); add the `PeakMinDurability` sweep suite +
-  deselect-survives-slider parity case.
-
-**(original stub rule/refs below)**
-
+### Port ledger — Phase 2
 **Rule.** A Peak Min change recomputes the display projection and mutates nothing else. Detection,
 classification and selection are facts about the *measurement*; only display depends on Peak Min.
-**Corollary:** every auto-selection and classification call site must read the DURABLE set, never the
-displayed one.
-
-**Swift ref.** `peakMinThreshold.didSet` → `refreshDisplayedPeaks()` only; `allPeaks` at the four
-selection/classification sites; `frozenPeakPosition` removed. `applyFrozenPeakState`,
-`selectedPeakFrequencies`, the re-detect branch are all **KEPT** (they serve load + explicit Re-analyze).
-
-**Python (to verify at port time).** Peak Min reaches peaks via `recalculate_frozen_peaks_if_needed()`
-(`_peak_analysis.py:120`) and `_emit_loaded_peaks_at_threshold()` (`:826`). Decouple: a threshold change
-re-emits the projection only. **Prerequisite:** Python's selection UI is NOT routed through the analyzer
-— see `PEAK-SELECTION-SURVIVES-SLIDER.md`; `views/fft_canvas.py` is held uncommitted because it is
-rewritten here. `_apply_frozen_peak_state` + selection cache (`_measurement_management.py:702`) are KEPT.
+**Corollary:** every auto-selection and classification call site reads the DURABLE set, never the displayed one.
 
 ---
 
-## Phase 3 — Per-tap entries computed once  ⬜
-**Rule.** A `TapEntry` is detected, classified and selected **once, at capture**, over the full −100 dB
-set. (Detail + Python sites to verify at port time.)
+## Phase 3 — Per-tap entries computed once
+
+### ✅ Phase 3 COMPLETE — suite green (535), parity 79 + USER-VERIFIED (2026-07-23). Uncommitted (awaiting user commit).
+
+**Changed (Python):**
+- Per-tap capture (`_spectrum_capture.py:2025`) now passes `peak_min_override=self.PEAK_DETECTION_FLOOR` —
+  each `TapEntry` stores the FULL −100 set at capture (the Python-specific gap Phase 1 didn't cover; Swift's
+  capture already passed the floor at `+SpectrumCapture.swift:1664`). **Landed first**, so the deletion below
+  can't freeze a filtered set.
+- Deleted `_recalculate_tap_entry_peaks` + its 3 call sites (`_peak_analysis` loaded/live recalc branches,
+  `_measurement_management` load), with a removal comment at each; dropped the stale load-path justification
+  ("re-running find_peaks ensures consistency" — the exact defect, fighting loaded-peaks-authoritative).
+  Mirrors Swift `recalculateTapEntryPeaks()` removal.
+- Added `selected_peaks` property (`[p for p in self._all_peaks if p.id in self.selected_peak_ids]`; mirrors
+  Swift `selectedPeaks`) and adopted it in the two multi-tap averaged-row consumers — screen
+  (`_populate_multi_tap_results_view`) and PDF (`_on_export_multi_tap_pdf`) — which previously filtered the
+  DISPLAY set (`current_peaks` / a local `all_peaks = list(analyzer.current_peaks)`), so a selected peak below
+  Peak Min vanished from the averaged Air/Top/Back row. **Screen consumer will move to `definitive_mode_info`
+  in Python Phase 6b, matching current Swift** (Swift adopted `selectedPeaks` in both at Phase 3, then 6b
+  refined the screen one — so `selected_peaks` here is correct for THIS phase).
+- Updated the `_on_peaks_changed_multi_tap` docstring (Qt re-render handler, no Swift counterpart); it still
+  earns its keep — the Averaged row follows selection, though the per-tap rows are now durable.
+
+**Tests (+3, 532 → 535):** `test_peak_min_sweep_leaves_tap_entries_untouched` (drive the `peak_min_threshold`
+property); `test_recalculate_frozen_peaks_leaves_tap_entries_untouched` (both branches — the direct guard
+against the deleted call returning); `test_selected_peaks_resolve_over_durable_set`. Parity 79; golden unmoved.
+
+**Run-review OWED** (corrected 2026-07-23 — Peak Min is DISABLED in the Taps/comparison view, and Phase 2 had
+already decoupled the slider, so "sweep Peak Min while viewing the Taps table" is impossible/moot; the unit
+test drives the model directly): (1) a fresh multi-tap capture saved → reloaded **agrees with itself** — the
+reloaded per-tap table is the full saved set, not re-detected at the saved Peak Min (the main Phase 3 fix, and
+the predicted visible change on OLD multi-tap files); (2) the multi-tap **PDF's per-tap + Averaged rows match
+the screen**; (3) on the averaged view select a peak, then raise Peak Min to hide it from the display, then
+open the Taps table — the **Averaged row (and PDF) still includes it**.
+
+**RETRACTED (do not re-file):** the "instance vs static `resolved_mode_peaks` divergence" is NOT real — every
+static caller receives already-selection-filtered peaks (Swift ledger retraction applies to Python too).
+
+**✅ RUN-REVIEW BUG (2026-07-23, user-found; FIX v2 VERIFIED — "All verified"):** Do a multi-tap → save → then
+load a SINGLE-tap measurement → the multi-tap **Taps table stays visible**, showing the OLD per-tap rows (Tap
+1/2/3) + the NEW loaded measurement's **Averaged** row (196.4/239.2). "Should be impossible" — a single-tap
+measurement showing a Taps table.
+- **Root cause (verified):** `tap_entries` IS cleared on load (`_measurement_management.py:812` → `[]` when the
+  loaded measurement has none). But `_restore_measurement` (view) NEVER resets the multi-tap **VIEW**: the
+  reset (hide `_multi_tap_results_view`, silently uncheck + gray the `_multi_tap_toggle_btn`, re-show
+  `peak_widget`) lives ONLY inside `_on_multi_tap_toggled`'s `if not checked:` block (~`tap_tone_analysis_view.py:2536-2555`),
+  which load does not call. So the stale 3-tap widget stays up. Phase 3's `selected_peaks` averaged-row makes
+  its Averaged row now reflect the LOADED peaks (more visibly wrong). **Pre-existing gap, not a Phase 3
+  regression** (the deleted recompute never ran for single-tap load; the view-reset gap predates it).
+- **PRECISE FIX (verified against Swift + Python):** The MODEL is already correct — `load_measurement` sets
+  `self.showing_multi_tap_comparison = False` (`_measurement_management.py:813`, mirrors Swift
+  `+MeasurementManagement.swift:856`). And `_update_multi_tap_toggle_state` (`view:4251`) only sets the toggle
+  BUTTON's visible/enabled — it does NOT hide `_multi_tap_results_view` or re-show `peak_widget`. SwiftUI hides
+  the multi-tap view automatically off `showingMultiTapComparison`; Qt does not. So the ONLY fix: in
+  `_restore_measurement` (`view:4358`), when the multi-tap widget is showing, reset it — the SAME reset as
+  `_on_multi_tap_toggled`'s `if not checked:` block (`~2540-2554`): silently uncheck + gray the toggle, hide
+  `_multi_tap_results_view`, re-show `peak_widget`. (Best: extract that block into a `_reset_multi_tap_view()`
+  helper called from both.)
+- **❌ FIRST FIX INEFFECTIVE (user: "No change"):** added the reset block inline at the TOP of
+  `_restore_measurement` (before `load_measurement`), GATED on `if self._multi_tap_results_view.isVisible():`.
+  Two flaws: (1) it ran BEFORE `load_measurement`, so any re-show during the synchronous `measurementComplete`
+  handlers would undo it; (2) the `isVisible()` guard is fragile — if it returns False the reset silently
+  no-ops. User re-tested and saw no change.
+- **✅ FIX v2 APPLIED 2026-07-23 (suite 535 green; NEEDS RUN-REVIEW):** moved the reset to run AFTER
+  `analyzer.load_measurement(m)` (`view:~4378`) so it is the final word regardless of what the
+  `measurementComplete` handlers touch, and made it UNCONDITIONAL — gated on `if not
+  analyzer.showing_multi_tap_comparison:` (True after every load, since `load_measurement` clears it) rather
+  than on widget `isVisible()`. Silently unchecks/grays the `_multi_tap_toggle_btn` and hides
+  `_multi_tap_results_view`; leaves `peak_widget` / `_material_scroll` to the existing load logic (which
+  already shows the loaded results, per the screenshot). Verify: multi-tap → save → load a single-tap → Taps
+  table is gone, single-tap results shown. Also re-check: load a MULTI-tap file → its Taps toggle re-enables
+  (via `_update_multi_tap_toggle_state` on measurementComplete) and opening it still works. **NB (Python):
+  restart the app to pick up source changes — Python has no build step.** POSSIBLE FOLLOW-UP: if the multi-tap
+  chart OVERLAY curves linger on load, also clear them (load rebuilds the spectrum, so likely fine — confirm in
+  run-review).
+
+### Port ledger — Phase 3
+**Rule.** A `TapEntry` is detected, classified and selected once, at capture, over the full −100 dB set,
+durable thereafter — nothing may re-derive it. Derived values (the averaged row) resolve selection over the
+durable set (`selected_peaks`), never the Peak Min projection.
 
 ## Phase 4 — One unknown predicate  ⬜
 **Rule.** A peak is unknown only when auto-classification placed it in no mode band **and** the user
@@ -244,11 +226,15 @@ audit ([[project_python_playback_gc_race]]) + the soak/stress harness deliverabl
 ## Cross-cutting deliverables (all ports)
 - **Docs:** release notes (Python repo) + in-app Help/Quick-Start (Python has one) mirror the Swift
   wording (the 3 HelpView corrections + the "Peaks & Modes" behaviours). Manual is Swift-only — nothing
-  to port, but Python behaviour must MATCH it.
+  to port, but Python behaviour must MATCH it. (Swift did these as ONE docs commit at the end — mirror that.)
 - **Soak/stress harness** (Phase 9 deliverable): `pytest` + `pytest-repeat` + `pytest-timeout`, skip slow
   playback; detect crashes/hangs. Mirror the Swift harness's lesson — watch for crash artifacts, not just
   the runner's exit text.
 
 ## Log
-- 2026-07-23 — doc created; Phase 1 plan verified against Python code (17 write sites, not ~12); porting
-  discipline recorded. Awaiting go on Phase 1 implementation.
+- 2026-07-23 — doc created; Phase 1 plan verified against Python code (17 write sites, not ~12).
+- 2026-07-23 — **Phases 1 & 2 DONE + user-verified**, committed `6068d1a` (bundled, mirroring Swift `9f9bc89`);
+  suite 532, parity 79, golden unmoved. Reformatted this doc to the Swift plan's `✅ COMPLETE` style.
+- 2026-07-23 — Phase 3 plan verified against code; NOT started. **RESUME at Phase 3 step 1** (add the −100
+  floor to the per-tap capture `_spectrum_capture.py:2025`, then the deletion). Nothing uncommitted in any
+  repo (Swift docs, Python 1+2, and GuitarTapWeb docs all committed).
