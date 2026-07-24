@@ -356,7 +356,7 @@ unconstrained (clusters). Enforced as invariant maintenance in ONE place, called
 from changing the mode of an already-selected peak. **No auto-promotion.** Mode resolved via the
 override-aware `peak_mode`, not `identified_modes`.
 
-### ✅ Phase 5 COMPLETE — suite green (544), parity 79 + USER-VERIFIED (2026-07-23). Committed `<hash>` (mirrors Swift `5836489` + the reset-label fix).
+### ✅ Phase 5 COMPLETE — suite green (544), parity 79 + USER-VERIFIED (2026-07-23). Committed `fb78bbf` (mirrors Swift `5836489` + the reset-label fix).
 
 **Changed (Python):**
 - **`enforce_definitive_mode_uniqueness(preferring)` + `single_holder_modes` {AIR, TOP, BACK}** — faithful
@@ -408,13 +408,169 @@ mode.
 3. Override a selected peak into Top → displaces the definitive Top; override it away → Top holderless.
 4. "Reset to Auto-Detected (X)" names the **auto** mode, not the overridden one.
 
-## Phase 6 — Derived values unified  ⬜
-**Rule.** Every derived "the Air/Top/Back" value reads the **definitive** peak (selected + override-aware).
-(Verify at port time.)
+## Phase 6 — Derived values unified  ✅
 
-## Phase 6b — Definitive modes for the two override-blind surfaces  ⬜
-**Rule.** A comparison measurement stores its resolved definitive Air/Top/Back as **mode→peakID**
-(`mode_peak_ids ↔ modePeakIDs`); older comparison files healed on decode. (Verify at port time.)
+**Goal.** Every derived "the Air/Top/Back" value reads the **definitive** peak: the *selected* peak whose
+*override-aware* mode is that mode. ONE shared effective-mode resolver feeds the analyzer, the saved
+measurement's ratio, and the static resolver, so they cannot disagree. Legacy files are healed to a valid
+definitive selection on read, re-saved under the same `was_healed` flag as the duplicate-peak heal. (Swift
+`4984ed0`. **Done together with Phase 6b in ONE commit, mirroring Swift** — the comparison `mode_peak_ids`
+format change is not a separate decision; consistency with Swift IS the decision.)
+
+### ✅ Phase 6 + 6b COMPLETE — suite green (563), parity 79, golden unmoved + USER-VERIFIED (2026-07-24). Committed `73f5bb9` (ONE commit, mirrors Swift `4984ed0`).
+
+**6 core:** `GuitarMode.effective_mode`; `peak_mode` delegates; `get_peak`→definitive;
+`TapToneMeasurement.definitive_peak` + `tap_tone_ratio`; the guitar decode-heal (`from_dict`).
+**6b:** `ComparisonEntry.mode_peak_ids` (+`mode_id_map`/`mode_frequency`/encode/decode); comparison
+decode-heal; definitive `mode_ids` built at source in `load_comparison` + persisted in `save_comparison`
++ restored on load; on-screen comparison table + saved-comparison PDF + live-comparison PDF read the stored
+map; `definitive_mode_info()` on analyzer + measurement; multi-tap Averaged row + both multi-tap PDF paths
+use it (overridden value italic + `*`); `resolved_mode_peaks` gained `overrides` (Swift order
+peaks,overrides,guitar_type) + all callers keyword-fixed.
+**CORRECTION vs the old 6b map:** no caller passes `overrides` to `resolved_mode_peaks` — Swift reaches
+override-correctness via the stored `modeIDs` (comparison) and `definitiveModeInfo()` (multi-tap Averaged),
+NOT by passing overrides to the PDF paths. Followed the Swift *code*, not the plan-time guess.
+**Tests:** +2 `test_annotation_state.py` (`TestDefinitiveModeInfo` D21/D22) + 7 `test_comparison_mode.py`
+(`TestComparisonDefinitiveModes` — mirrors Swift `ComparisonModePersistenceTests`, slug `test/comparison`;
+NOT `test_measurement_codable.py` — Swift put them in `ComparisonModeTests.swift`).
+**Files (guitar_tap, 10 sources + 3 tests):** `models/guitar_mode.py`,
+`models/tap_tone_analyzer_analysis_helpers.py`, `models/tap_tone_analyzer_measurement_management.py`,
+`models/tap_tone_analyzer_peak_analysis.py`, `models/tap_tone_measurement.py`,
+`views/comparison_results_view.py`, `views/multi_tap_comparison_results_view.py`,
+`views/tap_analysis_results_view.py`, `views/tap_tone_analysis_view.py`,
+`views/measurements/measurements_list_view.py`; tests `test_annotation_state.py`, `test_comparison_mode.py`,
+`test_measurement_codable.py`.
+
+**The bug this closes** (user, Phase-4a run-review): rename the Top peak to something else and a tap-tone
+ratio is *still* shown — because `get_peak` reads the override-BLIND `identified_modes` while every display
+surface reads the override-AWARE `peak_mode`. Phase 4 unified "is it unknown?"; this unifies "which mode is
+it?". On-screen and saved ratios agreeing is NOT evidence of correctness (both share the blindness).
+
+### Verified against the Python code 2026-07-23
+| Swift (`4984ed0`) | Python site | Action |
+|---|---|---|
+| `GuitarMode.effectiveMode(override:auto:)` | `guitar_mode.py` | **ADD** `effective_mode(override, auto)`: a resolvable override label (`from_mode_string`/`from_display_name`) → that mode; freeform → UNKNOWN; no override → `auto` |
+| `peakMode` delegates | `_analysis_helpers.py:20` `peak_mode` (override-aware, inlined) | **delegate** to `effective_mode` (share the resolver) |
+| `getPeak` → definitive | `_analysis_helpers.py:52` `get_peak` — reads override-BLIND + selection-BLIND `identified_modes` | **FIX** → the SELECTED peak whose `peak_mode(p).normalized == mode` (strongest; the Phase-5 invariant means ≤1) |
+| live ratio | `_analysis_helpers.py:76` `calculate_tap_tone_ratio` | inherits the fix via `get_peak` (verify) |
+| `TapToneMeasurement.definitivePeak` + `tapToneRatio` | `tap_tone_measurement.py:468` `tap_tone_ratio` — selection-aware but override-BLIND | **ADD** `definitive_peak(mode)` (over `effective_selected_peak_ids` [:452, exists] + `effective_mode`); `tap_tone_ratio` reads it |
+| static `resolvedModePeaks(overrides:)` | `_peak_analysis.py:851` `resolved_mode_peaks` — override-blind `classify_all` | **ADD** `overrides` param + resolve via `effective_mode` |
+| decode heal (guitar) | `tap_tone_measurement.py from_dict` — heals duplicate-peaks (`:934/:963`) only | **ADD** the Phase 6 guitar heal (below) |
+| multi-tap averaged row | `_measurement_management.py:924` uses `selected_peaks` (Phase 3) | **verify** mode resolution is override-aware |
+
+### The work
+1. **`GuitarMode.effective_mode`** — the single "which mode, really" resolver (mirror Swift).
+2. **`peak_mode` delegates** to it; **`get_peak` → definitive**; **`calculate_tap_tone_ratio`** inherits.
+3. **`TapToneMeasurement.definitive_peak(mode)` + `tap_tone_ratio`** over `effective_selected_peak_ids` +
+   `effective_mode` (replaces the override-blind classify).
+4. **`resolved_mode_peaks(peaks, overrides, guitar_type)`** — gains `overrides`, resolves via `effective_mode`.
+5. **Decode heal (guitar, non-material)** in `from_dict`, mirroring Swift's `init(from:)`: if
+   `selectedPeakIDs is None` → auto-select the strongest per single-holder mode (Air/Top/Back) via
+   `effective_mode`; else prune any single-holder mode with >1 selected to its strongest winner. Set the
+   existing `healed` flag (same re-save contract as the duplicate heal). *(Comparison-entry `mode_peak_ids`
+   heal = Phase 6b.)*
+6. **Multi-tap averaged row** — confirm override-aware; align if not.
+
+### Tests — slugs `test/annotation-state` + `test/measurement-codable`
+**D17–D20** (definitive peak / effective mode): renaming the definitive Top away removes the ratio; a
+deselected winner is not the definitive peak; override-into-a-mode makes that peak definitive; effective_mode
+resolves override over auto. **Three struct-ratio** cases (measurement `tap_tone_ratio` respects override +
+selection; on-screen == saved). **Three decode-heal** cases (nil selection auto-selects; duplicate
+single-holder pruned; a valid file is untouched / `was_healed` stays False). **Fixture caution (from the
+Swift ledger):** mode bands are per guitar type (classical Top 170–230, generic 140–260); pick frequencies
+against the actual band table and put a Top-only peak below the Back lower bound. Parity 79; golden unmoved.
+
+### User verification — run-review script (from the Swift ledger)
+1. Rename the definitive Top peak to something else → the tap-tone ratio **disappears** (no Top → no ratio).
+2. Deselect the Top winner → derived Top/ratio follow the new definitive peak (or vanish).
+3. The on-screen ratio and the saved-measurements-list ratio **agree** for the same measurement.
+4. Open a legacy file with no saved selection → it shows a sensible definitive Air/Top/Back (auto-selected).
+
+## Phase 6b — Definitive modes for the two override-blind surfaces  ✅
+
+**Done together with Phase 6 in ONE commit, mirroring Swift `4984ed0`.** Two UNRELATED things that merely
+share the comparison container and must stay separate in code + comments.
+
+**⚠️ The `.guitartap` format is ALREADY changed — Swift added `modePeakIDs`.** Python's `ComparisonEntry`
+currently has **no** `mode_peak_ids`, so it **silently drops the field Swift writes** on any decode→encode
+round-trip. Conforming is mandatory format parity, not a new decision.
+
+### Track 1 — Comparison MEASUREMENT (overlays separate saved measurements) — format conformance
+A comparison aggregates *other* measurements, so their override context isn't otherwise in this file. Swift
+Approach B: store the **resolved mapping**, so an independent reader reproduces the displayed Air/Top/Back
+**without** reimplementing `classify_all` and without override data that would be absent.
+- **`ComparisonEntry.mode_peak_ids: dict[str, str] | None`** — `{canonical mode name → peak UUID}`
+  (`{"Air (Helmholtz)": id, "Top": id, "Back": id}`), peak ids referencing the entry's own stored peaks
+  (self-contained). Encode as `"modePeakIDs"`, decode from it. **`peak_id` round-trip already works in the
+  format on all 3 — pin as a must-verify, don't assume.** Add `mode_frequency(mode)` (look up the id → its
+  peak's frequency).
+- **Populate at build-from-source** (`_measurement_management.py` `save_comparison` / the spectra-and-
+  snapshots build, where the source measurements with overrides are in hand): definitive mode→peakID via
+  `measurement.definitive_peak(mode)` (effective-mode). Carried on the in-memory comparison-spectra structure.
+- **Render** — the comparison results view (on-screen) + the saved-comparison PDF read the stored map
+  (`mode_frequency`); re-derive positionally only as a fallback when absent.
+- **Decode heal** — a pre-6b entry (`mode_peak_ids is None`) is filled **positionally** and flagged
+  `was_healed` → the library re-saves (same contract as the other heals). Accepted caveat: a comparison
+  saved before this change never stored overrides, so its heal reproduces only what the old app showed.
+
+### Track 2 — Multi-tap MEASUREMENT (one measurement, many taps) — NO format change
+All its data (`peaks`, `selected_peak_ids`, `peak_mode_overrides`, `tap_entries`) is already in its own file.
+- **`definitive_mode_info()`** (analyzer + measurement) = `get_peak` per mode + an override flag. The
+  multi-tap **Averaged row** uses this, NOT `resolved_mode_peaks` — the Swift run-review bug: overriding an
+  out-of-band peak to Top showed a louder Back-band peak as Top and left Back empty (`resolved_mode_peaks` is
+  strongest-per-mode over a reclassified subset, not the definitive rule). Per-tap rows stay each tap's own
+  auto-classification (a tap's peaks are unrelated to the averaged override — no frequency-matching).
+- **Overridden Averaged values shown italic with `*`** — the SAME convention page 1's peak table uses.
+- The **three multi-tap PDF paths** pass `peak_mode_overrides` to `resolved_mode_peaks` inline (locate the
+  Python twins of Swift's `+Export`/`MeasurementDetailView`/`MeasurementsListView` sites). The comparison-
+  container reuse here is a throwaway PDF container, **not** a comparison — keep the distinction in comments.
+
+### 6b IMPLEMENTATION MAP — pinned 2026-07-23 (Swift symbol → Python site, so tomorrow is pure implementation)
+**Track 1 — comparison `mode_peak_ids` (format):**
+- Field + encode/decode + `mode_frequency(mode)` on `ComparisonEntry` = `tap_tone_measurement.py:180` (`to_dict`)
+  / `:191` (`from_dict`) / the dataclass fields (has NONE now). Swift: `ComparisonEntry.modePeakIDs` +
+  `modeFrequency(_:)`.
+- **Populate definitive at build-from-source** via `measurement.definitive_peak(mode)` (added in Phase 6 core):
+  `ComparisonEntry(` constructions at `_measurement_management.py:1154` (in `load_comparison` `:1018`) AND
+  `tap_tone_analysis_view.py:5506` + `:5532` (comparison-PDF export). Persist in `save_comparison`
+  (`_measurement_management.py:1130`). Swift: `loadComparison` (+MM ~975) + `saveComparison` (+MM:1028).
+- **Render** reads the stored map (fallback positional): `comparison_results_view.py:112` (on-screen) + the
+  saved-comparison PDF path. Swift: `ComparisonResultsView.swift:30`.
+- **Decode heal** (nil `mode_peak_ids` → fill positionally, `was_healed`): `ComparisonEntry.from_dict` /
+  the comparison branch of `TapToneMeasurement.from_dict`.
+
+**Track 2 — multi-tap definitive (no format):**
+- Add `definitive_mode_info()` to the analyzer (`_analysis_helpers.py`, next to `get_peak`) AND
+  `TapToneMeasurement` (next to `definitive_peak`) = `{mode: (peak, is_overridden)}` via `get_peak`/`definitive_peak`.
+  Swift: `TapToneAnalyzer.definitiveModeInfo()` + `TapToneMeasurement.definitiveModeInfo()`.
+- Multi-tap **Averaged row** uses it, NOT `resolved_mode_peaks`: `multi_tap_comparison_results_view.py:161`
+  (`avg_mode_peaks = …resolved_mode_peaks(`). Per-tap rows stay positional (`:144`). Overridden Averaged
+  value shown **italic + `*`**.
+- **`resolved_mode_peaks` gains `overrides`** (`_peak_analysis.py:851`) — resolve via `effective_mode`. Update
+  ALL callers, watching the **positional `guitar_type`**: `tap_tone_measurement.py:121` (TapEntry, passes
+  `guitar_type` 2nd-positional — MUST keyword it), `comparison_results_view.py:112`,
+  `multi_tap_comparison_results_view.py:161`, `tap_analysis_results_view.py:1615`,
+  `tap_tone_analysis_view.py:5172`+`:5548`, `measurements_list_view.py:550`.
+- The **3 multi-tap PDF paths** pass `peak_mode_overrides` to `resolved_mode_peaks`: `tap_tone_analysis_view.py:5172`
+  + `:5548` (export) and `measurements_list_view.py:550` + the measurement-detail path. Swift: `+Export.swift:389`,
+  `MeasurementDetailView.swift:300`, `MeasurementsListView.swift`.
+
+**Tests:** D21/D22 (`definitive_mode_info` override-aware) → `test_annotation_state.py`; ComparisonMode
+(`mode_peak_ids` round-trip + render reads stored map) + 6b decode-heal → `test_measurement_codable.py`
+(slug `test/measurement-codable`) / a `test/comparison-mode` slug if Swift used one (verify: Swift added
+`ComparisonModeTests.swift`).
+
+### Tests — slugs `test/annotation-state` + `test/measurement-codable`
+**D21/D22** (multi-tap Averaged row = definitive, override-aware; overridden flag set). **ComparisonMode**
+tests (the `mode_peak_ids` round-trip + the render reads the stored map). **Decode-heal** for a legacy
+comparison entry (nil `mode_peak_ids` → filled positionally, `was_healed`). Parity 79; golden unmoved.
+
+### User verification — run-review script
+1. Multi-tap: override an out-of-band peak to Top → the Averaged row shows THAT peak as Top (not a louder
+   Back-band peak); Back reflects its own definitive peak; the overridden Averaged value is italic with `*`.
+2. Build a comparison from measurements where one has an overridden Top → the comparison table shows the
+   overridden Top; save, reload → still correct (read from the stored map, not re-derived).
+3. Open a legacy saved comparison → it renders (healed positionally) and re-saves.
 
 ## Phase 7 — The remaining triggers  ⬜
 **Rules.** (1) Guitar-type change re-derives classification + selection and clears overrides
