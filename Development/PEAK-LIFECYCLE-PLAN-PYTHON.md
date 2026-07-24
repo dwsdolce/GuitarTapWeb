@@ -572,11 +572,114 @@ comparison entry (nil `mode_peak_ids` → filled positionally, `was_healed`). Pa
    overridden Top; save, reload → still correct (read from the stored map, not re-derived).
 3. Open a legacy saved comparison → it renders (healed positionally) and re-saves.
 
-## Phase 7 — The remaining triggers  ⬜
-**Rules.** (1) Guitar-type change re-derives classification + selection and clears overrides
-(`reclassify_for_guitar_type_change ↔ reclassifyForGuitarTypeChange`); (2) analysis-range setting removed
-(fixed 30–2000 constant); (3) new tap sequence clears per-peak state. Plus the Python GC-race teardown
-audit ([[project_python_playback_gc_race]]) + the soak/stress harness deliverable. (Verify at port time.)
+## Phase 7 — The remaining triggers  ✅
+**Goal.** (1) A guitar-type change is a **clean slate** for the new type — reclassify, **clear manual
+overrides** (labels were made against the OLD bands' meaning), re-auto-select — and fires ONLY on an
+actual type change; a display-only Apply (Peak Min / dB / range) disturbs nothing; the wand stays the
+pure-auto reset. (2) A new tap sequence clears **ALL** per-peak state so nothing leaks into the next
+saved file. (3) The analysis frequency range is a fixed **30–2000** constant — the *setting* (knob +
+Settings UI + Help entry) is removed; detection stays bounded by the constant. (4) Teardown is verified
+per-platform (the Swift Combine-`deinit` race is Swift-specific; Python has its own lifecycle — the
+QObject GC race, already fixed via weakref [[project_python_playback_gc_race]]). Mirrors Swift `e3a7303`.
+
+**⚠️ Structural-parity directive (user, 2026-07-24): "that it differs is a red flag — make it not
+differ."** Python's Apply flow currently diverges from Swift and we ALIGN it, not just match behavior:
+- **Swift (post-Phase-7):** the Settings sheet's `onApply(measurementChanged:guitarTypeChanged:)` closure
+  branches — `measurementChanged` → `requestStartTapSequence()`; **else** `guitarTypeChanged` →
+  `reclassifyForGuitarTypeChange()`; **else** (display-only) → nothing.
+- **Python (today):** `_apply_settings` (`tap_tone_analysis_view.py:6985`) computes `_type_changed`
+  (`:6995`) and, only when it changed, calls `_on_measurement_type_changed(short_name, crosses_boundary)`
+  (`:7121`), whose `elif not crosses_boundary:` branch (`:3470-3481`) does `reclassify_peaks()` +
+  `reset_to_auto_selection()` **inline** — and never clears `peak_mode_overrides`.
+- **Align to:** a single analyzer method `reclassify_for_guitar_type_change()` (mirrors Swift), and the
+  Apply dispatch reshaped to Swift's three-way branch keyed on `measurement_changed` (crosses the
+  guitar/material boundary) vs `guitar_type_changed` (guitar→guitar subtype) vs display-only. Name the
+  booleans to mirror Swift. The residual Qt-vs-SwiftUI structural difference (a nested `_apply_settings`
+  closure vs a sheet `onApply`) is the forced view-layer divergence — name it, minimize it.
+
+### ✅ Phase 7 COMPLETE — suite green (565), parity 79, golden unmoved + USER-VERIFIED (2026-07-24). Committed `d79c465` (mirrors Swift `e3a7303`; paired Swift tests in a separate test-only commit `c6e43fd`).
+
+**Changed (Python):**
+- **Apply flow ALIGNED to Swift's structure** (user red-flag directive): new analyzer
+  `reclassify_for_guitar_type_change()` (`_peak_analysis.py`) = clear `peak_mode_overrides` →
+  `reclassify_peaks()` → `reset_to_auto_selection()`. The dispatch (`_on_measurement_type_changed` +
+  its `_apply_settings` caller) now branches exactly like Swift `onApply(measurementChanged:
+  guitarTypeChanged:)` — `measurement_changed` (boundary) → restart; else `guitar_type_changed`
+  (guitar→guitar) → clean slate; else display-only → nothing. **Fixed two latent Python bugs** the old
+  `elif not crosses_boundary` shape had: it reclassified on material→material (Plate↔Brace) and on
+  FLC-only Applies. Added a view-side `model.modes = {}` in the clean-slate branch (Qt has no
+  `@Published` auto-refresh — the Phase-5 view-sync gap).
+- **`start_tap_sequence` clears ALL per-peak state** (`_control.py`): added `selected_peak_ids`,
+  `selected_peak_frequencies`, `user_has_modified_peak_selection`, `peak_mode_overrides` (previously
+  only annotation offsets) — no leak into the next saved file.
+- **Analysis-range SETTING removed**: `analysis_min/max_frequency()` return the 30/2000 constants
+  (`tap_display_settings.py`; setters dropped, AppSettings keys orphaned like Swift); Settings-sheet
+  fields + apply/validate + reset-defaults gone (`tap_tone_analysis_view.py`); Help row gone
+  (`help_view.py`). Analyzer still seeded to the constant → detection stays bounded. No `.guitartap`
+  format change. Not in any read-only surface (verified).
+- Material guard + teardown: confirmed already satisfied (Peak-Min projection guitar-gated since Phase 1;
+  Python teardown = `fft_canvas.shutdown()` join + the weakref GC-race fix — the Swift Combine `deinit`
+  is NOT ported).
+
+**Tests (paired, slug `test/annotation-state`):** `TestPhase7Triggers` (Python) ↔ `Phase7TriggersTests`
+(Swift) — (a) `reclassify_for_guitar_type_change` clears overrides + resets selection to auto; (b)
+`start_tap_sequence` leaves all per-peak state empty. Both green on both platforms (Swift shipped Phase 7
+test-free at `e3a7303`; these pin the behaviour on both). Suite 565; parity 79; golden `5c264de3941837f8`
+unmoved.
+
+**Run-reviewed by the user 2026-07-24.**
+
+### Verified against the Python code 2026-07-24 (Explore pass)
+| Swift (`e3a7303`) | Python site | Action |
+|---|---|---|
+| `reclassifyForGuitarTypeChange` = `peakModeOverrides=[:]; reclassifyPeaks(); resetToAutoSelection()` | **absent** | **ADD** `reclassify_for_guitar_type_change()` to the analyzer (next to `reset_to_auto_selection` `_peak_analysis.py:359` / `reclassify_peaks` `:673`): clear `peak_mode_overrides`, `reclassify_peaks()`, `reset_to_auto_selection()` |
+| `onApply(measurementChanged:guitarTypeChanged:)` three-way branch | `_apply_settings:6985` → `_on_measurement_type_changed(crosses_boundary)` `:3453`, inline reclassify+reset at `:3477-3478` | **RESHAPE** to Swift's branch; route the guitar-subtype case through `reclassify_for_guitar_type_change()`; keep display-only = no-op (already true — `_type_changed` gate `:7119`). **Guitar subtype IS the measurement-type combo** (`MeasurementType` members ARE the subtypes — Generic/Classical/Flamenco/Acoustic + Plate/Brace; combo `:5809`), so `guitar_type_changed = _type_changed and both guitar` |
+| `startTapSequence` clears `selectedPeakIDs`, `selectedPeakFrequencies`, `userHasModifiedPeakSelection`, `peakModeOverrides`, `peakAnnotationOffsets` | `start_tap_sequence` `_control.py:556` clears ONLY `peak_annotation_offsets` (`:675`) | **ADD** clears for `selected_peak_ids`, `selected_peak_frequencies`, `user_has_modified_peak_selection`, `peak_mode_overrides` (the 4 missing — confirmed leak) |
+| `analysisMin/MaxFrequency` → fixed constants; Settings fields + Help entries removed; `findPeaks` still range-bound | setting live at `tap_display_settings.py:570-591` (→ AppSettings `tap_settings_view.py:305-335`), seeded at `tap_tone_analyzer.py:249-250`; Settings UI `tap_tone_analysis_view.py:6329-6347` (build) + `:6448-6449` (defaults) + `:7040-7057` (apply/validate); Help `help_view.py:558-562` | **REMOVE** the knob: `analysis_min/max_frequency()` return the 30/2000 constants (no AppSettings read); drop the setters + the Settings-sheet fields/apply/defaults + the Help row. **KEEP** the analyzer seeded to the constant (detection still bounded via `find_peaks` min/max `_peak_analysis.py:384-385`). **Confirmed NOT in any read-only surface** (Details pane / PDF / export) — nothing to clear there. No `.guitartap` format change (never persisted). |
+| explicit `deinit { cancellables.forEach { cancel() } }` | Swift-specific | **DO NOT PORT.** Python teardown = `fft_canvas.shutdown()` thread-join (`:847`) + the weakref GC-race fix (`realtime_fft_analyzer.py:176`). Verify no new leak; no code change expected. |
+| material `isGuitar` guard | Peak-Min projection is guitar-gated in `refresh_displayed_peaks` (Phase 1) | **CONFIRM** only (material never filtered) — no-op or a clarifying comment. |
+
+### The work
+1. **`reclassify_for_guitar_type_change()`** on the analyzer — the one clean-slate method (clear overrides
+   → reclassify → reset-selection). Mirror Swift.
+2. **Reshape the Apply dispatch** to Swift's three-way branch (`measurement_changed` / `guitar_type_changed`
+   / display-only); route the subtype case through the new method; booleans named for Swift. Keep the
+   `peaksChanged.emit` the Python view needs (the Qt push Swift gets free via `@Published`).
+3. **`start_tap_sequence`** — clear the 4 missing per-peak fields alongside the existing annotation-offset
+   reset.
+4. **Remove the analysis-range setting** — constants in `tap_display_settings`, drop setters + Settings-sheet
+   fields (build/defaults/apply) + the Help row; keep the analyzer seeded to the constant. Web mirrors later.
+5. **Teardown** — verify (no change expected); **material guard** — confirm.
+
+### Tests — slug `test/analyzer-triggers` (new) + existing analyzer suites
+Swift added NO unit tests (called them UI-triggered). But two of these ARE model-level and testable
+without divergence — add them: (a) `reclassify_for_guitar_type_change` clears `peak_mode_overrides` +
+resets selection to auto + reclassifies (a peak overridden under the old type is no longer overridden);
+(b) `start_tap_sequence` leaves `selected_peak_ids` / `selected_peak_frequencies` /
+`user_has_modified_peak_selection` / `peak_mode_overrides` empty. The analysis-range UI removal + the
+Apply-branch reshape are view-triggered → covered by the run-review script. `@parity` tags updated;
+`gen_parity_map.py --check` 79; golden `5c264de3941837f8` unmoved.
+
+### Parity / verification
+Suite green; parity 79 (add the new slug's pair or fold into an existing analyzer-state group — decide at
+implement time so `--check` stays clean); golden unmoved.
+
+### User verification — run-review script (lifted from the Swift ledger)
+1. **Guitar-type change = clean slate.** Override a peak's mode and select a couple of peaks; Settings →
+   change guitar type (e.g. Classical → Flamenco) → Apply → everything re-classified for the new type,
+   manual labels cleared, fresh auto-selection.
+2. **Display-only Apply disturbs nothing.** Same measurement; change only Peak Min or dB (leave type) →
+   Apply → selection and labels untouched.
+3. **Wand still = pure auto.** Press the wand → selection resets to pure auto (labels preserved — the wand
+   is NOT the clean slate).
+4. **No state leak.** On a measurement with a custom label + a dragged annotation + a selection: save; New
+   Tap; capture a fresh measurement; save; reload → the new file has none of the previous
+   labels/offsets/selection.
+5. **Analysis-range setting gone.** Settings → no "Analysis Frequency Range" field; detection still finds
+   peaks; Help no longer lists it.
+6. **Material unaffected.** Plate/brace: Peak Min disabled, L/C/FLC identified as before.
+7. **(teardown)** Sanity: general use, quit/relaunch cleanly (not reliably user-observable; the suite +
+   soak harness are the real evidence).
 
 ---
 
