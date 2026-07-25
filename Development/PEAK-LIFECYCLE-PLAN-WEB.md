@@ -705,11 +705,69 @@ legacy file with a bad/nil selection is silently repaired + re-saved on first lo
    its selection was bad, is silently repaired (and re-saved by the library).
 5. For the same measurement, the **on-screen ratio == the saved-list ratio == the PDF ratio**.
 
-### Phase 6b — Definitive modes for the two override-blind surfaces  ⬜
-**Goal.** Comparison `modePeakIDs` (self-describing saved comparisons) + `definitiveModeInfo` for the
-multi-tap Averaged row. **The `.guitartap` format already carries `modePeakIDs` (Swift writes it)** — the
-web `ComparisonEntry`/decode must round-trip it (do NOT silently drop it) + heal legacy. *(Web assess:
-`src/measurement/` comparison decode/encode — does it read/write `modePeakIDs`?)*
+### Phase 6b — Definitive modes for the two override-blind surfaces  ✅ COMPLETE (`9c8ddd2`; user-verified 2026-07-24)
+**Goal.** The two surfaces Phase 6 core left override-blind: the multi-tap **Averaged row** and the
+cross-measurement **comparison** table. **Two UNRELATED tracks** sharing the `ComparisonEntry` container —
+keep them separate (user ruling).
+
+**Verified against Swift 2026-07-24** (`ComparisonEntry.modePeakIDs`/`modeIDMap`/`modeFrequency`
+`TapToneMeasurement.swift:87–131`; `definitiveModeInfo` analyzer `+AnalysisHelpers.swift:82` + measurement
+`:537`; the decode comparison-heal `:775–793`). **Key facts nailed down:**
+- `modePeakIDs` is keyed by `GuitarMode.rawValue` = **"Air (Helmholtz)" / "Top" / "Back"** — which EQUALS
+  the web `MODE_DISPLAY_NAME`, so the web writes the SAME keys Swift/Python read. Value = a peak id that
+  references the entry's OWN `peaks`.
+- **Peak ids round-trip through comparison entries on the web** (`encodePeak` writes `id`, `decodePeak`
+  reads it — the ledger's must-verify: ✓). So the id-referenced map is viable.
+- `ComparisonEntry` carries **no `isOverride`** → the comparison table shows the definitive freq but **no**
+  italic/`*` marker. The italic+`*` marker is EXCLUSIVE to the multi-tap Averaged row (`definitiveModeInfo`
+  carries `isOverride`). Matches Swift — do NOT add a marker to the comparison table.
+- The web routes EVERY comparison-style table (cross-measurement comparison + the multi-tap PDF) through
+  ONE resolver, `comparisonEntryModeFreqs` (`fromLive.ts:766`) — updating it covers all render sites.
+
+**Track 2 — multi-tap MEASUREMENT (NO format change; all data is in its own file).**
+- **`tapToneAnalyzer.ts`** — `definitiveModeInfo(): { air|top|back → { frequency, isOverride } | null }`
+  = `definitivePeak(mode)` per mode + `isOverride = overrides.has(peak.id)` (Swift `definitiveModeInfo` /
+  `hasManualOverride`).
+- **On-screen Averaged row** — `App.tsx:617` `avgModes` reads `analyzer.definitiveModeInfo()` instead of
+  `resolvedModePeaks(peaks)`. `MultiTapComparisonResultsView`'s `avg` prop gains the per-mode `isOverride`;
+  the Averaged `FreqCells` render **italic + trailing ` *`** on an overridden value (the app-wide override
+  marker, [[project_override_marker_consistency]]). Per-tap rows unchanged (each tap's own auto-classification).
+- **Multi-tap PDF Averaged row** — `multiTapComparisonEntries` (`fromLive.ts:737`) populates the "Averaged"
+  entry's `modePeakIDs` via `measurementDefinitivePeak(m, mode)` (override-aware); per-tap entries get none
+  (positional). Then `comparisonEntryModeFreqs` reads it. (No italic marker in the PDF container — no
+  `isOverride` field, matching Swift.)
+
+**Track 1 — comparison MEASUREMENT (FORMAT CHANGE; aggregates *other* measurements' overrides).**
+- **`types.ts`** — `ComparisonEntryModel` gains `modePeakIDs?: Record<string, string>` (key = the mode's
+  `MODE_DISPLAY_NAME`, value = an entry-peak id).
+- **`encode.ts` / `decode.ts`** — write/read `modePeakIDs` on the comparison entry (round-trip, don't drop).
+- **`fromLive.ts` `buildComparisonEntries`** — populate `modePeakIDs` from EACH SOURCE measurement:
+  `measurementDefinitivePeak(source, 'air'|'top'|'back')` → its id (the entry keeps the source's selected
+  peaks, SAME ids, so the id is in `entry.peaks`). A `modeIDMap` helper.
+- **`comparisonEntryModeFreqs`** — read `entry.modePeakIDs[MODE_DISPLAY_NAME[mode]]` → the peak in
+  `entry.peaks` → its frequency; **fall back** to `resolvedModePeaks` (positional) only when absent. This
+  one change makes the comparison table, the detail view, and the comparison PDF all self-describing.
+- **Legacy heal** — in `healMeasurement` (`decode.ts`): a decoded comparison whose entries lack
+  `modePeakIDs` is filled positionally (`resolvedModePeaks`, override-blind — an old file never stored the
+  sources' overrides, so this only freezes what the old app showed) + set `wasHealed`/re-save.
+
+**Tests, slug `test/comparison` (+ Track 2 in `test/annotation-state`).** The self-describing test is the
+important one — `comparisonEntryModeFreqs` reads the stored `modePeakIDs` even when it deliberately
+DISAGREES with `classifyAll` (proves the reader must NOT re-classify); a source override shows as the
+comparison's Top; `modePeakIDs` round-trips; a legacy entry heals + flags re-save. Track 2: the Averaged
+row honours an override (retargets the definitive Top) and marks it italic+`*`.
+
+**Risk:** medium — a `.guitartap` format addition (comparison `modePeakIDs`) + a user-visible Averaged-row
+change. Golden untouched (no DSP).
+
+**User verification — run-review script:**
+1. Multi-tap: capture/load a multi-tap guitar measurement, override the Top on the averaged result → the
+   **Averaged** row shows the overridden Top (and Back re-fills correctly), marked italic + ` *`; per-tap
+   rows are unchanged.
+2. Comparison: compare measurements where one has a renamed/overridden Top → the comparison table + PDF
+   show the rename. Save, reload → still correct.
+3. Open a comparison saved **before this build** → sensible values, silently re-saved (self-healed).
+4. A multi-tap PDF's Averaged row respects the override.
 
 ### Phase 7 — The remaining triggers  ⬜
 **Goal.** (1) Guitar-type change = clean slate for the new type (reclassify, clear overrides,
