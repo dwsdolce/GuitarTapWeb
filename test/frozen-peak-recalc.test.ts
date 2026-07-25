@@ -448,3 +448,97 @@ describe('frozen-peak-recalc — annotation offsets on the analyzer (RB)', () =>
     expect(a.annotationOffsets.size).toBe(0)
   })
 })
+
+// ---------------------------------------------------------------------------
+// RC — selection on the analyzer, CONCRETE state (full-Swift paradigm), recomputed on each re-mint by
+// applyFrozenPeakState: UNMODIFIED → re-auto; MODIFIED → carry forward by ±5 Hz, keeping below-tolerance
+// frequencies in the stable cache (selectedPeakFrequencies) so they re-select when the peak reappears.
+// Mirrors Swift applyFrozenPeakState's selection branches + selectedPeakFrequencies. PR1/PR3–PR7 family.
+// Note (Swift parity): a manual toggle does NOT sync the cache, so the carry-forward tests seed a synced
+// cache via restoreSelection — the realistic loaded-manual path where the carry actually matters.
+// ---------------------------------------------------------------------------
+describe('frozen-peak-recalc — selection on the analyzer (RC)', () => {
+  it('an UNMODIFIED selection re-runs auto over the durable set on each re-mint', () => {
+    // Top (200) + Dipole (400) — both above the scan floor (~140 Hz for minHz 80); auto picks each.
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -25))
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    expect(a.userModifiedSelection).toBe(false)
+    expect(a.selectedPeakIds.size).toBeGreaterThan(0) // auto picked the mode winners
+    const topId = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!.id
+    expect(a.selectedPeakIds.has(topId)).toBe(true)
+    recalc(a) // a re-mint re-runs auto (unmodified) — the Top peak is still selected
+    const topId2 = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!.id
+    expect(a.selectedPeakIds.has(topId2)).toBe(true)
+  })
+
+  it('togglePeakSelection marks the selection user-modified and flips one peak', () => {
+    const a = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(a, mags, freqs)
+    recalc(a)
+    const id = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!.id
+    const was = a.selectedPeakIds.has(id)
+    a.togglePeakSelection(id)
+    expect(a.userModifiedSelection).toBe(true)
+    expect(a.selectedPeakIds.has(id)).toBe(!was)
+  })
+
+  it('a MANUAL selection (synced cache) carries across a re-mint that shifts the id, by ±5 Hz', () => {
+    const a = new TapToneAnalyzer()
+    const two = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
+    frozen(a, two.mags, two.freqs)
+    recalc(a)
+    const before = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    a.restoreSelection(new Set([before.id]), [before.frequency], true) // manual, cache synced (loaded path)
+    const three = combine(two, makeSpectrum(300, -25)) // inserts a peak below 400 → its id shifts
+    frozen(a, three.mags, three.freqs)
+    recalc(a)
+    const after = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    expect(after.id).not.toBe(before.id)
+    expect([...a.selectedPeakIds]).toEqual([after.id]) // carried to the new id, nothing spurious
+  })
+
+  it('a selected peak that vanishes is kept in the frequency cache and RE-SELECTS when it returns', () => {
+    const a = new TapToneAnalyzer()
+    const two = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
+    frozen(a, two.mags, two.freqs)
+    recalc(a)
+    const p400 = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    a.restoreSelection(new Set([p400.id]), [p400.frequency], true)
+    const only200 = makeSpectrum(200, -20) // re-freeze WITHOUT the 400 peak
+    frozen(a, only200.mags, only200.freqs)
+    recalc(a)
+    expect(a.selectedPeaks.some((p) => Math.abs(p.frequency - 400) < 20)).toBe(false) // dropped from selection
+    expect(a.selectedPeakFrequencies.some((f) => Math.abs(f - 400) < 5)).toBe(true) // …but preserved in the cache
+    frozen(a, two.mags, two.freqs) // 400 returns
+    recalc(a)
+    expect(a.selectedPeaks.some((p) => Math.abs(p.frequency - 400) < 20)).toBe(true) // re-selects from the cache
+  })
+
+  it('resetToAutoSelection drops manual edits and re-autos over the durable set', () => {
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(100, -20), makeSpectrum(200, -25))
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    a.selectNoPeaks()
+    expect(a.userModifiedSelection).toBe(true)
+    expect(a.selectedPeakIds.size).toBe(0)
+    a.resetToAutoSelection('generic')
+    expect(a.userModifiedSelection).toBe(false)
+    expect(a.selectedPeakIds.size).toBeGreaterThan(0) // auto re-selected the mode winners
+  })
+
+  it('clearResult empties the selection and clears the modified flag + cache', () => {
+    const a = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(a, mags, freqs)
+    recalc(a)
+    a.togglePeakSelection(a.peaks[0]!.id)
+    a.clearResult()
+    expect(a.selectedPeakIds.size).toBe(0)
+    expect(a.selectedPeakFrequencies).toEqual([])
+    expect(a.userModifiedSelection).toBe(false)
+  })
+})

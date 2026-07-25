@@ -13,7 +13,7 @@
 import { averageSpectra } from '../dsp/spectrumAverage'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { findPeaks, PEAK_DETECTION_FLOOR, type Peak } from '../dsp/peaks'
-import { classifyAll, type ResolvedMode } from '../dsp/classify'
+import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { PLATE_PHASES, BRACE_PHASE, findDominantPeak, type MaterialPeak, type DetectedMaterialPeak } from '../dsp/gatedCapture'
 import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialPhaseName, EngineState } from '../audio/realtimeFFTAnalyzer'
@@ -119,6 +119,17 @@ export class TapToneAnalyzer {
   // its dragged offset keys on. Fresh per store (like Swift minting a new UUID per capture), so a Redo
   // orphans the old offset, matching Swift/Python.
   private nextMaterialPeakId = 0
+  // Selection — which peak is the DEFINITIVE Air/Top/Back (RC — moved off the view's useAnnotations).
+  // CONCRETE state (full-Swift paradigm, not a derived set): always recomputed on a peak re-mint by
+  // applyFrozenPeakState (unmodified → auto; modified → carry-forward). Mirrors Swift `selectedPeakIDs`.
+  selectedPeakIds: Set<number> = new Set()
+  // Stable frequency cache for the selection, mirroring Swift `selectedPeakFrequencies`: a selected peak
+  // hidden below Peak Min keeps its frequency here so it re-selects when the slider reveals it again.
+  selectedPeakFrequencies: number[] = []
+  // Whether the user has hand-modified the selection since the last auto-select. False → a re-mint
+  // re-runs auto-selection; true → the selection is carried forward by frequency. Swift
+  // `userHasModifiedPeakSelection`. (Phase 5's enforce-uniqueness will read/maintain this same state.)
+  userModifiedSelection = false
   materialTapPhase: MaterialTapPhase = 'notStarted'
   // Material (plate/brace) result data — the per-phase averaged spectra + located peaks. Owned by the
   // analyzer, mirroring Swift longitudinalSpectrum/crossSpectrum/flcSpectrum + the material peaks. 3c-C3.
@@ -304,9 +315,12 @@ export class TapToneAnalyzer {
     // A blank-slate reset (New Tap / type-switch / play-file / cancel) drops per-peak state, mirroring
     // the view's old fresh-capture reset. The remap in applyFrozenPeakState then carries an empty map,
     // so a freshly-captured measurement starts with no overrides. Load restores AFTER (restoreOverrides),
-    // so it is unaffected. RC adds selection here.
+    // so it is unaffected. Selection resets too (empty, auto): the next recalc auto-selects.
     this.overrides = new Map()
     this.annotationOffsets = new Map()
+    this.selectedPeakIds = new Set()
+    this.selectedPeakFrequencies = []
+    this.userModifiedSelection = false
     this.isMeasurementComplete = false // setter also clears the loaded-settings warning
     this.notify()
   }
@@ -390,7 +404,7 @@ export class TapToneAnalyzer {
     // frozen). The loaded/material branches keep STABLE ids (same peak objects), so their per-peak
     // state needs no remap — only the findPeaks branch mints new ids. Mirrors Swift calling
     // applyFrozenPeakState only where UUIDs change. RA carries overrides; RB/RC add offsets + selection.
-    if (reminted) this.applyFrozenPeakState(oldPeaks, peaks)
+    if (reminted) this.applyFrozenPeakState(oldPeaks, peaks, p.guitarType)
     // Phase 3: per-tap entry peaks are NO LONGER re-derived here. They are found ONCE when the entry is
     // built (processMultipleTaps / loadMeasurement) at the -100 floor and are durable — nothing may
     // re-derive them, least of all a display control. (This was the web's `recalculateTapEntryPeaks`
@@ -479,8 +493,10 @@ export class TapToneAnalyzer {
    *  Swift `applyFrozenPeakState`. Snapshots the old state BY FREQUENCY from the DURABLE old set (never
    *  a display projection — this is the Swift 178/184 fix), then re-attaches it to the new peaks by
    *  ±REMAP_TOLERANCE_HZ proximity. RA carries overrides; RB adds offsets; RC adds selection. Called
-   *  only on the findPeaks branch (loaded/material keep stable ids). Notify is left to the caller. */
-  private applyFrozenPeakState(oldPeaks: Peak[], newPeaks: Peak[]): void {
+   *  only on the findPeaks branch (loaded/material keep stable ids). `guitarType` is passed in (not read
+   *  from `measurementType`) because recalc's layout-effect can run before the type-sync effect. Notify
+   *  is left to the caller. */
+  private applyFrozenPeakState(oldPeaks: Peak[], newPeaks: Peak[], guitarType: GuitarTypeName): void {
     if (this.overrides.size > 0) {
       // Snapshot {frequency → label} from the OLD durable peaks, then remap onto the new ids.
       const byFreq: Array<{ frequency: number; label: string }> = []
@@ -510,6 +526,93 @@ export class TapToneAnalyzer {
       }
       this.annotationOffsets = remapped
     }
+    // Selection (guitar-only — the web has no per-peak material selection). CONCRETE recompute, mirroring
+    // Swift's applyFrozenPeakState branches: MODIFIED → carry forward by ±5 Hz, keeping below-threshold
+    // frequencies in the cache so they re-select on reveal; UNMODIFIED → re-run auto-selection over the
+    // new durable set.
+    if (this.userModifiedSelection) {
+      const prevFreqs =
+        this.selectedPeakFrequencies.length > 0
+          ? this.selectedPeakFrequencies
+          : oldPeaks.filter((q) => this.selectedPeakIds.has(q.id)).map((q) => q.frequency)
+      const carriedIds = new Set<number>()
+      const carriedFreqs: number[] = []
+      for (const oldFreq of prevFreqs) {
+        const closest = newPeaks
+          .filter((np) => Math.abs(np.frequency - oldFreq) <= REMAP_TOLERANCE_HZ)
+          .sort((a, b) => Math.abs(a.frequency - oldFreq) - Math.abs(b.frequency - oldFreq))[0]
+        if (closest) {
+          if (!carriedIds.has(closest.id)) {
+            carriedIds.add(closest.id)
+            carriedFreqs.push(closest.frequency)
+          }
+        } else {
+          carriedFreqs.push(oldFreq) // below threshold — preserve so it re-selects when revealed
+        }
+      }
+      this.selectedPeakIds = carriedIds
+      this.selectedPeakFrequencies = carriedFreqs
+    } else {
+      const autoIds = this.guitarModeSelectedPeakIds(newPeaks, guitarType)
+      this.selectedPeakIds = autoIds
+      this.selectedPeakFrequencies = newPeaks.filter((np) => autoIds.has(np.id)).map((np) => np.frequency)
+    }
+  }
+
+  // ── Peak selection (RC — moved off the view; concrete state, full-Swift paradigm) ─────────────────
+
+  /** The selected peaks over the DURABLE set (Swift `selectedPeaks`). */
+  get selectedPeaks(): Peak[] {
+    return this.peaks.filter((p) => this.selectedPeakIds.has(p.id))
+  }
+
+  /** One peak per named mode — the strongest `classifyAll` assigns to that mode — over `peaks`.
+   *  Mirrors Swift `guitarModeSelectedPeakIDs(from:)`. `guitarType` passed in (see applyFrozenPeakState). */
+  guitarModeSelectedPeakIds(peaks: Peak[], guitarType: GuitarTypeName): Set<number> {
+    return new Set([...resolvedModePeaks(peaks, guitarType).values()].map((p) => p.id))
+  }
+
+  /** Toggle one peak's selection (Swift `togglePeakSelection`, MINUS the Phase-5
+   *  `enforceDefinitiveModeUniqueness` that will hook in on insert). Marks the selection user-modified. */
+  togglePeakSelection(id: number): void {
+    const next = new Set(this.selectedPeakIds)
+    if (next.has(id)) next.delete(id)
+    else next.add(id) // Phase 5: enforceDefinitiveModeUniqueness(preferring: id) goes here
+    this.selectedPeakIds = next
+    this.userModifiedSelection = true
+    this.notify()
+  }
+
+  /** Select every peak (Swift `selectAllPeaks` — KEPT in RC; Phase 5 removes it). */
+  selectAllPeaks(): void {
+    this.selectedPeakIds = new Set(this.peaks.map((p) => p.id))
+    this.userModifiedSelection = true
+    this.notify()
+  }
+
+  /** Clear the selection — a legitimate state (Swift `selectNoPeaks`). */
+  selectNoPeaks(): void {
+    this.selectedPeakIds = new Set()
+    this.userModifiedSelection = true
+    this.notify()
+  }
+
+  /** The wand: drop manual edits and re-run auto-selection over the durable set (Swift
+   *  `resetToAutoSelection`). `guitarType` from the caller (App knows the current type). */
+  resetToAutoSelection(guitarType: GuitarTypeName): void {
+    this.userModifiedSelection = false
+    this.selectedPeakFrequencies = []
+    this.selectedPeakIds = this.guitarModeSelectedPeakIds(this.peaks, guitarType)
+    this.notify()
+  }
+
+  /** Restore selection from a loaded measurement (ids keyed to the loaded peaks, + the frequency cache
+   *  and the manual/auto flag). Loaded peaks keep stable ids, so no remap follows. */
+  restoreSelection(ids: Set<number>, freqs: number[], userModified: boolean): void {
+    this.selectedPeakIds = new Set(ids)
+    this.selectedPeakFrequencies = [...freqs]
+    this.userModifiedSelection = userModified
+    this.notify()
   }
 
   // ── Material (plate/brace) phase machine (mirrors Swift TapToneAnalyzer+SpectrumCapture) ──────────
@@ -839,6 +942,8 @@ export class TapToneAnalyzer {
         modeByPeak: this.modeByPeak,
         overrides: this.overrides,
         annotationOffsets: this.annotationOffsets,
+        selectedPeakIds: this.selectedPeakIds,
+        userModifiedSelection: this.userModifiedSelection,
         canReanalyze: this.canReanalyze,
         matSpectra: this.matSpectra,
         matPeaks: this.matPeaks,
@@ -1012,6 +1117,10 @@ export interface TapToneSnapshot {
   overrides: Map<number, string>
   /** Dragged annotation-label positions, keyed by peak `id` (RB — one store for guitar + material). */
   annotationOffsets: Map<number, [number, number]>
+  /** The definitive-peak selection, by peak `id` (RC — concrete analyzer state). */
+  selectedPeakIds: Set<number>
+  /** Whether the selection was hand-modified since the last auto-select (drives the wand's enabled state). */
+  userModifiedSelection: boolean
   /** Whether the Re-analyze button is offered (any complete guitar measurement with a frozen
    *  spectrum; never material). See `TapToneAnalyzer.canReanalyze` for why it is not a dirty flag. */
   canReanalyze: boolean

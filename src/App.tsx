@@ -6,7 +6,6 @@ import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
 import type { ChartView, PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
-import { useAnnotations } from './hooks/useAnnotations'
 import { type MaterialTapPhase as MatPhase } from './state/tapToneAnalyzer'
 import { useAudioEngine } from './hooks/useAudioEngine'
 import { ThresholdMeter } from './components/ThresholdMeter'
@@ -533,17 +532,14 @@ export default function App() {
     return m
   }, [guitarType])
 
-  // Per-peak SELECTION — see hooks/useAnnotations. Overrides (RA) + dragged offsets (RB) now live on
-  // the analyzer, keyed by peak id; read them from the snapshot, write via analyzer methods.
-  const {
-    selectedIds,
-    userModified,
-    toggleSelect,
-    selectAll,
-    selectNone,
-    resetSelection,
-    restore: restoreAnnotations,
-  } = useAnnotations({ peaks, guitarType, captured, material })
+  // Per-peak SELECTION, overrides (RA), and dragged offsets (RB) all live on the analyzer now (RC),
+  // keyed by peak id — read them from the snapshot, write via analyzer methods. `useAnnotations` is gone.
+  const selectedIds = snapshot.selectedPeakIds
+  const userModified = snapshot.userModifiedSelection
+  const toggleSelect = useCallback((id: number) => analyzer.togglePeakSelection(id), [analyzer])
+  const selectAll = useCallback(() => analyzer.selectAllPeaks(), [analyzer])
+  const selectNone = useCallback(() => analyzer.selectNoPeaks(), [analyzer])
+  const resetSelection = useCallback(() => analyzer.resetToAutoSelection(guitarType), [analyzer, guitarType])
   const overrides = snapshot.overrides
   const annotationOffsets = snapshot.annotationOffsets // id-keyed dragged label positions (RB)
   // Chart drag → analyzer (markers carry String(id) as their annoKey); Reset Labels clears the store.
@@ -613,9 +609,11 @@ export default function App() {
       }),
     [tapEntries, guitarType],
   )
-  // Averaged row resolves over the DURABLE set, not the Peak-Min projection (Phase 3): the multi-tap
-  // table is a fact about the measurement, independent of the slider (spec §5). Mirrors Swift resolving
-  // the averaged row over allPeaks. (Selection-over-durable, Swift `selectedPeaks`, arrives in Phase 5.)
+  // Averaged row resolves over the DURABLE set, not the Peak-Min projection: the multi-tap table is a
+  // fact about the measurement, independent of the slider (spec §5). Mirrors Swift resolving the averaged
+  // row over allPeaks. This currently takes the AUTO strongest peak per mode; it does NOT yet honour the
+  // user's manual selection — the definitive (selected + override-aware) resolution that Swift's
+  // `definitiveModeInfo` / `getPeak(for:)` applies here is not wired on the web yet.
   const avgModes = useMemo<TapModeFreqs>(() => {
     const m = resolvedModePeaks(peaks, guitarType)
     return { air: m.get('air')?.frequency ?? null, top: m.get('top')?.frequency ?? null, back: m.get('back')?.frequency ?? null }
@@ -912,14 +910,15 @@ export default function App() {
       })
       setComparison(null)
       setView(live.view)
-      // Restore overrides + dragged offsets onto the analyzer (id-keyed, RA/RB) + selection into the
-      // hook (its loading guard makes the selection survive the fresh-capture reset the load triggers).
+      // Restore overrides + dragged offsets + selection onto the analyzer (all id-keyed, RA/RB/RC). The
+      // loaded peaks keep stable ids, so these need no capture-reset guard. The selection's frequency
+      // cache is derived from the selected loaded peaks (the full set is saved, so all are present).
       analyzer.restoreOverrides(live.overridesById)
       analyzer.restoreOffsets(live.annotationOffsetsById)
-      restoreAnnotations({
-        selectedIndices: live.selectedIndices,
-        userModified: live.userModified,
-      })
+      {
+        const selFreqs = live.loadedPeaks.filter((p) => live.selectedIndices.has(p.id)).map((p) => p.frequency)
+        analyzer.restoreSelection(live.selectedIndices, selFreqs, live.userModified)
+      }
       // Load-time provenance check (mic / calibration / sample rate) — closes the web
       // side of the sample-rate epic. Cleared on New Tap / fresh capture.
       // The CURRENT calibration must be passed, or every calibrated measurement warns on load:
@@ -946,7 +945,7 @@ export default function App() {
       // that silently replaces the loaded result (onGuitarCapture clears loadedPeaks/Name/View).
       engineRef.current?.disarm()
     },
-    [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, restoreAnnotations, setView],
+    [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, setView],
   )
 
   // Create a comparison from ≥2 selected library measurements (mirrors Swift loadComparison).
