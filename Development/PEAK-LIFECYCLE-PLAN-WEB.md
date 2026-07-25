@@ -343,7 +343,11 @@ peak. `gen_parity_map --check` 79; golden `5c264de3941837f8` unmoved.
 5. Setting off: an **unnamed** out-of-band peak is still hidden everywhere — the filter still works.
 6. Setting on: everything appears, exactly as before.
 
-### Phase 4a — Durable/display audit (rename + route every measurement-fact to the durable set)  ⬜
+### Phase 4a — Durable/display audit (rename + route every measurement-fact to the durable set)  ✅ COMPLETE
+*(Verify-and-document phase — no code commit of its own: the durable routing was already done by Phases 1
+& 3, the rename landed in Phase 1, and the remaining fact-state move — selection/overrides/offsets onto
+the model — is realized by the selection-ownership restructure below (RA `b251418`, RB `fa290d0`, RC).
+Deliverables done: the seven-site audit table, the Save-guard confirmation, and the ratio→Phase 6 deferral.)*
 **Verified against Swift 2026-07-24** (`getPeak(for:)` @ `TapToneAnalyzer+AnalysisHelpers.swift:72` reads
 `allPeaks` + selection + override; the seven-site ledger below). Headline: **Phases 1 and 3 already did the
 durable routing, and the web never had Swift's snapshot bug source — so the code-change surface here is
@@ -382,7 +386,7 @@ and a Peak-Min-hidden peak is by definition too weak to be the Air/Top winner.)
 land **with the restructure below** (where the state moves to the model), which
 `frozen-peak-recalc.test.ts` lines 11-15 already records.
 
-### Selection-ownership restructure — FOLDS 4a's fact-state audit; runs NOW, before Phase 5  ⬜
+### Selection-ownership restructure — FOLDS 4a's fact-state audit; runs NOW, before Phase 5  ✅ COMPLETE (RA `b251418` · RB `fa290d0` · RC `37e3183`)
 **Decided 2026-07-24 (scope widened from "prerequisite" to "the substantive half of 4a").** 4a's own
 thesis — route every *fact about the measurement* to the durable set — cannot be finished while the
 per-peak facts (selection / overrides / dragged offsets) still live in the **view** (`useAnnotations`)
@@ -443,11 +447,12 @@ and parity are untouched throughout (the file was already id-keyed; only in-memo
   chart-drag wiring + save/load + tests). Also folded in: the **per-label right-click reset** (right-click
   a badge → ↺ "Reset Position", disabled when unmoved — mirrors Swift `PeakAnnotations.contextMenu`; the
   web had documented it but never wired it).
-- **RC — selection** → analyzer (`selectedPeakIds` + `selectedPeakFrequencies` cache + `userModifiedSelection`
-  + toggle/none/wand + the selection branch of the remap: auto re-run vs proximity carry-forward with
-  below-min preservation). Lands the PR1/PR3–PR7 + `…ForFilteredOutPeak_survives` +
-  `reanalyzePreservesStateOfPeaksHiddenByPeakMin` tests. `useAnnotations` is now empty → deleted; move its
-  `@parity` tag onto the analyzer + regenerate PARITY-MAP.
+- **RC — selection** ✅ **COMPLETE** (`37e3183`; user-verified 2026-07-24) → analyzer
+  (`selectedPeakIds` + `selectedPeakFrequencies` cache + `userModifiedSelection` + toggle/all/none/wand +
+  the selection branch of the remap: auto re-run vs proximity carry-forward with below-min preservation).
+  Landed the selection carry-forward + below-Peak-Min-preservation tests. `useAnnotations` **deleted** (it
+  had no `@parity` tag). NOTE: the manual-toggle stale-cache is mirrored from Swift (toggle doesn't sync
+  `selectedPeakFrequencies`) — a latent cross-platform behavior, candidate for a Phase-5 fix.
 
 #### RA — overrides: diff-level plan  ✅ COMPLETE (`b251418`)
 Keeps the web's string-value idiom (`Map` value stays the label string); only the **key** flips
@@ -513,7 +518,51 @@ material-UUID-keyed (`buildMaterialMeasurement` mints a UUID per material peak),
 - **After RB** the app is fully functional — guitar+material overrides+offsets model-owned & id-keyed
   (one store, matching Swift/Python); only **selection** still rides `useAnnotations`.
 
-*(RC gets its own diff-level plan, at the same depth, when entered.)*
+#### RC — selection: diff-level plan  ✅ COMPLETE (`37e3183`)
+The final slice: move selection onto the analyzer as **concrete** state (full-Swift paradigm, decided
+2026-07-24 — no derived `effectiveSelectedIds`), then delete `useAnnotations`. This clears the runway for
+Phase 5 (the enforce-uniqueness rules port onto this same model-owned state).
+
+**Swift being mirrored** (`+PeakAnalysis.swift`, `TapToneAnalyzer.swift`):
+- State: `selectedPeakIDs: Set<UUID>` (concrete) + `selectedPeakFrequencies: [Float]` (the **stable
+  cache** so a selected peak hidden below Peak Min survives and re-selects when revealed) +
+  `userHasModifiedPeakSelection`.
+- `applyFrozenPeakState` selection branch: snapshot `previouslySelectedFrequencies` (from the cache, or
+  derive from `selectedPeakIDs` over the durable OLD peaks) **before** re-mint; then — **modified** ⇒
+  carry forward by ±5 Hz proximity, keeping below-threshold freqs in the cache so they re-select later;
+  **unmodified** ⇒ re-run `guitarModeSelectedPeakIDs` and store the result. (Swift's material branch is
+  N/A — the web has no per-peak material selection.)
+- `togglePeakSelection` (flip id in the set, `userModified = true`; **NO** `enforceDefinitiveModeUniqueness`
+  — that is Phase 5), `selectNoPeaks`, `resetToAutoSelection` (the wand: `userModified = false`, clear the
+  cache, `selectedPeakIDs = guitarModeSelectedPeakIDs(allPeaks)`). `selectAllPeaks` is KEPT here (moved,
+  not removed) — Phase 5 removes it.
+
+**The moves:**
+- **`tapToneAnalyzer.ts`** — fields `selectedPeakIds: Set<number>`, `selectedPeakFrequencies: number[]`,
+  `userModifiedSelection: boolean` (+ snapshot; the snapshot exposes the CONCRETE `selectedPeakIds`, not a
+  derived set). Methods `togglePeakSelection` / `selectAllPeaks` / `selectNoPeaks` / `resetToAutoSelection`
+  / `guitarModeSelectedPeakIds(peaks)` (wraps `resolvedModePeaks`) / `restoreSelection(ids, freqs,
+  userModified)` — all fresh-Set/array reassignment for memo identity. Extend `applyFrozenPeakState` with
+  the selection branch (snapshot prev-freqs before `this.peaks = peaks`). `clearResult` resets selection
+  (empty set, `userModified = false`, empty cache) — the next recalc auto-selects.
+- **`App.tsx`** — read `snapshot.selectedPeakIds` (drop the `useAnnotations` destructure entirely); wire
+  the star/Select-None/Select-All/wand to the analyzer methods; the wand's disabled state reads
+  `snapshot.userModifiedSelection`; save reads `snapshot.selectedPeakIds` + `userModifiedSelection`; load
+  calls `analyzer.restoreSelection(...)` (its stable-id restore needs no capture-reset guard now).
+- **`useAnnotations.ts`** — **deleted**. Move its `@parity view/annotations` (or equivalent) tag onto the
+  analyzer + regenerate PARITY-MAP. The `captured`/`material` fresh-capture reset it did for selection is
+  now `clearResult` on the analyzer.
+- **`fromLive.ts` / load** — `LiveRestore` already carries `selectedIndices` + `userModified`; add the
+  selected-peak **frequencies** for the cache (or derive from the loaded peaks at restore). File format
+  unchanged (`selectedPeakIDs` + `selectedPeakFrequencies` already written).
+
+**Tests** — PR1/PR3–PR7 selection carry-forward in `test/frozen-peak-recalc`: a selected peak survives a
+re-mint that shifts its id (±5 Hz); a **below-Peak-Min selected peak's frequency is preserved and
+re-selects on reveal** (the stable-cache invariant — the core survives-test); `resetToAutoSelection` re-autos
+over the durable set; `clearResult` empties it. Re-point `test/annotation-state` selection setup to the
+analyzer. Golden `5c264de3941837f8` unmoved; `--check` = 79; `tsc` clean.
+- **After RC** selection is concrete model state (one algorithm across all three); `useAnnotations` is gone;
+  Phase 5's `enforceDefinitiveModeUniqueness` ports verbatim onto `selectedPeakIds`.
 
 ### Phase 5 — The selection model  ⬜
 **Goal.** Classification (band membership + override) is independent of selection (which candidate is
@@ -575,6 +624,14 @@ this effect) — do NOT let it slip.**
   `MultiTapComparisonResultsView` / `ComparisonResultsView` / `PdfComparison` carry no override info yet;
   it needs the `definitiveModeInfo` / `modePeakIDs` pipeline from Phases 6/6b (see
   `Development/OVERRIDE-MARKER-CONSISTENCY.md`). Fold into 6b.
+- **De-label sweep at close** (user, 2026-07-24) — strip ephemeral phase/task labels (`Phase N`, `RA`/
+  `RB`/`RC`, "arrives in Phase X") from the SOURCE + tests touched by this work, replacing them with
+  durable wording; **keep** Swift/Python-mirror references (`Mirrors Swift definitiveModeInfo`, etc.),
+  which are durable. Covers the restructure files (analyzer, `App.tsx`, `frozen-peak-recalc.test.ts`,
+  `measurementImage.ts`, `gatedCapture.ts`, the committed RA `b251418` / RB `fa290d0` diffs) and the
+  Phase 1/3/4 refs. ONE pass when the peak-lifecycle web work is otherwise done. Rationale: the labels aid
+  navigation while the multi-slice work is active; a piecemeal strip would leave committed files
+  inconsistent. See [[feedback_no_phase_labels_in_comments]].
 
 ## Log
 - 2026-07-24 — doc created (prep). Structure mirrors the Swift/Python plans. Phases are goal-stubs; each
