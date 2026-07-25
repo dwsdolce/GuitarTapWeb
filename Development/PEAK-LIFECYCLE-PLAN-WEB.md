@@ -343,21 +343,138 @@ peak. `gen_parity_map --check` 79; golden `5c264de3941837f8` unmoved.
 5. Setting off: an **unnamed** out-of-band peak is still hidden everywhere — the filter still works.
 6. Setting on: everything appears, exactly as before.
 
-### Phase 4a — Rename to `peaksAbovePeakMin`  ⬜
-**Goal.** The display projection is named `peaksAbovePeakMin` (mirror Swift/Python); the durable set is
-`allPeaks`. *(Web assess: current names in `App.tsx` / `fromLive`.)*
+### Phase 4a — Durable/display audit (rename + route every measurement-fact to the durable set)  ⬜
+**Verified against Swift 2026-07-24** (`getPeak(for:)` @ `TapToneAnalyzer+AnalysisHelpers.swift:72` reads
+`allPeaks` + selection + override; the seven-site ledger below). Headline: **Phases 1 and 3 already did the
+durable routing, and the web never had Swift's snapshot bug source — so the code-change surface here is
+near-zero.** The substantive Swift-alignment work adjacent to 4a is the per-peak-state restructure, which
+**folds in here** (next section) — because 4a's own thesis cannot be finished while the per-peak facts
+still live in the view.
 
-### Selection-ownership restructure — PREREQUISITE for Phase 5  ⬜
-**Decided 2026-07-24.** Swift keeps `selectedPeakIDs` + `peakModeOverrides` (and the
-`enforceDefinitiveModeUniqueness` invariant) on the **analyzer/model**; the web keeps `selectedIds` +
-`overrides` in the **view** (`useAnnotations`) — the standing architectural divergence
-([[project_architectural_restructure]], `RESTRUCTURE-NOTES.md` "Peak-selection & annotation ownership →
-analyzer"). Porting Phase 5's rules **non-divergently requires** that state on the model, so this
-restructure lands as a **discrete step right before Phase 5**: move `selectedIds`/`overrides` (+ dragged
-offsets) off `useAnnotations` onto `TapToneAnalyzer`, the view reduced to read/dispatch. Then Phase 5 is
-purely "port the enforce-uniqueness rules onto the now-model-owned state" (mirroring how Swift's Phase 5
-was just the rules), and Phase 3's `selectedPeaks` + Phase 6's definitive values read that same model
-selection. **From Phase 5 onward the web's selection architecture mirrors Swift's.**
+**Rename — already done (Phase 1).** Analyzer `peaks` = the durable full set (Swift `allPeaks`); the App
+`peaksAbovePeakMin` memo = the Peak-Min display projection (Swift `currentPeaks`). Deliverable: strengthen
+the `peaksAbovePeakMin` doc comment to name the three scopes (measurement / Peak-Min *setting* / viewport
+range + `isUnknown`), mirroring Swift's property doc, so it can never be re-read as "the peaks".
+
+**The seven-site durable-vs-displayed audit — web outcome (no code change):**
+
+| Swift site | Web equivalent | Status |
+|---|---|---|
+| `+PeakAnalysis:170/577` selection carry-forward + auto-select default | `useAnnotations` `autoIds` over durable `peaks` (App:557) | ✅ already durable (Phase 1) |
+| `+PeakAnalysis:178/184` offset + override snapshot | **no web equivalent** — offsets/overrides live in `useAnnotations` useState, never snapshotted from the peak set on recalc | ✅ N/A (but see the structural note below) |
+| `+MeasurementManagement:371` saved `selectedPeakFrequencies` | `buildGuitarMeasurement(peaks durable, selectedIds)` | ✅ already durable (Phase 1 full-set save) |
+| `+MeasurementManagement:1099` `avgSelectedPeaks` | `avgModes = resolvedModePeaks(peaks)` durable | ✅ already durable (Phase 3) |
+| `TapToneAnalyzer:731` `selectAllPeaks` | `selectAll` over durable `peaks` (dies Phase 5) | ✅ already durable |
+
+**Save guard — already WYSIWYG.** Web Save is `disabled={… !captured}` (a measurement exists), never
+peaks-empty; already matches Swift's `!isMeasurementComplete`. No change.
+
+**The one measurement-fact reader NOT yet durable → Phase 6, not here.** App `tapRatio` reads
+`peaksAbovePeakMin` (display); Swift's ratio reads `getPeak` → `allPeaks` (durable) + selection +
+override-aware mode. Correcting the *set* alone now is throwaway — Phase 6 replaces the whole expression
+with the unified `getPeak`-equivalent resolver (durable + selection + override in one place). Deferring
+here **is** the Swift-aligned choice. (Low interim risk: `resolvedModePeaks` picks the strongest per mode,
+and a Peak-Min-hidden peak is by definition too weak to be the Air/Top winner.)
+
+**Tests.** The durable-set behaviour 4a would pin is already pinned by the Phase-1 durability block in
+`test/frozen-peak-recalc`. The Swift 4a inverted `…offsetForFilteredOutPeak_isDropped`→`_survives` + new
+`reanalyzePreservesStateOfPeaksHiddenByPeakMin` are the PR1/PR3–PR7 `applyFrozenPeakState` family — they
+land **with the restructure below** (where the state moves to the model), which
+`frozen-peak-recalc.test.ts` lines 11-15 already records.
+
+### Selection-ownership restructure — FOLDS 4a's fact-state audit; runs NOW, before Phase 5  ⬜
+**Decided 2026-07-24 (scope widened from "prerequisite" to "the substantive half of 4a").** 4a's own
+thesis — route every *fact about the measurement* to the durable set — cannot be finished while the
+per-peak facts (selection / overrides / dragged offsets) still live in the **view** (`useAnnotations`)
+keyed by `frequency.toFixed(1)`. Swift's 4a audited *model-owned* state; the web has to *make* the state
+model-owned before the equivalent audit means anything. So this is not a cosmetic move — it is where the
+web finally matches Swift's architecture ([[project_architectural_restructure]], `RESTRUCTURE-NOTES.md`
+"Peak-selection & annotation ownership → analyzer").
+
+**Why the frequency-keyed view state is a real divergence (not just "different"):**
+- **Key collisions** — two peaks rounding to the same 0.1 Hz share one override/offset slot; Swift UUIDs can't.
+- **Frequency drift on Re-analyze** — `findPeaks` re-runs, a peak's averaged frequency shifts, the key no
+  longer matches, and the override is **orphaned**. Swift's remap uses proximity, so it survives.
+- **The Phase 5 invariant can't reach view state** — "one definitive peak per Air/Top/Back" is a *model*
+  rule; leaving selection in the view forces Phase 5 to run on view state, re-conflating the two.
+
+**The work (mirror Swift):**
+- Move `selectedIds` / `overrides` / `annotationOffsets` off `useAnnotations` onto `TapToneAnalyzer`,
+  **re-keyed by peak `id`** (Swift `selectedPeakIDs` : `Set<UUID>`, `peakModeOverrides` / offsets keyed by
+  UUID). The hook is reduced to read/dispatch against the analyzer.
+- Add the explicit **remap-on-re-mint** — the web equivalent of Swift `applyFrozenPeakState`: when
+  `recalculatePeaks` re-mints peaks (Re-analyze; new capture), carry selection/overrides/offsets forward
+  from the old peaks to the new by **frequency proximity**, reading the **durable** old set (this is where
+  Swift 178/184 read the *display* set and dropped hidden peaks — the web must read durable). Peak Min no
+  longer re-mints (Phase 1), so this fires only on Re-analyze / new capture.
+- Land the paired **model** tests: PR1/PR3–PR7 (`applyFrozenPeakState` remap) + the two Swift 4a
+  `…ForFilteredOutPeak_survives` tests + `reanalyzePreservesStateOfPeaksHiddenByPeakMin`, appended to
+  `test/frozen-peak-recalc`.
+
+Then Phase 5 is purely "port the enforce-uniqueness rules onto the now-model-owned state" (mirroring how
+Swift's Phase 5 was just the rules); Phase 3's `selectedPeaks` + Phase 6's definitive values read that same
+model selection. **From here on the web's selection architecture mirrors Swift's.**
+
+**Swift anchors to read at implementation:** `applyFrozenPeakState` (`+PeakAnalysis.swift`), `getPeak(for:)`
+/ `definitiveModeInfo` (`+AnalysisHelpers.swift:72`), `togglePeakSelection` / `setModeOverride` /
+`updateAnnotationOffset` (`TapToneAnalyzer.swift`).
+
+**Selection paradigm — full Swift, one algorithm all three (decided 2026-07-24).** Drop the web's
+"derive auto on the fly, store only manual" idiom. `selectedPeakIds` is **concrete** model state, and
+`applyFrozenPeakState` **always** recomputes it on re-mint — unmodified ⇒ run `guitarModeSelectedPeakIds`
+and store the result; modified ⇒ carry forward by ±5 Hz proximity, keeping below-Peak-Min freqs in
+`selectedPeakFrequencies` — exactly Swift's `applyFrozenPeakState` branches, gated by
+`userModifiedSelection` (Swift `userHasModifiedPeakSelection`). No `effectiveSelectedPeakIds` getter. The
+old "derive it so it can't lag a Peak Min re-mint" reason is void post-Phase-1 (Peak Min no longer
+re-mints), and Phase 5's `enforceDefinitiveModeUniqueness` then ports verbatim onto the same concrete
+state Swift/Python use.
+
+**Sub-steps — sliced by CONCERN, not by layer (each fully functional + testable → its own commit).** A
+by-layer split (analyzer-first, wire-later) leaves dead parallel state until a big-bang cutover; slicing
+by concern moves each one end-to-end (analyzer state + remap + App/PeakCard/chart wiring + `fromLive`/
+`decode` boundary + tests), so the app works after every commit. File format, golden `5c264de3941837f8`,
+and parity are untouched throughout (the file was already id-keyed; only in-memory keying changes).
+- **RA — overrides** ✅ **COMPLETE** (`b251418`; user-verified 2026-07-24) → analyzer (id-keyed
+  `overrides` + `setModeOverride`/reset + the override half of `applyFrozenPeakState` +
+  PeakCard/`overriddenPeakIds` + `fromLive`/`decode` boundary + tests).
+- **RB — annotation offsets** → analyzer (id-keyed `annotationOffsets` + `updateAnnotationOffset`/reset +
+  the offset half of the remap + chart-drag wiring + save/load + tests). Near-identical pure
+  ±proximity carry-forward to RA.
+- **RC — selection** → analyzer (`selectedPeakIds` + `selectedPeakFrequencies` cache + `userModifiedSelection`
+  + toggle/none/wand + the selection branch of the remap: auto re-run vs proximity carry-forward with
+  below-min preservation). Lands the PR1/PR3–PR7 + `…ForFilteredOutPeak_survives` +
+  `reanalyzePreservesStateOfPeaksHiddenByPeakMin` tests. `useAnnotations` is now empty → deleted; move its
+  `@parity` tag onto the analyzer + regenerate PARITY-MAP.
+
+#### RA — overrides: diff-level plan  ✅ COMPLETE (`b251418`)
+Keeps the web's string-value idiom (`Map` value stays the label string); only the **key** flips
+`frequency.toFixed(1)` → numeric peak `id`. Remap tolerance = Swift's ±5 Hz.
+- **`tapToneAnalyzer.ts`** — field `overrides: Map<number, string>` (added to the snapshot);
+  `setModeOverride(id, label)` / `resetModeOverride(id)` (set/delete + `notify()`; **no**
+  `enforceDefinitiveModeUniqueness` — that is Phase 5); `overriddenPeakIds` in the snapshot =
+  `new Set(overrides.keys())` (a stale id can't match a live peak, so it is harmless); `restoreOverrides(map)`
+  for the load path. New private `applyFrozenPeakState(oldPeaks, newPeaks)` called in `recalculatePeaks`
+  just before `this.peaks = peaks`, doing **overrides only** for now: snapshot `{freq → label}` from
+  `oldPeaks` (the DURABLE old set), rebuild `this.overrides` against `newPeaks` by ±5 Hz proximity. Identity
+  on the loaded path (ids stable); real work only on a findPeaks re-mint (guitar-type / range / Re-analyze).
+- **`App.tsx`** — drop `overrides` / `setLabel` / `resetLabel` from the `useAnnotations` destructure;
+  `labelFor(p,mode) = snapshot.overrides.get(p.id) ?? MODE_DISPLAY_NAME[mode]`;
+  `overriddenPeakIds = new Set(snapshot.overrides.keys())`; `isManualOverride = snapshot.overrides.has(p.id)`;
+  PeakCard `onSetLabel/onResetLabel` → `analyzer.setModeOverride(p.id, …)` / `resetModeOverride(p.id)`;
+  `buildGuitarMeasurement` `overridesByFreq: overrides` → `overridesById: snapshot.overrides`; load restore
+  routes overrides to `analyzer.restoreOverrides(...)` (selection/offsets stay in the hook until RC/RB).
+  `keyOf` stays for now (offsets still use it — retired in RB).
+- **`fromLive.ts` / `decode.ts`** — the conversion boundary flips freq-key → id-key: `overridesByFreq:
+  Map<string,string>` → `overridesById: Map<number,string>` (save reads `a.overridesById.get(p.id)`; load
+  builds the id-map against the loaded peaks' numeric ids, reusing decode's existing ±proximity heal).
+  **`encode.ts` / `types.ts` / the file are unchanged** — already file-id-keyed.
+- **Tests** — analyzer override set/reset + the ±5 Hz override-remap (survives within tolerance, orphans
+  beyond); re-point `fromLive`/`decode` round-trip + any `overridesByFreq` fixtures (e.g. `dot-layer`) to
+  id-keys. Golden `5c264de3941837f8` unmoved; `gen_parity_map --check` = 79; `npx tsc --noEmit` clean.
+- **After RA** the app is fully functional — overrides model-owned + id-remapped; offsets + selection still
+  ride `useAnnotations` untouched.
+
+*(RB and RC get their own diff-level plans, at the same depth as RA above, when each is entered.)*
 
 ### Phase 5 — The selection model  ⬜
 **Goal.** Classification (band membership + override) is independent of selection (which candidate is
@@ -385,6 +502,19 @@ control stays pure-auto. (2) A new tap sequence clears ALL per-peak state. (3) A
 removed (fixed 30–2000 constant; UI + Help). (4) Teardown verified per-platform (React effect cleanup —
 NOT the Swift Combine `deinit`). *(Web assess: the Apply/settings flow in `App.tsx`; the analysis-range
 setting + its Help entry in `QuickStartGuide.tsx`.)*
+
+**🐛 MUST-FIX here (found in RA run-review 2026-07-24, deferred to 7 with the user).** The
+measurement-type-change effect (`App.tsx` `useEffect` on `settings.measurementType`, ~:335–350) fires on
+**any** type change — including a guitar **subtype** change (generic↔flamenco↔classical↔acoustic) — and
+does a full reset (`setLoadedPeaks(null)` + `analyzer.clearResult()` + `armForCurrentType()`), throwing
+the frozen measurement away and **re-arming a new tap**. Its own comment says it should reset only "across
+the guitar↔material boundary." Correct behavior = Swift `reclassifyForGuitarTypeChange`: a guitar-subtype
+change **reclassifies in place** (the recalc effect already re-runs `classifyAll` for the new bands),
+preserving the frozen spectrum + peaks; only crossing guitar↔material, or plate↔brace, needs a fresh
+sequence. Concrete fix: gate the reset on an actual paradigm change (extract a tested predicate e.g.
+`isGuitarSubtypeChange(prev, next)` in `settings.ts`, tracking the previous type via a ref) and fold in
+Phase 7's clear-overrides + re-auto-select. **This is pre-existing (RA's App.tsx edits are nowhere near
+this effect) — do NOT let it slip.**
 
 ---
 
