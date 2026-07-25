@@ -167,7 +167,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Overriding Mode Classification',
-        body: 'If a peak is labelled Unknown, or misclassified, click it in the Results list and assign the correct mode manually. An overridden mode is shown in italics with a trailing asterisk (*) so it stands out from the automatic classification. Your override is saved with the measurement.',
+        body: 'If a peak is labelled Unknown, or misclassified, click it in the Results list and assign the correct mode manually. An overridden mode is shown in italics with a trailing asterisk (*) so it stands out from the automatic classification. Your override is saved with the measurement. Reclassifying a peak from unknown to another mode — an existing mode or a user-defined one — means the Show Unknown Modes setting no longer hides it.',
       },
       {
         title: 'Step 6 — Save',
@@ -275,7 +275,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Re-analyze',
         icon: 'refresh',
-        body: 'Shown next to the microphone name when a saved measurement is loaded. Re-runs peak detection on the stored spectrum using the current analysis settings — useful for trying a different Peak Min or guitar type on a saved measurement without re-tapping. Enabled only while a loaded measurement is shown.',
+        body: 'Shown in the results panel header next to the microphone name. Re-runs peak detection on the frozen spectrum of any completed guitar measurement — live or loaded — re-classifies the modes from scratch, and returns peak selection to automatic. Custom mode names you have assigned are kept, though the peak carrying one may end up deselected. Useful for trying a different guitar type without re-tapping, or for a clean classification after manual changes. It no longer disables itself after one press, and does not apply to Plate or Brace measurements.',
       },
       {
         title: 'Auto dB',
@@ -358,7 +358,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Peak Min (slider)',
         icon: 'sliders',
-        body: 'Minimum magnitude a spectral peak must reach to be annotated on the spectrum chart. In guitar mode, a peak must also clear this threshold to be reported; adjusting it on a frozen spectrum re-runs peak finding and updates auto-selections (or carries forward manual selections if you have changed them). In brace/plate mode, the tap capture uses its own adaptive noise floor — Peak Min only affects what is visible on the chart, not which peaks are selected. Move the slider left to show quieter peaks; right to suppress noise. Displayed in dB.',
+        body: "Minimum magnitude a peak must reach to be shown — in the results list and annotated on the chart. Peak Min is a display filter over the measurement's stored peaks: moving it shows or hides peaks but never re-detects them, changes which are selected, or how they are classified — so a peak hidden then revealed returns exactly as it was. (Every detected peak is kept with the saved measurement regardless of Peak Min.) In brace/plate mode the tap capture uses its own adaptive noise floor, and Peak Min affects only what is visible on the chart. Move the slider left to show quieter peaks; right to suppress noise. Displayed in dB.",
       },
       {
         title: 'Reset arrows',
@@ -385,7 +385,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Show Unknown Modes',
-        body: 'Guitar mode only — found in Advanced → Analysis Settings. When off, peaks outside the known mode frequency windows are hidden, reducing clutter.',
+        body: 'Guitar mode only — found in Advanced → Analysis Settings. When off, peaks outside the known mode frequency windows are hidden, reducing clutter. A peak you have manually reclassified from unknown to another mode — an existing mode or a user-defined one — is no longer unknown and stays visible.',
       },
       {
         title: 'Display Frequency Range',
@@ -397,7 +397,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Peak Min',
-        body: 'Advanced → Analysis Settings. Sets the minimum magnitude (dB) for a peak to be annotated on the spectrum chart. In guitar mode this also gates which peaks are reported; adjusting it on a frozen spectrum re-runs peak finding and updates selections. In brace/plate mode it only affects what is annotated on the live chart. Typical useful range: −60 to −40 dB.',
+        body: "Advanced → Analysis Settings. Sets the minimum magnitude (dB) for a peak to be shown in the results and annotated on the chart. It is a display filter over the measurement's stored peaks — it does not re-detect peaks or change which are selected or classified. In brace/plate mode it affects only what is annotated on the live chart. Typical useful range: −60 to −40 dB.",
       },
     ],
   },

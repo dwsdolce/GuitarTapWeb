@@ -956,10 +956,17 @@ is named as architectural-restructure scope. Ready to implement.
 - **Dot/annotation parity:** the missing 3-platform dot-list test ([[project_dot_annotation_parity]]).
 
 ## Cross-cutting deliverables (web)
-- **Docs:** release notes `src/components/ReleaseNotes.tsx` + in-app Help/Quick-Start
-  `src/components/QuickStartGuide.tsx` — mirror the Swift/Python wording (Peaks & Modes behaviours; Peak
-  Min = display filter; Re-analyze; guitar-type clean slate; analysis-range removed). See
-  [[project_doc_surfaces]].
+- **Docs:** ⏳ CODE WRITTEN, NOT YET USER-VERIFIED (2026-07-24). release notes
+  `src/components/ReleaseNotes.tsx` + in-app Help/Quick-Start `src/components/QuickStartGuide.tsx` — mirror
+  the Swift/Python wording (Peaks & Modes behaviours; Peak Min = display filter; Re-analyze; guitar-type
+  clean slate; analysis-range removed). See [[project_doc_surfaces]]. **Done:** web Help got the 3
+  corrections (Peak Min slider + settings + Re-analyze — a web catch-up; Swift/Python already had them) and
+  the release notes gained the Peak-Min-display-control bullet, a **Peaks & Modes** item, a **Re-analyze**
+  item (moved from Bug Fixes to match Swift/Python's Improvements framing), analysis-range-removed, and the
+  Save-when-hidden bug-fix. **Plus 2 Help ADDITIONS authored into ALL THREE platforms** (naming-identifies:
+  Overriding-Mode + Show-Unknown-Modes entries) — Swift `HelpView.swift` + Python `help_view.py` + web
+  `QuickStartGuide.tsx`, per the user's "help is one document, consistent everywhere" rule. tsc 0, suite
+  361, Python help syntax OK. Awaiting run-review of the Help + Release Notes in each app.
 - **Override-marker on the comparison/multi-tap tables** — DEFERRED from the override-marker work: web's
   `MultiTapComparisonResultsView` / `ComparisonResultsView` / `PdfComparison` carry no override info yet;
   it needs the `definitiveModeInfo` / `modePeakIDs` pipeline from Phases 6/6b (see

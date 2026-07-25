@@ -105,11 +105,19 @@ export const RELEASES: RNRelease[] = [
           },
           {
             title: 'Peak Min',
-            body: 'A saved guitar measurement now keeps every detected peak down to −100 dB (the lowest Peak Min can be set), not only those above the Peak Min in effect when it was saved. Lowering Peak Min on a loaded measurement now reveals fainter peaks — including a low Air resonance — exactly as it does during a live measurement. Measurements saved before this update keep only the peaks that were above their Peak Min at the time; use Re-analyze to re-derive the full set from the spectrum, then Save.',
+            body: 'A saved guitar measurement now keeps every detected peak down to −100 dB (the lowest Peak Min can be set), not only those above the Peak Min in effect when it was saved. Lowering Peak Min on a loaded measurement now reveals fainter peaks — including a low Air resonance — exactly as it does during a live measurement. Measurements saved before this update keep only the peaks that were above their Peak Min at the time; use Re-analyze to re-derive the full set from the spectrum, then Save. Peak Min is now purely a display control: raising or lowering it only shows or hides peaks — it never changes which peaks are selected, how they are classified, or the identified modes. Those are properties of the measurement itself.',
+          },
+          {
+            title: 'Peaks & Modes',
+            body: 'Reclassifying an unknown peak: a peak classified as unknown — one in no known mode range — that you manually reclassify as another mode (an existing mode or a user-defined one) is no longer unknown, so Show Unknown Modes no longer hides it. Each of Air, Top and Back resolves to a single definitive peak — the selected peak whose (possibly overridden) mode matches — and the Select All Peaks control has been removed; selection is per-peak and the identified modes follow from it. The tap-tone ratio and other derived values are computed from those definitive peaks, so they follow your selection and any mode overrides rather than the raw strongest peak. In a multi-tap measurement, the averaged Taps table row shows an overridden mode (in italics with an asterisk), matching page 1 of the PDF report. Saved comparisons are self-describing: they record which peak carries each mode, so a reloaded comparison — table and PDF — reflects the overrides in effect when it was saved. Changing the guitar type is a clean slate: it re-runs classification and selection and clears manual overrides so the modes match the new type (a display-only change such as Peak Min leaves peaks, modes and selection untouched). Starting a new tap sequence clears any selection, mode overrides and moved annotations from the previous measurement.',
+          },
+          {
+            title: 'Re-analyze',
+            body: 'Re-analyze is now offered for any completed guitar measurement, not only one loaded from a file, and it no longer disables itself after a single press. It is a reset: it re-derives the peaks from the spectrum using your current settings, re-classifies the modes from scratch, and returns peak selection to automatic. Custom mode names you have assigned are kept — but the peak carrying one may be deselected, so re-select it to see the label again. It is not offered for Plate or Brace measurements, where it does not apply.',
           },
           {
             title: 'Display',
-            body: 'The display frequency range is remembered per measurement type, so guitar, plate and brace each keep their own view. Mode colours now match the other editions exactly.',
+            body: 'The display frequency range is remembered per measurement type, so guitar, plate and brace each keep their own view. Mode colours now match the other editions exactly. The Analysis Frequency Range setting has been removed from Settings; the analysis range is now a fixed 30–2000 Hz. The separate display range you pan and zoom on the chart is unaffected.',
           },
           {
             title: 'Recording',
@@ -148,7 +156,7 @@ export const RELEASES: RNRelease[] = [
             body: 'Playing a measurement from a file did not detect taps the same way a live measurement does — it used a fixed threshold rather than tracking the noise floor. File playback now behaves exactly like a live measurement, which also means a recording needs a short lead-in before its first tap (see the Quick Start guide).',
           },
           {
-            body: 'Re-analyze disabled itself after a single press, and was never offered for a measurement you had captured rather than loaded. It is now available for any completed guitar measurement, and stays available.',
+            body: 'Saving could be blocked when every peak was hidden. With Peak Min raised high enough to hide all peaks, or peak visibility set to None, Save is now still available — hiding peaks is a display choice and never prevents saving the measurement.',
           },
           {
             body: 'The microphone could silently stop delivering audio — most often because another tab or app took it — and Guitar Tap would sit there appearing to listen while receiving nothing. It now detects this and restarts the input automatically.',
