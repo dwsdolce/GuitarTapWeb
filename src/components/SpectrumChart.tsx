@@ -4,6 +4,7 @@ import type { Spectrum } from '../dsp/guitarFFT'
 import { renderSpectrum, chartGeometry, DARK_CHART } from '../presentation/spectrumRender'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { PeakMarker, AnnotationRect, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
+import { RefreshIcon } from './icons'
 
 /** Props for {@link SpectrumChart} — spectrum data, axis range, overlays/markers, and interaction callbacks. */
 export interface SpectrumChartProps {
@@ -30,6 +31,9 @@ export interface SpectrumChartProps {
   onAnnotationDrag?: (key: string, pos: [number, number]) => void
   /** "Reset Labels" menu action → clear all dragged label positions. */
   onResetLabels?: () => void
+  /** Right-clicking a SINGLE badge → reset just that label to its auto-position (Swift/Python
+   *  `resetAnnotationOffset`). `key` is the badge's `annoKey`. Omit to disable the per-label menu. */
+  onResetAnnotation?: (key: string) => void
   /** Enables the "Reset Labels" menu item (true when any label has been moved). */
   hasMovedLabels?: boolean
   /** A frozen/captured result is shown → the crosshair snaps to the nearest spectrum bin
@@ -87,6 +91,7 @@ export function SpectrumChart({
   onReset,
   onAnnotationDrag,
   onResetLabels,
+  onResetAnnotation,
   hasMovedLabels = false,
   frozen = false,
   crosshairMode = false,
@@ -107,7 +112,7 @@ export function SpectrumChart({
   // Reset/⋯ menu — stored in VIEWPORT coords and rendered `position: fixed` so it escapes the
   // chart wrapper's `overflow: hidden` (which used to clip it) and is clamped to stay on screen.
   // `alignRight` anchors the menu's right edge to `x` (for the top-right ⋯ button).
-  const [menu, setMenu] = useState<{ x: number; y: number; alignRight?: boolean } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; alignRight?: boolean; annoKey?: string } | null>(null)
   const ctxRef = useRef<HTMLDivElement>(null)
   const [menuStyle, setMenuStyle] = useState<{ left: number; top: number } | null>(null)
   useLayoutEffect(() => {
@@ -445,6 +450,24 @@ export function SpectrumChart({
         ref={canvasRef}
         className="spectrum-canvas"
         onContextMenu={(e) => {
+          // Right-clicking a badge opens the per-label menu (Reset Position); the empty chart opens
+          // the axes/Reset-Labels menu. hitBadge is scoped to the gesture effect, so hit-test the
+          // shared badge-rect ref directly here (topmost = last drawn).
+          const canvas = canvasRef.current
+          if (canvas && onResetAnnotation) {
+            const rect = canvas.getBoundingClientRect()
+            const px = e.clientX - rect.left
+            const py = e.clientY - rect.top
+            const hit = [...badgeRectsRef.current].reverse().find(
+              (r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h,
+            )
+            if (hit) {
+              e.preventDefault()
+              setMenu({ x: e.clientX, y: e.clientY, annoKey: hit.key })
+              setShowHelp(false)
+              return
+            }
+          }
           if (!onReset) return
           e.preventDefault()
           setMenu({ x: e.clientX, y: e.clientY })
@@ -511,28 +534,53 @@ export function SpectrumChart({
               visibility: menuStyle ? 'visible' : 'hidden',
             }}
           >
-            <div className="ctx-title">Chart Options</div>
-            <div className="ctx-header">Reset to Saved</div>
-            <button onClick={() => doReset('saved', 'both')}>Both Axes</button>
-            <button onClick={() => doReset('saved', 'freq')}>Frequency Axis</button>
-            <button onClick={() => doReset('saved', 'mag')}>Magnitude Axis</button>
-            <div className="ctx-sep" />
-            <div className="ctx-header">Reset to Defaults</div>
-            <button onClick={() => doReset('defaults', 'both')}>Both Axes</button>
-            <button onClick={() => doReset('defaults', 'freq')}>Frequency Axis</button>
-            <button onClick={() => doReset('defaults', 'mag')}>Magnitude Axis</button>
-            {onResetLabels && (
+            {menu.annoKey != null ? (
+              // Per-label menu: right-clicked a single badge → reset just that label. Mirrors Swift
+              // PeakAnnotations `.contextMenu` exactly — a single Label(icon+text) "Reset Position"
+              // (SF Symbol arrow.counterclockwise), disabled when the label is unmoved. No header.
+              (() => {
+                const mk = markers.find((m) => m.annoKey === menu.annoKey)
+                const moved = mk?.annoOffset != null
+                return (
+                  <button
+                    className="ctx-icon-item"
+                    disabled={!moved}
+                    onClick={() => {
+                      onResetAnnotation?.(menu.annoKey!)
+                      setMenu(null)
+                    }}
+                  >
+                    <span className="ctx-icon" aria-hidden><RefreshIcon /></span>
+                    Reset Position
+                  </button>
+                )
+              })()
+            ) : (
               <>
+                <div className="ctx-title">Chart Options</div>
+                <div className="ctx-header">Reset to Saved</div>
+                <button onClick={() => doReset('saved', 'both')}>Both Axes</button>
+                <button onClick={() => doReset('saved', 'freq')}>Frequency Axis</button>
+                <button onClick={() => doReset('saved', 'mag')}>Magnitude Axis</button>
                 <div className="ctx-sep" />
-                <button
-                  disabled={!hasMovedLabels}
-                  onClick={() => {
-                    onResetLabels()
-                    setMenu(null)
-                  }}
-                >
-                  Reset Labels
-                </button>
+                <div className="ctx-header">Reset to Defaults</div>
+                <button onClick={() => doReset('defaults', 'both')}>Both Axes</button>
+                <button onClick={() => doReset('defaults', 'freq')}>Frequency Axis</button>
+                <button onClick={() => doReset('defaults', 'mag')}>Magnitude Axis</button>
+                {onResetLabels && (
+                  <>
+                    <div className="ctx-sep" />
+                    <button
+                      disabled={!hasMovedLabels}
+                      onClick={() => {
+                        onResetLabels()
+                        setMenu(null)
+                      }}
+                    >
+                      Reset Labels
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>

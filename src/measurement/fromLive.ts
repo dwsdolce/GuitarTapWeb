@@ -55,7 +55,6 @@ export const newMeasurementId = uuid
 /** ISO-8601 without fractional seconds, matching Swift's `.iso8601` strategy. */
 const isoNow = (): string => new Date().toISOString().replace(/\.\d+Z$/, 'Z')
 
-const key = (freqHz: number): string => freqHz.toFixed(1)
 
 export interface BuildMeasurementArgs {
   name: string
@@ -76,8 +75,8 @@ export interface BuildMeasurementArgs {
   /** Active input deviceId + calibration name at capture time (provenance for the Details pane). */
   microphoneUID?: string
   calibrationName?: string
-  /** Dragged annotation-label positions, keyed by `frequency.toFixed(1)` → [absFreqHz, absDB]. */
-  annotationOffsetsByFreq?: Map<string, [number, number]>
+  /** Dragged annotation-label positions, keyed by peak `id` → [absFreqHz, absDB] (RB — analyzer store). */
+  annotationOffsetsById?: Map<number, [number, number]>
   /** Measured ring-out time (s) from the engine, or null/undefined if not measured. */
   decayTime?: number | null
   /** Whether the current selection is user-modified (vs automatic) — persisted so a reloaded
@@ -175,7 +174,7 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
   for (const p of a.peaks) {
     const override = a.overridesById.get(p.id)
     if (override != null) peakModeOverrides[idForNumeric.get(p.id)!] = override
-    const offset = a.annotationOffsetsByFreq?.get(key(p.frequency))
+    const offset = a.annotationOffsetsById?.get(p.id)
     if (offset != null) peakAnnotationOffsets[idForNumeric.get(p.id)!] = offset
   }
 
@@ -358,8 +357,8 @@ export interface LiveRestore {
   userModified: boolean
   /** Manual overrides to restore, keyed by peak `id` (RA — the loaded peaks' index ids). */
   overridesById: Map<number, string>
-  /** Dragged annotation-label positions to restore (keyed by `frequency.toFixed(1)`). */
-  annotationOffsetsByFreq: Map<string, [number, number]>
+  /** Dragged annotation-label positions to restore, keyed by peak `id` (RB — loaded peaks' index ids). */
+  annotationOffsetsById: Map<number, [number, number]>
 }
 
 /** Decompose a saved guitar measurement into the pieces the App restores into the view.
@@ -380,7 +379,7 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
   }))
 
   const overridesById = new Map<number, string>()
-  const annotationOffsetsByFreq = new Map<string, [number, number]>()
+  const annotationOffsetsById = new Map<number, [number, number]>()
   const indexByUuid = new Map(m.peaks.map((p, i) => [p.id, i]))
   for (const [id, label] of Object.entries(m.peakModeOverrides ?? {})) {
     const i = indexByUuid.get(id)
@@ -388,7 +387,7 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
   }
   for (const [id, pos] of Object.entries(m.peakAnnotationOffsets ?? {})) {
     const i = indexByUuid.get(id)
-    if (i != null) annotationOffsetsByFreq.set(key(m.peaks[i]!.frequency), pos)
+    if (i != null) annotationOffsetsById.set(i, pos)
   }
 
   // Selection restores from the saved ids (1:1 with the injected peaks); if none were
@@ -419,7 +418,7 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
     loadedPeaks,
     selectedIndices,
     overridesById,
-    annotationOffsetsByFreq,
+    annotationOffsetsById,
   }
 }
 
@@ -433,8 +432,8 @@ export interface MaterialRestore {
   settingsPatch: Partial<Settings>
   /** The saved axis range — applied as a transient override (not persisted), like guitar. */
   view: ChartView
-  /** Dragged L/C/FLC label positions (keyed by `frequency.toFixed(1)`), for the shared offset store. */
-  annotationOffsetsByFreq: Map<string, [number, number]>
+  /** Dragged L/C/FLC label positions, keyed by the restored material peak `id` (RB — shared store). */
+  annotationOffsetsById: Map<number, [number, number]>
 }
 
 /** Decompose a saved plate/brace measurement for restore into the view. Mirrors Swift
@@ -448,17 +447,28 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
     s ? { magnitudesDb: s.magnitudes, frequencies: s.frequencies } : null
 
   const byId = new Map(m.peaks.map((p) => [p.id, p]))
+  // Assign each restored material peak a fresh live id (RB) and remember file-UUID → live-id so the
+  // dragged offsets can re-key onto those ids — the shared analyzer store is id-keyed for material too.
+  let nextMatId = 0
+  const liveIdByFileId = new Map<string, number>()
   const toMatPeak = (id: string | undefined): MaterialPeak | null => {
     const p = id != null ? byId.get(id) : undefined
-    return p ? { frequency: p.frequency, magnitude: p.magnitude, quality: p.quality, bandwidth: p.bandwidth } : null
+    if (!p) return null
+    const liveId = nextMatId++
+    liveIdByFileId.set(p.id, liveId)
+    return { id: liveId, frequency: p.frequency, magnitude: p.magnitude, quality: p.quality, bandwidth: p.bandwidth }
   }
-
-  // Dragged label positions: re-key the saved {peakUUID → [Hz,dB]} offsets by frequency (the live
-  // store's key), mirroring the guitar restore path. Stale UUIDs (no matching peak) are dropped.
-  const annotationOffsetsByFreq = new Map<string, [number, number]>()
-  for (const [id, pos] of Object.entries(m.peakAnnotationOffsets ?? {})) {
-    const p = byId.get(id)
-    if (p) annotationOffsetsByFreq.set(key(p.frequency), pos)
+  // Build the peaks FIRST (assigns the ids), then re-key the saved {peakUUID → [Hz,dB]} offsets onto the
+  // live ids. Stale UUIDs (no matching peak) are dropped.
+  const matPeaks = {
+    longitudinal: toMatPeak(m.selectedLongitudinalPeakID),
+    cross: toMatPeak(m.selectedCrossPeakID),
+    flc: toMatPeak(m.selectedFlcPeakID),
+  }
+  const annotationOffsetsById = new Map<number, [number, number]>()
+  for (const [fileId, pos] of Object.entries(m.peakAnnotationOffsets ?? {})) {
+    const liveId = liveIdByFileId.get(fileId)
+    if (liveId != null) annotationOffsetsById.set(liveId, pos)
   }
 
   // Restore the dimensions so MaterialResults recomputes moduli/quality/Gore numbers.
@@ -485,14 +495,10 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
       cross: toSpectrum(m.crossSnapshot),
       flc: toSpectrum(m.flcSnapshot),
     },
-    matPeaks: {
-      longitudinal: toMatPeak(m.selectedLongitudinalPeakID),
-      cross: toMatPeak(m.selectedCrossPeakID),
-      flc: toMatPeak(m.selectedFlcPeakID),
-    },
+    matPeaks,
     settingsPatch: patch,
     view: { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB },
-    annotationOffsetsByFreq,
+    annotationOffsetsById,
   }
 }
 
@@ -510,8 +516,8 @@ export interface BuildMaterialArgs {
   deviceLabel: string
   microphoneUID?: string
   calibrationName?: string
-  /** Dragged L/C/FLC label positions, keyed by `frequency.toFixed(1)` (the shared offset store). */
-  annotationOffsetsByFreq?: Map<string, [number, number]>
+  /** Dragged L/C/FLC label positions, keyed by material peak `id` (RB — the shared analyzer store). */
+  annotationOffsetsById?: Map<number, [number, number]>
 }
 
 /** Construct a plate/brace TapToneMeasurementModel from the current completed material
@@ -567,7 +573,7 @@ export function buildMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasureme
     if (!mp) return undefined
     const id = uuid()
     peaks.push({ id, frequency: mp.frequency, magnitude: mp.magnitude, quality: mp.quality, bandwidth: mp.bandwidth, timestamp })
-    const offset = a.annotationOffsetsByFreq?.get(mp.frequency.toFixed(1))
+    const offset = a.annotationOffsetsById?.get(mp.id) // RB: material offsets are id-keyed live
     if (offset != null) peakAnnotationOffsets[id] = offset
     return id
   }

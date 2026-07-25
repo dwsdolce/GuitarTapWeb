@@ -31,11 +31,19 @@ type Samples = Float32Array | Float64Array | number[]
 
 /** The dominant peak located in a gated material capture (frequency + magnitude + Q + bandwidth). */
 export interface MaterialPeak {
+  /** Stable id assigned by the analyzer when the identified L/C/FLC peak is STORED (RB), so its dragged
+   *  annotation offset lives in the same id-keyed store as guitar peaks — mirroring Swift/Python, whose
+   *  material peaks are ResonantPeaks with a UUID. A fresh detection (`DetectedMaterialPeak`) has none. */
+  id: number
   frequency: number
   magnitude: number
   quality: number
   bandwidth: number
 }
+
+/** A freshly DETECTED material peak, before the analyzer assigns it a stored id (RB). This is what the
+ *  pure DSP `findDominantPeak` produces; the analyzer mints the `id` when it stores the peak. */
+export type DetectedMaterialPeak = Omit<MaterialPeak, 'id'>
 
 function chunkLevelDb(samples: Samples, start: number, end: number): number {
   let sumSq = 0
@@ -200,7 +208,7 @@ export function findDominantPeak(
   minHz: number,
   maxHz: number,
   preferLowestSignificant = false,
-): MaterialPeak | null {
+): DetectedMaterialPeak | null {
   const n = magnitudesDb.length
   if (n !== frequencies.length || n <= 10) return null
   const startIdx = frequencies.findIndex((f) => f >= minHz)
@@ -278,7 +286,7 @@ export function gatedCaptureResult(
   buffer: Samples,
   sampleRate: number,
   search: PhaseSearch,
-): { magnitudesDb: number[]; frequencies: number[]; peak: MaterialPeak | null } {
+): { magnitudesDb: number[]; frequencies: number[]; peak: DetectedMaterialPeak | null } {
   const windowSize = Math.round(sampleRate * GATED_FFT_WINDOW_DURATION)
   const preOnset = Math.round(sampleRate * PRE_ONSET_DURATION)
   const aligned = alignCaptureToOnset(buffer, windowSize, preOnset)

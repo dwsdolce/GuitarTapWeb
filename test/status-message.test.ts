@@ -25,7 +25,7 @@ function spectrum(peakHz: number | null): Spectrum {
   }
   return { magnitudesDb, frequencies }
 }
-const mp = (f: number): MaterialPeak => ({ frequency: f, magnitude: -40, quality: 8, bandwidth: 2 })
+const mp = (f: number): MaterialPeak => ({ id: 0, frequency: f, magnitude: -40, quality: 8, bandwidth: 2 })
 
 /** A minimal device stand-in — the analyzer only needs playingFile + activeCalibration + no-op session/arm
  *  hooks (armMaterial etc. re-arm the real device; here they do nothing). */

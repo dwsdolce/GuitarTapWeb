@@ -7,7 +7,7 @@ import {
   GATED_CAPTURE_DURATION,
   PLATE_PHASES,
   BRACE_PHASE,
-  type MaterialPeak,
+  type DetectedMaterialPeak,
 } from '../dsp/gatedCapture'
 
 /** Identity of a captured material phase (mirrors the plate/brace gated phase order). */
@@ -27,7 +27,7 @@ export interface MaterialSearch {
 /** One captured material phase: its gated spectrum, the located peak, and which phase it is. */
 export interface MaterialCaptureResult {
   spectrum: Spectrum
-  peak: MaterialPeak | null
+  peak: DetectedMaterialPeak | null
   /** Which phase this capture is for. Set by the engine during a file-playback material session
    *  (auto-advance); undefined during live capture, where the App derives it from its phase state. */
   phase?: MaterialPhaseName

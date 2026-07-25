@@ -27,7 +27,7 @@ const args = {
   modeByPeak,
   selectedIds: new Set<number>([2]),
   overridesById: new Map<number, string>([[1, 'Custom']]), // peak id 1 = the 100 Hz peak (RA: id-keyed)
-  annotationOffsetsByFreq: new Map<string, [number, number]>([['200.0', [215.5, -32.0]]]),
+  annotationOffsetsById: new Map<number, [number, number]>([[2, [215.5, -32.0]]]), // peak id 2 = the 200 Hz peak (RB)
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'classical' as const, showUnknownModes: true, peakMinThreshold: -55 },
   numberOfTaps: 3,
@@ -83,8 +83,8 @@ describe('round-trip through file → restore into the view', () => {
     expect([...live.selectedIndices]).toEqual([1]) // the 200 Hz peak
     expect(live.loadedPeaks[1]!.frequency).toBe(200)
     expect(live.overridesById.get(0)).toBe('Custom') // the 100 Hz peak is loadedPeaks[0] → id 0 (RA)
-    // Dragged label position restores keyed by frequency (UUIDs are regenerated on re-derivation).
-    expect(live.annotationOffsetsByFreq.get('200.0')).toEqual([215.5, -32.0])
-    expect(live.annotationOffsetsByFreq.has('100.0')).toBe(false)
+    // Dragged label position restores keyed by the loaded peak id (RB): 200 Hz is loadedPeaks[1] → id 1.
+    expect(live.annotationOffsetsById.get(1)).toEqual([215.5, -32.0])
+    expect(live.annotationOffsetsById.has(0)).toBe(false)
   })
 })

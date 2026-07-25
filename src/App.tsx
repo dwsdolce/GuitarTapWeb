@@ -166,10 +166,6 @@ export default function App() {
   // A loaded measurement's saved axis range — transient override of the persisted display
   // range (mirrors Swift loadedAxisRange). Set on load, cleared on any new measurement.
   const [loadedView, setLoadedView] = useState<ChartView | null>(null)
-  // Stable handle to useAnnotations' resetLabels so the material start handlers (defined above the
-  // annotations hook) can clear dragged labels on a fresh capture (mirrors Swift resetAllAnnotationOffsets).
-  const resetLabelsRef = useRef<() => void>(() => {})
-
   // Mirror of the applied calibration for matSearch + save provenance (read from stable refs).
   // Owned here (shared handle); the audio engine hook resolves + writes it.
   const calibrationRef = useRef<Calibration | null>(null)
@@ -422,7 +418,7 @@ export default function App() {
       comparisonRef.current = false
       if (isMaterialType(measRef.current)) {
         // Material: fresh phase machine (no arm — the engine owns the L→C→(FLC) auto-advance session).
-        resetLabelsRef.current() // a fresh capture starts with un-dragged labels (Swift resets offsets on start)
+        // startMaterial clears any dragged labels itself (RB), so no explicit reset here.
         analyzer.startMaterial(false)
         await engineRef.current.playFile(samples, fileRate, {
           material: { brace: measRef.current === 'brace', measureFlc: measureFlcRef.current, calibration: cal },
@@ -477,8 +473,7 @@ export default function App() {
   // the analyzer's phase machine.
   const onMaterialNewTap = useCallback(() => {
     clearLoadedMeasurement()
-    resetLabelsRef.current()
-    analyzer.startMaterial()
+    analyzer.startMaterial() // clears any dragged labels itself (RB)
   }, [analyzer, clearLoadedMeasurement])
 
   // Cancel is a restart (mirror Swift cancelTapSequence → startTapSequence): re-arm a fresh
@@ -538,24 +533,22 @@ export default function App() {
     return m
   }, [guitarType])
 
-  // Per-peak selection + mode-label overrides + dragged label positions — see hooks/useAnnotations.
+  // Per-peak SELECTION — see hooks/useAnnotations. Overrides (RA) + dragged offsets (RB) now live on
+  // the analyzer, keyed by peak id; read them from the snapshot, write via analyzer methods.
   const {
     selectedIds,
-    annotationOffsets,
     userModified,
     toggleSelect,
     selectAll,
     selectNone,
     resetSelection,
-    onAnnotationDrag,
-    resetLabels,
     restore: restoreAnnotations,
-    restoreMaterialOffsets,
   } = useAnnotations({ peaks, guitarType, captured, material })
-  // Manual mode-label overrides now live on the analyzer, keyed by peak id (RA). Read the snapshot map;
-  // write via analyzer.setModeOverride / resetModeOverride. `overriddenPeakIds` derives directly.
   const overrides = snapshot.overrides
-  resetLabelsRef.current = resetLabels // bridge for the material start handlers defined above the hook
+  const annotationOffsets = snapshot.annotationOffsets // id-keyed dragged label positions (RB)
+  // Chart drag → analyzer (markers carry String(id) as their annoKey); Reset Labels clears the store.
+  const onAnnotationDrag = useCallback((k: string, pos: [number, number]) => analyzer.updateAnnotationOffset(Number(k), pos), [analyzer])
+  const resetLabels = useCallback(() => analyzer.resetAllAnnotationOffsets(), [analyzer])
 
   // Re-analyze — re-detect peaks on the loaded/frozen spectrum using the CURRENT analysis settings
   // (Peak Min, analysis range, guitar type), letting you retune a saved measurement without
@@ -790,7 +783,7 @@ export default function App() {
           name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, numberOfTaps, sampleRate, deviceLabel,
           microphoneUID: currentDeviceId ?? undefined,
           calibrationName: calibrationRef.current?.name,
-          annotationOffsetsByFreq: annotationOffsets,
+          annotationOffsetsById: annotationOffsets,
         })
       }
       if (!captured) return null
@@ -802,7 +795,7 @@ export default function App() {
         modeByPeak,
         selectedIds,
         overridesById: overrides,
-        annotationOffsetsByFreq: annotationOffsets,
+        annotationOffsetsById: annotationOffsets,
         // A loaded measurement keeps its stored ring-out (don't overwrite with the live engine's).
         // Gated on loadedName, not loadedPeaks, so Re-analyze (which clears loadedPeaks) preserves
         // the stored ring-out — mirrors Swift currentDecayTime surviving reanalyzePeaks().
@@ -877,7 +870,7 @@ export default function App() {
         analyzer.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
         setComparison(null)
         analyzer.restoreMaterial({ matSpectra: mat.matSpectra, matPeaks: mat.matPeaks })
-        restoreMaterialOffsets(mat.annotationOffsetsByFreq) // dragged L/C/FLC label positions (shared store)
+        analyzer.restoreOffsets(mat.annotationOffsetsById) // dragged L/C/FLC labels (id-keyed shared store, RB)
         setLoadWarning(
           measurementWarning(m, { microphoneName: deviceLabel, sampleRate, calibrationName: calibrationRef.current?.name }),
         )
@@ -919,11 +912,11 @@ export default function App() {
       })
       setComparison(null)
       setView(live.view)
-      // Restore overrides onto the analyzer (id-keyed, RA) + selection/dragged labels into the hook
-      // (sets the loading guard so these survive the fresh-capture reset that loading triggers).
+      // Restore overrides + dragged offsets onto the analyzer (id-keyed, RA/RB) + selection into the
+      // hook (its loading guard makes the selection survive the fresh-capture reset the load triggers).
       analyzer.restoreOverrides(live.overridesById)
+      analyzer.restoreOffsets(live.annotationOffsetsById)
       restoreAnnotations({
-        annotationOffsetsByFreq: live.annotationOffsetsByFreq,
         selectedIndices: live.selectedIndices,
         userModified: live.userModified,
       })
@@ -953,7 +946,7 @@ export default function App() {
       // that silently replaces the loaded result (onGuitarCapture clears loadedPeaks/Name/View).
       engineRef.current?.disarm()
     },
-    [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, restoreAnnotations, restoreMaterialOffsets, setView],
+    [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, restoreAnnotations, setView],
   )
 
   // Create a comparison from ≥2 selected library measurements (mirrors Swift loadComparison).
@@ -1307,6 +1300,7 @@ export default function App() {
               onReset={resetView}
               onAnnotationDrag={comparison || showMultiTap ? undefined : onAnnotationDrag}
               onResetLabels={comparison || showMultiTap ? undefined : resetLabels}
+              onResetAnnotation={comparison || showMultiTap ? undefined : (k) => analyzer.resetAnnotationOffset(Number(k))}
               hasMovedLabels={annotationOffsets.size > 0}
               frozen={captured != null || (material && matPhase === 'complete')}
               crosshairMode={crosshairMode}

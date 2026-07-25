@@ -82,10 +82,10 @@ export function buildGuitarMarkers(
   selectedIds: Set<number>,
   overridesById: Map<number, string>,
   annotationMode: AnnoMode,
-  offsetsByFreq?: Map<string, [number, number]>,
+  offsetsById?: Map<number, [number, number]>,
 ): PeakMarker[] {
   return peaks.map((p) => {
-    const key = p.frequency.toFixed(1) // annotation-offset key stays frequency-based until RB
+    const key = String(p.id) // RB: annotation-offset key is the peak id (analyzer-owned store)
     const mode = modeByPeak.get(p.id) ?? 'unknown'
     const override = overridesById.get(p.id) // RA: overrides are id-keyed (analyzer-owned)
     // Override wins for color too (like the label): a predefined override uses that mode's color, a
@@ -106,7 +106,7 @@ export function buildGuitarMarkers(
       isOverride: override !== undefined,
       annotated,
       annoKey: key,
-      annoOffset: offsetsByFreq?.get(key),
+      annoOffset: offsetsById?.get(p.id),
     }
   })
 }
@@ -121,15 +121,15 @@ export function buildMaterialMarkers(
     flc: MaterialPeak | null
   },
   mode: AnnoMode,
-  offsetsByFreq?: Map<string, [number, number]>,
+  offsetsById?: Map<number, [number, number]>,
 ): PeakMarker[] {
   // Material (plate/brace) has no per-peak selection, so All and Selected both annotate every
   // identified peak; None hides all badges (dots remain). Mirrors Swift/Python visiblePeaks.
   const annotated = mode !== 'none'
   const out: PeakMarker[] = []
   const push = (mp: MaterialPeak, color: string, label: string) => {
-    const key = mp.frequency.toFixed(1)
-    out.push({ ...mp, color, label, annotated, annoKey: key, annoOffset: offsetsByFreq?.get(key) })
+    const key = String(mp.id) // RB: material offsets are id-keyed in the shared analyzer store
+    out.push({ ...mp, color, label, annotated, annoKey: key, annoOffset: offsetsById?.get(mp.id) })
   }
   if (matPeaks.longitudinal) push(matPeaks.longitudinal, '#4ea1ff', 'Longitudinal')
   if (matPeaks.cross) push(matPeaks.cross, '#f0a03a', 'Cross-grain')
@@ -167,7 +167,7 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
       title,
       spectrum: null,
       overlays,
-      markers: buildMaterialMarkers(r.matPeaks, (m.annotationVisibilityMode as AnnoMode) ?? 'all', r.annotationOffsetsByFreq),
+      markers: buildMaterialMarkers(r.matPeaks, (m.annotationVisibilityMode as AnnoMode) ?? 'all', r.annotationOffsetsById),
       view: { minHz: s.minFreq, maxHz: s.maxFreq, minDb: s.minDB, maxDb: s.maxDB },
       measurementTypeName: MEASUREMENT_FULL_NAME[r.measurementType],
       date,
@@ -184,7 +184,7 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
     r.selectedIndices,
     r.overridesById,
     (m.annotationVisibilityMode as AnnoMode) ?? 'all',
-    r.annotationOffsetsByFreq,
+    r.annotationOffsetsById,
   )
   return {
     title,

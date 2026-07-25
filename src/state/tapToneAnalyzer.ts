@@ -15,7 +15,7 @@ import type { Spectrum } from '../dsp/guitarFFT'
 import { findPeaks, PEAK_DETECTION_FLOOR, type Peak } from '../dsp/peaks'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import { PLATE_PHASES, BRACE_PHASE, findDominantPeak } from '../dsp/gatedCapture'
+import { PLATE_PHASES, BRACE_PHASE, findDominantPeak, type MaterialPeak, type DetectedMaterialPeak } from '../dsp/gatedCapture'
 import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialPhaseName, EngineState } from '../audio/realtimeFFTAnalyzer'
 import type { MaterialPeaks } from '../components/MaterialResults'
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
@@ -108,6 +108,17 @@ export class TapToneAnalyzer {
   // `applyFrozenPeakState` (±REMAP_TOLERANCE_HZ) and cleared on a blank-slate reset (`clearResult`).
   // Mirrors Swift `peakModeOverrides` / Python `_peak_mode_overrides` (both id/UUID-keyed).
   overrides: Map<number, string> = new Map()
+  // Dragged annotation-label positions, keyed by peak `id` → [absFreqHz, absDB] (RB — moved off the
+  // view's frequency-keyed useAnnotations store). ONE store for guitar AND material, matching Swift's
+  // single `peakAnnotationOffsets: [UUID: CGPoint]` and Python's `peak_annotation_offsets` — whose
+  // material peaks are id-bearing too. Guitar entries are carried across a re-mint by
+  // `applyFrozenPeakState`; material entries never re-mint. Guitar and material never coexist (cleared
+  // between by clearResult / resetMaterial), so their ids share one map without collision.
+  annotationOffsets: Map<number, [number, number]> = new Map()
+  // Monotonic id source for STORED material (L/C/FLC) peaks, so each identified peak gets a stable id
+  // its dragged offset keys on. Fresh per store (like Swift minting a new UUID per capture), so a Redo
+  // orphans the old offset, matching Swift/Python.
+  private nextMaterialPeakId = 0
   materialTapPhase: MaterialTapPhase = 'notStarted'
   // Material (plate/brace) result data — the per-phase averaged spectra + located peaks. Owned by the
   // analyzer, mirroring Swift longitudinalSpectrum/crossSpectrum/flcSpectrum + the material peaks. 3c-C3.
@@ -293,8 +304,9 @@ export class TapToneAnalyzer {
     // A blank-slate reset (New Tap / type-switch / play-file / cancel) drops per-peak state, mirroring
     // the view's old fresh-capture reset. The remap in applyFrozenPeakState then carries an empty map,
     // so a freshly-captured measurement starts with no overrides. Load restores AFTER (restoreOverrides),
-    // so it is unaffected. RB/RC add offsets + selection here.
+    // so it is unaffected. RC adds selection here.
     this.overrides = new Map()
+    this.annotationOffsets = new Map()
     this.isMeasurementComplete = false // setter also clears the loaded-settings warning
     this.notify()
   }
@@ -425,6 +437,44 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
+  // ── Dragged annotation offsets (RB — one id-keyed store for guitar + material, mirrors Swift/Python) ─
+
+  /** Set a peak's dragged annotation-label position (absolute [Hz, dB]). Fresh Map for memo identity.
+   *  Mirrors Swift `updateAnnotationOffset` / Python `update_annotation_offset`. */
+  updateAnnotationOffset(id: number, pos: [number, number]): void {
+    this.annotationOffsets = new Map(this.annotationOffsets).set(id, pos)
+    this.notify()
+  }
+
+  /** Clear one peak's dragged offset (Swift `resetAnnotationOffset`). */
+  resetAnnotationOffset(id: number): void {
+    if (!this.annotationOffsets.has(id)) return
+    const next = new Map(this.annotationOffsets)
+    next.delete(id)
+    this.annotationOffsets = next
+    this.notify()
+  }
+
+  /** Clear every dragged offset — "Reset Labels" (Swift `resetAllAnnotationOffsets`). */
+  resetAllAnnotationOffsets(): void {
+    if (this.annotationOffsets.size === 0) return
+    this.annotationOffsets = new Map()
+    this.notify()
+  }
+
+  /** Replace the whole offset map from a loaded measurement (id-keyed). Guitar loaded peaks and restored
+   *  material peaks both keep stable ids, so no remap follows. */
+  restoreOffsets(map: Map<number, [number, number]>): void {
+    this.annotationOffsets = new Map(map)
+    this.notify()
+  }
+
+  /** Assign a stored id to a freshly detected material (L/C/FLC) peak so its dragged offset can live in
+   *  the shared id-keyed store. Fresh id per store (Swift mints a new UUID per capture). */
+  private identifyMaterialPeak(p: DetectedMaterialPeak | null): MaterialPeak | null {
+    return p ? { ...p, id: this.nextMaterialPeakId++ } : null
+  }
+
   /** Carry per-peak state across a peak RE-MINT (findPeaks assigns fresh ids), the web equivalent of
    *  Swift `applyFrozenPeakState`. Snapshots the old state BY FREQUENCY from the DURABLE old set (never
    *  a display projection — this is the Swift 178/184 fix), then re-attaches it to the new peaks by
@@ -444,6 +494,21 @@ export class TapToneAnalyzer {
         if (match) remapped.set(np.id, match.label)
       }
       this.overrides = remapped
+    }
+    if (this.annotationOffsets.size > 0) {
+      // Same ±5 Hz carry for dragged label positions. Guitar-only here — the findPeaks branch runs in
+      // guitar mode, where no material offsets are present.
+      const byFreq: Array<{ frequency: number; pos: [number, number] }> = []
+      for (const [id, pos] of this.annotationOffsets) {
+        const old = oldPeaks.find((q) => q.id === id)
+        if (old) byFreq.push({ frequency: old.frequency, pos })
+      }
+      const remapped = new Map<number, [number, number]>()
+      for (const np of newPeaks) {
+        const match = byFreq.find((o) => Math.abs(o.frequency - np.frequency) <= REMAP_TOLERANCE_HZ)
+        if (match) remapped.set(np.id, match.pos)
+      }
+      this.annotationOffsets = remapped
     }
   }
 
@@ -503,6 +568,8 @@ export class TapToneAnalyzer {
     this.matPeaks = EMPTY_MAT_PEAKS
     this.matSpectra = EMPTY_MAT_SPECTRA
     this.materialBuffer = []
+    this.annotationOffsets = new Map() // a fresh material sequence drops any dragged labels (RB)
+    this.nextMaterialPeakId = 0
     this.materialTapPhase = 'capturingL'
     this.currentTapCount = 0 // the analyzer owns the material tap count now (Option C)
     this.analysisAnnounced = false
@@ -645,11 +712,13 @@ export class TapToneAnalyzer {
   /** Store a completed phase's averaged spectrum + peak, then advance: to review when live (the user
    *  Accepts/Redos), or auto-advance to the next phase when playing a file (arming it — the analyzer owns
    *  the L→C→FLC auto-advance, Swift `isPlayingFile`). Sets the phase's status string. 3c-C4 Option C. */
-  private advanceAfterPhase(ph: MaterialPhaseName, avg: Spectrum, avgPeak: MaterialPeaks['longitudinal']): void {
+  private advanceAfterPhase(ph: MaterialPhaseName, avg: Spectrum, avgPeak: DetectedMaterialPeak | null): void {
     const playing = this.device?.playingFile ?? false
+    // Mint the stored id once for this phase's peak (RB) so its dragged offset has a stable key.
+    const stored = this.identifyMaterialPeak(avgPeak)
     if (ph === 'longitudinal') {
       this.matSpectra = { ...this.matSpectra, longitudinal: avg }
-      this.matPeaks = { ...this.matPeaks, longitudinal: avgPeak }
+      this.matPeaks = { ...this.matPeaks, longitudinal: stored }
       if (this.measurementType === 'brace') {
         this.materialTapPhase = 'complete'
         this.isMeasurementComplete = true // Swift brace complete sets isMeasurementComplete (SpectrumCapture:1217)
@@ -666,7 +735,7 @@ export class TapToneAnalyzer {
       }
     } else if (ph === 'cross') {
       this.matSpectra = { ...this.matSpectra, cross: avg }
-      this.matPeaks = { ...this.matPeaks, cross: avgPeak }
+      this.matPeaks = { ...this.matPeaks, cross: stored }
       if (playing) {
         if (this.measureFlc) {
           this.materialTapPhase = 'capturingFlc'
@@ -684,7 +753,7 @@ export class TapToneAnalyzer {
       }
     } else {
       this.matSpectra = { ...this.matSpectra, flc: avg }
-      this.matPeaks = { ...this.matPeaks, flc: avgPeak }
+      this.matPeaks = { ...this.matPeaks, flc: stored }
       if (playing) {
         this.materialTapPhase = 'complete'
         this.isMeasurementComplete = true
@@ -703,6 +772,8 @@ export class TapToneAnalyzer {
     this.matPeaks = EMPTY_MAT_PEAKS
     this.matSpectra = EMPTY_MAT_SPECTRA
     this.materialBuffer = []
+    this.annotationOffsets = new Map() // drop dragged material labels (RB)
+    this.nextMaterialPeakId = 0
     this.isMeasurementComplete = false // clearing the material measurement clears its completion flag
     this.device?.cancelSessionRecording() // abandon any partial session WAV
     this.notify()
@@ -767,6 +838,7 @@ export class TapToneAnalyzer {
         peaks: this.peaks,
         modeByPeak: this.modeByPeak,
         overrides: this.overrides,
+        annotationOffsets: this.annotationOffsets,
         canReanalyze: this.canReanalyze,
         matSpectra: this.matSpectra,
         matPeaks: this.matPeaks,
@@ -938,6 +1010,8 @@ export interface TapToneSnapshot {
   modeByPeak: Map<number, ResolvedMode>
   /** Manual mode-label overrides, keyed by peak `id` (RA — analyzer-owned, was the view's freq map). */
   overrides: Map<number, string>
+  /** Dragged annotation-label positions, keyed by peak `id` (RB — one store for guitar + material). */
+  annotationOffsets: Map<number, [number, number]>
   /** Whether the Re-analyze button is offered (any complete guitar measurement with a frozen
    *  spectrum; never material). See `TapToneAnalyzer.canReanalyze` for why it is not a dirty flag. */
   canReanalyze: boolean

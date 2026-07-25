@@ -9,10 +9,9 @@
 // That is the canonical PR-A1..A5 integration set + PR2 threshold filter.
 //
 // The selection / mode-override / annotation-offset remapping-by-frequency (Swift PR1/PR3–PR7,
-// `applyFrozenPeakState`) is NOT covered here: that subsystem still lives in the VIEW (`useAnnotations`)
-// on the web. Moving it onto the analyzer is **P3** (RESTRUCTURE-NOTES.md "Peak-selection & annotation
-// ownership → analyzer"); the PR1/PR3–PR7 tests are appended to this suite when P3 lands. These
-// PR-A/PR2 assertions test stable peak-computation behavior and are unaffected by P3.
+// `applyFrozenPeakState`) is moving onto the analyzer in the selection-ownership restructure. RA (mode
+// overrides) and RB (annotation offsets) have landed and their remap tests are appended below; SELECTION
+// (RC) is the remaining piece and its carry-forward tests land with it.
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { Peak } from '../src/dsp/peaks'
@@ -375,5 +374,77 @@ describe('frozen-peak-recalc — overrides on the analyzer (RA)', () => {
     recalc(a, { loadedPeaks: [peak(200, -25, 0), peak(400, -30, 1)] }) // ids 0,1 — stable, no re-mint
     expect(a.overrides.get(0)).toBe('Air')
     expect(a.overrides.get(1)).toBe('Top')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// RB — annotation offsets on the analyzer (id-keyed), carried across a re-mint by applyFrozenPeakState.
+// One store for guitar AND material, matching Swift `peakAnnotationOffsets` / Python
+// `peak_annotation_offsets` (both id/UUID-keyed, material peaks included). The offset half of the remap.
+// ---------------------------------------------------------------------------
+describe('frozen-peak-recalc — annotation offsets on the analyzer (RB)', () => {
+  it('updateAnnotationOffset / resetAnnotationOffset set and clear by peak id', () => {
+    const a = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(a, mags, freqs)
+    recalc(a)
+    const id = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!.id
+    a.updateAnnotationOffset(id, [205.5, -18])
+    expect(a.annotationOffsets.get(id)).toEqual([205.5, -18])
+    a.resetAnnotationOffset(id)
+    expect(a.annotationOffsets.has(id)).toBe(false)
+  })
+
+  it('an offset SURVIVES a re-mint that SHIFTS the id, remapped by ±5 Hz proximity', () => {
+    const a = new TapToneAnalyzer()
+    const two = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
+    frozen(a, two.mags, two.freqs)
+    recalc(a)
+    const before = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    a.updateAnnotationOffset(before.id, [402, -25])
+    const three = combine(two, makeSpectrum(300, -25)) // inserts a peak below 400 → its id shifts
+    frozen(a, three.mags, three.freqs)
+    recalc(a)
+    const after = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    expect(after.id).not.toBe(before.id)
+    expect(a.annotationOffsets.get(after.id)).toEqual([402, -25]) // carried across by frequency
+    expect(a.annotationOffsets.has(before.id)).toBe(false)
+  })
+
+  it('resetAllAnnotationOffsets and clearResult both empty the store', () => {
+    const a = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(a, mags, freqs)
+    recalc(a)
+    a.updateAnnotationOffset(a.peaks[0]!.id, [201, -15])
+    a.resetAllAnnotationOffsets()
+    expect(a.annotationOffsets.size).toBe(0)
+    a.updateAnnotationOffset(a.peaks[0]!.id, [201, -15])
+    a.clearResult()
+    expect(a.annotationOffsets.size).toBe(0)
+  })
+
+  it('restoreOffsets replaces the whole map (loaded measurement)', () => {
+    const a = new TapToneAnalyzer()
+    a.updateAnnotationOffset(99, [1, 2])
+    a.restoreOffsets(new Map<number, [number, number]>([[0, [10, 20]], [1, [30, 40]]]))
+    expect(a.annotationOffsets.get(0)).toEqual([10, 20])
+    expect(a.annotationOffsets.has(99)).toBe(false)
+  })
+
+  it('a captured MATERIAL peak gets a stored id, and its offset lives in the same store (brace)', () => {
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'brace'
+    a.numberOfTaps = 1
+    a.startMaterial(false) // no device needed — arm/session calls are optional-chained
+    const s = makeSpectrum(300, -30) // brace search band is 100–1200 Hz
+    a.recordMaterialTap({ magnitudesDb: s.mags, frequencies: s.freqs })
+    const lp = a.matPeaks.longitudinal
+    expect(lp).not.toBeNull()
+    expect(typeof lp!.id).toBe('number')
+    a.updateAnnotationOffset(lp!.id, [305, -25])
+    expect(a.annotationOffsets.get(lp!.id)).toEqual([305, -25])
+    a.resetMaterial() // a material reset drops the dragged labels too
+    expect(a.annotationOffsets.size).toBe(0)
   })
 })
