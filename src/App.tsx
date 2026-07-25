@@ -6,7 +6,7 @@ import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
 import type { ChartView, PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
-import { type MaterialTapPhase as MatPhase } from './state/tapToneAnalyzer'
+import { type MaterialTapPhase as MatPhase, type DefinitiveModeInfo } from './state/tapToneAnalyzer'
 import { useAudioEngine } from './hooks/useAudioEngine'
 import { ThresholdMeter } from './components/ThresholdMeter'
 import { PeakCard } from './components/PeakCard'
@@ -76,7 +76,6 @@ import {
   MULTITAP_PALETTE,
   MULTITAP_AVG_COLOR,
   type MultiTapRow,
-  type TapModeFreqs,
 } from './components/MultiTapComparisonResultsView'
 import { type Peak } from './dsp/peaks'
 import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
@@ -609,15 +608,11 @@ export default function App() {
       }),
     [tapEntries, guitarType],
   )
-  // Averaged row resolves over the DURABLE set, not the Peak-Min projection: the multi-tap table is a
-  // fact about the measurement, independent of the slider (spec §5). Mirrors Swift resolving the averaged
-  // row over allPeaks. This currently takes the AUTO strongest peak per mode; it does NOT yet honour the
-  // user's manual selection — the definitive (selected + override-aware) resolution that Swift's
-  // `definitiveModeInfo` / `getPeak(for:)` applies here is not wired on the web yet.
-  const avgModes = useMemo<TapModeFreqs>(() => {
-    const m = resolvedModePeaks(peaks, guitarType)
-    return { air: m.get('air')?.frequency ?? null, top: m.get('top')?.frequency ?? null, back: m.get('back')?.frequency ?? null }
-  }, [peaks, guitarType])
+  // Averaged row = the DEFINITIVE Air/Top/Back (the SELECTED, override-aware peak per mode), over the
+  // durable set — a fact about the measurement, independent of the Peak-Min slider (spec §5). An
+  // overridden value carries an isOverride flag so the row can mark it italic + " *". Recomputes on any
+  // snapshot change (selection / overrides / peaks). Mirrors Swift analyzer.definitiveModeInfo().
+  const avgModes = useMemo<DefinitiveModeInfo>(() => analyzer.definitiveModeInfo(), [analyzer, snapshot])
   const multiTapOverlays = useMemo<SpectrumOverlay[]>(() => {
     const out: SpectrumOverlay[] = tapEntries.map((e, i) => ({
       magnitudesDb: e.spectrum.magnitudesDb,

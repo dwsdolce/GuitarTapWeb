@@ -16,6 +16,8 @@
  */
 // @parity view/multi-tap-results
 
+import type { DefinitiveMode, DefinitiveModeInfo } from '../state/tapToneAnalyzer'
+
 /** Resolved Air / Top / Back peak frequencies (Hz) for one row; `null` when no peak was found. */
 export interface TapModeFreqs {
   air: number | null
@@ -53,12 +55,32 @@ function FreqCells({ m }: { m: TapModeFreqs }) {
   )
 }
 
+/** The Averaged row: each definitive value is the SELECTED + override-aware peak (not the strongest), and
+ *  an overridden value is marked italic + trailing " *" — the app-wide override convention. */
+function AvgFreqCells({ m }: { m: DefinitiveModeInfo }) {
+  const cell = (v: DefinitiveMode | null) =>
+    v == null ? (
+      <span className="mt-cell mt-empty">—</span>
+    ) : (
+      <span className={`mt-cell${v.isOverride ? ' mt-override' : ''}`}>
+        {v.frequency.toFixed(1)} Hz{v.isOverride ? ' *' : ''}
+      </span>
+    )
+  return (
+    <>
+      {cell(m.air)}
+      {cell(m.top)}
+      {cell(m.back)}
+    </>
+  )
+}
+
 /**
  * Renders the multi-tap comparison grid: one row per tap (`taps`, in sequence order — the
  * palette color is chosen by array index) plus a final bold "Averaged" row (`avg`, the
  * averaged mode frequencies).
  */
-export function MultiTapComparisonResultsView({ taps, avg }: { taps: MultiTapRow[]; avg: TapModeFreqs }) {
+export function MultiTapComparisonResultsView({ taps, avg }: { taps: MultiTapRow[]; avg: DefinitiveModeInfo }) {
   return (
     <div className="multitap-table">
       <div className="mt-row mt-head">
@@ -81,7 +103,7 @@ export function MultiTapComparisonResultsView({ taps, avg }: { taps: MultiTapRow
           <span className="mt-square" style={{ background: MULTITAP_AVG_COLOR }} />
           Averaged
         </span>
-        <FreqCells m={avg} />
+        <AvgFreqCells m={avg} />
       </div>
     </div>
   )

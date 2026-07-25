@@ -597,6 +597,10 @@
 .mt-empty {
   color: var(--muted);
 }
+/* Overridden Averaged value — italic (the " *" suffix is in the text), the app-wide override marker. */
+.mt-override {
+  font-style: italic;
+}
 .mt-dot {
   width: 9px;
   height: 9px;

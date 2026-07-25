@@ -219,3 +219,21 @@ describe('annotation-state — definitive peak + tap-tone ratio', () => {
     expect(a.tapToneRatio()).toBeCloseTo(400 / 100, 5)
   })
 })
+
+describe('annotation-state — definitiveModeInfo (multi-tap Averaged row)', () => {
+  it('reports the definitive Air/Top/Back with an isOverride flag', () => {
+    const a = ratioAnalyzer([[1, 'air', 90, -20], [2, 'top', 200, -20]])
+    a.restoreSelection(new Set([1, 2]), [90, 200], true)
+    const info = a.definitiveModeInfo()
+    expect(info.air).toEqual({ frequency: 90, isOverride: false })
+    expect(info.top).toEqual({ frequency: 200, isOverride: false })
+    expect(info.back).toBeNull()
+  })
+
+  it('marks an overridden Averaged value and retargets it onto the overridden peak', () => {
+    const a = ratioAnalyzer([[1, 'air', 90, -20], [2, 'dipole', 380, -20]])
+    a.restoreSelection(new Set([1, 2]), [90, 380], true)
+    a.setModeOverride(2, 'Top') // assign the selected Dipole peak to Top
+    expect(a.definitiveModeInfo().top).toEqual({ frequency: 380, isOverride: true })
+  })
+})

@@ -70,6 +70,12 @@ export interface ComparisonEntryModel {
   peaks: ResonantPeakModel[]
   guitarType?: string
   sourceMeasurementID?: string
+  /** The DEFINITIVE Air/Top/Back for this overlaid spectrum, `{mode display name → peak id}` referencing
+   *  this entry's own `peaks`, resolved override-aware from the SOURCE at build. Makes a saved comparison
+   *  self-describing — a reader reproduces the table by id lookup, no `classifyAll`, no source overrides.
+   *  Absent on pre-6b files → healed positionally on decode + re-saved. Mirrors Swift/Python
+   *  `ComparisonEntry.modePeakIDs` (keyed by `GuitarMode.rawValue` = the mode's display name). */
+  modePeakIDs?: Record<string, string>
 }
 
 export interface TapEntryModel {

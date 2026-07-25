@@ -6,7 +6,7 @@
 // only matters when writing). Unknown fields are ignored.
 
 import { base64ToFloats } from './base64'
-import { healSelection } from './fromLive'
+import { healSelection, healComparisonModes } from './fromLive'
 import type {
   AnnotationOffsets,
   ComparisonEntryModel,
@@ -138,6 +138,15 @@ function decodePeak(d: Obj): ResonantPeakModel {
 const decodePeaks = (v: unknown): ResonantPeakModel[] =>
   Array.isArray(v) ? v.map((p) => decodePeak(obj(p) ?? {})) : []
 
+/** A `{string: string}` map (e.g. `modePeakIDs`), or undefined when absent/empty. */
+function decodeStrMap(raw: unknown): Record<string, string> | undefined {
+  const o = obj(raw)
+  if (!o) return undefined
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(o)) if (typeof v === 'string') out[k] = v
+  return Object.keys(out).length ? out : undefined
+}
+
 function decodeComparisonEntry(d: Obj): ComparisonEntryModel {
   return {
     id: strOpt(d.id) ?? '',
@@ -147,6 +156,7 @@ function decodeComparisonEntry(d: Obj): ComparisonEntryModel {
     peaks: decodePeaks(d.peaks),
     guitarType: strOpt(d.guitarType),
     sourceMeasurementID: strOpt(d.sourceMeasurementID),
+    modePeakIDs: decodeStrMap(d.modePeakIDs),
   }
 }
 
@@ -298,6 +308,9 @@ export function healMeasurement(m: TapToneMeasurementModel): boolean {
   // Repair the selection to a valid DEFINITIVE set (after the duplicate heal cleaned dangling ids), so
   // a legacy file's on-screen state, saved-list ratio, and file all agree. Guitar-only, self-guarded.
   if (healSelection(m)) healed = true
+
+  // Fill a legacy comparison's missing per-entry modePeakIDs so the file is self-describing (Phase 6b).
+  if (healComparisonModes(m)) healed = true
 
   if (healed) (m as unknown as Record<string, unknown>).wasHealed = true
   return healed

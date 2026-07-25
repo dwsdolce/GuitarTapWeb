@@ -88,6 +88,19 @@ export interface TapEntry {
   peaks: Peak[]
 }
 
+/** One definitive mode value for the multi-tap Averaged row: its frequency + whether it came from a user
+ *  override (marked italic + " *"). Mirrors Swift `definitiveModeInfo`'s `(frequency, isOverride)`. */
+export interface DefinitiveMode {
+  frequency: number
+  isOverride: boolean
+}
+/** Definitive Air / Top / Back for the Averaged row; `null` where there is no definitive peak. */
+export interface DefinitiveModeInfo {
+  air: DefinitiveMode | null
+  top: DefinitiveMode | null
+  back: DefinitiveMode | null
+}
+
 export class TapToneAnalyzer {
   // ── Published-equivalent state (settable; the audio layer / tests mutate these directly) ──
   isDetecting = false
@@ -609,6 +622,17 @@ export class TapToneAnalyzer {
     const air = this.definitivePeak('air')
     const top = this.definitivePeak('top')
     return air && top && air.frequency > 0 ? top.frequency / air.frequency : null
+  }
+
+  /** The definitive Air / Top / Back for the multi-tap Averaged row, each with an override flag so an
+   *  overridden value can be marked (italic + " *"). Mirrors Swift `definitiveModeInfo` — `definitivePeak`
+   *  per mode + `hasManualOverride` (= the peak carries any override). */
+  definitiveModeInfo(): DefinitiveModeInfo {
+    const of = (mode: ResolvedMode): DefinitiveMode | null => {
+      const p = this.definitivePeak(mode)
+      return p ? { frequency: p.frequency, isOverride: this.overrides.has(p.id) } : null
+    }
+    return { air: of('air'), top: of('top'), back: of('back') }
   }
 
   /** Keep the selection invariant: at most one SELECTED peak per Air/Top/Back. The preferred peak stays;

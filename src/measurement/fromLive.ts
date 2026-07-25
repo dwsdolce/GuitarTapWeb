@@ -398,6 +398,29 @@ export function healSelection(m: TapToneMeasurementModel): boolean {
   return false
 }
 
+/** Heal a decoded COMPARISON measurement: fill each entry's `modePeakIDs` positionally when absent (a
+ *  pre-6b file stored none). Override-BLIND by necessity — an old comparison never saved the sources'
+ *  overrides, so this only freezes what the old app showed and makes the file self-describing from here
+ *  on. Mutates entries; returns true if any changed. Mirrors Swift's decode comparison-heal. */
+export function healComparisonModes(m: TapToneMeasurementModel): boolean {
+  if (!m.comparisonEntries?.length) return false
+  let changed = false
+  for (const entry of m.comparisonEntries) {
+    if (entry.modePeakIDs != null) continue
+    const gt = GUITAR_TYPE_NAME_FROM_RAW[entry.guitarType ?? 'Generic'] ?? 'generic'
+    const adapter: Peak[] = entry.peaks.map((p, i) => ({ id: i, frequency: p.frequency, magnitude: p.magnitude, quality: p.quality, bandwidth: p.bandwidth }))
+    const resolved = resolvedModePeaks(adapter, gt)
+    const map: Record<string, string> = {}
+    for (const mode of ['air', 'top', 'back'] as const) {
+      const idx = resolved.get(mode)?.id
+      if (idx != null) map[MODE_DISPLAY_NAME[mode]] = entry.peaks[idx]!.id
+    }
+    entry.modePeakIDs = map
+    changed = true
+  }
+  return changed
+}
+
 export interface LiveRestore {
   measurementType: MeasurementType
   captured: Spectrum
@@ -695,6 +718,19 @@ function hexToComponents(hex: string): number[] {
 const comparisonLabel = (m: TapToneMeasurementModel): string =>
   m.measurementName?.trim() || formatDisplayDateCompact(m.timestamp)
 
+/** `{mode display name → peak id}` for Air/Top/Back from a source measurement's DEFINITIVE peaks
+ *  (selected + override-aware). Keyed by `MODE_DISPLAY_NAME` = Swift `GuitarMode.rawValue`, so the saved
+ *  map is cross-platform. The ids reference selected peaks, which the comparison entry keeps. Mirrors
+ *  Swift `ComparisonEntry.modeIDMap`. */
+function modeIDMap(m: TapToneMeasurementModel): Record<string, string> {
+  const map: Record<string, string> = {}
+  for (const mode of ['air', 'top', 'back'] as const) {
+    const p = measurementDefinitivePeak(m, mode)
+    if (p) map[MODE_DISPLAY_NAME[mode]] = p.id
+  }
+  return map
+}
+
 /** Build comparison entries from selected library measurements — mirrors Swift/Python
  *  loadComparison: filter to those with a spectrum, disambiguate duplicate labels with
  *  " (2)", assign palette colors by index, and keep each measurement's selected peaks. */
@@ -721,6 +757,7 @@ export function buildComparisonEntries(measurements: TapToneMeasurementModel[]):
       peaks,
       guitarType: snap.guitarType,
       sourceMeasurementID: m.id,
+      modePeakIDs: modeIDMap(m), // self-describing definitive Air/Top/Back, resolved from the source
     }
   })
 }
@@ -756,18 +793,28 @@ export function multiTapComparisonEntries(m: TapToneMeasurementModel): Compariso
       snapshot: m.spectrumSnapshot,
       peaks: selectedOf(m.peaks, m.selectedPeakIDs),
       guitarType: m.spectrumSnapshot.guitarType,
+      // Only the Averaged row is definitive/override-aware; per-tap rows stay positional (no map).
+      modePeakIDs: modeIDMap(m),
     })
   }
   return entries
 }
 
-/** Resolve the Air/Top/Back mode frequencies for one comparison entry (its selected peaks
- *  classified by its guitar type) — drives the ComparisonResultsView table. */
+/** The definitive Air/Top/Back frequencies for one comparison entry — drives the comparison table + PDF.
+ *  Reads the stored self-describing `modePeakIDs` (id lookup into the entry's own peaks); falls back to
+ *  positional `resolvedModePeaks` ONLY per-mode when the map lacks that mode (legacy / in-memory entries).
+ *  The reader must NOT re-classify when the map is present, or an overridden Top would be lost. Mirrors
+ *  Swift `ComparisonEntry.modeFrequency`. */
 export function comparisonEntryModeFreqs(entry: ComparisonEntryModel): { air: number | null; top: number | null; back: number | null } {
   const gt = GUITAR_TYPE_NAME_FROM_RAW[entry.guitarType ?? 'Generic'] ?? 'generic'
-  const peaks: Peak[] = entry.peaks.map((p, i) => ({ id: i, frequency: p.frequency, magnitude: p.magnitude, quality: p.quality, bandwidth: p.bandwidth }))
-  const m = resolvedModePeaks(peaks, gt)
-  return { air: m.get('air')?.frequency ?? null, top: m.get('top')?.frequency ?? null, back: m.get('back')?.frequency ?? null }
+  const adapter: Peak[] = entry.peaks.map((p, i) => ({ id: i, frequency: p.frequency, magnitude: p.magnitude, quality: p.quality, bandwidth: p.bandwidth }))
+  const positional = resolvedModePeaks(adapter, gt)
+  const freq = (mode: 'air' | 'top' | 'back'): number | null => {
+    const id = entry.modePeakIDs?.[MODE_DISPLAY_NAME[mode]]
+    if (id != null) return entry.peaks.find((p) => p.id === id)?.frequency ?? null
+    return positional.get(mode)?.frequency ?? null
+  }
+  return { air: freq('air'), top: freq('top'), back: freq('back') }
 }
 
 /** Union axis range across comparison entries' snapshots (Swift setLoadedAxisRange). */

@@ -135,6 +135,7 @@ function encodeComparisonEntry(e: ComparisonEntryModel): JsonObj {
   }
   put(d, 'guitarType', e.guitarType)
   put(d, 'sourceMeasurementID', e.sourceMeasurementID)
+  put(d, 'modePeakIDs', e.modePeakIDs) // self-describing definitive Air/Top/Back (Phase 6b)
   return d
 }
 
