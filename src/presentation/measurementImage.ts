@@ -18,6 +18,7 @@ import {
   comparisonEntryModeFreqs,
   colorComponentsToCss,
   multiTapComparisonEntries,
+  measurementTapToneRatio,
 } from '../measurement/fromLive'
 import {
   isGuitarType,
@@ -32,7 +33,7 @@ import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { TapToneMeasurementModel } from '../measurement'
 import type { MaterialPeak } from '../dsp/gatedCapture'
 import { MODE_DISPLAY_NAME as MODE_FULL_NAME } from './modeColors'
-import { decayQuality, decayQualityColor, tapToneRatio, tapToneRatioQuality, tapToneRatioQualityColor } from '../dsp/analysisQuality'
+import { decayQuality, decayQualityColor, tapToneRatioQuality, tapToneRatioQualityColor } from '../dsp/analysisQuality'
 import {
   density,
   densityGPerCm3,
@@ -297,7 +298,7 @@ function guitarPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData
     }
   })
 
-  const ratio = tapToneRatio(r.loadedPeaks, guitarType)
+  const ratio = measurementTapToneRatio(m) // the DEFINITIVE ratio — agrees with screen + saved-list
   const decay = m.decayTime ?? null
   return {
     ...base,

@@ -7,7 +7,12 @@ import {
   encodeMeasurement,
   encodeSnapshot,
   f32,
+  type ResonantPeakModel,
+  type TapToneMeasurementModel,
 } from '../src/measurement'
+import { measurementDefinitivePeak, measurementTapToneRatio, healSelection } from '../src/measurement/fromLive'
+import { classifyAll } from '../src/dsp/classify'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 
 // `.guitartap` model + serialization parity (Phase 4a). The canonical format is the
 // Swift user manual Appendix B; this mirrors the Swift MeasurementCodableTests and the
@@ -142,5 +147,94 @@ describe('semantic round-trip (decode → encode → decode)', () => {
   it('preserves every modeled field', () => {
     const again = parseGuitarTapFile(serializeGuitarTapFile(measurements))
     expect(again).toEqual(measurements)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Definitive saved-measurement ratio + legacy selection heal (Phase 6). The saved-list/PDF ratio uses
+// the same DEFINITIVE rule as the live analyzer (selected + override-aware), so they cannot disagree;
+// decode heals a legacy selection to a valid definitive set. Mirrors Swift TapToneMeasurement
+// definitivePeak / tapToneRatio + the decode heal. Classical bands: air 80–110, top 170–230, back 190–280.
+// ---------------------------------------------------------------------------
+const rp = (id: string, frequency: number, magnitude: number): ResonantPeakModel => ({
+  id, frequency, magnitude, quality: 10, bandwidth: 5, timestamp: '2026-01-01T00:00:00Z',
+})
+const guitarModel = (
+  peaks: ResonantPeakModel[],
+  opts: { selectedPeakIDs?: string[]; peakModeOverrides?: Record<string, string> } = {},
+): TapToneMeasurementModel => ({
+  id: 'M', timestamp: '2026-01-01T00:00:00Z', peaks,
+  spectrumSnapshot: {
+    frequencies: [], magnitudes: [], minFreq: 0, maxFreq: 500, minDB: -100, maxDB: 0,
+    isLogarithmic: false, guitarType: 'Classical', measurementType: 'Classical Guitar',
+  },
+  ...opts,
+})
+
+describe('measurement-codable — definitive saved ratio', () => {
+  it('divides the definitive Top by the definitive Air (over the selection)', () => {
+    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a', 't'] })
+    expect(measurementTapToneRatio(m)).toBeCloseTo(200 / 90, 5)
+  })
+
+  it('a freeform override on the Top drops the ratio', () => {
+    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a', 't'], peakModeOverrides: { t: 'Wolf note' } })
+    expect(measurementDefinitivePeak(m, 'top')).toBeNull()
+    expect(measurementTapToneRatio(m)).toBeNull()
+  })
+
+  it('overriding a selected non-Top peak TO Top retargets the ratio onto it', () => {
+    const m = guitarModel([rp('a', 90, -20), rp('d', 380, -20)], { selectedPeakIDs: ['a', 'd'], peakModeOverrides: { d: 'Top' } })
+    expect(measurementDefinitivePeak(m, 'top')?.id).toBe('d')
+    expect(measurementTapToneRatio(m)).toBeCloseTo(380 / 90, 5)
+  })
+
+  it('a deselected Top drops the ratio', () => {
+    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a'] })
+    expect(measurementTapToneRatio(m)).toBeNull()
+  })
+
+  it('the saved ratio equals the live analyzer ratio for the same measurement', () => {
+    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a', 't'] })
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'classical'
+    a.peaks = [
+      { id: 0, frequency: 90, magnitude: -20, quality: 10, bandwidth: 5 },
+      { id: 1, frequency: 200, magnitude: -20, quality: 10, bandwidth: 5 },
+    ]
+    a.modeByPeak = classifyAll(a.peaks, 'classical')
+    a.restoreSelection(new Set([0, 1]), [90, 200], true)
+    expect(a.tapToneRatio()).toBeCloseTo(measurementTapToneRatio(m)!, 6)
+  })
+})
+
+describe('measurement-codable — legacy selection heal on decode', () => {
+  it('a nil selection is healed to the strongest peak per effective mode', () => {
+    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20), rp('b', 250, -20)]) // no selectedPeakIDs
+    expect(healSelection(m)).toBe(true)
+    expect(new Set(m.selectedPeakIDs)).toEqual(new Set(['a', 't', 'b'])) // one definitive per mode
+  })
+
+  it('a pre-uniqueness selection with two Tops is pruned to the strongest', () => {
+    // Two peaks made Top by override (the only way a legacy file could select two); prune to the louder.
+    const m = guitarModel(
+      [rp('a', 90, -20), rp('t', 200, -20), rp('t2', 220, -50)],
+      { selectedPeakIDs: ['a', 't', 't2'], peakModeOverrides: { t2: 'Top' } },
+    )
+    expect(healSelection(m)).toBe(true)
+    expect(new Set(m.selectedPeakIDs)).toEqual(new Set(['a', 't'])) // the weaker Top (t2) is dropped
+  })
+
+  it('a valid one-per-mode selection is left untouched (not reflagged)', () => {
+    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a', 't'] })
+    expect(healSelection(m)).toBe(false)
+  })
+
+  it('material measurements are never touched by the selection heal', () => {
+    const m = guitarModel([rp('a', 90, -20)], { selectedPeakIDs: ['a'] })
+    // Make it look material: a longitudinal snapshot + no guitar spectrum snapshot.
+    delete (m as { spectrumSnapshot?: unknown }).spectrumSnapshot
+    ;(m as { longitudinalSnapshot?: unknown }).longitudinalSnapshot = { frequencies: [], magnitudes: [], minFreq: 0, maxFreq: 500, minDB: -100, maxDB: 0, isLogarithmic: false }
+    expect(healSelection(m)).toBe(false)
   })
 })

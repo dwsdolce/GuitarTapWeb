@@ -396,7 +396,7 @@ function drawPeaks(cur: Cur, data: PdfReportData) {
 function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
   const { doc } = cur
 
-  const boxes: { title: string; value: string; subtitle: string; detail: string; detailColor: RGB; hint?: string }[] = []
+  const boxes: { title: string; value: string; subtitle: string; detail: string; detailColor: RGB; detailSubtitle?: string; hint?: string }[] = []
   if (a.decayTime != null) {
     boxes.push({
       title: 'Ring-Out Time',
@@ -404,6 +404,7 @@ function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
       subtitle: 'Time to decay 15 dB',
       detail: a.decayQuality ?? '',
       detailColor: a.decayColor ? hexToRgb(a.decayColor) : SECONDARY,
+      detailSubtitle: 'Sustain quality', // under the quality label, mirroring Swift analysisBox
     })
   }
   if (a.tapToneRatio != null) {
@@ -451,10 +452,17 @@ function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
     font(doc, 10, 'bold')
     setColor(doc, b.detailColor)
     doc.text(b.detail, x + boxW - 10, top + 16, { align: 'right' })
+    // Right column stacks under the quality label: a plain subtitle (Swift detailSubtitle), then an
+    // italic hint — mirroring the SwiftUI VStack (detail → detailSubtitle → hint).
+    if (b.detailSubtitle) {
+      font(doc, 9, 'normal')
+      setColor(doc, SECONDARY)
+      doc.text(b.detailSubtitle, x + boxW - 10, top + 30, { align: 'right' })
+    }
     if (b.hint) {
       font(doc, 9, 'italic')
       setColor(doc, SECONDARY)
-      doc.text(b.hint, x + boxW - 10, top + 30, { align: 'right' })
+      doc.text(b.hint, x + boxW - 10, top + (b.detailSubtitle ? 42 : 30), { align: 'right' })
     }
   })
   cur.y = top + boxH

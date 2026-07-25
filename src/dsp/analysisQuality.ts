@@ -1,14 +1,13 @@
 // Guitar tap-tone analysis quality helpers — a direct port of Swift's
 // Float.decayQuality(for:)/decayQualityColor(for:) and tapToneRatioQuality /
 // tapToneRatioQualityColor (GuitarTap/Views/Utilities/Extensions.swift) plus the
-// per-type decay thresholds (GuitarType.decayThresholds) and the tapToneRatio
-// computation (TapToneMeasurement.tapToneRatio). Used by the PDF report's guitar
-// analysis section so the qualitative labels/colors match the native apps exactly.
+// per-type decay thresholds (GuitarType.decayThresholds). These map a numeric decay or
+// tap-tone ratio to a qualitative label/color; the ratio VALUE itself is the definitive
+// resolver (analyzer.tapToneRatio / measurementTapToneRatio). Used by the PDF report's
+// guitar analysis section so the qualitative labels/colors match the native apps exactly.
 // @parity dsp/analysis-quality tests=test/analysis-quality
 
 import type { GuitarTypeName } from './guitarModes'
-import { classifyAll, type ResolvedMode } from './classify'
-import type { Peak } from './peaks'
 
 interface DecayThresholds {
   veryShort: number
@@ -61,18 +60,4 @@ export function tapToneRatioQualityColor(ratio: number): string {
   if (ratio <= 2.1) return '#2c9c3c'
   if (ratio < 2.3) return '#e08a00'
   return '#d83a30'
-}
-
-/**
- * Tap-tone ratio f_Top / f_Air, taken from the first peak whose auto-classified mode
- * normalises to `top` / `air` respectively. Returns null when either is missing.
- * Mirrors Swift TapToneMeasurement.tapToneRatio.
- */
-export function tapToneRatio(peaks: Peak[], type: GuitarTypeName): number | null {
-  const modeMap = classifyAll(peaks, type)
-  const norm = (id: number): ResolvedMode => modeMap.get(id) ?? 'unknown'
-  const air = peaks.find((p) => norm(p.id) === 'air')
-  const top = peaks.find((p) => norm(p.id) === 'top')
-  if (!air || !top) return null
-  return top.frequency / air.frequency
 }

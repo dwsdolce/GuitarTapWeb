@@ -51,6 +51,18 @@ export const MODE_BY_DISPLAY_NAME: Record<string, ResolvedMode> = Object.fromEnt
 ) as Record<string, ResolvedMode>
 
 /**
+ * The one override-aware mode resolver, mirroring Swift `GuitarMode.effectiveMode(override:auto:)`:
+ * a present override label wins — a predefined mode name resolves to its mode, a FREEFORM label to
+ * `'unknown'` (it does NOT fall through to the auto mode) — otherwise the auto classification. Every
+ * "which mode is this peak, really" surface (the selection invariant, the definitive-peak resolver, the
+ * ratio) resolves through this, so they cannot disagree.
+ */
+export function effectiveMode(overrideLabel: string | undefined | null, auto: ResolvedMode): ResolvedMode {
+  if (overrideLabel != null) return MODE_BY_DISPLAY_NAME[overrideLabel] ?? 'unknown'
+  return auto
+}
+
+/**
  * Color for a user-defined / custom override label (not a known mode) — the tag glyph in teal.
  * Mirrors Swift's `tag.fill` + RGB(0,128,128) for UserAssignedMode freeform labels.
  */

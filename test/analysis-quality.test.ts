@@ -3,11 +3,9 @@ import { describe, it, expect } from 'vitest'
 import {
   decayQuality,
   decayQualityColor,
-  tapToneRatio,
   tapToneRatioQuality,
   tapToneRatioQualityColor,
 } from '../src/dsp/analysisQuality'
-import type { Peak } from '../src/dsp/peaks'
 
 // Reference boundaries from the canonical Swift Float.decayQuality(for:) /
 // tapToneRatioQuality and GuitarType.decayThresholds — pinned so the PDF report's
@@ -68,23 +66,6 @@ describe('tapToneRatioQuality (target 1.9–2.1)', () => {
   })
 })
 
-describe('tapToneRatio = f_Top / f_Air', () => {
-  const peak = (id: number, frequency: number, magnitude: number): Peak => ({
-    id,
-    frequency,
-    magnitude,
-    quality: 10,
-    bandwidth: 1,
-  })
-  it('finds the first air + top peaks and divides (classical bands)', () => {
-    // Air ~100 Hz, Top ~200 Hz → ratio 2.0.
-    const peaks = [peak(0, 100, -20), peak(1, 200, -25), peak(2, 250, -30)]
-    const r = tapToneRatio(peaks, 'classical')
-    expect(r).not.toBeNull()
-    expect(r!).toBeCloseTo(2.0, 5)
-  })
-  it('returns null when no air or no top peak is present', () => {
-    expect(tapToneRatio([peak(0, 1000, -20)], 'classical')).toBeNull()
-    expect(tapToneRatio([], 'classical')).toBeNull()
-  })
-})
+// The tap-tone ratio VALUE moved to the definitive resolver (analyzer.tapToneRatio /
+// measurementTapToneRatio); its tests live in test/annotation-state + test/measurement-codable. This
+// file keeps only the qualitative label/color mapping that the PDF report reads.

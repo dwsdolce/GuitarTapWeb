@@ -48,7 +48,6 @@ import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
-import { tapToneRatio } from './dsp/analysisQuality'
 import {
   buildGuitarMeasurement,
   buildMaterialMeasurement,
@@ -522,8 +521,10 @@ export default function App() {
   )
 
   const sortedPeaks = useMemo(() => [...peaksAbovePeakMin].sort((a, b) => a.frequency - b.frequency), [peaksAbovePeakMin])
-  // Live tap-tone ratio (f_Top / f_Air) for the Analysis Results panel — same fn the PDF uses.
-  const tapRatio = useMemo(() => (material ? null : tapToneRatio(peaksAbovePeakMin, guitarType)), [material, peaksAbovePeakMin, guitarType])
+  // Live tap-tone ratio (f_Top / f_Air) over the DEFINITIVE Air/Top (selected + override-aware), so a
+  // renamed/deselected Top drops it — matching the saved-list and PDF ratios. Recomputes on any snapshot
+  // change (selection / overrides / peaks). Mirrors Swift analyzer.calculateTapToneRatio.
+  const tapRatio = useMemo(() => (material ? null : analyzer.tapToneRatio()), [material, analyzer, snapshot])
   // displayPeaks / displayPeaksInRange are defined below useAnnotations — they now depend on the
   // override state (a user-named peak is "known"), which the hook provides.
   const bandByMode = useMemo(() => {

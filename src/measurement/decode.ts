@@ -6,6 +6,7 @@
 // only matters when writing). Unknown fields are ignored.
 
 import { base64ToFloats } from './base64'
+import { healSelection } from './fromLive'
 import type {
   AnnotationOffsets,
   ComparisonEntryModel,
@@ -293,6 +294,10 @@ export function healMeasurement(m: TapToneMeasurementModel): boolean {
     te.selectedPeakIDs = (te.selectedPeakIDs ?? []).filter((id) => !r.removed.has(id))
     healed = true
   }
+
+  // Repair the selection to a valid DEFINITIVE set (after the duplicate heal cleaned dangling ids), so
+  // a legacy file's on-screen state, saved-list ratio, and file all agree. Guitar-only, self-guarded.
+  if (healSelection(m)) healed = true
 
   if (healed) (m as unknown as Record<string, unknown>).wasHealed = true
   return healed

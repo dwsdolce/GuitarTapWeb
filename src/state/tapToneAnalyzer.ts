@@ -14,9 +14,9 @@ import { averageSpectra } from '../dsp/spectrumAverage'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { findPeaks, PEAK_DETECTION_FLOOR, type Peak } from '../dsp/peaks'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
-// Override→mode resolution for the override-aware effectiveMode (mirrors Swift GuitarMode.fromDisplayName).
-// A minor state→presentation import (precedent: MaterialPeaks from components); the shared resolver is unified later.
-import { MODE_BY_DISPLAY_NAME } from '../presentation/modeColors'
+// The one override-aware mode resolver (mirrors Swift GuitarMode.effectiveMode). A minor state→presentation
+// import (precedent: MaterialPeaks from components) — the resolver lives with the mode↔label map it needs.
+import { effectiveMode as resolveEffectiveMode } from '../presentation/modeColors'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { PLATE_PHASES, BRACE_PHASE, findDominantPeak, type MaterialPeak, type DetectedMaterialPeak } from '../dsp/gatedCapture'
 import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialPhaseName, EngineState } from '../audio/realtimeFFTAnalyzer'
@@ -587,9 +587,28 @@ export class TapToneAnalyzer {
    *  the auto classification. The selection invariant resolves modes through this, never the override-blind
    *  `modeByPeak`. */
   effectiveMode(id: number): ResolvedMode {
-    const override = this.overrides.get(id)
-    if (override != null) return MODE_BY_DISPLAY_NAME[override] ?? 'unknown'
-    return this.modeByPeak.get(id) ?? 'unknown'
+    return resolveEffectiveMode(this.overrides.get(id), this.modeByPeak.get(id) ?? 'unknown')
+  }
+
+  /** The DEFINITIVE peak for a mode — the *selected* peak whose *effective* (override-aware) mode is that
+   *  mode, strongest wins. Deselecting or relabelling a peak removes it here exactly as on screen. Mirrors
+   *  Swift analyzer `getPeak(for:)`. (Phase 5's invariant means normally ≤1 candidate; `max` guards a
+   *  transient double-selection.) */
+  definitivePeak(mode: ResolvedMode): Peak | undefined {
+    let best: Peak | undefined
+    for (const p of this.selectedPeaks) {
+      if (this.effectiveMode(p.id) === mode && (!best || p.magnitude > best.magnitude)) best = p
+    }
+    return best
+  }
+
+  /** Tap-tone ratio f_Top / f_Air over the DEFINITIVE Air/Top peaks — null if either is absent (a
+   *  renamed/deselected Top drops the ratio, matching every other surface). Mirrors Swift
+   *  `calculateTapToneRatio`. */
+  tapToneRatio(): number | null {
+    const air = this.definitivePeak('air')
+    const top = this.definitivePeak('top')
+    return air && top && air.frequency > 0 ? top.frequency / air.frequency : null
   }
 
   /** Keep the selection invariant: at most one SELECTED peak per Air/Top/Back. The preferred peak stays;

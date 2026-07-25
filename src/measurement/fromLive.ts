@@ -11,7 +11,8 @@ import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classi
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { exportStem } from './exportFilename'
 import { Pitch } from '../dsp/pitch'
-import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
+import { MODE_DISPLAY_NAME, effectiveMode } from '../presentation/modeColors'
+import { effectiveSelectedPeakIDs, isMaterialMeasurement } from './types'
 import { formatDisplayDateCompact } from '../format/date'
 import type { ChartView } from '../presentation/chartTypes'
 import {
@@ -314,32 +315,87 @@ export function guitarTapFilename(m: TapToneMeasurementModel): string {
   return `${exportStem(m.measurementName, ts, 'measurement')}.guitartap`
 }
 
-/** Top-to-Air frequency ratio for a saved guitar measurement, mirroring Swift/Python
- *  `tapToneRatio`: classify the selected peaks (all peaks if none recorded) and divide the
- *  first Top frequency by the first Air frequency. Null when either mode is absent. */
-export function measurementTapToneRatio(m: TapToneMeasurementModel): number | null {
+/** The DEFINITIVE peak of a mode for a saved measurement — the SELECTED peak whose OVERRIDE-AWARE mode is
+ *  that mode, strongest wins. Mirrors Swift `TapToneMeasurement.definitivePeak(for:)`: `classifyAll` over
+ *  ALL peaks (by index) for the auto mode, the override from `peakModeOverrides`, resolved via
+ *  `effectiveMode`; kept only if in `effectiveSelectedPeakIDs`. Deselecting or relabelling a peak drops it
+ *  here exactly as on screen, so this ratio agrees with the live one. */
+export function measurementDefinitivePeak(m: TapToneMeasurementModel, mode: ResolvedMode): ResonantPeakModel | null {
   const snap = m.spectrumSnapshot
   if (!snap) return null
   const gt = GUITAR_TYPE_NAME_FROM_RAW[snap.guitarType ?? ''] ?? 'generic'
-  const selected = m.selectedPeakIDs?.length ? new Set(m.selectedPeakIDs) : null
-  const src = selected ? m.peaks.filter((p) => selected.has(p.id)) : m.peaks
-  if (!src.length) return null
-  const adapter: Peak[] = src.map((p, i) => ({
-    id: i,
-    frequency: p.frequency,
-    magnitude: p.magnitude,
-    quality: p.quality,
-    bandwidth: p.bandwidth,
-  }))
-  const modeMap = classifyAll(adapter, gt)
-  let air: number | null = null
-  let top: number | null = null
-  src.forEach((p, i) => {
-    const mode = modeMap.get(i)
-    if (mode === 'air' && air == null) air = p.frequency
-    if (mode === 'top' && top == null) top = p.frequency
+  // classifyAll needs numeric-id peaks; the array index maps 1:1 to m.peaks (and to autoMap keys).
+  const adapter: Peak[] = m.peaks.map((p, i) => ({ id: i, frequency: p.frequency, magnitude: p.magnitude, quality: p.quality, bandwidth: p.bandwidth }))
+  const autoMap = classifyAll(adapter, gt)
+  const selected = effectiveSelectedPeakIDs(m)
+  let best: ResonantPeakModel | null = null
+  m.peaks.forEach((p, i) => {
+    if (!selected.has(p.id)) return
+    const eff = effectiveMode(m.peakModeOverrides?.[p.id], autoMap.get(i) ?? 'unknown')
+    if (eff === mode && (best === null || p.magnitude > best.magnitude)) best = p
   })
-  return air != null && top != null && air > 0 ? top / air : null
+  return best
+}
+
+/** Top-to-Air frequency ratio for a saved guitar measurement, mirroring Swift `TapToneMeasurement.
+ *  tapToneRatio`: the DEFINITIVE Top over the DEFINITIVE Air. Null when either is absent. */
+export function measurementTapToneRatio(m: TapToneMeasurementModel): number | null {
+  const air = measurementDefinitivePeak(m, 'air')
+  const top = measurementDefinitivePeak(m, 'top')
+  return air && top && air.frequency > 0 ? top.frequency / air.frequency : null
+}
+
+/** Heal a decoded GUITAR measurement's selection to a valid DEFINITIVE set, mirroring Swift's
+ *  `TapToneMeasurement` decode heal. Legacy files predate the selection model two ways:
+ *   • no saved selection (nil) — older code treated that as "all selected", i.e. every Air/Top/Back at
+ *     once, exactly what the invariant forbids → set it to the strongest peak per EFFECTIVE mode;
+ *   • a pre-uniqueness selection could hold two selected Tops → prune to at most the strongest selected
+ *     peak per single-holder mode (cluster modes + unknown untouched).
+ *  Guitar-only (material has no per-peak selection). Mutates `m.selectedPeakIDs`; returns true if changed. */
+export function healSelection(m: TapToneMeasurementModel): boolean {
+  if (isMaterialMeasurement(m)) return false
+  const gt = GUITAR_TYPE_NAME_FROM_RAW[m.spectrumSnapshot?.guitarType ?? ''] ?? 'generic'
+  const adapter: Peak[] = m.peaks.map((p, i) => ({ id: i, frequency: p.frequency, magnitude: p.magnitude, quality: p.quality, bandwidth: p.bandwidth }))
+  const autoMap = classifyAll(adapter, gt)
+  const effOf = (p: ResonantPeakModel, i: number): ResolvedMode => effectiveMode(m.peakModeOverrides?.[p.id], autoMap.get(i) ?? 'unknown')
+  const singleHolder: ReadonlySet<ResolvedMode> = new Set(['air', 'top', 'back'])
+
+  if (m.selectedPeakIDs == null) {
+    // No saved selection → the auto definitive set: strongest peak per effective mode (skip unknown).
+    const strongest = new Map<ResolvedMode, ResonantPeakModel>()
+    m.peaks.forEach((peakModel, i) => {
+      const mode = effOf(peakModel, i)
+      if (mode === 'unknown') return
+      const cur = strongest.get(mode)
+      if (!cur || peakModel.magnitude > cur.magnitude) strongest.set(mode, peakModel)
+    })
+    m.selectedPeakIDs = [...strongest.values()].map((peakModel) => peakModel.id)
+    return true
+  }
+
+  // Prune a pre-uniqueness selection to the strongest selected peak per single-holder mode.
+  const selected = new Set(m.selectedPeakIDs)
+  const winner = new Map<ResolvedMode, ResonantPeakModel>()
+  const idxById = new Map(m.peaks.map((peakModel, i) => [peakModel.id, i]))
+  m.peaks.forEach((peakModel, i) => {
+    if (!selected.has(peakModel.id)) return
+    const mode = effOf(peakModel, i)
+    if (!singleHolder.has(mode)) return
+    const cur = winner.get(mode)
+    if (!cur || peakModel.magnitude > cur.magnitude) winner.set(mode, peakModel)
+  })
+  const winnerIds = new Set([...winner.values()].map((peakModel) => peakModel.id))
+  const pruned = m.selectedPeakIDs.filter((id) => {
+    const i = idxById.get(id)
+    if (i == null) return false
+    const mode = effOf(m.peaks[i]!, i)
+    return !singleHolder.has(mode) || winnerIds.has(id)
+  })
+  if (pruned.length !== m.selectedPeakIDs.length) {
+    m.selectedPeakIDs = pruned
+    return true
+  }
+  return false
 }
 
 export interface LiveRestore {

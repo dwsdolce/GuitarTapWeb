@@ -168,3 +168,54 @@ describe('annotation-state — DefinitiveModeUniqueness (selection invariant)', 
     expect(a.modeByPeak.get(2)).toBe('back')
   })
 })
+
+// ---------------------------------------------------------------------------
+// The DEFINITIVE peak + tap-tone ratio: the SELECTED peak whose OVERRIDE-AWARE mode is that mode,
+// strongest wins. Renaming or deselecting the Top drops the ratio, matching every other surface. Mirrors
+// Swift analyzer getPeak(for:) / calculateTapToneRatio (DefinitivePeakAndRatio).
+// ---------------------------------------------------------------------------
+const gpeak = (id: number, frequency: number, magnitude: number): Peak => ({ id, frequency, magnitude, quality: 10, bandwidth: 5 })
+/** Analyzer with [id, autoMode, frequency, magnitude] peaks (guitar), nothing selected. */
+const ratioAnalyzer = (specs: [number, ResolvedMode, number, number][]): TapToneAnalyzer => {
+  const a = new TapToneAnalyzer()
+  a.measurementType = 'classical'
+  a.peaks = specs.map(([id, , freq, mag]) => gpeak(id, freq, mag))
+  a.modeByPeak = new Map(specs.map(([id, mode]) => [id, mode]))
+  return a
+}
+
+describe('annotation-state — definitive peak + tap-tone ratio', () => {
+  it('the definitive Top is the SELECTED holder, not the strongest peak of that mode', () => {
+    const a = ratioAnalyzer([[1, 'air', 100, -20], [2, 'top', 200, -20], [3, 'top', 210, -50]])
+    a.restoreSelection(new Set([1, 3]), [100, 210], true) // select Air + the WEAK Top (id 3)
+    expect(a.definitivePeak('top')?.frequency).toBe(210) // not 200, the stronger unselected Top
+    expect(a.tapToneRatio()).toBeCloseTo(210 / 100, 5)
+  })
+
+  it('renaming the Top to a freeform label drops the ratio (no definitive Top)', () => {
+    const a = ratioAnalyzer([[1, 'air', 100, -20], [2, 'top', 200, -20]])
+    a.restoreSelection(new Set([1, 2]), [100, 200], true)
+    expect(a.tapToneRatio()).toBeCloseTo(2.0, 5)
+    a.setModeOverride(2, 'Wolf note') // freeform → effectiveMode 'unknown', not Top
+    expect(a.definitivePeak('top')).toBeUndefined()
+    expect(a.tapToneRatio()).toBeNull()
+  })
+
+  it('deselecting the Top drops the ratio', () => {
+    const a = ratioAnalyzer([[1, 'air', 100, -20], [2, 'top', 200, -20]])
+    a.restoreSelection(new Set([1, 2]), [100, 200], true)
+    expect(a.tapToneRatio()).not.toBeNull()
+    a.togglePeakSelection(2) // deselect the Top
+    expect(a.tapToneRatio()).toBeNull()
+  })
+
+  it('overriding a selected non-Top peak TO Top retargets the ratio onto it', () => {
+    const a = ratioAnalyzer([[1, 'air', 100, -20], [2, 'top', 200, -20], [3, 'dipole', 400, -20]])
+    a.restoreSelection(new Set([1, 3]), [100, 400], true) // Air + Dipole selected; no Top selected
+    expect(a.definitivePeak('top')).toBeUndefined()
+    expect(a.tapToneRatio()).toBeNull()
+    a.setModeOverride(3, 'Top') // retarget the selected Dipole → Top
+    expect(a.definitivePeak('top')?.frequency).toBe(400)
+    expect(a.tapToneRatio()).toBeCloseTo(400 / 100, 5)
+  })
+})
