@@ -24,9 +24,9 @@ interface UseAnnotationsArgs {
   material: boolean
 }
 
-/** Values a loaded measurement restores into this slice. */
+/** Values a loaded measurement restores into this slice. (Overrides moved to the analyzer in RA —
+ *  the load path restores them via `analyzer.restoreOverrides`, not here.) */
 export interface AnnotationRestore {
-  overridesByFreq: Map<string, string>
   annotationOffsetsByFreq: Map<string, [number, number]>
   selectedIndices: Set<number>
   /** Whether the loaded selection was hand-modified (default true for legacy files). An automatic
@@ -36,15 +36,12 @@ export interface AnnotationRestore {
 
 export interface AnnotationsModel {
   selectedIds: Set<number>
-  overrides: Map<string, string>
   annotationOffsets: Map<string, [number, number]>
   userModified: boolean
   toggleSelect: (id: number) => void
   selectAll: () => void
   selectNone: () => void
   resetSelection: () => void
-  setLabel: (p: Peak, label: string) => void
-  resetLabel: (p: Peak) => void
   onAnnotationDrag: (key: string, pos: [number, number]) => void
   resetLabels: () => void
   /** Restore selection/overrides/labels from a loaded measurement (survives the capture reset). */
@@ -66,7 +63,6 @@ export function useAnnotations({ peaks, guitarType, captured, material }: UseAnn
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [userModified, setUserModified] = useState(false)
-  const [overrides, setOverrides] = useState<Map<string, string>>(new Map())
   // Dragged annotation-label positions, keyed by `frequency.toFixed(1)` → [absFreqHz, absDB].
   const [annotationOffsets, setAnnotationOffsets] = useState<Map<string, [number, number]>>(new Map())
 
@@ -86,7 +82,6 @@ export function useAnnotations({ peaks, guitarType, captured, material }: UseAnn
       return
     }
     setUserModified(false)
-    setOverrides(new Map())
     setAnnotationOffsets(new Map())
   }, [captured, material])
 
@@ -116,16 +111,6 @@ export function useAnnotations({ peaks, guitarType, captured, material }: UseAnn
     setSelectedIds(new Set())
   }, [])
   const resetSelection = useCallback(() => setUserModified(false), [])
-  const setLabel = useCallback((p: Peak, label: string) => {
-    setOverrides((prev) => new Map(prev).set(p.frequency.toFixed(1), label))
-  }, [])
-  const resetLabel = useCallback((p: Peak) => {
-    setOverrides((prev) => {
-      const next = new Map(prev)
-      next.delete(p.frequency.toFixed(1))
-      return next
-    })
-  }, [])
 
   // Draggable annotation labels (mirrors Swift updateAnnotationOffset / resetAllAnnotationOffsets):
   // a drag stores the badge's absolute [Hz, dB] position by peak-frequency key; Reset Labels clears all.
@@ -136,7 +121,6 @@ export function useAnnotations({ peaks, guitarType, captured, material }: UseAnn
 
   const restore = useCallback((r: AnnotationRestore) => {
     loadingRef.current = true // make this restore survive the fresh-capture reset the load triggers
-    setOverrides(r.overridesByFreq)
     setAnnotationOffsets(r.annotationOffsetsByFreq)
     setSelectedIds(r.selectedIndices)
     // Restore the manual/auto flag instead of forcing manual: an AUTOMATIC loaded measurement then
@@ -153,15 +137,12 @@ export function useAnnotations({ peaks, guitarType, captured, material }: UseAnn
 
   return {
     selectedIds: effectiveSelectedIds,
-    overrides,
     annotationOffsets,
     userModified,
     toggleSelect,
     selectAll,
     selectNone,
     resetSelection,
-    setLabel,
-    resetLabel,
     onAnnotationDrag,
     resetLabels,
     restore,

@@ -80,14 +80,14 @@ export function buildGuitarMarkers(
   peaks: Peak[],
   modeByPeak: Map<number, ResolvedMode>,
   selectedIds: Set<number>,
-  overridesByFreq: Map<string, string>,
+  overridesById: Map<number, string>,
   annotationMode: AnnoMode,
   offsetsByFreq?: Map<string, [number, number]>,
 ): PeakMarker[] {
   return peaks.map((p) => {
-    const key = p.frequency.toFixed(1)
+    const key = p.frequency.toFixed(1) // annotation-offset key stays frequency-based until RB
     const mode = modeByPeak.get(p.id) ?? 'unknown'
-    const override = overridesByFreq.get(key)
+    const override = overridesById.get(p.id) // RA: overrides are id-keyed (analyzer-owned)
     // Override wins for color too (like the label): a predefined override uses that mode's color, a
     // freeform label is user-defined; else the auto-classified mode's color. Mirrors Swift peakColor /
     // Python peak_color — so the callout AND the Detected Peaks Summary chip match the override.
@@ -182,7 +182,7 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
     r.loadedPeaks,
     modeByPeak,
     r.selectedIndices,
-    r.overridesByFreq,
+    r.overridesById,
     (m.annotationVisibilityMode as AnnoMode) ?? 'all',
     r.annotationOffsetsByFreq,
   )
@@ -285,7 +285,7 @@ function guitarPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData
     .sort((a, b) => a.frequency - b.frequency)
   const peaks: PdfPeakRow[] = visible.map((p) => {
     const mode = modeByPeak.get(p.id) ?? 'unknown'
-    const override = r.overridesByFreq.get(p.frequency.toFixed(1))
+    const override = r.overridesById.get(p.id) // RA: id-keyed overrides
     return {
       frequency: p.frequency,
       magnitude: p.magnitude,

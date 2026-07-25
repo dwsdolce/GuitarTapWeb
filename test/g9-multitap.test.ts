@@ -24,7 +24,7 @@ const args = {
   spectrum, peaks,
   modeByPeak: new Map<number, 'air' | 'top' | 'back' | 'unknown'>([[1, 'top']]),
   selectedIds: new Set<number>([1]),
-  overridesByFreq: new Map<string, string>(),
+  overridesById: new Map<number, string>(),
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'generic' as const },
   numberOfTaps: 2,

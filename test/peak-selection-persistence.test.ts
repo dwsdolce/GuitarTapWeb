@@ -18,7 +18,7 @@ const base: Omit<BuildMeasurementArgs, 'userModified'> = {
   peaks: [],
   modeByPeak: new Map(),
   selectedIds: new Set<number>(),
-  overridesByFreq: new Map(),
+  overridesById: new Map<number, string>(),
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'generic' },
   numberOfTaps: 1,

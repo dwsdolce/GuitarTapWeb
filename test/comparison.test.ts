@@ -33,7 +33,7 @@ const src = (name: string) =>
     peaks,
     modeByPeak,
     selectedIds: new Set<number>([1, 2]),
-    overridesByFreq: new Map<string, string>(),
+    overridesById: new Map<number, string>(),
     view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
     settings: { ...DEFAULT_SETTINGS, measurementType: 'classical' as const },
     numberOfTaps: 1,

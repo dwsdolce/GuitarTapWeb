@@ -7,8 +7,8 @@ import type { ResolvedMode } from '../src/dsp/classify'
 
 // Phase 4b: the live <-> persisted bridge. Build a measurement from synthetic live
 // state, round-trip it through the canonical writer/reader, then restore it — the
-// frozen spectrum, selection, and overrides must come back keyed correctly (by
-// frequency, since numeric peak ids are regenerated on re-derivation).
+// frozen spectrum, selection, and overrides must come back keyed correctly (overrides
+// by peak id since RA; the loaded peaks use their array index as the id).
 
 const spectrum = { frequencies: [100, 200, 300], magnitudesDb: [-50, -40, -60] }
 const peaks: Peak[] = [
@@ -26,7 +26,7 @@ const args = {
   peaks,
   modeByPeak,
   selectedIds: new Set<number>([2]),
-  overridesByFreq: new Map<string, string>([['100.0', 'Custom']]),
+  overridesById: new Map<number, string>([[1, 'Custom']]), // peak id 1 = the 100 Hz peak (RA: id-keyed)
   annotationOffsetsByFreq: new Map<string, [number, number]>([['200.0', [215.5, -32.0]]]),
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'classical' as const, showUnknownModes: true, peakMinThreshold: -55 },
@@ -82,7 +82,7 @@ describe('round-trip through file → restore into the view', () => {
     expect(live.loadedPeaks.map((p) => p.frequency)).toEqual([100, 200])
     expect([...live.selectedIndices]).toEqual([1]) // the 200 Hz peak
     expect(live.loadedPeaks[1]!.frequency).toBe(200)
-    expect(live.overridesByFreq.get('100.0')).toBe('Custom')
+    expect(live.overridesById.get(0)).toBe('Custom') // the 100 Hz peak is loadedPeaks[0] → id 0 (RA)
     // Dragged label position restores keyed by frequency (UUIDs are regenerated on re-derivation).
     expect(live.annotationOffsetsByFreq.get('200.0')).toEqual([215.5, -32.0])
     expect(live.annotationOffsetsByFreq.has('100.0')).toBe(false)

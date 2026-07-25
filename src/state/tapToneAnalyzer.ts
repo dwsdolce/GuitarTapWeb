@@ -59,6 +59,12 @@ const matPhaseLabel = (ph: MaterialPhaseName): string => (ph === 'cross' ? 'C' :
 // long while the user repositions the plate, so the repositioning bump can't be taken as the FLC tap.
 const FLC_COOLDOWN_MS = 500
 
+// Frequency tolerance (Hz) for carrying per-peak state across a peak RE-MINT, mirroring Swift's
+// applyFrozenPeakState `tolerance` (5 Hz) / Python's remap tolerance. A re-detect (Re-analyze, guitar
+// type or range change) can nudge a peak's interpolated frequency slightly; within this window it is
+// the same peak. This is the robustness the old exact `frequency.toFixed(1)` view keying lacked.
+const REMAP_TOLERANCE_HZ = 5
+
 /** One captured tap: its magnitude spectrum + capture time (ms). Mirrors Swift's captured-tap tuple. */
 export interface CapturedTap {
   magnitudes: number[]
@@ -95,6 +101,13 @@ export class TapToneAnalyzer {
   // `identifiedModes` (recomputed by recalculatePeaks — the web's recalculateFrozenPeaksIfNeeded). 3c §10 P1.
   peaks: Peak[] = []
   modeByPeak: Map<number, ResolvedMode> = new Map()
+  // Per-peak manual mode-label overrides, keyed by peak `id` (RA — was the view's frequency-keyed
+  // `useAnnotations` map). The value stays the display label string (a predefined mode name or a
+  // freeform label), matching the web's existing override idiom; only the KEY moved from frequency to
+  // id, so the state now lives with the peaks it describes. Carried across a peak re-mint by
+  // `applyFrozenPeakState` (±REMAP_TOLERANCE_HZ) and cleared on a blank-slate reset (`clearResult`).
+  // Mirrors Swift `peakModeOverrides` / Python `_peak_mode_overrides` (both id/UUID-keyed).
+  overrides: Map<number, string> = new Map()
   materialTapPhase: MaterialTapPhase = 'notStarted'
   // Material (plate/brace) result data — the per-phase averaged spectra + located peaks. Owned by the
   // analyzer, mirroring Swift longitudinalSpectrum/crossSpectrum/flcSpectrum + the material peaks. 3c-C3.
@@ -277,6 +290,11 @@ export class TapToneAnalyzer {
     this.tapEntries = []
     this.capturedTaps = []
     this.analysisAnnounced = false
+    // A blank-slate reset (New Tap / type-switch / play-file / cancel) drops per-peak state, mirroring
+    // the view's old fresh-capture reset. The remap in applyFrozenPeakState then carries an empty map,
+    // so a freshly-captured measurement starts with no overrides. Load restores AFTER (restoreOverrides),
+    // so it is unaffected. RB/RC add offsets + selection here.
+    this.overrides = new Map()
     this.isMeasurementComplete = false // setter also clears the loaded-settings warning
     this.notify()
   }
@@ -330,6 +348,7 @@ export class TapToneAnalyzer {
     // an input here (it moved to a display selector in App, so a slider tick no longer re-mints peaks
     // or destroys per-peak state). Mirrors Swift `allPeaks` found via `peakMinOverride: peakDetectionFloor`.
     let peaks: Peak[]
+    let reminted = false // did this branch mint FRESH ids (findPeaks)? then per-peak state must be carried
     if (p.material) {
       peaks = [] // peaks are guitar-only; material uses matPeaks
     } else if (p.loadedPeaks) {
@@ -350,9 +369,16 @@ export class TapToneAnalyzer {
               peakMinOverride: PEAK_DETECTION_FLOOR,
             })
           : []
+      reminted = true // findPeaks assigns fresh ids on every call
     }
+    const oldPeaks = this.peaks
     this.peaks = peaks
     this.modeByPeak = classifyAll(peaks, p.guitarType)
+    // Carry per-peak state across a re-mint (Re-analyze, guitar-type/range change, a re-run while
+    // frozen). The loaded/material branches keep STABLE ids (same peak objects), so their per-peak
+    // state needs no remap — only the findPeaks branch mints new ids. Mirrors Swift calling
+    // applyFrozenPeakState only where UUIDs change. RA carries overrides; RB/RC add offsets + selection.
+    if (reminted) this.applyFrozenPeakState(oldPeaks, peaks)
     // Phase 3: per-tap entry peaks are NO LONGER re-derived here. They are found ONCE when the entry is
     // built (processMultipleTaps / loadMeasurement) at the -100 floor and are durable — nothing may
     // re-derive them, least of all a display control. (This was the web's `recalculateTapEntryPeaks`
@@ -369,6 +395,56 @@ export class TapToneAnalyzer {
       this.analysisAnnounced = true
     }
     this.notify()
+  }
+
+  // ── Per-peak mode overrides (RA — moved off the view's frequency-keyed useAnnotations) ────────────
+
+  /** Assign a manual mode-label override to a peak (mirrors Swift `setModeOverride`, MINUS the Phase-5
+   *  `enforceDefinitiveModeUniqueness` — that arrives with the selection model). The label is the
+   *  display string (a predefined mode name or a freeform label). */
+  setModeOverride(id: number, label: string): void {
+    // Reassign a fresh Map (never mutate in place): the snapshot exposes this reference, and App memos
+    // keyed on `overrides` identity (overriddenPeakIds → displayPeaks → chart layers) must see the change.
+    this.overrides = new Map(this.overrides).set(id, label)
+    this.notify()
+  }
+
+  /** Clear a peak's override, reverting it to its auto-classified mode (Swift `resetModeOverride`). */
+  resetModeOverride(id: number): void {
+    if (!this.overrides.has(id)) return
+    const next = new Map(this.overrides)
+    next.delete(id)
+    this.overrides = next
+    this.notify()
+  }
+
+  /** Replace the whole override map from a loaded measurement (id-keyed to the loaded peaks). The load
+   *  path calls this AFTER `loadMeasurement`; the loaded peaks keep stable ids, so no remap follows. */
+  restoreOverrides(map: Map<number, string>): void {
+    this.overrides = new Map(map)
+    this.notify()
+  }
+
+  /** Carry per-peak state across a peak RE-MINT (findPeaks assigns fresh ids), the web equivalent of
+   *  Swift `applyFrozenPeakState`. Snapshots the old state BY FREQUENCY from the DURABLE old set (never
+   *  a display projection — this is the Swift 178/184 fix), then re-attaches it to the new peaks by
+   *  ±REMAP_TOLERANCE_HZ proximity. RA carries overrides; RB adds offsets; RC adds selection. Called
+   *  only on the findPeaks branch (loaded/material keep stable ids). Notify is left to the caller. */
+  private applyFrozenPeakState(oldPeaks: Peak[], newPeaks: Peak[]): void {
+    if (this.overrides.size > 0) {
+      // Snapshot {frequency → label} from the OLD durable peaks, then remap onto the new ids.
+      const byFreq: Array<{ frequency: number; label: string }> = []
+      for (const [id, label] of this.overrides) {
+        const old = oldPeaks.find((q) => q.id === id)
+        if (old) byFreq.push({ frequency: old.frequency, label })
+      }
+      const remapped = new Map<number, string>()
+      for (const np of newPeaks) {
+        const match = byFreq.find((o) => Math.abs(o.frequency - np.frequency) <= REMAP_TOLERANCE_HZ)
+        if (match) remapped.set(np.id, match.label)
+      }
+      this.overrides = remapped
+    }
   }
 
   // ── Material (plate/brace) phase machine (mirrors Swift TapToneAnalyzer+SpectrumCapture) ──────────
@@ -690,6 +766,7 @@ export class TapToneAnalyzer {
         tapEntries: this.tapEntries,
         peaks: this.peaks,
         modeByPeak: this.modeByPeak,
+        overrides: this.overrides,
         canReanalyze: this.canReanalyze,
         matSpectra: this.matSpectra,
         matPeaks: this.matPeaks,
@@ -859,6 +936,8 @@ export interface TapToneSnapshot {
   peaks: Peak[]
   /** Mode classification for `peaks`, keyed by peak id. */
   modeByPeak: Map<number, ResolvedMode>
+  /** Manual mode-label overrides, keyed by peak `id` (RA — analyzer-owned, was the view's freq map). */
+  overrides: Map<number, string>
   /** Whether the Re-analyze button is offered (any complete guitar measurement with a frozen
    *  spectrum; never material). See `TapToneAnalyzer.canReanalyze` for why it is not a dirty flag. */
   canReanalyze: boolean

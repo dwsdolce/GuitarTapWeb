@@ -541,20 +541,20 @@ export default function App() {
   // Per-peak selection + mode-label overrides + dragged label positions — see hooks/useAnnotations.
   const {
     selectedIds,
-    overrides,
     annotationOffsets,
     userModified,
     toggleSelect,
     selectAll,
     selectNone,
     resetSelection,
-    setLabel,
-    resetLabel,
     onAnnotationDrag,
     resetLabels,
     restore: restoreAnnotations,
     restoreMaterialOffsets,
   } = useAnnotations({ peaks, guitarType, captured, material })
+  // Manual mode-label overrides now live on the analyzer, keyed by peak id (RA). Read the snapshot map;
+  // write via analyzer.setModeOverride / resetModeOverride. `overriddenPeakIds` derives directly.
+  const overrides = snapshot.overrides
   resetLabelsRef.current = resetLabels // bridge for the material start handlers defined above the hook
 
   // Re-analyze — re-detect peaks on the loaded/frozen spectrum using the CURRENT analysis settings
@@ -571,18 +571,13 @@ export default function App() {
     resetSelection()
   }, [captured, resetSelection])
 
-  const keyOf = (p: Peak) => p.frequency.toFixed(1)
-  const labelFor = (p: Peak, mode: ResolvedMode) => overrides.get(keyOf(p)) ?? MODE_DISPLAY_NAME[mode]
+  const labelFor = (p: Peak, mode: ResolvedMode) => overrides.get(p.id) ?? MODE_DISPLAY_NAME[mode]
 
   // Phase 4: the ids of user-NAMED peaks. A named peak is "known" everywhere — the ONE predicate the
   // results table + chart dots + badges share, so it never vanishes when Show Unknown Modes is off.
-  // Mirrors Swift `overriddenPeakIDs` / Python `overridden_peak_ids` (both id-keyed). Web overrides are
-  // frequency-keyed, so convert here (the standing web keying divergence, isolated to this one line;
-  // the selection-ownership restructure will re-key onto ids on the model).
-  const overriddenPeakIds = useMemo(
-    () => new Set(peaks.filter((p) => overrides.has(keyOf(p))).map((p) => p.id)),
-    [peaks, overrides],
-  )
+  // Mirrors Swift `overriddenPeakIDs` / Python `overridden_peak_ids`. RA made the web's overrides id-keyed
+  // on the analyzer too, so this is now a direct read of the map's keys (no frequency conversion).
+  const overriddenPeakIds = useMemo(() => new Set(overrides.keys()), [overrides])
   // Results-panel list: hide unknown peaks when Show Unknown Modes is off, UNLESS the user named one
   // (override-aware — mirrors Swift `!isUnknown`). Then filtered to the DISPLAY range (Swift
   // TapAnalysisResultsView.sortedPeaksWithModes → [minFreq, maxFreq]); the chart's dot/badge layers
@@ -806,7 +801,7 @@ export default function App() {
         peaks,
         modeByPeak,
         selectedIds,
-        overridesByFreq: overrides,
+        overridesById: overrides,
         annotationOffsetsByFreq: annotationOffsets,
         // A loaded measurement keeps its stored ring-out (don't overwrite with the live engine's).
         // Gated on loadedName, not loadedPeaks, so Re-analyze (which clears loadedPeaks) preserves
@@ -924,10 +919,10 @@ export default function App() {
       })
       setComparison(null)
       setView(live.view)
-      // Restore selection + overrides + dragged label positions (sets the loading guard so this
-      // survives the fresh-capture reset that loading triggers).
+      // Restore overrides onto the analyzer (id-keyed, RA) + selection/dragged labels into the hook
+      // (sets the loading guard so these survive the fresh-capture reset that loading triggers).
+      analyzer.restoreOverrides(live.overridesById)
       restoreAnnotations({
-        overridesByFreq: live.overridesByFreq,
         annotationOffsetsByFreq: live.annotationOffsetsByFreq,
         selectedIndices: live.selectedIndices,
         userModified: live.userModified,
@@ -1432,14 +1427,14 @@ export default function App() {
                         peak={p}
                         mode={mode}
                         effectiveLabel={labelFor(p, mode)}
-                        isManualOverride={overrides.has(keyOf(p))}
+                        isManualOverride={overrides.has(p.id)}
                         inRange={inRangeFor(p, mode)}
                         note={note}
                         cents={note ? pitch.cents(p.frequency) : null}
                         selected={selectedIds.has(p.id)}
                         onToggle={() => toggleSelect(p.id)}
-                        onSetLabel={(label) => setLabel(p, label)}
-                        onResetLabel={() => resetLabel(p)}
+                        onSetLabel={(label) => analyzer.setModeOverride(p.id, label)}
+                        onResetLabel={() => analyzer.resetModeOverride(p.id)}
                       />
                     )
                   })}

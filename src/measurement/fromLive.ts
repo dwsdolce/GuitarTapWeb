@@ -1,4 +1,4 @@
-// Bridge between the live analysis state (numeric-id peaks, frequency-keyed overrides)
+// Bridge between the live analysis state (numeric-id peaks, id-keyed overrides — RA)
 // and the persisted TapToneMeasurementModel (UUID peaks, UUID-keyed maps). 4b uses this
 // to build a measurement from the current frozen guitar result and to restore one back
 // into the view. Guitar measurements only for now (material persistence is a follow-up).
@@ -64,8 +64,8 @@ export interface BuildMeasurementArgs {
   peaks: Peak[]
   modeByPeak: Map<number, ResolvedMode>
   selectedIds: Set<number>
-  /** Per-frequency label overrides, keyed by `frequency.toFixed(1)` (the live form). */
-  overridesByFreq: Map<string, string>
+  /** Manual label overrides, keyed by peak `id` (RA — the analyzer-owned live form). */
+  overridesById: Map<number, string>
   view: ChartView
   settings: Settings
   numberOfTaps: number
@@ -109,7 +109,7 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
     const id = uuid()
     idForNumeric.set(p.id, id)
     const mode = a.modeByPeak.get(p.id) ?? 'unknown'
-    const override = a.overridesByFreq.get(key(p.frequency))
+    const override = a.overridesById.get(p.id)
     const note = pitch.note(p.frequency)
     peakModels.push({
       id,
@@ -173,7 +173,7 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
   const peakModeOverrides: Record<string, string> = {}
   const peakAnnotationOffsets: AnnotationOffsets = {}
   for (const p of a.peaks) {
-    const override = a.overridesByFreq.get(key(p.frequency))
+    const override = a.overridesById.get(p.id)
     if (override != null) peakModeOverrides[idForNumeric.get(p.id)!] = override
     const offset = a.annotationOffsetsByFreq?.get(key(p.frequency))
     if (offset != null) peakAnnotationOffsets[idForNumeric.get(p.id)!] = offset
@@ -356,15 +356,15 @@ export interface LiveRestore {
   selectedIndices: Set<number>
   /** Whether the saved selection was hand-modified (default true for legacy files). */
   userModified: boolean
-  /** Per-frequency overrides to restore (keyed by `frequency.toFixed(1)`). */
-  overridesByFreq: Map<string, string>
+  /** Manual overrides to restore, keyed by peak `id` (RA — the loaded peaks' index ids). */
+  overridesById: Map<number, string>
   /** Dragged annotation-label positions to restore (keyed by `frequency.toFixed(1)`). */
   annotationOffsetsByFreq: Map<string, [number, number]>
 }
 
 /** Decompose a saved guitar measurement into the pieces the App restores into the view.
  *  The saved peaks are injected verbatim (stable index ids); selection is restored by
- *  the saved ids 1:1 and overrides are keyed by frequency (the live override form). */
+ *  the saved ids 1:1 and overrides are keyed by peak id (RA — restored onto the analyzer). */
 export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
   const snap = m.spectrumSnapshot
   if (!snap) throw new Error('Measurement has no guitar spectrum snapshot')
@@ -379,12 +379,12 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
     bandwidth: p.bandwidth,
   }))
 
-  const overridesByFreq = new Map<string, string>()
+  const overridesById = new Map<number, string>()
   const annotationOffsetsByFreq = new Map<string, [number, number]>()
   const indexByUuid = new Map(m.peaks.map((p, i) => [p.id, i]))
   for (const [id, label] of Object.entries(m.peakModeOverrides ?? {})) {
     const i = indexByUuid.get(id)
-    if (i != null) overridesByFreq.set(key(m.peaks[i]!.frequency), label)
+    if (i != null) overridesById.set(i, label) // loaded peaks use their array index as the numeric id
   }
   for (const [id, pos] of Object.entries(m.peakAnnotationOffsets ?? {})) {
     const i = indexByUuid.get(id)
@@ -418,7 +418,7 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
     settingsPatch,
     loadedPeaks,
     selectedIndices,
-    overridesByFreq,
+    overridesById,
     annotationOffsetsByFreq,
   }
 }

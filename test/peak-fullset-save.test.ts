@@ -48,7 +48,7 @@ describe('buildGuitarMeasurement — full-set save (Option 4, real capture)', ()
     peaks: displayed,
     modeByPeak: classifyAll(displayed, 'generic'),
     selectedIds: new Set<number>(),
-    overridesByFreq: new Map<string, string>(),
+    overridesById: new Map<number, string>(),
     view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
     settings,
     numberOfTaps: 1,

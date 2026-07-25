@@ -295,3 +295,85 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
     expect(incomplete.canReanalyze).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// RA — overrides on the analyzer (id-keyed), carried across a peak RE-MINT by applyFrozenPeakState.
+// The web equivalent of Swift's overridesByFrequency snapshot + ±5 Hz remap in applyFrozenPeakState —
+// the override half of the PR1/PR3–PR7 family (offsets land in RB, selection in RC). Before RA these
+// lived in the VIEW (useAnnotations), keyed by frequency.toFixed(1); now they live with the peaks they
+// describe, keyed by id, and the remap uses ±5 Hz proximity (more robust than exact 0.1 Hz matching).
+// ---------------------------------------------------------------------------
+describe('frozen-peak-recalc — overrides on the analyzer (RA)', () => {
+  it('setModeOverride / resetModeOverride set and clear by peak id', () => {
+    const a = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(a, mags, freqs)
+    recalc(a)
+    const id = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!.id
+    a.setModeOverride(id, 'Wolf note')
+    expect(a.overrides.get(id)).toBe('Wolf note')
+    a.resetModeOverride(id)
+    expect(a.overrides.has(id)).toBe(false)
+  })
+
+  it('an override SURVIVES a re-mint that SHIFTS the id, remapped by ±5 Hz proximity', () => {
+    // findPeaks assigns ids positionally (0,1,… ascending frequency), so an id only churns when the
+    // detected SET changes. Re-freeze with an extra peak (300 Hz) BELOW the target so the 400 Hz peak's
+    // index shifts (1 → 2) while its frequency is unchanged — the exact case the proximity remap exists for.
+    const a = new TapToneAnalyzer()
+    const two = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
+    frozen(a, two.mags, two.freqs)
+    recalc(a)
+    const before = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    a.setModeOverride(before.id, 'Custom')
+
+    const three = combine(two, makeSpectrum(300, -25))
+    frozen(a, three.mags, three.freqs)
+    recalc(a)
+    const after = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    expect(after.id).not.toBe(before.id) // the id genuinely shifted (a peak was inserted below it)…
+    expect(a.overrides.get(after.id)).toBe('Custom') // …but the override carried across by frequency
+    expect(a.overrides.has(before.id)).toBe(false) // the old id is gone from the map
+  })
+
+  it('an override is ORPHANED when no re-minted peak falls within the ±5 Hz window', () => {
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    const p400 = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    a.setModeOverride(p400.id, 'Custom')
+    const only200 = makeSpectrum(200, -20) // re-freeze on a spectrum whose 400 Hz peak is gone
+    frozen(a, only200.mags, only200.freqs)
+    recalc(a)
+    expect([...a.overrides.values()]).not.toContain('Custom') // nothing within tolerance → dropped
+  })
+
+  it('clearResult drops all overrides (blank-slate reset)', () => {
+    const a = new TapToneAnalyzer()
+    const { mags, freqs } = makeSpectrum(200, -20)
+    frozen(a, mags, freqs)
+    recalc(a)
+    a.setModeOverride(a.peaks[0]!.id, 'Custom')
+    a.clearResult()
+    expect(a.overrides.size).toBe(0)
+  })
+
+  it('restoreOverrides REPLACES the whole map (loaded measurement), not merges', () => {
+    const a = new TapToneAnalyzer()
+    a.setModeOverride(99, 'stale')
+    a.restoreOverrides(new Map<number, string>([[0, 'Air'], [1, 'Custom']]))
+    expect(a.overrides.get(0)).toBe('Air')
+    expect(a.overrides.get(1)).toBe('Custom')
+    expect(a.overrides.has(99)).toBe(false)
+  })
+
+  it('the loaded branch keeps stable ids, so overrides restored against them are NOT remapped away', () => {
+    const a = new TapToneAnalyzer()
+    frozen(a, [100, 200, 400], [100, 200, 400]) // non-empty frozen (guard); loaded path ignores it
+    a.restoreOverrides(new Map<number, string>([[0, 'Air'], [1, 'Top']])) // keyed to loaded indices
+    recalc(a, { loadedPeaks: [peak(200, -25, 0), peak(400, -30, 1)] }) // ids 0,1 — stable, no re-mint
+    expect(a.overrides.get(0)).toBe('Air')
+    expect(a.overrides.get(1)).toBe('Top')
+  })
+})
