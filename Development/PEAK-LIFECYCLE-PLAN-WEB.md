@@ -956,29 +956,38 @@ is named as architectural-restructure scope. Ready to implement.
 - **Dot/annotation parity:** the missing 3-platform dot-list test ([[project_dot_annotation_parity]]).
 
 ## Cross-cutting deliverables (web)
-- **Docs:** ⏳ CODE WRITTEN, NOT YET USER-VERIFIED (2026-07-24). release notes
-  `src/components/ReleaseNotes.tsx` + in-app Help/Quick-Start `src/components/QuickStartGuide.tsx` — mirror
-  the Swift/Python wording (Peaks & Modes behaviours; Peak Min = display filter; Re-analyze; guitar-type
-  clean slate; analysis-range removed). See [[project_doc_surfaces]]. **Done:** web Help got the 3
-  corrections (Peak Min slider + settings + Re-analyze — a web catch-up; Swift/Python already had them) and
-  the release notes gained the Peak-Min-display-control bullet, a **Peaks & Modes** item, a **Re-analyze**
-  item (moved from Bug Fixes to match Swift/Python's Improvements framing), analysis-range-removed, and the
-  Save-when-hidden bug-fix. **Plus 2 Help ADDITIONS authored into ALL THREE platforms** (naming-identifies:
-  Overriding-Mode + Show-Unknown-Modes entries) — Swift `HelpView.swift` + Python `help_view.py` + web
-  `QuickStartGuide.tsx`, per the user's "help is one document, consistent everywhere" rule. tsc 0, suite
-  361, Python help syntax OK. Awaiting run-review of the Help + Release Notes in each app.
-- **Override-marker on the comparison/multi-tap tables** — DEFERRED from the override-marker work: web's
-  `MultiTapComparisonResultsView` / `ComparisonResultsView` / `PdfComparison` carry no override info yet;
-  it needs the `definitiveModeInfo` / `modePeakIDs` pipeline from Phases 6/6b (see
-  `Development/OVERRIDE-MARKER-CONSISTENCY.md`). Fold into 6b.
-- **De-label sweep at close** (user, 2026-07-24) — strip ephemeral phase/task labels (`Phase N`, `RA`/
-  `RB`/`RC`, "arrives in Phase X") from the SOURCE + tests touched by this work, replacing them with
-  durable wording; **keep** Swift/Python-mirror references (`Mirrors Swift definitiveModeInfo`, etc.),
-  which are durable. Covers the restructure files (analyzer, `App.tsx`, `frozen-peak-recalc.test.ts`,
-  `measurementImage.ts`, `gatedCapture.ts`, the committed RA `b251418` / RB `fa290d0` diffs) and the
-  Phase 1/3/4 refs. ONE pass when the peak-lifecycle web work is otherwise done. Rationale: the labels aid
-  navigation while the multi-slice work is active; a piecemeal strip would leave committed files
-  inconsistent. See [[feedback_no_phase_labels_in_comments]].
+- **Docs:** ✅ COMPLETE + COMMITTED + user-verified (2026-07-24). Web `f9b3408` (release notes
+  `src/components/ReleaseNotes.tsx` + in-app Help/Quick-Start `src/components/QuickStartGuide.tsx`); the 2
+  Help ADDITIONS + the release-notes reword were authored into ALL THREE platforms — Swift `3b7abfd` +
+  Python `6610df5` + web (folded into `f9b3408`). See [[project_doc_surfaces]]. **Done:** web Help got the
+  3 corrections (Peak Min slider + settings + Re-analyze — a web catch-up; Swift/Python already had them)
+  and the release notes gained the Peak-Min-display-control bullet, a **Peaks & Modes** item, a
+  **Re-analyze** item (moved from Bug Fixes to match Swift/Python's Improvements framing),
+  analysis-range-removed, and the Save-when-hidden bug-fix. **Plus 2 Help ADDITIONS on all 3** (Overriding-
+  Mode + Show-Unknown-Modes: reclassifying a peak from unknown to another mode means Show Unknown Modes no
+  longer hides it) **and a release-notes reword on all 3** — the inaccurate "naming a peak identifies it"
+  became "reclassifying an unknown peak" (unknown IS a mode; you reclassify, you don't "name"), per the
+  user's "help is one document, consistent everywhere" rule. tsc 0, suite 361, golden unmoved, parity 79.
+- **Override-marker on the comparison/multi-tap tables** — ✅ RESOLVED in Phase 6b (`9c8ddd2`). Two
+  surfaces: (1) the **multi-tap Averaged row** (`MultiTapComparisonResultsView`) shows the definitive
+  selected + override-aware value, with an overridden value rendered **italic + trailing ` *`** (the
+  app-wide `mt-override` convention) — the marker IS shown here. (2) The **cross-measurement Comparison
+  table** (`ComparisonResultsView` + the comparison PDF) resolves its Air/Top/Back **override-aware**
+  (`comparisonEntryModeFreqs` → the self-describing `modePeakIDs`), so a source's renamed Top shows the
+  right peak — but it deliberately carries **no visual marker** (user decision 2026-07-24: *"probably not
+  important to know if the value is overridden on a comparison measurement… let's be faithful"* — Swift/
+  Python don't mark the comparison table either). So overrides are reflected correctly everywhere; the
+  italic+`*` marker lives on the multi-tap Averaged row and the page-1 guitar peak table, and is
+  intentionally absent on the cross-measurement comparison. See `Development/OVERRIDE-MARKER-CONSISTENCY.md`.
+- **De-label sweep at close** — ⛔ SKIPPED (user, 2026-07-25). The idea was to strip this work's ephemeral
+  labels (`Phase N`, `RA`/`RB`/`RC`) from the restructure source + tests. On starting it, a scoping problem
+  surfaced: the codebase ALSO carries the earlier web-port's own label systems (`Phase 4a/4b/4c/4d`,
+  `6-ARCH`, and the `6-TEST`/`3c-C3`/`DL`/`MC`/`D##` test-ID schemes) that are NOT part of this work.
+  Stripping only this work's labels would leave the codebase half-labeled — less consistent than leaving
+  them all. A full de-label of every scheme is a much larger, separate undertaking, out of scope here.
+  Decision: leave the labels as-is. (The partial analyzer edits made before this call were reverted.) The
+  durable principle still stands for NEW code — see [[feedback_no_phase_labels_in_comments]]; this is only
+  a decision not to retro-sweep the existing multi-scheme labels now.
 
 ## Log
 - 2026-07-24 — doc created (prep). Structure mirrors the Swift/Python plans. Phases are goal-stubs; each
