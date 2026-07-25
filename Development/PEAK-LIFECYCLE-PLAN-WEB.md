@@ -437,9 +437,12 @@ and parity are untouched throughout (the file was already id-keyed; only in-memo
 - **RA — overrides** ✅ **COMPLETE** (`b251418`; user-verified 2026-07-24) → analyzer (id-keyed
   `overrides` + `setModeOverride`/reset + the override half of `applyFrozenPeakState` +
   PeakCard/`overriddenPeakIds` + `fromLive`/`decode` boundary + tests).
-- **RB — annotation offsets** → analyzer (id-keyed `annotationOffsets` + `updateAnnotationOffset`/reset +
-  the offset half of the remap + chart-drag wiring + save/load + tests). Near-identical pure
-  ±proximity carry-forward to RA.
+- **RB — annotation offsets** ✅ **COMPLETE** (`fa290d0`; user-verified 2026-07-24) → analyzer
+  (ONE id-keyed `annotationOffsets` for guitar AND material — `MaterialPeak` gained an `id`, matching
+  Swift/Python's single id-keyed store; `updateAnnotationOffset`/reset + the offset half of the remap +
+  chart-drag wiring + save/load + tests). Also folded in: the **per-label right-click reset** (right-click
+  a badge → ↺ "Reset Position", disabled when unmoved — mirrors Swift `PeakAnnotations.contextMenu`; the
+  web had documented it but never wired it).
 - **RC — selection** → analyzer (`selectedPeakIds` + `selectedPeakFrequencies` cache + `userModifiedSelection`
   + toggle/none/wand + the selection branch of the remap: auto re-run vs proximity carry-forward with
   below-min preservation). Lands the PR1/PR3–PR7 + `…ForFilteredOutPeak_survives` +
@@ -474,7 +477,43 @@ Keeps the web's string-value idiom (`Map` value stays the label string); only th
 - **After RA** the app is fully functional — overrides model-owned + id-remapped; offsets + selection still
   ride `useAnnotations` untouched.
 
-*(RB and RC get their own diff-level plans, at the same depth as RA above, when each is entered.)*
+#### RB — annotation offsets: diff-level plan  ✅ COMPLETE (`fa290d0`)
+Same mechanics as RA (id-key + ±5 Hz remap), for guitar AND material — the **unified single store** that
+matches Swift and Python (decided 2026-07-24 after checking both).
+
+**Design decision — ONE id-keyed store (match Swift + Python, don't invent a third design).** Swift keeps
+one `peakAnnotationOffsets: [UUID: CGPoint]` and its material L/C/FLC peaks are `ResonantPeak`s WITH UUIDs
+in that store; **Python is identical** — `peak_annotation_offsets` keyed by `peak_id`, and its material
+peaks (`selected_longitudinal_peak`/`cross`/`flc`) are `ResonantPeak`s with a UUID `id`
+(`resonant_peak.py:80`). The web's `MaterialPeak` lacking an id is the divergence. So RB **gives the web's
+material peaks ids** and uses a single id-keyed `annotationOffsets: Map<number, [number,number]>` for both
+— not the two-field split (which would be a third design). The `.guitartap` file is **already**
+material-UUID-keyed (`buildMaterialMeasurement` mints a UUID per material peak), so only live state changes.
+
+- **`MaterialPeak`** gains `id: number`, assigned **role-stably** (L/C/FLC) when a phase's averaged peak is
+  stored, so an offset sticks across a Redo. Guitar and material never coexist (cleared between by
+  `clearResult`/`resetMaterial`), so their ids share one `Map<number,…>` without collision concern.
+- **`tapToneAnalyzer.ts`** — `annotationOffsets: Map<number,[number,number]>` (+ snapshot);
+  `updateAnnotationOffset(id,pos)` / `resetAnnotationOffset(id)` / `resetAllAnnotationOffsets()` /
+  `restoreOffsets(map)`. Extend `applyFrozenPeakState` with the guitar-offset remap (material entries are
+  never present during a guitar re-mint, so nothing to guard). `clearResult` clears offsets; `resetMaterial`/
+  `startMaterial` also clear them (material's own reset).
+- **`buildGuitarMarkers` + `buildMaterialMarkers`** (`measurementImage.ts`) — both take `offsetsById:
+  Map<number,[number,number]>` and set `annoKey = String(p.id)`, `annoOffset = offsetsById.get(p.id)`.
+- **`App.tsx`** — guitar + material read the analyzer offsets (snapshot); the single chart
+  `onAnnotationDrag` is `(key,pos) ⇒ analyzer.updateAnnotationOffset(Number(key), pos)` for both (markers
+  carry `String(id)`); `hasMovedLabels`/`resetLabels` read the analyzer store; guitar + material save →
+  `annotationOffsetsById`; restore → `analyzer.restoreOffsets(...)`.
+- **`fromLive.ts`** — `annotationOffsetsByFreq` → `annotationOffsetsById: Map<number,[number,number]>` in
+  `BuildMeasurementArgs`, `LiveRestore`, `BuildMaterialArgs`, `MaterialRestore`; save reads by material-peak
+  id → the minted file UUID (as today), restore maps file-UUID → material-peak id. File format unchanged.
+- **Tests** — analyzer offset set/reset/remap (survives id-shift, orphans beyond ±5 Hz, clearResult,
+  restore) + a material-offset id set/restore case; re-point `fromLive`/`g6` offset round-trips to id-keys.
+  Golden `5c264de3941837f8` unmoved; `--check` = 79; `tsc` clean.
+- **After RB** the app is fully functional — guitar+material overrides+offsets model-owned & id-keyed
+  (one store, matching Swift/Python); only **selection** still rides `useAnnotations`.
+
+*(RC gets its own diff-level plan, at the same depth, when entered.)*
 
 ### Phase 5 — The selection model  ⬜
 **Goal.** Classification (band membership + override) is independent of selection (which candidate is
