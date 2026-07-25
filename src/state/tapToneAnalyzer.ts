@@ -14,6 +14,9 @@ import { averageSpectra } from '../dsp/spectrumAverage'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { findPeaks, PEAK_DETECTION_FLOOR, type Peak } from '../dsp/peaks'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
+// Override→mode resolution for the override-aware effectiveMode (mirrors Swift GuitarMode.fromDisplayName).
+// A minor state→presentation import (precedent: MaterialPeaks from components); the shared resolver is unified later.
+import { MODE_BY_DISPLAY_NAME } from '../presentation/modeColors'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { PLATE_PHASES, BRACE_PHASE, findDominantPeak, type MaterialPeak, type DetectedMaterialPeak } from '../dsp/gatedCapture'
 import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialPhaseName, EngineState } from '../audio/realtimeFFTAnalyzer'
@@ -64,6 +67,10 @@ const FLC_COOLDOWN_MS = 500
 // type or range change) can nudge a peak's interpolated frequency slightly; within this window it is
 // the same peak. This is the robustness the old exact `frequency.toFixed(1)` view keying lacked.
 const REMAP_TOLERANCE_HZ = 5
+
+// The modes with at most one DEFINITIVE (selected) peak: Air/Top/Back are single physical resonances.
+// Dipole/Ring/Upper are clusters and allow several selected peaks. Mirrors Swift `singleHolderModes`.
+const SINGLE_HOLDER_MODES: ReadonlySet<ResolvedMode> = new Set(['air', 'top', 'back'])
 
 /** One captured tap: its magnitude spectrum + capture time (ms). Mirrors Swift's captured-tap tuple. */
 export interface CapturedTap {
@@ -425,13 +432,16 @@ export class TapToneAnalyzer {
 
   // ── Per-peak mode overrides (RA — moved off the view's frequency-keyed useAnnotations) ────────────
 
-  /** Assign a manual mode-label override to a peak (mirrors Swift `setModeOverride`, MINUS the Phase-5
-   *  `enforceDefinitiveModeUniqueness` — that arrives with the selection model). The label is the
-   *  display string (a predefined mode name or a freeform label). */
+  /** Assign a manual mode-label override to a peak (mirrors Swift `setModeOverride`). The label is the
+   *  display string (a predefined mode name or a freeform label). Overriding an already-SELECTED peak into
+   *  a single-holder mode displaces the previous definitive holder (see enforceDefinitiveModeUniqueness). */
   setModeOverride(id: number, label: string): void {
     // Reassign a fresh Map (never mutate in place): the snapshot exposes this reference, and App memos
     // keyed on `overrides` identity (overriddenPeakIds → displayPeaks → chart layers) must see the change.
     this.overrides = new Map(this.overrides).set(id, label)
+    // Changing the mode of an already-selected peak can create two definitive holders of the new mode —
+    // the only way an override touches selection (Swift setModeOverride). No-op if this peak isn't selected.
+    this.enforceDefinitiveModeUniqueness(id)
     this.notify()
   }
 
@@ -572,20 +582,46 @@ export class TapToneAnalyzer {
     return new Set([...resolvedModePeaks(peaks, guitarType).values()].map((p) => p.id))
   }
 
-  /** Toggle one peak's selection (Swift `togglePeakSelection`, MINUS the Phase-5
-   *  `enforceDefinitiveModeUniqueness` that will hook in on insert). Marks the selection user-modified. */
-  togglePeakSelection(id: number): void {
-    const next = new Set(this.selectedPeakIds)
-    if (next.has(id)) next.delete(id)
-    else next.add(id) // Phase 5: enforceDefinitiveModeUniqueness(preferring: id) goes here
-    this.selectedPeakIds = next
-    this.userModifiedSelection = true
-    this.notify()
+  /** The override-aware mode of a peak (mirrors Swift `peakMode(for:)` → `GuitarMode.effectiveMode`): a
+   *  present override resolves to its mode — a FREEFORM label to `'unknown'`, NOT the auto mode — otherwise
+   *  the auto classification. The selection invariant resolves modes through this, never the override-blind
+   *  `modeByPeak`. */
+  effectiveMode(id: number): ResolvedMode {
+    const override = this.overrides.get(id)
+    if (override != null) return MODE_BY_DISPLAY_NAME[override] ?? 'unknown'
+    return this.modeByPeak.get(id) ?? 'unknown'
   }
 
-  /** Select every peak (Swift `selectAllPeaks` — KEPT in RC; Phase 5 removes it). */
-  selectAllPeaks(): void {
-    this.selectedPeakIds = new Set(this.peaks.map((p) => p.id))
+  /** Keep the selection invariant: at most one SELECTED peak per Air/Top/Back. The preferred peak stays;
+   *  every OTHER selected peak with the same override-aware mode is deselected. Only ever REMOVES from the
+   *  selection — never reclassifies, never promotes. Guitar-only; a no-op unless `id` is selected and its
+   *  effective mode is single-holder. Notify is left to the caller. Mirrors Swift
+   *  `enforceDefinitiveModeUniqueness(preferring:)`. */
+  enforceDefinitiveModeUniqueness(id: number): void {
+    if (!this.isGuitar || !this.selectedPeakIds.has(id)) return
+    if (!this.peaks.some((p) => p.id === id)) return
+    const mode = this.effectiveMode(id)
+    if (!SINGLE_HOLDER_MODES.has(mode)) return
+    const next = new Set(this.selectedPeakIds)
+    let changed = false
+    for (const p of this.peaks) {
+      if (p.id !== id && next.has(p.id) && this.effectiveMode(p.id) === mode) {
+        next.delete(p.id)
+        changed = true
+      }
+    }
+    if (changed) this.selectedPeakIds = next
+  }
+
+  /** Toggle one peak's selection (Swift `togglePeakSelection`). On SELECT, enforce the
+   *  one-definitive-per-Air/Top/Back invariant (only the select branch can break it). User-modifies. */
+  togglePeakSelection(id: number): void {
+    const next = new Set(this.selectedPeakIds)
+    const wasSelected = next.has(id)
+    if (wasSelected) next.delete(id)
+    else next.add(id)
+    this.selectedPeakIds = next
+    if (!wasSelected) this.enforceDefinitiveModeUniqueness(id)
     this.userModifiedSelection = true
     this.notify()
   }

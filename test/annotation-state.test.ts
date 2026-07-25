@@ -22,6 +22,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildGuitarMarkers } from '../src/presentation/measurementImage'
 import { reportPeaks } from '../src/presentation/spectrumExport'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { Peak } from '../src/dsp/peaks'
 import type { ResolvedMode } from '../src/dsp/classify'
 
@@ -92,5 +93,78 @@ describe('annotation-state — the report is about the visible peaks (regression
     // DOT layer is NOT gated on it (Swift Layer 1 allPeaksInRange dots every in-range peak).
     const markers = build('selected', [1, 3])
     expect(markers.map((m) => m.annotated)).toEqual([true, false, true])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// DefinitiveModeUniqueness — the SELECTION invariant: at most one SELECTED peak per Air/Top/Back (the
+// definitive one). It is a selection rule, NOT classification: many peaks may be classified/assigned to a
+// mode; only the selection is constrained, and only for the single-holder modes. Mode is resolved through
+// the OVERRIDE-AWARE path (analyzer.effectiveMode / Swift peakMode(for:)). Mirrors Swift
+// AnnotationStateTests DefinitiveModeUniqueness. The auto modes are set directly for full control.
+// ---------------------------------------------------------------------------
+const p = (id: number): Peak => ({ id, frequency: id, magnitude: -30, quality: 10, bandwidth: 5 })
+/** An analyzer in a guitar type with the given peaks + auto classification, nothing selected. */
+const analyzerWith = (autoModes: [number, ResolvedMode][]): TapToneAnalyzer => {
+  const a = new TapToneAnalyzer()
+  a.measurementType = 'classical' // any guitar type → isGuitar true
+  a.peaks = autoModes.map(([id]) => p(id))
+  a.modeByPeak = new Map(autoModes)
+  return a
+}
+
+describe('annotation-state — DefinitiveModeUniqueness (selection invariant)', () => {
+  it('assigning + selecting a second Top displaces the first; the displaced peak stays classified Top', () => {
+    const a = analyzerWith([[1, 'top'], [2, 'dipole']])
+    a.togglePeakSelection(1) // the auto-Top is definitive
+    expect(a.selectedPeakIds).toEqual(new Set([1]))
+    a.setModeOverride(2, 'Top') // assign peak 2 to Top — but it isn't selected, so nothing changes yet
+    expect(a.selectedPeakIds).toEqual(new Set([1]))
+    a.togglePeakSelection(2) // select the new Top → the previous holder is deselected
+    expect(a.selectedPeakIds).toEqual(new Set([2]))
+    expect(a.modeByPeak.get(1)).toBe('top') // deselect ≠ relabel — peak 1 is still classified Top
+  })
+
+  it('Dipole allows several selected peaks (only Air/Top/Back are single-holder)', () => {
+    const a = analyzerWith([[1, 'dipole'], [2, 'dipole']])
+    a.togglePeakSelection(1)
+    a.togglePeakSelection(2) // enforce runs but Dipole is not single-holder → no displacement
+    expect(a.selectedPeakIds).toEqual(new Set([1, 2]))
+  })
+
+  it('overriding an ALREADY-SELECTED peak into Top displaces the previous Top holder', () => {
+    const a = analyzerWith([[1, 'top'], [2, 'back']])
+    a.togglePeakSelection(1) // definitive Top
+    a.togglePeakSelection(2) // definitive Back — different mode, both stay
+    expect(a.selectedPeakIds).toEqual(new Set([1, 2]))
+    a.setModeOverride(2, 'Top') // peak 2 (selected) becomes Top → displaces peak 1
+    expect(a.selectedPeakIds).toEqual(new Set([2]))
+  })
+
+  it('overriding an UNSELECTED peak into Top changes no selection', () => {
+    const a = analyzerWith([[1, 'top'], [2, 'back']])
+    a.togglePeakSelection(1)
+    a.setModeOverride(2, 'Top') // peak 2 not selected → enforce is a no-op
+    expect(a.selectedPeakIds).toEqual(new Set([1]))
+  })
+
+  it('overriding the definitive Top AWAY leaves Top holderless — nothing auto-promotes', () => {
+    const a = analyzerWith([[1, 'top'], [2, 'top']]) // peak 2 is another Top candidate, unselected
+    a.togglePeakSelection(1) // peak 1 is the definitive Top
+    a.setModeOverride(1, 'Back') // move the definitive Top away to Back
+    expect(a.selectedPeakIds).toEqual(new Set([1])) // still selected, just no longer Top
+    expect(a.effectiveMode(1)).toBe('back')
+    expect([...a.selectedPeakIds].some((id) => a.effectiveMode(id) === 'top')).toBe(false) // Top holderless
+    expect(a.selectedPeakIds.has(2)).toBe(false) // peak 2 was NOT promoted
+  })
+
+  it('Select None clears the selection but leaves classification intact', () => {
+    const a = analyzerWith([[1, 'top'], [2, 'back']])
+    a.togglePeakSelection(1)
+    a.togglePeakSelection(2)
+    a.selectNoPeaks()
+    expect(a.selectedPeakIds.size).toBe(0)
+    expect(a.modeByPeak.get(1)).toBe('top')
+    expect(a.modeByPeak.get(2)).toBe('back')
   })
 })

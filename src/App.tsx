@@ -537,7 +537,6 @@ export default function App() {
   const selectedIds = snapshot.selectedPeakIds
   const userModified = snapshot.userModifiedSelection
   const toggleSelect = useCallback((id: number) => analyzer.togglePeakSelection(id), [analyzer])
-  const selectAll = useCallback(() => analyzer.selectAllPeaks(), [analyzer])
   const selectNone = useCallback(() => analyzer.selectNoPeaks(), [analyzer])
   const resetSelection = useCallback(() => analyzer.resetToAutoSelection(guitarType), [analyzer, guitarType])
   const overrides = snapshot.overrides
@@ -1369,15 +1368,6 @@ export default function App() {
                 Showing {displayMinHz} – {displayMaxHz} Hz
               </span>
               <div className="sel-buttons">
-                <button
-                  className="btn mini icon"
-                  onClick={selectAll}
-                  disabled={displayPeaks.every((p) => selectedIds.has(p.id))}
-                  title="Select all peaks"
-                  aria-label="Select all peaks"
-                >
-                  <CheckIcon />
-                </button>
                 <button
                   className="btn mini icon"
                   onClick={selectNone}
