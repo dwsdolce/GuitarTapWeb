@@ -627,11 +627,83 @@ enforced. Mode is resolved through the **override-aware** path (Swift `peakMode(
 6. **Select None** → classification/labels intact; nothing relabels.
 7. The **Select All** button is gone; Select None + wand remain.
 
-### Phase 6 — Derived values unified  ⬜
-**Goal.** Every derived "the Air/Top/Back" reads the DEFINITIVE peak (selected + override-aware mode) via
-one shared `effectiveMode` resolver — analyzer, saved-measurement ratio, static resolver cannot disagree.
-Legacy files healed on read. *(Web assess: `classify.ts` `effectiveMode`? `tapToneRatio` in
-`analysisQuality.ts`; the PDF/table already override-aware from the marker work — how much of 6 exists?)*
+### Phase 6 — Derived values unified  ✅ COMPLETE (`6d2ca8a`; user-verified 2026-07-24)
+*(Folded in: a pre-existing PDF divergence — the Ring-Out card was missing the "Sustain quality"
+`detailSubtitle` under the quality label, which Swift's `analysisBox` renders. Fixed in `pdfReport.ts`.)*
+**Goal.** Every derived "the Air/Top/Back" reads the **definitive** peak — the *selected* peak whose
+*override-aware* mode is that mode — via one shared `effectiveMode` resolver, so the live ratio, the
+saved-list ratio, and the exported PDF/image ratio cannot disagree. Legacy files healed to a valid
+definitive selection on read.
+
+**Verified against Swift 2026-07-24** (`GuitarMode.effectiveMode` `GuitarMode.swift:473`; analyzer
+`getPeak(for:)` `+AnalysisHelpers.swift:72` + `calculateTapToneRatio` `:105`; measurement `definitivePeak`
+`TapToneMeasurement.swift:522` + `tapToneRatio` `:505`; decode selection-heal `:731–773`).
+
+**The definitive rule (identical everywhere):** `selectedPeaks.filter(p ⇒ effectiveMode(p) === mode).max(magnitude)`.
+`effectiveMode(override, auto)` = a present override → `MODE_BY_DISPLAY_NAME[label] ?? 'unknown'` (freeform →
+`'unknown'`), else `auto`. Swift does NOT shortcut via the stored `modeLabel` — it re-runs `classifyAll`
+for the auto mode and consults `peakModeOverrides`; the web must do the same.
+
+**Verified against the web code 2026-07-24 — THREE divergent ratio surfaces today, all to unify:**
+1. **Live** — `App.tsx:526` `tapToneRatio(peaksAbovePeakMin, guitarType)` (`analysisQuality.ts:71`):
+   auto-strongest over the DISPLAY projection; no selection, no override.
+2. **Saved-list** — `MeasurementsPanel:31` `measurementTapToneRatio(m)` (`fromLive.ts:320`): selection-aware
+   but **override-blind** (`classifyAll`) and takes the FIRST air/top, not the definitive holder.
+3. **Exported PDF/image** — `measurementImage.ts:300` `tapToneRatio(r.loadedPeaks, guitarType)`: auto-strongest
+   over ALL loaded peaks; no selection, no override. (Feeds `pdfReport.ts:409`.)
+The web already has `effectiveSelectedPeakIDs` (`types.ts:142`) and the `healMeasurement`/`wasHealed`
+duplicate-peak heal (`decode.ts:266`) to extend.
+
+**The work:**
+- **Shared resolver** — add `effectiveMode(overrideLabel: string | undefined, auto: ResolvedMode): ResolvedMode`
+  to `presentation/modeColors.ts` (where `MODE_BY_DISPLAY_NAME` lives; the analyzer + `fromLive` already
+  import from there). Mirrors Swift `GuitarMode.effectiveMode`. The analyzer's `effectiveMode(id)` (Phase 5)
+  delegates to it (behaviour-preserving).
+- **Analyzer** — `definitivePeak(mode): Peak | undefined` = `selectedPeaks.filter(p ⇒ effectiveMode(p.id) ===
+  mode).max(mag)` (= Swift analyzer `getPeak(for:)`); `tapToneRatio(): number | null` =
+  `definitivePeak('top').freq / definitivePeak('air').freq` or null (= Swift `calculateTapToneRatio`).
+- **Live ratio** — `App.tsx:526` `tapRatio` reads `analyzer.tapToneRatio()` (a `useMemo` keyed on the
+  snapshot). Selected + override-aware over the durable set.
+- **Saved-measurement ratio** — rewrite `measurementTapToneRatio` to Swift's `definitivePeak` rule:
+  `classifyAll(peaks-by-index)` + `peakModeOverrides` (by file id) + `effectiveMode`, filter
+  `effectiveSelectedPeakIDs(m)`, `max(mag)`, top/air. A `measurementDefinitivePeak(m, mode)` helper.
+- **Exported PDF/image ratio** — `measurementImage.ts:300` calls `measurementTapToneRatio(m)` instead of
+  `tapToneRatio(r.loadedPeaks)`, collapsing surfaces 2+3 onto the one definitive resolver.
+- **Remove `analysisQuality.ts:tapToneRatio`** (the auto-strongest one) — now unused, and it is exactly the
+  divergent implementation this phase eliminates. Migrate its `analysis-quality.test.ts` cases into the new
+  definitive tests.
+- **Legacy heal** — extend `healMeasurement` (`decode.ts`) with the guitar-only selection heal (Swift
+  `:731–773`): `isMaterial` guard; `autoMap = classifyAll(peaks)`; `effMode(p) = effectiveMode(overrides[id],
+  autoMap[id])`; `singleHolder = {air,top,back}`. **nil selection** → set it to the strongest peak per
+  effective mode (skip unknown); **else** → prune to at most the strongest selected peak per single-holder
+  mode (cluster modes + unknown untouched). Set the existing `wasHealed`/re-save flag.
+
+**Deliberately deferred to Phase 6b (mirroring Swift's split):** the multi-tap **Averaged row** →
+`definitiveModeInfo` (selected + override-aware) and the comparison `modePeakIDs` (a `.guitartap` format
+addition) + the override-marker on the comparison/multi-tap tables. **Web efficiency:** Swift's Phase 6
+core made the on-screen Averaged row override-aware via `resolvedModePeaks(overrides:)` as an intermediate
+step before 6b upgraded it to `definitiveModeInfo`; the web SKIPS that throwaway step and does the
+definitive Averaged row directly in 6b (identical end state).
+
+**Tests, slugs `test/annotation-state` + `test/measurement-codable`.** Analyzer definitive-ratio cases
+(selected-holder-not-strongest; rename-the-Top-drops-ratio; deselect-drops-ratio; override-retargets-Top);
+saved-ratio override/selection cases (freeform override → null; override retargets Top; deselected Top →
+null; live == saved for the same measurement); decode selection-heal (nil → healed to definitive; two Tops →
+pruned; valid → not reflagged). **Fixture caution (from the Swift ledger):** mode bands are per guitar type
+(classical Top 170–230, generic 140–260) — pick fixture freqs against the actual band table, and put a peak
+below the Back lower bound when you need it Top-only.
+
+**Risk:** medium — ratios change for any measurement where a winner was deselected/overridden (intended); a
+legacy file with a bad/nil selection is silently repaired + re-saved on first load.
+
+**User verification — run-review script:**
+1. Rename the **Top** peak (to another mode or a freeform label) → the tap-ratio disappears — on screen AND
+   in the exported PDF/image.
+2. **Deselect** the definitive Top → ratio disappears.
+3. Relabel/assign another peak to **Top** and select it → the ratio returns, using that peak.
+4. Open a measurement saved **before this work** (nil or messy selection) → it shows a sensible ratio and, if
+   its selection was bad, is silently repaired (and re-saved by the library).
+5. For the same measurement, the **on-screen ratio == the saved-list ratio == the PDF ratio**.
 
 ### Phase 6b — Definitive modes for the two override-blind surfaces  ⬜
 **Goal.** Comparison `modePeakIDs` (self-describing saved comparisons) + `definitiveModeInfo` for the
