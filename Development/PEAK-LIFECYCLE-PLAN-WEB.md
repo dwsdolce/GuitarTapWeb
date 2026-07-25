@@ -769,7 +769,16 @@ change. Golden untouched (no DSP).
 3. Open a comparison saved **before this build** → sensible values, silently re-saved (self-healed).
 4. A multi-tap PDF's Averaged row respects the override.
 
-### Phase 7 — The remaining triggers  ⬜
+### Phase 7 — The remaining triggers  ✅ COMPLETE (`998efb7`; user-verified 2026-07-24)
+**Implemented (suite 361 fast, golden `5c264de3941837f8` unmoved, parity 79):** analyzer
+`reclassifyForGuitarTypeChange(guitarType)` (clear overrides + `resetToAutoSelection`) +
+`startTapSequence` unified (delegates to `clearResult` + arm); `App.tsx` type-transition converted to a
+layout effect (before recalc) gating subtype clean-slate vs paradigm reset via `prevTypeRef`, and the
+measurement-type-notify effect promoted to a layout effect for ordering; analysis-range setting removed
+(`ANALYSIS_MIN_HZ`/`ANALYSIS_MAX_HZ` in `dsp/peaks.ts`; fields gone from `settings.ts`/`ANALYSIS_KEYS`;
+`SettingsPanel` control + `QuickStartGuide` Help entry + stale "analysis range" comments removed). Paired
+twins added to `test/annotation-state.test.ts` (clean-slate + `startTapSequence` clears-all). Items 5 +
+teardown verified already-satisfied. **Awaiting the run-review below before commit.**
 **Goal.** (1) Guitar-type change = clean slate for the new type (reclassify, clear overrides,
 re-auto-select) firing ONLY on an actual type change; display-only change disturbs nothing; the reset
 control stays pure-auto. (2) A new tap sequence clears ALL per-peak state. (3) Analysis-range SETTING
@@ -789,6 +798,151 @@ sequence. Concrete fix: gate the reset on an actual paradigm change (extract a t
 `isGuitarSubtypeChange(prev, next)` in `settings.ts`, tracking the previous type via a ref) and fold in
 Phase 7's clear-overrides + re-auto-select. **This is pre-existing (RA's App.tsx edits are nowhere near
 this effect) — do NOT let it slip.**
+
+**Web-source assessment (each claim verified against the actual web code 2026-07-24, per the Phase 9
+re-verify rule — not the ledger's UNVERIFIED web predictions). Swift `e3a7303` reviewed file-by-file +
+paired test `c6e43fd`.**
+
+**Item 1 — Guitar-type change = clean slate (folds in the 🐛 fix).**
+- *Swift did:* `reclassifyForGuitarTypeChange()` = `peakModeOverrides = [:]` → `reclassifyPeaks()` →
+  `resetToAutoSelection()`; wired through `onApply(measurementChanged:guitarTypeChanged:)` with
+  `guitarTypeChanged = typeChanged && bothGuitar`. Display-only Apply disturbs nothing; the wand stays
+  the pure-auto reset; **dragged offsets kept** (peaks unchanged, position orthogonal to mode).
+- *Web today:* the `App.tsx` type-change `useEffect` (`:328–343`) fires on **any** `measurementType`
+  change and ALWAYS runs the destructive reset (`setLoadedPeaks(null)` + `analyzer.clearResult()` +
+  `resetMaterial()` + `armForCurrentType()`) → throws the frozen measurement away and re-arms a new tap
+  even on a guitar **subtype** change. That is the 🐛.
+- *Web mirror:*
+  - New analyzer method `reclassifyForGuitarTypeChange(guitarType)` = `this.overrides = new Map();
+    this.resetToAutoSelection(guitarType)`. `resetToAutoSelection` (`:681`) already sets
+    `userModifiedSelection = false`, clears `selectedPeakFrequencies`, and computes a fresh selection via
+    `guitarModeSelectedPeakIds → resolvedModePeaks(peaks, newType)`, which **self-classifies** — so the
+    selection is correct for the new bands even before `modeByPeak` is recomputed. Offsets untouched
+    (kept, matching Swift). The web's `modeByPeak` reclassification is done by the existing recalc effect
+    (its dep array already contains `guitarType` → `classifyAll(peaks, newType)`), so this method is the
+    faithful analogue of Swift's clear-overrides → reclassify → reset-selection.
+  - **Gate the type-change effect** (`:328`): track the previous type via a `prevTypeRef`;
+    `bothGuitar = isGuitarType(prev) && isGuitarType(next)` (mirrors Swift). On a guitar-subtype change
+    call `reclassifyForGuitarTypeChange(guitarType)` and **keep the frozen measurement** — no
+    `clearResult`, no `setLoadedPeaks(null)`, no re-arm. On a paradigm change (crossing guitar↔material,
+    or plate↔brace: `!bothGuitar`) keep the existing destructive reset. Initial mount (`prev === next`)
+    falls through to the existing reset (harmless on an empty result — preserves current behaviour).
+  - **Ordering — RESOLVED: no flash (Option B), because both canonical platforms are synchronous.**
+    Recalc is a `useLayoutEffect` (`:508`, before paint); the current type-change reset is a `useEffect`
+    (`:328`, after paint) — layout effects run first, so a naive subtype branch in `:328` would let recalc
+    paint the old overrides/selection remapped onto the new classification for one frame before the
+    clean-slate clears them. Swift (`onApply`) and Python (`_on_measurement_type_changed` →
+    `reclassify_for_guitar_type_change`, `tap_tone_analysis_view.py:3468-3479`) both apply it
+    **synchronously with no flash**, so the web must not flash either (user, 2026-07-24: "If they both
+    have no flash then the web should have no flash"). Fix: **convert the type-transition effect (`:328`)
+    to a `useLayoutEffect` placed immediately BEFORE the recalc layout effect**, so one place owns
+    `prevTypeRef` and both branches (guitar-subtype clean-slate / paradigm reset) run before paint. On a
+    subtype change the clean-slate runs first (overrides cleared, `userModifiedSelection` false), then
+    recalc reclassifies + auto-selects in the same pre-paint pass — no intermediate frame.
+
+**Item 2 — CANCELLED (matches Swift).** The web has no unconditional `peakMinThreshold` write; Peak Min
+has been a pure display projection since web Phase 2. Nothing to do.
+
+**Item 3 — Analysis-range SETTING removed (concept kept as a constant).**
+- *Swift did:* `TapDisplaySettings.analysisMin/MaxFrequency` → computed constants (30/2000); removed the
+  Settings fields + bindings + validation + persistence; removed the two Help entries (`HelpView` **and**
+  the Quick-Start guide); `findPeaks` still restricts detection to the range; old UserDefaults keys
+  orphaned. **Not** a `.guitartap` format change (range was never persisted).
+- *Web surfaces (verified):* `settings.ts` (`analysisMinHz`/`analysisMaxHz` field `:118-119`, default
+  `:152-153`, `ANALYSIS_KEYS` `:188`); `App.tsx` (destructure `:230`, `recalculatePeaks` arg `:509`, dep
+  array `:510`); `measurement/fromLive.ts` (full-set-save `findPeaks` bound `:139-140`);
+  `components/SettingsPanel.tsx` (the "Analysis Frequency Range" `RangeField` `:441-449` + `ANALYSIS_KEYS`
+  Reset `:474`); `components/QuickStartGuide.tsx` (Advanced-Settings body mention `:124`, Re-analyze
+  mention `:278`, the "Analysis Frequency Range" Help entry `:399-401`). **Not in the `.guitartap`
+  format** — it is an app setting (localStorage) used only as a `findPeaks` bound; `findPeaks` already
+  defaults to 30/2000 (`dsp/peaks.ts:39-41`). Mirrors Swift (UserDefaults-only).
+- *Web mirror:*
+  - Add module constants `ANALYSIS_MIN_HZ = 30`, `ANALYSIS_MAX_HZ = 2000` (mirror Swift's
+    `defaultAnalysisMin/MaxFrequency`; concept stays, knob goes).
+  - Remove `analysisMinHz`/`analysisMaxHz` from the `Settings` type, `DEFAULT_SETTINGS`, and
+    `ANALYSIS_KEYS`. Old localStorage values orphaned & ignored (mirror Swift).
+  - Feed the constants where the settings were read (`App.tsx` recalc call — and drop them from the dep
+    array; `fromLive.ts` full-set-save `findPeaks`).
+  - `SettingsPanel.tsx`: remove the "Analysis Frequency Range" `RangeField`.
+  - `QuickStartGuide.tsx`: remove the "Analysis Frequency Range" Help entry (byte-identical to the
+    `HelpView.swift` entry Swift removed in `e3a7303`) + drop the "analysis range" phrase from the
+    Advanced-Settings body (`:124`) and the Re-analyze mention (`:278`). **RESOLVED (user, 2026-07-24):
+    the analysis-range Help removal is done NOW, in Phase 7** — Swift removed those entries in the Phase 7
+    commit, and a Help entry describing a removed setting is a bug. The broader Help/Quick-Start authoring
+    (the Peaks-&-Modes additions, the fuller Re-analyze/Peak-Min rewrites) stays in the web cross-cutting
+    docs deliverable.
+
+**Item 4 — New sequence clears ALL per-peak state + UNIFY the method name (user, 2026-07-24: "my desire
+is for unified naming").** The BEHAVIOUR is already satisfied — the web clears
+`overrides`/`annotationOffsets`/`selectedPeakIds`/`selectedPeakFrequencies`/`userModifiedSelection` in
+`clearResult()` (`:339-343`), and every fresh-sequence path routes through it (`newTap :455`,
+`cancelTap → newTap :479-482`, type-switch `:334`, play-file). But the NAME diverges, and the divergence
+is real, not cosmetic: the web SPLIT the canonical `start_tap_sequence` (which arms **and** clears
+everything) into two half-methods —
+- `startTapSequence()` (`:229`) — arms (`isDetecting`, prompt, `currentTapCount`, frozen/complete) but
+  does **not** clear per-peak state. **This is the parity-tested model entry point** (`state-invariants`
+  V2, `start-tap-race`, `measurement-complete` MC4/MC5, `scenario-trace`, `tap-count-change`; several
+  paired with Python), NOT dead code — so the web twin of `startTapSequence_clearsAllPerPeakState` must
+  drive THIS method to line up with Swift/Python.
+- `clearResult()` (`:329`) — clears result + per-peak state but does **not** arm.
+
+*Unify:* make `startTapSequence()` the canonical method — it delegates to `clearResult()` for the shared
+clearing (one clearing implementation, no duplication) **and** arms. Then `startTapSequence()` genuinely
+"clears all per-peak state", the twin test drives `startTapSequence()` exactly like Swift
+`startTapSequence_clearsAllPerPeakState` / Python `test_start_tap_sequence_clears_all_per_peak_state`, and
+name ≡ behaviour ≡ test. **Risk:** `startTapSequence` is parity-tested — re-run those suites and confirm
+none set per-peak state expecting it to survive a `startTapSequence` (a fresh sequence clearing it is
+correct; they test detection/count/complete/invariants, not per-peak persistence).
+
+*The one residual divergence — named, not nodded at:* production still calls the clear-only
+`clearResult()` at the New-Tap / type-switch / play-file sites, because the web's **engine**
+(`RealtimeFFTAnalyzer`), not the analyzer, owns detection arming and may be stopped at those sites — so
+they must clear WITHOUT arming (`startTapSequence`'s `isDetecting = true` would be wrong with the engine
+off). That clear-without-arm need is the genuine engine/analyzer architectural split
+([[project_architectural_restructure]]), out of Phase 7 scope. After this change `clearResult` is
+honestly documented as "the clear-only half `startTapSequence` builds on for the engine-split call
+sites," not a divergent parallel method.
+
+**Item 5 — Material guard & teardown: ALREADY SATISFIED.** (5) The web Peak-Min projection is
+guitar-gated — `peaksAbovePeakMin` passes material through (`App.tsx:514-517`). (Teardown) Swift's
+Combine-`deinit` race is Swift-specific and **must not be transcribed** (ledger). The web equivalent is
+verified present: `useAudioEngine` has effect-cleanup `return () => { void engineRef.current?.stop() }`
+(`:273-276`) releasing the mic on unmount; the analyzer is a plain object read via snapshot with no
+subscription-teardown race. Nothing to port.
+
+**Tests — the two paired twins the web owes (slug `test/annotation-state`; Swift `c6e43fd`, paired with
+Python `TestPhase7Triggers`):**
+- `reclassifyForGuitarTypeChange` is a clean slate — set overrides + a modified selection; call
+  `reclassifyForGuitarTypeChange(newType)`; assert overrides empty, `userModifiedSelection === false`,
+  `selectedPeakIds` equals `guitarModeSelectedPeakIds(peaks, newType)`. (Twin of
+  `reclassifyForGuitarTypeChange_isACleanSlate`.)
+- `startTapSequence` clears all per-peak state — set overrides/offsets/selection/freq-cache/`userModified`;
+  call `startTapSequence()`; assert all cleared. (Twin of Swift `startTapSequence_clearsAllPerPeakState` /
+  Python `test_start_tap_sequence_clears_all_per_peak_state` — after the item-4 unification the web's
+  `startTapSequence` delegates to `clearResult`, so it drives the canonical method by name.)
+- The App-effect gating (subtype vs paradigm) + the analysis-range removal are UI/settings-triggered →
+  covered by run-review, matching Swift (no unit tests for those). Both twins land in the existing
+  `test/annotation-state.test.ts` (no new parity group → `--check` stays **79**); golden
+  `5c264de3941837f8` unmoved.
+
+**Run-review script (web) — mirrors Swift's six:**
+1. **Guitar-type change = clean slate (the 🐛 fix).** Override a peak + select a couple; change guitar
+   type (e.g. Classical → Flamenco) → reclassified for the new type, manual labels cleared, fresh
+   auto-selection, **and the frozen measurement is KEPT** (not thrown away / re-armed).
+2. **Display-only change disturbs nothing.** Change only Peak Min or dB (same type) → selection + labels
+   untouched.
+3. **Wand still = pure auto** (unchanged).
+4. **No state leak.** Measurement with a custom label + a dragged annotation + a selection → New Tap →
+   fresh capture → save → reload → none of the previous labels/offsets/selection.
+5. **Analysis-range setting gone.** Settings → no "Analysis Frequency Range" field; detection still finds
+   peaks; Quick-Start Help no longer lists it.
+6. **Material unaffected.** Plate/brace: Peak Min disabled, L/C/FLC as before.
+
+**Decisions — all RESOLVED with the user 2026-07-24:** (a) effect ordering → **Option B, no flash**
+(both canonical platforms are synchronous); (b) analysis-range Help entry → **removed now, in Phase 7**;
+(c) fresh-sequence clearing → **unify the name**: `startTapSequence` becomes the canonical clear+arm
+method (delegating to `clearResult`), the twin test drives it, and the residual clear-without-arm split
+is named as architectural-restructure scope. Ready to implement.
 
 ---
 
