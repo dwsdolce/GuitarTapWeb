@@ -564,12 +564,68 @@ analyzer. Golden `5c264de3941837f8` unmoved; `--check` = 79; `tsc` clean.
 - **After RC** selection is concrete model state (one algorithm across all three); `useAnnotations` is gone;
   Phase 5's `enforceDefinitiveModeUniqueness` ports verbatim onto `selectedPeakIds`.
 
-### Phase 5 — The selection model  ⬜
-**Goal.** Classification (band membership + override) is independent of selection (which candidate is
-definitive). **Invariant: at most one selected peak per Air/Top/Back**; Dipole/Ring/Upper unconstrained.
-Enforced in ONE place, from select-a-peak and from change-mode-of-a-selected-peak. No auto-promotion.
-*(Runs on the model-owned selection state from the restructure above; the enforce logic becomes an
-analyzer method, mirroring Swift `enforceDefinitiveModeUniqueness`.)*
+### Phase 5 — The selection model  ✅ COMPLETE (`3e50e10`; user-verified 2026-07-24)
+**Goal.** **Invariant: at most one *selected* peak per Air/Top/Back** — the selected one is *the*
+definitive Air/Top/Back; Dipole/Ring/Upper are clusters and unconstrained. Enforced in ONE place, called
+from the only two things that can break it: selecting a peak, and changing the mode of an *already-selected*
+peak. No auto-promotion.
+
+**This is a SELECTION problem, not classification.** Classification (band membership) is independent and
+unconstrained, and **multiple same-mode candidates are perfectly fine** — whether they arose from
+classification (several peaks in the Top band) OR from a user override to that mode. Deselecting never
+relabels. The uniqueness constraint is purely about the **selection**, and ONLY for the single-holder modes
+**Air / Top / Back**: it fires only when a peak whose *effective* mode is Air/Top/Back is selected (or an
+already-selected peak is overridden to one) while another selected peak already holds that same mode. For
+any other mode — **Dipole / Ring / Upper** (and Unknown) — multiple selected peaks are fine; nothing is
+enforced. Mode is resolved through the **override-aware** path (Swift `peakMode(for:)` =
+`effectiveMode(override, auto)`), NEVER `classifyAll` / `identifiedModes` alone (override-blind).
+
+**Verified against the web code 2026-07-24.**
+- Selection is model-owned (RC). `togglePeakSelection`'s select branch already has the placeholder for the
+  enforce; `setModeOverride` (RA) currently just sets the override.
+- The web has **no override-aware mode resolver yet.** `modeByPeak` is `classifyAll` (override-blind);
+  overrides are a separate id→display-name-string map. So Phase 5 adds `effectiveMode(id)`, the direct
+  mirror of Swift `peakMode(for:)` → `GuitarMode.effectiveMode(override:auto:)` (`GuitarMode.swift:473`):
+  `if an override exists → MODE_BY_DISPLAY_NAME[override] ?? 'unknown'` (a **freeform** override →
+  `'unknown'`, it does NOT fall through to auto — matching Swift's `fromDisplayName(label) ?? .unknown`);
+  `else → modeByPeak[id] ?? 'unknown'`. NOT `MODE_BY_DISPLAY_NAME[override] ?? modeByPeak[id]` (that `??`
+  would wrongly fall a freeform override through to the auto mode). The web `ResolvedMode` is already
+  canonical, so no `.normalized` step.
+- **Reset-to-Auto label fix (folded into Swift's Phase 5): ALREADY satisfied on the web.** `PeakCard`'s
+  `autoName = MODE_DISPLAY_NAME[mode]` already uses the override-blind `mode` prop (`modeByPeak`), so the
+  "Reset to Auto (X)" item already names the auto-classification, not the override. No change.
+- The web has **no `selectAll` tests** to delete (they were Swift-specific).
+
+**The work (mirror Swift `enforceDefinitiveModeUniqueness`):**
+- **`tapToneAnalyzer.ts`** — `effectiveMode(id): ResolvedMode` (override-aware; imports
+  `MODE_BY_DISPLAY_NAME` — a minor state→presentation coupling, precedent: `MaterialPeaks` from
+  components; Phase 6 unifies the resolver). `singleHolderModes = {'air','top','back'}`.
+  `enforceDefinitiveModeUniqueness(id)`: guard guitar + `selectedPeakIds.has(id)` + the peak exists; resolve
+  `mode = effectiveMode(id)`; if `singleHolderModes.has(mode)`, deselect every OTHER selected peak whose
+  `effectiveMode == mode`. Only ever REMOVES from the selection — never reclassifies, never promotes. Call
+  it from `togglePeakSelection` (select branch — replace the placeholder) and `setModeOverride` (after
+  writing the override). **Remove `selectAllPeaks`.**
+- **`App.tsx`** — remove the **Select All** button (`CheckIcon`, ~:1372) + the `selectAll` dispatcher (drop
+  the now-unused `CheckIcon` import if nothing else uses it). Keep **Select None** + the **wand**.
+- **Tests, slug `test/annotation-state`** — new `DefinitiveModeUniqueness` suite, six cases, each driven by
+  manual assignment (override) to create the same-mode selection: (1) assign+select a second Top → the first
+  Top deselects, and the displaced peak stays classified Top (deselect ≠ relabel); (2) Dipole allows several
+  selected; (3) override an *already-selected* peak into Top → displaces the holder; (4) override an
+  *unselected* peak into Top → no selection change; (5) override the definitive Top *away* → Top holderless
+  (no promotion); (6) Select None leaves classification intact. No deletions (web never had `selectAll` tests).
+
+**Risk:** medium — user-visible (Select All gone; selection now enforces one definitive Air/Top/Back).
+
+**User verification — run-review script:**
+1. Assign a peak to **Top** and select it while another Top is already selected → the previous Top
+   deselects; the displaced peak keeps its Top classification (its row/label unchanged, just unstarred).
+2. Select several **Dipole** (or Ring/Upper) peaks → all stay selected.
+3. Override an **already-selected** peak to Top → the previous definitive Top deselects.
+4. Override an **unselected** peak to Top → nothing in the selection changes.
+5. Override the **definitive Top away** (to another mode) → Top now has no definitive peak; nothing
+   auto-promotes.
+6. **Select None** → classification/labels intact; nothing relabels.
+7. The **Select All** button is gone; Select None + wand remain.
 
 ### Phase 6 — Derived values unified  ⬜
 **Goal.** Every derived "the Air/Top/Back" reads the DEFINITIVE peak (selected + override-aware mode) via
