@@ -32,8 +32,6 @@ describe('buildGuitarMeasurement — full-set save (Option 4, real capture)', ()
     ...DEFAULT_SETTINGS,
     measurementType: 'generic' as const,
     peakMinThreshold: -60, // above the real Air peak (−64.21 dB) — reproduces the original defect
-    analysisMinHz: 30,
-    analysisMaxHz: 2000,
   }
   const displayed: Peak[] = findPeaks(spectrum.magnitudesDb, spectrum.frequencies, {
     guitarType: 'generic',

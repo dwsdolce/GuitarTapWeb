@@ -438,15 +438,9 @@ export function SettingsPanel({
                     </span>
                   </label>
                 )}
-                <RangeField
-                  title="Analysis Frequency Range"
-                  description="Frequency range used for peak detection"
-                  unit="Hz"
-                  min={d.analysisMinHz}
-                  max={d.analysisMaxHz}
-                  onMin={(v) => patch({ analysisMinHz: v })}
-                  onMax={(v) => patch({ analysisMaxHz: v })}
-                />
+                {/* The analysis frequency range is a fixed 30–2000 Hz constant, not a user setting — it
+                    bounds the useful modal region and never needs changing (see ANALYSIS_MIN_HZ /
+                    ANALYSIS_MAX_HZ). The control was removed; detection still restricts to the range. */}
                 <div className="set-range">
                   <div className="set-range-title">Peak Detection Minimum</div>
                   <span className="set-input">

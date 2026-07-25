@@ -4,7 +4,7 @@
 // into the view. Guitar measurements only for now (material persistence is a follow-up).
 
 import { type Spectrum } from '../dsp/guitarFFT'
-import { findPeaks, type Peak } from '../dsp/peaks'
+import { findPeaks, ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, type Peak } from '../dsp/peaks'
 import type { TapEntry } from '../state/tapToneAnalyzer'
 import type { MaterialPeak } from '../dsp/gatedCapture'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
@@ -136,8 +136,8 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
     const full = findPeaks(a.spectrum.magnitudesDb, a.spectrum.frequencies, {
       guitarType: guitarTypeName,
       peakMinThreshold: PEAK_DETECTION_FLOOR,
-      minHz: a.settings.analysisMinHz,
-      maxHz: a.settings.analysisMaxHz,
+      minHz: ANALYSIS_MIN_HZ,
+      maxHz: ANALYSIS_MAX_HZ,
     })
     for (const p of full) {
       if (p.magnitude >= a.settings.peakMinThreshold) continue // already in a.peaks

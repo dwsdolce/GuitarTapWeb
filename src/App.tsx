@@ -77,7 +77,7 @@ import {
   MULTITAP_AVG_COLOR,
   type MultiTapRow,
 } from './components/MultiTapComparisonResultsView'
-import { type Peak } from './dsp/peaks'
+import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, type Peak } from './dsp/peaks'
 import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
 import { modeBands, peaksInDisplayRange, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
@@ -227,7 +227,7 @@ export default function App() {
   const guitarType: GuitarTypeName = isGuitarType(settings.measurementType) ? settings.measurementType : 'generic'
   const material = isMaterialType(settings.measurementType)
   const brace = settings.measurementType === 'brace'
-  const { minDb, maxDb, analysisMinHz, analysisMaxHz, showUnknownModes } = settings
+  const { minDb, maxDb, showUnknownModes } = settings
   // Display frequency range resolves per measurement type (Swift minFrequency(for:)).
   const { minHz: displayMinHz, maxHz: displayMaxHz } = displayRangeFor(settings, settings.measurementType)
   const peakMin = settings.peakMinThreshold
@@ -259,9 +259,10 @@ export default function App() {
 
   // Mirror the settings the analyzer needs onto it: Swift/Python read these from the TapDisplaySettings
   // singleton, but the web has no analyzer-visible global. `measurementType` drives the material search
-  // ranges + WAV label + brace auto-complete; `measureFlc` drives the plate phase plan. Declared BEFORE
-  // the measurement-type reset effect so the analyzer sees the new type before that effect re-arms. 3c-C3.
-  useEffect(() => {
+  // ranges + WAV label + brace auto-complete; `measureFlc` drives the plate phase plan. A LAYOUT effect
+  // declared BEFORE the measurement-type transition + peak-recalc layout effects, so the analyzer sees
+  // the new type before the transition re-arms and before recalc reclassifies for it. 3c-C3.
+  useLayoutEffect(() => {
     analyzer.setMeasurementTypeAndNotify(settings.measurementType)
     analyzer.setMeasureFlc(settings.measureFlc)
   }, [analyzer, settings.measurementType, settings.measureFlc])
@@ -322,14 +323,32 @@ export default function App() {
     if (isMaterialType(measRef.current)) analyzer.startMaterial()
     else e.arm()
   }, [analyzer])
-  // Switching measurement type resets the current result (mirrors the native measurementChanged
-  // reset across the guitar↔material boundary) then arms a fresh sequence for the new type.
-  // Skipped while loading a measurement, which sets the type and the restored result in the same commit.
-  useEffect(() => {
+  // Tracks the previous measurement type so a type change can distinguish a guitar-SUBTYPE change (both
+  // types guitar) from a paradigm change (crossing guitar↔material, or plate↔brace).
+  const prevTypeRef = useRef(settings.measurementType)
+  // Switching measurement type. A guitar-subtype change (both guitar, e.g. Generic → Flamenco) is a
+  // CLEAN SLATE for the new type — reclassify + clear manual labels + re-auto-select, KEEPING the frozen
+  // measurement (Swift reclassifyForGuitarTypeChange / Python reclassify_for_guitar_type_change). Crossing
+  // the guitar↔material boundary, or plate↔brace, is a paradigm change that needs a fresh sequence. A
+  // LAYOUT effect placed before the peak-recalc layout effect, so the clean slate (or reset) is applied
+  // before recalc reclassifies + auto-selects — synchronous, no intermediate frame, matching Swift
+  // (onApply) and Python (_on_measurement_type_changed), both synchronous. Skipped while loading a
+  // measurement (which sets the type + the restored result in the same commit).
+  useLayoutEffect(() => {
+    const prev = prevTypeRef.current
+    const next = settings.measurementType
+    prevTypeRef.current = next
     if (skipNextTypeResetRef.current) {
       skipNextTypeResetRef.current = false
       return
     }
+    if (prev !== next && isGuitarType(prev) && isGuitarType(next)) {
+      // Guitar subtype change: clean-slate re-derivation for the new type, keeping the frozen spectrum,
+      // peaks and dragged offsets. The recalc layout effect below reclassifies modeByPeak for the new bands.
+      analyzer.reclassifyForGuitarTypeChange(guitarType)
+      return
+    }
+    // Initial mount (prev === next) or a paradigm change: drop the result + per-peak state and arm afresh.
     setLoadedPeaks(null)
     analyzer.clearResult() // drop the frozen guitar spectrum + per-tap comparison spectra
     setLoadedName(null)
@@ -340,7 +359,7 @@ export default function App() {
     comparisonRef.current = false
     analyzer.resetMaterial()
     armForCurrentType()
-  }, [analyzer, settings.measurementType, armForCurrentType])
+  }, [analyzer, settings.measurementType, guitarType, armForCurrentType])
 
   // Stable capture-result callback the engine's once-registered handler delegates to. The guitar tap
   // sequence finished: average the analyzer's accumulated taps into the frozen result (which also
@@ -506,8 +525,8 @@ export default function App() {
   // no longer re-runs findPeaks or re-mints peaks, and per-peak state (selection/overrides/offsets)
   // survives it. Mirrors Swift `allPeaks` (durable) + `currentPeaks` (Peak-Min projection).
   useLayoutEffect(() => {
-    analyzer.recalculatePeaks({ material, loadedPeaks, liveSpectrum: liveForPeaks, guitarType, minHz: analysisMinHz, maxHz: analysisMaxHz })
-  }, [analyzer, material, loadedPeaks, liveForPeaks, guitarType, analysisMinHz, analysisMaxHz, captured])
+    analyzer.recalculatePeaks({ material, loadedPeaks, liveSpectrum: liveForPeaks, guitarType, minHz: ANALYSIS_MIN_HZ, maxHz: ANALYSIS_MAX_HZ })
+  }, [analyzer, material, loadedPeaks, liveForPeaks, guitarType, captured])
   const peaks = snapshot.peaks // the durable FULL set (down to -100) — used for selection state + save
   const modeByPeak = snapshot.modeByPeak
 
@@ -546,7 +565,7 @@ export default function App() {
   const resetLabels = useCallback(() => analyzer.resetAllAnnotationOffsets(), [analyzer])
 
   // Re-analyze — re-detect peaks on the loaded/frozen spectrum using the CURRENT analysis settings
-  // (Peak Min, analysis range, guitar type), letting you retune a saved measurement without
+  // (Peak Min, guitar type), letting you retune a saved measurement without
   // re-tapping. Loaded peaks are otherwise authoritative (never recomputed); this is the manual
   // "re-detect with current settings" action. Mirrors Swift reanalyzePeaks() / Python
   // reanalyze_peaks(): it CLEARS the loaded peaks so the `peaks` memo falls through to live

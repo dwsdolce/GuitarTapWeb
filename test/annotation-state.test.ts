@@ -237,3 +237,44 @@ describe('annotation-state — definitiveModeInfo (multi-tap Averaged row)', () 
     expect(a.definitiveModeInfo().top).toEqual({ frequency: 380, isOverride: true })
   })
 })
+
+// ---------------------------------------------------------------------------
+// Phase 7 triggers — clean-slate guitar-type change + a new tap sequence clears ALL per-peak state.
+// Twins of Swift AnnotationStateTests Phase7Triggers / Python test_annotation_state.py TestPhase7Triggers.
+// ---------------------------------------------------------------------------
+describe('annotation-state — Phase 7 triggers', () => {
+  it('reclassifyForGuitarTypeChange is a clean slate: overrides cleared, selection reset to auto for the new type', () => {
+    // Air 90 + Top 180 in the classical bands (top-only, clear of the back band that starts at 190), so
+    // the fresh auto-selection is a real {air, top}, not a vacuous empty match.
+    const a = ratioAnalyzer([[1, 'air', 90, -20], [2, 'top', 180, -20]])
+    a.restoreSelection(new Set([2]), [180], true) // a hand-edited selection (only the Top)
+    a.setModeOverride(1, 'Wolf note') // a manual label made under the OLD type
+    expect(a.overrides.size).toBe(1)
+    expect(a.userModifiedSelection).toBe(true)
+
+    a.reclassifyForGuitarTypeChange('classical')
+
+    const expected = a.guitarModeSelectedPeakIds(a.peaks, 'classical')
+    expect(expected.size).toBe(2) // sanity: air + top actually auto-select for the new type
+    expect(a.overrides.size).toBe(0) // clean slate clears manual overrides
+    expect(a.userModifiedSelection).toBe(false) // selection reset to auto (not user-modified)
+    expect(a.selectedPeakIds).toEqual(expected) // fresh auto-selection for the new type
+  })
+
+  it('startTapSequence clears ALL per-peak state (nothing leaks into the next capture)', () => {
+    const a = ratioAnalyzer([[1, 'air', 90, -20], [2, 'top', 200, -20]])
+    a.restoreSelection(new Set([1, 2]), [90, 200], true)
+    a.setModeOverride(2, 'Wolf note')
+    a.updateAnnotationOffset(1, [5, 5])
+    expect(a.selectedPeakIds.size).toBeGreaterThan(0) // precondition: state present
+    expect(a.overrides.size).toBeGreaterThan(0)
+
+    a.startTapSequence()
+
+    expect(a.selectedPeakIds).toEqual(new Set())
+    expect(a.selectedPeakFrequencies).toEqual([])
+    expect(a.userModifiedSelection).toBe(false)
+    expect(a.overrides.size).toBe(0)
+    expect(a.annotationOffsets.size).toBe(0)
+  })
+})

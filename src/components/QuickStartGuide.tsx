@@ -121,7 +121,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Advanced Settings',
-        body: 'Display range, analysis range, and FFT processing options are grouped under the Advanced section at the bottom of Settings. These rarely need changing after initial setup — expand the section by clicking the Advanced row.',
+        body: 'Display range and FFT processing options are grouped under the Advanced section at the bottom of Settings. These rarely need changing after initial setup — expand the section by clicking the Advanced row.',
       },
       {
         title: 'Quiet Environment',
@@ -275,7 +275,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Re-analyze',
         icon: 'refresh',
-        body: 'Shown next to the microphone name when a saved measurement is loaded. Re-runs peak detection on the stored spectrum using the current analysis settings — useful for trying a different Peak Min, analysis range, or guitar type on a saved measurement without re-tapping. Enabled only while a loaded measurement is shown.',
+        body: 'Shown next to the microphone name when a saved measurement is loaded. Re-runs peak detection on the stored spectrum using the current analysis settings — useful for trying a different Peak Min or guitar type on a saved measurement without re-tapping. Enabled only while a loaded measurement is shown.',
       },
       {
         title: 'Auto dB',
@@ -394,10 +394,6 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Display Magnitude Range',
         body: 'Advanced → Display Settings. Sets the vertical scale (dB). Use Auto dB in the main view for a quick fit, or set explicit Min/Max here.',
-      },
-      {
-        title: 'Analysis Frequency Range',
-        body: 'Advanced → Analysis Settings. Peaks outside this window are ignored during detection. Narrow it to exclude spurious low-frequency rumble or high-frequency noise.',
       },
       {
         title: 'Peak Min',

@@ -115,8 +115,6 @@ export interface Settings {
   maxDb: number
   // Analysis Settings
   showUnknownModes: boolean
-  analysisMinHz: number
-  analysisMaxHz: number
   peakMinThreshold: number
   dumpCaptureAudio: boolean
   // Tap-control bar value persisted immediately on change (like Swift's didSet →
@@ -149,8 +147,6 @@ export const DEFAULT_SETTINGS: Settings = {
   minDb: -100,
   maxDb: 0,
   showUnknownModes: true,
-  analysisMinHz: 30,
-  analysisMaxHz: 2000,
   peakMinThreshold: -60,
   dumpCaptureAudio: false,
   tapDetectionThreshold: -40,
@@ -185,7 +181,7 @@ export function setDisplayRangePatch(
 // dB-axis keys for the Display "Reset" button. The frequency range is reset
 // separately (per measurement type) since it is no longer a flat setting.
 export const DISPLAY_KEYS = ['minDb', 'maxDb'] as const
-export const ANALYSIS_KEYS = ['showUnknownModes', 'analysisMinHz', 'analysisMaxHz', 'peakMinThreshold', 'dumpCaptureAudio'] as const
+export const ANALYSIS_KEYS = ['showUnknownModes', 'peakMinThreshold', 'dumpCaptureAudio'] as const
 
 const KEY = 'guitartap-settings'
 

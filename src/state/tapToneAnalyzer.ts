@@ -225,16 +225,21 @@ export class TapToneAnalyzer {
 
   // ── Transitions (mirror TapToneAnalyzer) ──────────────────────────────────
 
-  /** Arm detection for a new sequence: clears any prior completion, counts, and frozen spectrum. */
+  /** The canonical fresh-sequence: clear EVERYTHING (result data + ALL per-peak state) then arm
+   *  detection. The clearing is shared with `clearResult` — this method IS `clearResult` plus the arm,
+   *  mirroring Swift/Python `start_tap_sequence`, which clear and arm in one place. Because per-peak
+   *  state (overrides / offsets / selection / freq-cache / userModified) is cleared here, nothing from
+   *  the previous measurement can leak into the next capture's saved file.
+   *
+   *  (Production's New-Tap / type-switch / play-file sites call the clear-only `clearResult` instead,
+   *  because the web's engine — not the analyzer — owns detection arming and may be stopped there, so
+   *  they must clear WITHOUT arming; that clear-without-arm split is the engine/analyzer divergence
+   *  tracked separately. This method is the single arm+clear path used directly and by the tests.) */
   startTapSequence(): void {
+    this.clearResult()
     this.isDetecting = true
     this.isDetectionPaused = false
     this.currentTapCount = 0
-    this.capturedTaps = []
-    this.frozenMagnitudes = []
-    this.frozenFrequencies = []
-    this.isMeasurementComplete = false
-    this.analysisAnnounced = false
     // Guitar resting prompt (canonical post-warm-up steady state). In the app the device's arm →
     // setEngineState('listening') also sets this; here it covers the direct/test path.
     this.setStatusMessage(this.tapPrompt())
@@ -351,8 +356,8 @@ export class TapToneAnalyzer {
    *  Re-analyze is a RESET, not a dirty-flag indicator. It is offered whenever it COULD do
    *  something, not only when we can prove it WILL — deliberately. What can leave the displayed
    *  analysis differing from a clean re-derivation is open-ended: the peaks came from a file; mode
-   *  assignments were carried forward across Peak Min moves rather than re-claimed; the analysis
-   *  range moved; selections were hand-edited. Proving "it will definitely change something" means
+   *  assignments were carried forward across Peak Min moves rather than re-claimed; selections were
+   *  hand-edited. Proving "it will definitely change something" means
    *  enumerating all of those correctly, forever, with nothing to tell us when we got it wrong. The
    *  two failure modes are not symmetric: a wrongly-DISABLED button is a dead end (the user cannot
    *  force the recomputation they want), while a wrongly-ENABLED one costs a click that recomputes
@@ -683,6 +688,20 @@ export class TapToneAnalyzer {
     this.selectedPeakFrequencies = []
     this.selectedPeakIds = this.guitarModeSelectedPeakIds(this.peaks, guitarType)
     this.notify()
+  }
+
+  /** A guitar-subtype change (e.g. Classical → Flamenco) as a CLEAN SLATE for the new type: the type
+   *  changes what each mode BAND means, so manual labels — made against the OLD bands — are dropped and
+   *  selection reverts to auto for the new type. Dragged offsets are kept (peaks are unchanged; position
+   *  is orthogonal to mode). `modeByPeak` is reclassified by the subsequent `recalculatePeaks` for the
+   *  new type; the fresh auto-selection here is computed via `guitarModeSelectedPeakIds`, which
+   *  self-classifies over the new type, so it is correct before `modeByPeak` is rebuilt. Mirrors Swift
+   *  `reclassifyForGuitarTypeChange` (peakModeOverrides=[:] → reclassifyPeaks → resetToAutoSelection) /
+   *  Python `reclassify_for_guitar_type_change`. Deliberately NOT the wand (`resetToAutoSelection`
+   *  alone), which keeps labels. */
+  reclassifyForGuitarTypeChange(guitarType: GuitarTypeName): void {
+    this.overrides = new Map()
+    this.resetToAutoSelection(guitarType)
   }
 
   /** Restore selection from a loaded measurement (ids keyed to the loaded peaks, + the frequency cache

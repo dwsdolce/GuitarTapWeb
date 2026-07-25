@@ -233,8 +233,8 @@ describe('frozen-peak-recalc — per-tap entries computed once (Phase 3)', () =>
 // Re-analyze is a RESET, not a dirty-flag indicator: it is offered whenever it COULD do
 // something, not only when we can prove it WILL. What can leave the displayed analysis differing
 // from a clean re-derivation is open-ended (peaks came from a file; mode assignments carried
-// forward across Peak Min moves instead of being re-claimed; the analysis range moved; selections
-// were hand-edited), and the two failure modes are not symmetric — a wrongly-DISABLED button is a
+// forward across Peak Min moves instead of being re-claimed; selections were hand-edited), and the
+// two failure modes are not symmetric — a wrongly-DISABLED button is a
 // dead end, a wrongly-ENABLED one costs a pointless click. So: any complete guitar measurement
 // with a frozen spectrum; never material.
 //

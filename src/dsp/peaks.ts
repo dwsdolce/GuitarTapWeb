@@ -32,13 +32,21 @@ const PEAK_PROXIMITY_HZ = 2.0
  *  lowest the Peak Min slider reaches, so the stored set holds every peak the user could ever reveal. */
 export const PEAK_DETECTION_FLOOR = -100
 
+/** The analysis frequency range for peak detection (Hz) — a fixed bound on where useful modes live:
+ *  30 Hz reaches the material fLC, and nothing useful sits above 2000 Hz. Once a user setting; it never
+ *  needed changing, so it is a constant now (the concept stays, only the knob is gone). Distinct from the
+ *  display/pan-zoom range, which stays user-controllable. Mirrors Swift TapDisplaySettings.analysisMin/
+ *  MaxFrequency / Python analysis_min/max_frequency. */
+export const ANALYSIS_MIN_HZ = 30
+export const ANALYSIS_MAX_HZ = 2000
+
 /** Optional inputs to {@link findPeaks}: mode-band selection, analysis range, and magnitude gate. */
 export interface FindPeaksOptions {
   /** Guitar type selecting the known-mode bands (default `'generic'`). */
   guitarType?: GuitarTypeName
-  /** Low edge of the analysis range, in Hz (default 30). */
+  /** Low edge of the analysis range, in Hz (default {@link ANALYSIS_MIN_HZ}). */
   minHz?: number
-  /** High edge of the analysis range, in Hz (default 2000). */
+  /** High edge of the analysis range, in Hz (default {@link ANALYSIS_MAX_HZ}). */
   maxHz?: number
   /** Magnitude gate (dB). Default −60. */
   peakMinThreshold?: number
@@ -178,8 +186,8 @@ export function findPeaks(mags: Spectrum, freqs: Spectrum, opts: FindPeaksOption
   const n = mags.length
   if (n !== freqs.length) return []
 
-  const loFreq = opts.minHz ?? 30
-  const hiFreq = opts.maxHz ?? 2000
+  const loFreq = opts.minHz ?? ANALYSIS_MIN_HZ
+  const hiFreq = opts.maxHz ?? ANALYSIS_MAX_HZ
   const threshold = opts.peakMinOverride ?? opts.peakMinThreshold ?? -60
 
   const startIdx = indexWhere(freqs, (f) => f >= loFreq, 0)
