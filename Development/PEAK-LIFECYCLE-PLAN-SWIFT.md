@@ -1413,6 +1413,12 @@ automatically on open. Match wording across Swift / Python / web when the ports 
 
 ## Phase 9 — The ports
 
+**STATUS 2026-07-25: the ports are ✅ COMPLETE, and so is the peak-lifecycle rework.** Python (all
+phases + docs) and web (all phases + cross-cutting docs) are done and user-verified — see
+`PEAK-LIFECYCLE-PLAN-PYTHON.md` and `PEAK-LIFECYCLE-PLAN-WEB.md`. (A soak/stress harness was drafted
+under Phase 9, but it is a separate dev-tool concern — not part of this rework — so it was split out to
+[SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md).)
+
 Held until Swift is user-verified: starting earlier means Python absorbs every spec correction twice.
 
 **Replay the port ledgers phase by phase — do not port the accumulated Swift diff in one pass.** Each
@@ -1454,39 +1460,6 @@ months later, when nobody remembers which entries were read and which were assem
 time: open the cited file at the cited line, confirm it says what the ledger claims, and correct the
 ledger in the same change when it does not. **A ledger entry that cannot be confirmed is a bug in
 the ledger, not a feature to implement.**
-
-### Phase 9 item — a soak / stress harness on all three platforms (agreed with the user 2026-07-22)
-
-**Purpose.** Surface *nondeterministic* failures — teardown/GC races and hangs — that a single test
-run hides. This project keeps hitting exactly that class: the Python playback **QObject GC race**
-([[project_python_playback_gc_race]]) and the Swift **Combine deinit race** (Phase 7, `TapToneAnalyzer`).
-Both were invisible in a normal single run and only showed under repetition. The user has a **reported
-crash on Python they believe is in this same family and may already be fixed**, and wants the soak
-harness there to gain confidence the fix holds and nothing else lurks.
-
-**What it is** — a dev tool, NOT a CI test: build once, then loop the **fast** unit suite (skip the
-slow playback tests) many times, watching for crashes and hangs. Optional/on-demand.
-
-- **Swift** — `xcodebuild build-for-testing` once, then loop
-  `xcodebuild test-without-building … -skip-testing:GuitarTapTests/FilePlaybackRegressionTests`
-  (~4 s/run, 440 tests; the analyzer-churning suites stay, the slow WAV playback is skipped).
-  **Harness gotcha, learned the hard way:** `test-without-building` does **not** print
-  `** TEST SUCCEEDED **`; detect success from the swift-testing line `Test run with N tests … passed
-  after …`, and detect failure from `SIGSEGV`/`EXC_BAD`/`deinit`/`Segmentation`/`failed after`/
-  `recorded an issue`. (A first cut grepped the wrong marker and mislabelled every green run.)
-- **Python** — `pytest` with `pytest-repeat` (`--count=N`) or a shell loop, **plus `pytest-timeout`**
-  to catch *hangs* (not just crashes). Skip the slow playback tests.
-- **Web** — `vitest` repeat (`--repeat=N` or a loop) with a per-test timeout for hangs. Analog bug =
-  React effect-cleanup / async teardown.
-
-**Three caveats to bake in:** (1) optional/on-demand, not CI — it is N× slower and probabilistic;
-(2) a green soak is *confidence, not proof* — you cannot prove the absence of a race, only make it
-unlikely; (3) **faithfulness matters** — the loop must exercise the *real* teardown conditions (the
-real test runner tearing objects down off-main / under GC). A synthetic same-thread create/destroy
-loop would NOT reproduce the Swift async-deinit race and would give false confidence — verified
-reasoning, not speculation.
-
-Deliverable: a small documented `soak`/`stress` script per repo.
 
 ---
 

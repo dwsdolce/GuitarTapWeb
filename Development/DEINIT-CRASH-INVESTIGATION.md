@@ -66,4 +66,5 @@ Build once, loop `test-without-building` N times (skip slow playback), detect cr
 
 ## Pointers
 - Memory: `project_python_playback_gc_race` (full running log + the Python weakref fix of the sibling race).
-- Harness deliverable is a Phase 9 item in `PEAK-LIFECYCLE-PLAN-SWIFT.md` (soak/stress on all 3 platforms).
+- Harness deliverable = [SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md) (soak/stress on all 3 platforms;
+  this Swift `deinit-soak.sh` is the seed).
