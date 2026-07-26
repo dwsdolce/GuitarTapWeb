@@ -11,6 +11,8 @@ completed detail docs are archived in [Completed/](Completed/). Open items are t
 
 Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified · 🔶 deferred (not blocking).
 
+**▶ Next up (2026-07-25):** **10** — implement the re-entrancy guard · **9** — verify it reproduces first · **12** (release-prep) — user captures Windows + Linux Python reference datasets before shipping 1.0.2. Per the pre-release review, **no open item blocks 1.0.2**; these three are the pre-ship to-dos.
+
 | # | Item | State — next action | Detail |
 |---|---|---|---|
 | 1 | **Architectural-parity restructure** (view layer) | 📋 Write the spec first to size it; no code yet. Lands the 2 parked test items. | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
@@ -21,9 +23,10 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 6 | **Material multi-tap: Swift ~2 dB / sub-bin below Python/web** | 🔶 Not blocking. Same 4800-buffer cause as item 3 — resolve there. | MATERIAL-MULTITAP §3 |
 | 7 | **Results panel cross-platform consistency** | 📋 Post-release; presentation only (numbers correct). Spec against Swift first. | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) |
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
-| 9 | **Python: progress bar lingers after load-guitar-following-material** | ⏸ Parked 2026-07-17 — may be reset-timing, not a bug; confirm it reproduces first. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
-| 10 | **Swift export/save actions have no re-entrancy guard** | 📋 Open, hazard (not a reported bug). Export/save flags reset only on `NSSavePanel.begin` completion with no `.disabled(…)` → repeated clicks stack panels. Fix = early-return when in flight + overlay blocks hit-testing; check Python/web. | *(no doc — this row)* |
+| 9 | **Python: progress bar lingers after load-guitar-following-material** | ▶ **NEXT — verify it reproduces first** (was parked 2026-07-17; may be reset-timing, not a bug). If it reproduces, fix; else close. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
+| 10 | **Swift export/save actions have no re-entrancy guard** | ▶ **NEXT — implement** (hazard, not a reported bug). Export/save flags reset only on `NSSavePanel.begin` completion with no `.disabled(…)` → repeated clicks stack panels. Fix = early-return when in flight + overlay blocks hit-testing; check Python/web parity. | *(no doc — this row)* |
 | 11 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
+| 12 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
 
 ## Done (for reference)
 
