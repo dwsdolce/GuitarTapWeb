@@ -151,7 +151,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Step 4 — Inspect Peaks',
-        body: 'Coloured markers label each resonant peak with its mode, frequency, and pitch. In guitar mode, one peak per mode is auto-selected based on the strongest peak in each frequency range, working lowest-to-highest so overlapping ranges resolve in favour of the lower mode. Click a peak label to toggle its selection. Use the Annotations button to cycle through All / Selected / None label modes. In the Results panel, the Auto button resets selections back to automatic if you have made manual changes.',
+        body: 'Coloured markers label each resonant peak with its mode, frequency, and pitch. In guitar mode, one peak per mode is auto-selected based on the strongest peak in each frequency range, working lowest-to-highest so overlapping ranges resolve in favour of the lower mode. Click a peak label to toggle its selection. Use the Annotations button to cycle through All / Selected / None label modes. In the Results panel, the Auto button resets selections back to automatic if you have made manual changes. On desktop, clicking a peak’s dot highlights it and scrolls its Analysis Results row into view (and clicking a row highlights its dot); click either again to clear. This only locates a peak — it is separate from selection.',
       },
       {
         title: 'Step 5 — Read the Results',

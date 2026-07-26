@@ -68,7 +68,7 @@ export const RELEASES: RNRelease[] = [
           },
           {
             title: 'Spectrum Chart',
-            body: 'A live crosshair reads out frequency and magnitude wherever you point. The Peak Min threshold is drawn on the chart as a dashed line, so you can see exactly which peaks it is keeping. Bin Count is now shown with the analysis metrics.',
+            body: 'A live crosshair reads out frequency and magnitude wherever you point. The Peak Min threshold is drawn on the chart as a dashed line, so you can see exactly which peaks it is keeping. Bin Count is now shown with the analysis metrics. Clicking a peak dot now highlights it — the dot becomes a star and the matching row in the Results list scrolls into view and is outlined; clicking a Results row does the reverse, and clicking either again clears it. This highlight just helps you locate a peak — it is separate from selecting a peak with its star.',
           },
           {
             title: 'iPhone & Installed App',
