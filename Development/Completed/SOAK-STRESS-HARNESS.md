@@ -2,7 +2,14 @@
 
 A dev tool (NOT CI) to surface *nondeterministic* failures — teardown/GC races and hangs — that a
 single test run hides. Agreed with the user 2026-07-22; split out of the peak-lifecycle plan
-2026-07-25 (it is its own concern, not part of that rework). ⬜ NOT STARTED.
+2026-07-25 (it is its own concern, not part of that rework).
+
+✅ **DONE 2026-07-25.** Scripts written + committed all 3 (`Tooling/soak.sh` web + Python, portable bash
+for macOS/Linux/Cygwin; `Tooling/deinit-soak.sh` Swift with a live per-run tally). **Run-reviewed:** web
+200/200 clean; Python **1000 on Windows** clean (the platform where the reported QObject-GC crash lived)
++ an overnight live run; Swift's ASan soak reproduced and then **root-caused + fixed** the motivating
+`TapToneAnalyzer.deinit` teardown crash — see [DEINIT-CRASH-INVESTIGATION.md](DEINIT-CRASH-INVESTIGATION.md)
+(off-main teardown of a `@MainActor` object; fix = default the test target to `MainActor`).
 
 **Motivating cases** (the "teardown-race family" this exists to catch):
 - Swift **Combine `deinit` race** in `TapToneAnalyzer` — see

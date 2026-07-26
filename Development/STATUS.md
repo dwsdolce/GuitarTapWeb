@@ -24,7 +24,6 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 9 | **Python: progress bar lingers after load-guitar-following-material** | ⏸ Parked 2026-07-17 — may be reset-timing, not a bug; confirm it reproduces first. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
 | 10 | **Swift export/save actions have no re-entrancy guard** | 📋 Open, hazard (not a reported bug). Export/save flags reset only on `NSSavePanel.begin` completion with no `.disabled(…)` → repeated clicks stack panels. Fix = early-return when in flight + overlay blocks hit-testing; check Python/web. | *(no doc — this row)* |
 | 11 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
-| 12 | **Soak / stress harness (cross-platform dev tool)** | ⏳ Scripts written all 3 (`Tooling/soak.sh` web + Python; `Tooling/deinit-soak.sh` Swift), smoke-tested 2×. Run-review = a real soak (long N) on each. | [SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md) · [deinit crash](DEINIT-CRASH-INVESTIGATION.md) |
 
 ## Done (for reference)
 
@@ -44,6 +43,7 @@ Audit trail, not a to-do list.
 
 **Other completed this cycle:**
 
+- **Soak / stress harness + the deinit-crash it surfaced** ✅ DONE 2026-07-25. Cross-platform dev-tool soak scripts committed all 3 (`Tooling/soak.sh` web + Python, portable bash; `Tooling/deinit-soak.sh` Swift + a live per-run tally). Run-reviewed: web 200/200, **Python 1000 on Windows** (+ overnight live) — the platform where the reported QObject-GC crash lived — both clean. The Swift ASan soak reproduced and then **root-caused + fixed** the parked `TapToneAnalyzer.deinit` teardown crash: it was off-main teardown of the `@MainActor` analyzer's Combine `Published.Storage` under swift-testing parallelism (production releases on main via SwiftUI, so was never exposed); fix = default the **test** target to `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor` (no production code change), ASan-clean 93/100 where it tripped by run 5–8. | [SOAK-STRESS-HARNESS.md](Completed/SOAK-STRESS-HARNESS.md) · [DEINIT-CRASH-INVESTIGATION.md](Completed/DEINIT-CRASH-INVESTIGATION.md)
 - **Web chart-interaction bugs (3)** ✅ DONE. Bugs 1–2 (per-annotation Reset Position; Reset Labels enablement) landed with the peak-lifecycle RB work; Bug 3 — click a peak dot → highlight (red star) + scroll its results row into view, bidirectional, guitar/desktop only — `084599f` (2026-07-25, user-verified). | [WEB-CHART-INTERACTION-BUGS.md](Completed/WEB-CHART-INTERACTION-BUGS.md)
 - **Peak finding emitted a duplicate peak (CORE, all 3)** ✅ fixed + committed 2026-07-20. `findPeaks` interleaved detection with classification, so an overlapping Top/Back bin minted two peaks reconciled by id — every guitar capture saved one duplicate. Now a single mode-blind sweep (one peak per bin; Swift 211→77 lines); classification stays in `classifyAll`; existing files healed at decode (incl. `tapEntries`) with the library force-saved. Also fixed en route: Python card layer used frequency as identity in 3 places; Python `test/peaks` was mis-tagged + tested reimplementations; a pre-existing **flamenco band inversion** (→ top 180–220 / back 200–250); the false "non-overlapping bands" doc comment. Suites green (Swift 403 · Python 522 · web 305), parity clean (77 groups), **end-to-end playback validation passed on all 10 capture WAVs** (no dupes; resonances to ≤0.003 dB). Surfaced two new open items (Peak Min semantics; playback bit-identity). | [PEAK-FINDING-DUPLICATE-PEAKS.md](Completed/PEAK-FINDING-DUPLICATE-PEAKS.md)
 
@@ -87,8 +87,6 @@ Audit trail, not a to-do list.
 | [MATERIAL-MULTITAP-DISCREPANCIES.md](MATERIAL-MULTITAP-DISCREPANCIES.md) | Swift audio buffer size, Material multi-tap | multi-tap material analysis: buffer per-tap divergence, Gore-thickness validation |
 | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) | Playback bit-identity | replay ≠ live capture by ~0.02 dB (pre-existing capture-path gap); proven independent of the peak fix; re-run harness in playback-validation/ |
 | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) | frozen-recalc test divergence | Python drives real detection, Swift injects peaks — align the paired tests fixture-for-fixture |
-| [SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md) | Soak/stress harness (item 12) | cross-platform dev tool to surface teardown/GC races; split out of the peak-lifecycle Phase 9 |
-| [DEINIT-CRASH-INVESTIGATION.md](DEINIT-CRASH-INVESTIGATION.md) | Soak/stress harness (item 12) | Swift `TapToneAnalyzer.deinit` parallel-teardown crash investigation (parked) — the harness's motivating case |
 | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) | Results panel consistency | live Analysis Results panel — cross-platform divergences (screenshots in `images/`); §3 Gore nesting, §7 spacing |
 
 **Reference** (living — consult, don't complete)
@@ -105,6 +103,8 @@ Audit trail, not a to-do list.
 | Doc | Purpose |
 |---|---|
 | [RESPIN-1.0.2-PLAN.md](Completed/RESPIN-1.0.2-PLAN.md) | the 1.0.2 respin plan — all steps (0–7) done + committed on all 3; debug stripped; shipping is the user's call (item closed) |
+| [SOAK-STRESS-HARNESS.md](Completed/SOAK-STRESS-HARNESS.md) | cross-platform soak/stress dev tool (item 12) — ✅ done + run-reviewed (web 200, Python 1000 on Windows + overnight, Swift ASan) |
+| [DEINIT-CRASH-INVESTIGATION.md](Completed/DEINIT-CRASH-INVESTIGATION.md) | Swift `TapToneAnalyzer.deinit` parallel-teardown crash — ✅ RESOLVED (off-main teardown of the `@MainActor` analyzer; fix = default the test target to `MainActor`) |
 | [WEB-CHART-INTERACTION-BUGS.md](Completed/WEB-CHART-INTERACTION-BUGS.md) | the 3 web chart-interaction gaps vs Swift/Python — all ✅ done (Bugs 1–2 in the RB work, Bug 3 dot↔row highlight `084599f`) |
 | [PEAK-MIN-SEMANTICS.md](Completed/PEAK-MIN-SEMANTICS.md) | Peak Min semantics — full-set save (Option 4) + selection persistence (Option 1) + manual/doc correction; wand vs Re-analyze clarified — ✅ done (ships with the respin) |
 | [DOT-ANNOTATION-PARITY.md](Completed/DOT-ANNOTATION-PARITY.md) | dot vs annotation lists — items 1–2 ✅ done + user-verified (web dots onto the shared rule; `view/dot-layer` group all 3); item 3 absorbed into the peak-lifecycle work (done) |
