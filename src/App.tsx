@@ -839,18 +839,40 @@ export default function App() {
 
   // Export the CURRENT view as a single-page PDF report (live mirror of the Saved-Measurements
   // row menu's "Export PDF Report"), via the same measurement builder → measurementToPdfData.
-  const exportPdf = useCallback(() => {
+  // Guards the export handlers against re-entry and double-click, using synchronous refs. A useState
+  // flag / the button's `disabled` update too late to catch the 2nd click of a double-click, and on
+  // the download-fallback path (no showSaveFilePicker) the export finishes *instantly* — so an
+  // "in-flight" ref alone is already cleared (in `finally`) by the time the 2nd click's handler runs.
+  // So: `isExportingRef` blocks an overlapping export while a save picker is open, and the per-button
+  // `last…ExportRef` timestamps debounce a rapid repeat (the double-click) regardless of how fast the
+  // export completed. `isExporting` state only drives the button's disabled look.
+  const isExportingRef = useRef(false)
+  const lastPdfExportRef = useRef(0)
+  const lastSpectrumExportRef = useRef(0)
+  const [isExporting, setIsExporting] = useState(false)
+
+  const exportPdf = useCallback(async () => {
     const m = buildCurrentMeasurement(loadedName ?? '', '')
     if (!m) return
+    const now = performance.now()
+    if (isExportingRef.current || now - lastPdfExportRef.current < 700) return  // in-flight or double-click
+    isExportingRef.current = true
+    lastPdfExportRef.current = now
+    setIsExporting(true)
     // A report is a report — multi-tap and comparison included: no `-multitap-`/`-report-` infix,
     // "report" only as the unnamed default (§2b).
     const filename = `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'report')}.pdf`
     // Multi-tap guitar measurements always produce the two-page report (averaged + per-tap
     // comparison), mirroring Swift exportMultiTapPDFReport (gated on tapEntries, not the on-screen toggle).
-    if (m.tapEntries && m.tapEntries.length > 1) {
-      void exportMultiTapPdfReport(multiTapPdfData(m), filename)
-    } else {
-      void exportPdfReport(measurementToPdfData(m), filename)
+    try {
+      if (m.tapEntries && m.tapEntries.length > 1) {
+        await exportMultiTapPdfReport(multiTapPdfData(m), filename)
+      } else {
+        await exportPdfReport(measurementToPdfData(m), filename)
+      }
+    } finally {
+      isExportingRef.current = false
+      setIsExporting(false)
     }
   }, [buildCurrentMeasurement, loadedName])
 
@@ -994,7 +1016,12 @@ export default function App() {
   )
   // Export the CURRENT chart (whatever's displayed) as a PNG — same props passed to SpectrumChart.
   const canExportSpectrum = !!(displaySpectrum || comparison || showMultiTap || (material && matSpectra.longitudinal))
-  const exportSpectrumImage = useCallback(() => {
+  const exportSpectrumImage = useCallback(async () => {
+    const now = performance.now()
+    if (isExportingRef.current || now - lastSpectrumExportRef.current < 700) return  // in-flight or double-click
+    isExportingRef.current = true
+    lastSpectrumExportRef.current = now
+    setIsExporting(true)
     const opts: SpectrumImageOpts = {
       title: `FFT Peaks — ${loadedName ?? 'New'}`,
       spectrum: comparison || material || showMultiTap ? null : displaySpectrum,
@@ -1005,7 +1032,12 @@ export default function App() {
       guitarType: material || comparison ? undefined : guitarType,
       date: new Date().toLocaleString(),
     }
-    void exportSpectrumPng(opts, `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'spectrum')}.png`)
+    try {
+      await exportSpectrumPng(opts, `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'spectrum')}.png`)
+    } finally {
+      isExportingRef.current = false
+      setIsExporting(false)
+    }
   }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, loadedName, settings.measurementType, guitarType])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
@@ -1469,7 +1501,7 @@ export default function App() {
               <button
                 className="btn mini"
                 onClick={exportSpectrumImage}
-                disabled={!canExportSpectrum}
+                disabled={!canExportSpectrum || isExporting}
                 title={HINTS.exportSpectrum}
               >
                 ∿ Export Spectrum
@@ -1477,7 +1509,7 @@ export default function App() {
               <button
                 className="btn mini"
                 onClick={exportPdf}
-                disabled={!canExportSpectrum}
+                disabled={!canExportSpectrum || isExporting}
                 title="Export a single-page PDF report"
               >
                 ▤ Export PDF
