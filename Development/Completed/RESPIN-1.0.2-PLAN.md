@@ -6,42 +6,21 @@ deferred mess. Release is delayed — that is accepted. **Version stays 1.0.2; n
 (TestFlight accepts same version + new build). This is a **commit (not amend) on all three repos.**
 
 Detail docs: [IPAD-PLATE-PDF-SELECTION.md](IPAD-PLATE-PDF-SELECTION.md) (the selection bug + investigation),
-[STATUS.md](STATUS.md) (items 4/7–15), [WEB-PDF-MATERIAL-LAYOUT.md](WEB-PDF-MATERIAL-LAYOUT.md) (12 M/N),
-[MATERIAL-LIVE-ANNOTATION-DISPLAY.md](MATERIAL-LIVE-ANNOTATION-DISPLAY.md) (12 R live-annotation fix).
+[WEB-PDF-MATERIAL-LAYOUT.md](WEB-PDF-MATERIAL-LAYOUT.md) (M/N), [MATERIAL-LIVE-ANNOTATION-DISPLAY.md](MATERIAL-LIVE-ANNOTATION-DISPLAY.md) (R live-annotation fix).
 
 ---
 
-## ▶ RESUME HERE (paused 2026-07-17 night — user running more tests tomorrow)
+## ✅ COMPLETE — all planned work done; only shipping remains (the user's call)
 
-**Done + user-verified:** Step 0 (instrumentation removed), Step 1 (material-selection fix, all 3, incl.
-iPad device), Step 2 M/N/R (Swift chart + web legend + the live material-annotation fix on both natives).
-**Visibility-UI refinement 2026-07-18 (✅ user-verified all 3, suites green):** reverted the material All/None +
-Selected→All coercion — the button keeps 3 states everywhere; for material All == Selected (no per-peak
-selection), None hides; the shared setting is never coerced on type switch (that was clobbering the
-guitar preference). See the ⚠ note in "THE CORE DESIGN DECISION".
+All implementation steps (0–7) are **done + user-verified on all three platforms**, suites green,
+committed. **Debug instrumentation is fully removed:** the Step-0 **MTDBG** and the **`🔬RDBG`**
+material-annotation tracing are both gone, and the log flags are reset to false (Swift
+`_gtLogEnabled = false`, Python `_gt_log_enabled = False`); `grep -rn RDBG` is empty in all three. (A
+disabled, general-purpose `gtLog`/`gt_log` logging facility remains — that is not instrumentation.)
 
-**⚠ DEBUG INSTRUMENTATION IS DELIBERATELY STILL IN — DO NOT STRIP until the user finishes tomorrow's
-tests and says go.** It is the `🔬RDBG` material-annotation tracing (separate from the Step-0 MTDBG,
-which is already gone):
-- **Swift:** `Utilities/Logging.swift` `_gtLogEnabled = true`; `TapToneAnalyzer+SpectrumCapture.swift`
-  `rdbgMaterial(_:)` helper + 3 calls (`L-set`/`C-set`/`FLC-set`). Grep `RDBG`.
-- **Python:** `utilities/logging.py` `_gt_log_enabled = True`; `models/tap_tone_analyzer_spectrum_capture.py`
-  `_rdbg_material` helper + 3 calls. Grep `RDBG`.
-- Web has none.
-
-**NEXT (tomorrow, in order):**
-1. User finishes testing → **strip all `🔬RDBG` instrumentation + reset both log flags to false** (Swift
-   `_gtLogEnabled = false`, Python `_gt_log_enabled = False`). Verify `grep -rn RDBG` empty in both.
-2. **Step 3** — commit the `@parity model/quality-colors` comment + add a `@parity` slug for the new
-   `effectiveSelectedPeakIDs`/`materialIdentifiedPeaks` cross-platform concept; regenerate PARITY-MAP /
-   parity-index / TEST-COVERAGE.
-3. **Step 6** docs (manual/help: 3-state button; material has no per-peak selection so Selected shows all
-   identified peaks — same as All), **Step 7** poisoned-fixture 3-way test,
-   **Step 8** release notes + commit-not-amend all 3 (build numbers roll).
-
-**New parked items (see STATUS):** threshold input-level meter reads high on web (separate, needs its own
-investigation); progress-bar-lingers-on-guitar-load (PARKED, likely a cross-platform reset-timing
-non-bug — confirm before acting).
+**Step 8 (ship) is the only thing left, and it is the user's decision on their own criteria — NOT
+tracked work.** More release-note or other updates may land, unrelated to anything in this plan. The
+STATUS item for this respin is **closed** (moved to the Done section).
 
 ---
 
@@ -212,7 +191,7 @@ _Model helpers on `TapToneMeasurement`; save persists full set for material; loa
 
 ---
 
-## CURRENT TREE STATE (as of 2026-07-17, pre-implementation)
+## CURRENT TREE STATE — ✅ SUPERSEDED (historical pre-implementation snapshot; everything below is now implemented + committed on all three, kept for the audit trail)
 
 **Swift (`/Users/dws/src/GuitarTap`), build 398, all UNCOMMITTED:**
 - MTDBG instrumentation (Logging.swift flag; TapToneAnalyzer.swift didSet; Control.swift helper+calls;
@@ -235,8 +214,7 @@ new numbers after committing; keep release-note version strings in sync.
 
 ---
 
-## RESUME POINTER (post-compaction)
-Start at **Step 0** (remove Swift instrumentation), then Step 1. The whole selection fix is one rule:
-*material shows all of `peaks[]`; `selectedPeakIDs` is ignored on read and written as the full set;
-visibility is All/None.* Guitar untouched. Present per-repo diffs + test results for run-review BEFORE
-the user commits (present-then-pause). Nothing is committed until the user runs it.
+## RESUME POINTER — ✅ nothing to resume
+All steps (0–7) are done + committed on all three; only the user's ship decision remains. The one-rule
+summary, kept for reference: *material shows all of `peaks[]`; `selectedPeakIDs` is ignored on read and
+written as the full set; visibility is All/None.* Guitar untouched.

@@ -4,8 +4,8 @@
 scope. This file is a **status index, not a log** — one line per item: state, next action, pointer.
 The detail lives in each item's linked doc.
 
-_Last updated: 2026-07-20 — **1.0.2 RESPIN at Step 8 (ship)**, all holds off (user). Master plan =
-[RESPIN-1.0.2-PLAN.md](RESPIN-1.0.2-PLAN.md) (Steps 0–7 done; resume at Step 8)._
+_Last updated: 2026-07-25. The 1.0.2 respin and the peak-lifecycle rework are complete (see Done);
+completed detail docs are archived in [Completed/](Completed/). Open items are tracked below._
 
 ## Open work
 
@@ -13,28 +13,29 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 
 | # | Item | State — next action | Detail |
 |---|---|---|---|
-| 1 | **1.0.2 release (respin)** | 🔴 In progress. Steps 0–7 done; **NEXT = Step 8 ship** (re-test sweep → TestFlight/installers/redeploy). | [RESPIN-1.0.2-PLAN.md](RESPIN-1.0.2-PLAN.md) |
-| 2 | **Architectural-parity restructure** (view layer) | 📋 Write the spec first to size it; no code yet. Lands the 2 parked test items. | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
-| 3 | **Theme — Light/Dark/System** | 📋 Blocked on THEME-SPEC §8. Also owns the deferred colour-value/layer work. | [THEME-SPEC.md](THEME-SPEC.md) |
-| 4 | **Swift audio buffer size** (4800 frames, not the 1024 requested) | 🔶 Not blocking. **NEXT = iPad `buffer.frameLength` experiment**; do fix A first. | [AUDIO-BUFFER-SIZE.md](AUDIO-BUFFER-SIZE.md) · MATERIAL-MULTITAP §3 |
-| 5 | **Audio watchdog blind to a SILENT stream** | 🔶 Not blocking (self-recovers). Fix needs a signal-level criterion + design. | [AUDIO-WATCHDOG-SILENT-STREAM.md](AUDIO-WATCHDOG-SILENT-STREAM.md) |
-| 6 | **Project hub repo** (docs + cross-repo bug tracking) | 📋 Idea, needs a spec; no action yet. | [PROJECT-HUB-REPO.md](PROJECT-HUB-REPO.md) |
-| 7 | **Material multi-tap: Swift ~2 dB / sub-bin below Python/web** | 🔶 Not blocking. Same 4800-buffer cause as item 4 — resolve there. | MATERIAL-MULTITAP §3 |
-| 8 | **Results panel cross-platform consistency** | 📋 Post-release; presentation only (numbers correct). Spec against Swift first. | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) |
-| 9 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 4/7. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
-| 10 | **Web chart-interaction bugs (3)** | 📋 Open. Web-only gaps vs Swift/Python (per-annotation Reset Position; Reset Labels enable-state; click-dot → highlight/scroll row). | [WEB-CHART-INTERACTION-BUGS.md](WEB-CHART-INTERACTION-BUGS.md) |
-| 11 | **Python: progress bar lingers after load-guitar-following-material** | ⏸ Parked 2026-07-17 — may be reset-timing, not a bug; confirm it reproduces first. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
-| 12 | **Swift export/save actions have no re-entrancy guard** | 📋 Open, hazard (not a reported bug). Export/save flags reset only on `NSSavePanel.begin` completion with no `.disabled(…)` → repeated clicks stack panels. Fix = early-return when in flight + overlay blocks hit-testing; check Python/web. | *(no doc — this row)* |
-| 13 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
-| 14 | **Soak / stress harness (cross-platform dev tool)** | 📋 Open — NEXT. Loop the fast suite N× on all 3 platforms to surface teardown/GC races. | [SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md) · [deinit crash](DEINIT-CRASH-INVESTIGATION.md) |
+| 1 | **Architectural-parity restructure** (view layer) | 📋 Write the spec first to size it; no code yet. Lands the 2 parked test items. | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) |
+| 2 | **Theme — Light/Dark/System** | 📋 Blocked on THEME-SPEC §8. Also owns the deferred colour-value/layer work. | [THEME-SPEC.md](THEME-SPEC.md) |
+| 3 | **Swift audio buffer size** (4800 frames, not the 1024 requested) | 🔶 Not blocking. **NEXT = iPad `buffer.frameLength` experiment**; do fix A first. | [AUDIO-BUFFER-SIZE.md](AUDIO-BUFFER-SIZE.md) · MATERIAL-MULTITAP §3 |
+| 4 | **Audio watchdog blind to a SILENT stream** | 🔶 Not blocking (self-recovers). Fix needs a signal-level criterion + design. | [AUDIO-WATCHDOG-SILENT-STREAM.md](AUDIO-WATCHDOG-SILENT-STREAM.md) |
+| 5 | **Project hub repo** (docs + cross-repo bug tracking) | 📋 Idea, needs a spec; no action yet. | [PROJECT-HUB-REPO.md](PROJECT-HUB-REPO.md) |
+| 6 | **Material multi-tap: Swift ~2 dB / sub-bin below Python/web** | 🔶 Not blocking. Same 4800-buffer cause as item 3 — resolve there. | MATERIAL-MULTITAP §3 |
+| 7 | **Results panel cross-platform consistency** | 📋 Post-release; presentation only (numbers correct). Spec against Swift first. | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) |
+| 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
+| 9 | **Web chart-interaction bugs (3)** | 📋 Open. Web-only gaps vs Swift/Python (per-annotation Reset Position; Reset Labels enable-state; click-dot → highlight/scroll row). | [WEB-CHART-INTERACTION-BUGS.md](WEB-CHART-INTERACTION-BUGS.md) |
+| 10 | **Python: progress bar lingers after load-guitar-following-material** | ⏸ Parked 2026-07-17 — may be reset-timing, not a bug; confirm it reproduces first. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
+| 11 | **Swift export/save actions have no re-entrancy guard** | 📋 Open, hazard (not a reported bug). Export/save flags reset only on `NSSavePanel.begin` completion with no `.disabled(…)` → repeated clicks stack panels. Fix = early-return when in flight + overlay blocks hit-testing; check Python/web. | *(no doc — this row)* |
+| 12 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
+| 13 | **Soak / stress harness (cross-platform dev tool)** | 📋 Open — NEXT. Loop the fast suite N× on all 3 platforms to surface teardown/GC races. | [SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md) · [deinit crash](DEINIT-CRASH-INVESTIGATION.md) |
 
 ## Done (for reference)
 
 Audit trail, not a to-do list.
 
-- **Peak lifecycle — durability of per-peak state** ✅ DONE — full rework across Swift/Python/web (all phases + docs, user-verified, suites green 2026-07-25); soak/stress harness split to item 14. | [SWIFT plan](Completed/PEAK-LIFECYCLE-PLAN-SWIFT.md) · [PYTHON plan](Completed/PEAK-LIFECYCLE-PLAN-PYTHON.md) · [WEB plan](Completed/PEAK-LIFECYCLE-PLAN-WEB.md)
+- **Peak lifecycle — durability of per-peak state** ✅ DONE — full rework across Swift/Python/web (all phases + docs, user-verified, suites green 2026-07-25); soak/stress harness split to item 13. | [SWIFT plan](Completed/PEAK-LIFECYCLE-PLAN-SWIFT.md) · [PYTHON plan](Completed/PEAK-LIFECYCLE-PLAN-PYTHON.md) · [WEB plan](Completed/PEAK-LIFECYCLE-PLAN-WEB.md)
 
-**1.0.2 respin sub-work** (all committed; only *shipping* remains — the 1.0.2 respin item):
+- **1.0.2 release respin** ✅ all planned work DONE — Steps 0–7 (instrumentation strip · material-selection fix · chart M/N/R · `@parity` · docs · tests) committed + user-verified on all 3; MTDBG + `🔬RDBG` debug instrumentation stripped, log flags false. **Shipping (Step 8) is the user's call on their own criteria — untracked** (more release-note/other updates may land, unrelated to this plan). | [RESPIN-1.0.2-PLAN.md](Completed/RESPIN-1.0.2-PLAN.md)
+
+**1.0.2 respin sub-work** (all committed; shipping is the user's call — see the respin bullet above):
 
 - **iPad Swift plate/brace selection corruption** ✅ fix done + user-verified incl. the iPad DEVICE (2026-07-17). Material has no per-peak selection; the saved aggregate is ignored on read + healed on load, so the corruption is inert; corrupt files now render all three peaks everywhere. Visibility UI: 3-state button on every type, material All==Selected, no coercion (verified all 3, 2026-07-18). | [IPAD-PLATE-PDF-SELECTION.md](Completed/IPAD-PLATE-PDF-SELECTION.md)
 - **Swift/Python material chart/report defects (M/N/O/R)** ✅ done: **M** plate chips use L/C/FLC role labels; **N** legend `(L)`/`(C)` suffixes; **O** date format → comma (Swift/web separate date+time join, list + compact variants; Python already comma); **R** live material annotations show accumulated identified peaks progressively (both natives). | [WEB-PDF-MATERIAL-LAYOUT.md](Completed/WEB-PDF-MATERIAL-LAYOUT.md) §M–O
@@ -78,7 +79,6 @@ Audit trail, not a to-do list.
 **Open-work detail docs**
 | Doc | Item | Purpose |
 |---|---|---|
-| [RESPIN-1.0.2-PLAN.md](RESPIN-1.0.2-PLAN.md) | 1.0.2 release | master plan for the 1.0.2 respin (resume at Step 8) |
 | [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md) | Architectural-parity restructure | view-layer restructure — raw material; spec still to be written |
 | [THEME-SPEC.md](THEME-SPEC.md) | Theme | Light/Dark/System theme spec — blocked on §8 |
 | [AUDIO-BUFFER-SIZE.md](AUDIO-BUFFER-SIZE.md) | Swift audio buffer size | Swift's 4800-frame buffer (not 1024) → 3 symptoms; fixes A/B/C |
@@ -88,8 +88,8 @@ Audit trail, not a to-do list.
 | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) | Playback bit-identity | replay ≠ live capture by ~0.02 dB (pre-existing capture-path gap); proven independent of the peak fix; re-run harness in playback-validation/ |
 | [WEB-CHART-INTERACTION-BUGS.md](WEB-CHART-INTERACTION-BUGS.md) | Web chart-interaction bugs | 3 web-only behavioural gaps: per-annotation Reset Position, Reset Labels enablement, dot-click highlight + scroll-to-row |
 | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) | frozen-recalc test divergence | Python drives real detection, Swift injects peaks — align the paired tests fixture-for-fixture |
-| [SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md) | Soak/stress harness (item 14) | cross-platform dev tool to surface teardown/GC races; split out of the peak-lifecycle Phase 9 |
-| [DEINIT-CRASH-INVESTIGATION.md](DEINIT-CRASH-INVESTIGATION.md) | Soak/stress harness (item 14) | Swift `TapToneAnalyzer.deinit` parallel-teardown crash investigation (parked) — the harness's motivating case |
+| [SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md) | Soak/stress harness (item 13) | cross-platform dev tool to surface teardown/GC races; split out of the peak-lifecycle Phase 9 |
+| [DEINIT-CRASH-INVESTIGATION.md](DEINIT-CRASH-INVESTIGATION.md) | Soak/stress harness (item 13) | Swift `TapToneAnalyzer.deinit` parallel-teardown crash investigation (parked) — the harness's motivating case |
 | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) | Results panel consistency | live Analysis Results panel — cross-platform divergences (screenshots in `images/`); §3 Gore nesting, §7 spacing |
 
 **Reference** (living — consult, don't complete)
@@ -105,6 +105,7 @@ Audit trail, not a to-do list.
 **History** (done — audit trail)
 | Doc | Purpose |
 |---|---|
+| [RESPIN-1.0.2-PLAN.md](Completed/RESPIN-1.0.2-PLAN.md) | the 1.0.2 respin plan — all steps (0–7) done + committed on all 3; debug stripped; shipping is the user's call (item closed) |
 | [PEAK-MIN-SEMANTICS.md](Completed/PEAK-MIN-SEMANTICS.md) | Peak Min semantics — full-set save (Option 4) + selection persistence (Option 1) + manual/doc correction; wand vs Re-analyze clarified — ✅ done (ships with the respin) |
 | [DOT-ANNOTATION-PARITY.md](Completed/DOT-ANNOTATION-PARITY.md) | dot vs annotation lists — items 1–2 ✅ done + user-verified (web dots onto the shared rule; `view/dot-layer` group all 3); item 3 absorbed into the peak-lifecycle work (done) |
 | [IPAD-PLATE-PDF-SELECTION.md](Completed/IPAD-PLATE-PDF-SELECTION.md) | the iPad selection-corruption bug: investigation, Heisenbug, fix (✅ done; ships with the respin) |
@@ -127,6 +128,6 @@ Audit trail, not a to-do list.
 | [MATERIAL-RESULTS-PHASED-DISPLAY.md](Completed/MATERIAL-RESULTS-PHASED-DISPLAY.md) · [MEASUREMENT-DETAILS-CONSISTENCY.md](Completed/MEASUREMENT-DETAILS-CONSISTENCY.md) · [DATE-TIME-FORMAT-CONSISTENCY.md](Completed/DATE-TIME-FORMAT-CONSISTENCY.md) | consistency specs — implemented all 3 |
 | [SAMPLE-RATE-PLAN.md](Completed/SAMPLE-RATE-PLAN.md) | capture sample-rate recording — ✅ complete |
 | [PEAK-FINDING-DUPLICATE-PEAKS.md](Completed/PEAK-FINDING-DUPLICATE-PEAKS.md) | core `findPeaks` duplicate-peak defect, all 3 — ✅ fixed + committed (ships with the respin) |
-| [PEAK-LIFECYCLE-SPEC.md](Completed/PEAK-LIFECYCLE-SPEC.md) · [PEAK-LIFECYCLE-GAP-SWIFT.md](Completed/PEAK-LIFECYCLE-GAP-SWIFT.md) · [PEAK-LIFECYCLE-PLAN-SWIFT.md](Completed/PEAK-LIFECYCLE-PLAN-SWIFT.md) · [PEAK-LIFECYCLE-PLAN-PYTHON.md](Completed/PEAK-LIFECYCLE-PLAN-PYTHON.md) · [PEAK-LIFECYCLE-PLAN-WEB.md](Completed/PEAK-LIFECYCLE-PLAN-WEB.md) | peak-lifecycle rework — spec + gap audit + per-platform plans — ✅ done all 3 (soak/stress harness lives on as item 14) |
+| [PEAK-LIFECYCLE-SPEC.md](Completed/PEAK-LIFECYCLE-SPEC.md) · [PEAK-LIFECYCLE-GAP-SWIFT.md](Completed/PEAK-LIFECYCLE-GAP-SWIFT.md) · [PEAK-LIFECYCLE-PLAN-SWIFT.md](Completed/PEAK-LIFECYCLE-PLAN-SWIFT.md) · [PEAK-LIFECYCLE-PLAN-PYTHON.md](Completed/PEAK-LIFECYCLE-PLAN-PYTHON.md) · [PEAK-LIFECYCLE-PLAN-WEB.md](Completed/PEAK-LIFECYCLE-PLAN-WEB.md) | peak-lifecycle rework — spec + gap audit + per-platform plans — ✅ done all 3 (soak/stress harness lives on as item 13) |
 | [PEAK-SELECTION-SURVIVES-SLIDER.md](Completed/PEAK-SELECTION-SURVIVES-SLIDER.md) | the originating deselect-vs-Peak-Min bug — superseded by the lifecycle spec; kept for the root-cause trail |
 | [OVERRIDE-MARKER-CONSISTENCY.md](Completed/OVERRIDE-MARKER-CONSISTENCY.md) | overridden mode = italic + ` *` everywhere — ✅ complete + user-verified all 3 |
