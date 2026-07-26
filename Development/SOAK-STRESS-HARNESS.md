@@ -41,6 +41,40 @@ crashes and hangs. Optional/on-demand.
    NOT reproduce the Swift async-deinit race and would give false confidence — verified reasoning, not
    speculation.
 
-## Deliverable
+## Deliverable — ✅ scripts written (2026-07-25; smoke-tested, awaiting a real soak run-review)
 
-A small documented `soak`/`stress` script per repo (the Swift `deinit-soak.sh` is the existing seed).
+A small documented `soak`/`stress` script per repo, run on demand (e.g. `Tooling/soak.sh 200`):
+
+- **Swift** — `Tooling/deinit-soak.sh` (the original seed; builds once, loops the fast suite, scans for
+  new `.ips` crash reports — the deinit race crashes a worker out-of-band, so stdout is not the signal).
+- **Web** — `Tooling/soak.sh` (loops `vitest run` N× with `--testTimeout` for per-test hangs + a portable
+  per-run wall-clock cap; playback excluded).
+- **Python** — `Tooling/soak.sh` (loops `pytest` N× with a portable per-run cap; `--ignore` playback; no
+  plugin dependency — add `pytest-timeout --timeout=` for finer per-test hang detection if wanted).
+
+Each exits non-zero on any failure or hang. Green = **confidence, not proof**.
+
+## How to run
+
+From a terminal — on Windows use a **Cygwin / Git-Bash** shell (not cmd/PowerShell). The web + Python
+scripts are portable bash (macOS, Linux, Cygwin); Swift is macOS-only (xcodebuild). Each `cd`s to its own
+repo root. The argument is the run count `N` (default 100); use a few hundred to ~1000 for a real soak.
+
+```
+# Web  (needs node/npx on PATH)
+cd <GuitarTapWeb>;  ./Tooling/soak.sh 200            # 200 runs
+                    ./Tooling/soak.sh 200 15000      # + 15 s per-test timeout (default 10 s)
+
+# Python  (needs the venv, or python on PATH)
+cd <guitar_tap>;    ./Tooling/soak.sh 200
+
+# Swift  (macOS)
+cd <GuitarTap>;     ./Tooling/deinit-soak.sh 300
+```
+
+- Prints a running `pass=… fail=… hang=…` tally; **exits 0 only if every run passed** (usable in a script).
+  Ctrl-C stops early.
+- Env knobs: `SOAK_RUN_TIMEOUT=<seconds>` caps one wedged run (default 180); web takes a 2nd arg for the
+  per-test timeout; Python takes `PYTEST="…"` to point at a specific interpreter (it auto-detects
+  `.venv/bin` vs Windows `.venv/Scripts` otherwise).
+- If a fresh checkout marks a script non-executable (common on Windows), run `bash Tooling/soak.sh 200`.

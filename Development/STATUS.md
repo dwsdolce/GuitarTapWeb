@@ -24,7 +24,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 9 | **Python: progress bar lingers after load-guitar-following-material** | ⏸ Parked 2026-07-17 — may be reset-timing, not a bug; confirm it reproduces first. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
 | 10 | **Swift export/save actions have no re-entrancy guard** | 📋 Open, hazard (not a reported bug). Export/save flags reset only on `NSSavePanel.begin` completion with no `.disabled(…)` → repeated clicks stack panels. Fix = early-return when in flight + overlay blocks hit-testing; check Python/web. | *(no doc — this row)* |
 | 11 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
-| 12 | **Soak / stress harness (cross-platform dev tool)** | 📋 Open — NEXT. Loop the fast suite N× on all 3 platforms to surface teardown/GC races. | [SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md) · [deinit crash](DEINIT-CRASH-INVESTIGATION.md) |
+| 12 | **Soak / stress harness (cross-platform dev tool)** | ⏳ Scripts written all 3 (`Tooling/soak.sh` web + Python; `Tooling/deinit-soak.sh` Swift), smoke-tested 2×. Run-review = a real soak (long N) on each. | [SOAK-STRESS-HARNESS.md](SOAK-STRESS-HARNESS.md) · [deinit crash](DEINIT-CRASH-INVESTIGATION.md) |
 
 ## Done (for reference)
 
