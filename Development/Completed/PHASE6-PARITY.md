@@ -1,6 +1,6 @@
 # Phase 6 — Parity completion & analysis features (web)
 
-**Status:** in progress (updated 2026-06-28) — see the **Progress** checklist below. Builds on **Phase 5** (shipped, tracked outside this repo — no PHASE5
+**Status:** ✅ COMPLETE (this header was stale at "in progress, updated 2026-06-28"; the work landed — see the **Progress** checklist below). Builds on **Phase 5** (shipped, tracked outside this repo — no PHASE5
 doc): export PNG + PDF (single + saved-comparison), Play-File through the live pipeline +
 headless regression harness, device picker + calibration import, Pause/Cancel tap controls,
 draggable annotations + Reset Labels, per-capture "Dump Capture Audio". Canonical references:

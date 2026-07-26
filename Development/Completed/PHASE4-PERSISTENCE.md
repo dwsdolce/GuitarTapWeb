@@ -1,6 +1,6 @@
 # Phase 4 — Persistence & Measurements (web)
 
-**Status:** planning. Builds on Phase 3 (UI complete) and the sample-rate epic (Swift +
+**Status:** ✅ COMPLETE (this header was stale at "planning"; the web persistence/measurements work landed). Builds on Phase 3 (UI complete) and the sample-rate epic (Swift +
 Python + docs done; the web's load-time warning lands here). Canonical references:
 Swift `Views/Measurements/*`, `Models/TapToneMeasurement.swift`; Python mirror.
 

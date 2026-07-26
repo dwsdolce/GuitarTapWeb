@@ -1,6 +1,6 @@
 # Material Results — Phased (Stable) Display
 
-**Status: PROPOSED (not started).** Cross-platform UX rework, **Swift canonical**, implement
+**Status: ✅ DONE — implemented all 3 (2026-07-08), run-reviewed** (this header was stale at "PROPOSED (not started)"). Cross-platform UX rework, **Swift canonical**, implement
 **lock-step on all three** (Swift → Python → web) after review. Surfaced during the
 `view/material-results` review (item 5 ④), 2026-07-07.
 

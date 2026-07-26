@@ -370,7 +370,7 @@ landed; run-reviewed "runs smoothly"; tsc · 205 · build · parity 63). **NEXT 
   : autoIds`), mirroring Swift `applyFrozenPeakState` setting `selectedPeakIDs` in the same pass as `currentPeaks`.
 - **P3 — selection / overrides / annotation offsets → analyzer** (Swift's by-frequency preservation, incl.
   carrying a MANUAL selection across Peak Min id-churn — `applyFrozenPeakState` lines 608-629). **Tracked in
-  [RESTRUCTURE-NOTES.md](RESTRUCTURE-NOTES.md)** (user, 2026-07-11) — the most view-entangled slice, belongs with
+  [RESTRUCTURE-NOTES.md](../RESTRUCTURE-NOTES.md)** (user, 2026-07-11) — the most view-entangled slice, belongs with
   the view-layer restructure.
 
 **Risks:** loaded-peaks-authoritative (its own invariant + tests + [[project_loaded_peaks_authoritative]]) — the
