@@ -4,6 +4,9 @@ _Logged 2026-07-21 from run-review. These are **behavioural defects**, not the v
 architectural-parity item (that one is about structure). Swift and Python behave identically and
 correctly in all three cases; only the web diverges. Web-only fixes — no native changes._
 
+**STATUS 2026-07-25: ✅ ALL THREE DONE.** Bugs 1 + 2 were fixed during the peak-lifecycle
+annotation-offsets (RB) work; Bug 3 (the dot ↔ results-row cross-highlight) shipped in `084599f`.
+
 Shared native predicates the web lacks but can derive from `annotationOffsets` (keyed by `annoKey`):
 
 | Predicate | Swift | Python | Web equivalent |
@@ -13,7 +16,12 @@ Shared native predicates the web lacks but can derive from `annotationOffsets` (
 
 ---
 
-## Bug 1 — No per-annotation "Reset Position" (right-click a moved label)
+## Bug 1 — Per-annotation "Reset Position" (right-click a moved label) — ✅ DONE
+
+_Fixed in the RB work: `SpectrumChart.tsx` right-click hit-tests the badge rects (`badgeRectsRef`) and
+opens a per-label menu with **Reset Position** (`onContextMenu`, `:452-457`), disabled unless that label
+has moved; `App.tsx:1316` wires `onResetAnnotation` → `analyzer.resetAnnotationOffset`. The QuickStart
+claim is now accurate. Original report below._
 
 **Native behaviour:** right-clicking a peak label shows a context menu with **Reset Position**. The
 item is ALWAYS present and is **disabled unless that label has been moved** (disable-don't-hide).
@@ -40,7 +48,10 @@ match Swift's iOS behaviour. **Open decision.**
 
 ---
 
-## Bug 2 — "Reset Labels" is never disabled
+## Bug 2 — "Reset Labels" enablement — ✅ DONE
+
+_Fixed: `SpectrumChart.tsx:574` renders the menu item `disabled={!hasMovedLabels}`, fed by
+`hasMovedLabels={annotationOffsets.size > 0}` (`App.tsx:1317`). Original report below._
 
 **Native behaviour:** the chart context menu's **Reset Labels** is disabled when no label has moved.
 
@@ -54,7 +65,12 @@ enablement check — so it is always enabled.
 
 ---
 
-## Bug 3 — Clicking a peak dot does nothing
+## Bug 3 — Clicking a peak dot does nothing — ✅ DONE (`084599f`, 2026-07-25)
+
+_Fixed: `highlightedPeakId` on the analyzer (toggled by clicking a dot or its results card — same id
+clears); `spectrumRender` emits dot hit-points (30px radius, matching Swift's `nearestPeak`) and draws
+the highlighted dot as a red star; `PeakCard` gets a ring + `scrollIntoView` + the reverse click. Gated
+to guitar + desktop (off on touch, matching Swift's macOS-only behaviour). Original report below._
 
 **Native behaviour:** clicking/tapping a peak dot **highlights** that peak (this is the highlight,
 NOT the selection star) and the results list scrolls the matching row into view. Bidirectional —
@@ -79,5 +95,4 @@ mobile behaviour).
 
 ---
 
-**Suggested order:** Bugs 1 + 2 together (small, share the two predicates above, and Bug 1 also
-un-breaks the Quick Start). Bug 3 separately as a real feature.
+**Order:** all three done — Bugs 1 + 2 (RB work), Bug 3 (`084599f`, 2026-07-25).
