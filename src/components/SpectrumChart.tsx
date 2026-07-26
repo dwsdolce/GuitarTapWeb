@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { renderSpectrum, chartGeometry, DARK_CHART } from '../presentation/spectrumRender'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import type { PeakMarker, AnnotationRect, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
+import type { PeakMarker, AnnotationRect, DotHit, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
 import { RefreshIcon } from './icons'
 
 /** Props for {@link SpectrumChart} — spectrum data, axis range, overlays/markers, and interaction callbacks. */
@@ -42,6 +42,11 @@ export interface SpectrumChartProps {
   /** Touch crosshair mode — owned by the parent (the toggle lives on the control bar, like iOS).
    *  When true, a one-finger drag moves the crosshair instead of panning. */
   crosshairMode?: boolean
+  /** The highlighted peak id (dot ↔ results-row cross-highlight) — its dot renders as a red star. */
+  highlightedPeakId?: number | null
+  /** Clicking a peak dot toggles the highlight (desktop only — the parent omits this on touch, so the
+   *  dot-click is inert there, matching Swift's macOS-only behaviour). */
+  onToggleHighlight?: (id: number) => void
 }
 
 // Limits mirror SpectrumView+GestureHandlers.swift.
@@ -95,6 +100,8 @@ export function SpectrumChart({
   hasMovedLabels = false,
   frozen = false,
   crosshairMode = false,
+  highlightedPeakId = null,
+  onToggleHighlight,
 }: SpectrumChartProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [showHelp, setShowHelp] = useState(false)
@@ -134,9 +141,14 @@ export function SpectrumChart({
   onViewChangeRef.current = onViewChange
   const onAnnotationDragRef = useRef(onAnnotationDrag)
   onAnnotationDragRef.current = onAnnotationDrag
+  const onToggleHighlightRef = useRef(onToggleHighlight)
+  onToggleHighlightRef.current = onToggleHighlight
   // Badge screen rects from the most recent render — refreshed every draw, read by the
   // pointer handler for hit-testing (CSS px, matching pointer coords).
   const badgeRectsRef = useRef<AnnotationRect[]>([])
+  // Peak-dot screen positions from the most recent render — same refresh/read pattern, used to
+  // hit-test a mouse click back to a peak for the dot ↔ results-row highlight.
+  const dotRectsRef = useRef<DotHit[]>([])
 
   // ── Draw ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -154,6 +166,7 @@ export function SpectrumChart({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     badgeRectsRef.current = []
+    dotRectsRef.current = []
     renderSpectrum(ctx, W, H, {
       spectrum,
       markers,
@@ -164,10 +177,12 @@ export function SpectrumChart({
       theme: DARK_CHART,
       view: { minHz, maxHz, minDb, maxDb },
       badgeRectsOut: badgeRectsRef.current,
+      dotRectsOut: dotRectsRef.current,
+      highlightedPeakId,
       crosshair: hover,
       frozen,
     })
-  }, [spectrum, markers, overlays, title, guitarType, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen])
+  }, [spectrum, markers, overlays, title, guitarType, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen, highlightedPeakId])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
   // @parity view/spectrum-gestures — the web co-locates gestures with the chart
@@ -276,6 +291,19 @@ export function SpectrumChart({
       }
       return null
     }
+    // Nearest peak dot within its hit radius (CSS px), for the dot ↔ results-row highlight click.
+    const hitDot = (px: number, py: number): DotHit | null => {
+      let best: DotHit | null = null
+      let bestD = Infinity
+      for (const d of dotRectsRef.current) {
+        const dd = (px - d.x) ** 2 + (py - d.y) ** 2
+        if (dd <= d.r * d.r && dd < bestD) {
+          bestD = dd
+          best = d
+        }
+      }
+      return best
+    }
 
     // Single-pointer drag-pan (mouse or one finger), region-aware.
     let dragRegion: Region = 'outside'
@@ -291,6 +319,10 @@ export function SpectrumChart({
     const pointers = new Map<number, { x: number; y: number }>()
     let pinch: { startDist: number; aHz: number; aDb: number; region: Region; view: ChartView } | null = null
     let crosshairTouch: number | null = null // pointerId of a touch positioning the crosshair (crosshair mode)
+    // A plain mouse press in the plot (not a badge grab / pan / pinch), tracked so pointer-up can tell a
+    // click (toggle the peak-dot highlight) from a drag. Mouse only — the parent gates onToggleHighlight
+    // off on touch, so this stays inert there anyway.
+    let pressStart: { x: number; y: number } | null = null
     const dist = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y)
 
     const onDown = (e: PointerEvent) => {
@@ -342,6 +374,9 @@ export function SpectrumChart({
       sx = e.clientX
       sy = e.clientY
       start = { ...viewRef.current }
+      // Plain mouse press in the plot — remember it so pointer-up can distinguish a click (toggle the
+      // peak-dot highlight) from a pan.
+      pressStart = e.pointerType === 'mouse' ? { x: e.clientX, y: e.clientY } : null
     }
     const onMove = (e: PointerEvent) => {
       // Touch crosshair mode: the finger drags the crosshair.
@@ -403,6 +438,17 @@ export function SpectrumChart({
         }
         return
       }
+      // A click (not a pan/drag) on a peak dot toggles its highlight. Checked here, before the gesture
+      // state is torn down, so a real pan (moved > 4px) or a badge drag/pinch is excluded.
+      if (pressStart && onToggleHighlightRef.current && !annoDrag && !pinch) {
+        const moved = Math.abs(e.clientX - pressStart.x) + Math.abs(e.clientY - pressStart.y) > 4
+        if (!moved) {
+          const rect = canvas.getBoundingClientRect()
+          const dot = hitDot(e.clientX - rect.left, e.clientY - rect.top)
+          if (dot) onToggleHighlightRef.current(dot.id)
+        }
+      }
+      pressStart = null
       pointers.delete(e.pointerId)
       if (annoDrag) {
         annoDrag = null

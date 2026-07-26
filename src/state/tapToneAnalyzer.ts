@@ -150,6 +150,10 @@ export class TapToneAnalyzer {
   // re-runs auto-selection; true → the selection is carried forward by frequency. Swift
   // `userHasModifiedPeakSelection`. (Phase 5's enforce-uniqueness will read/maintain this same state.)
   userModifiedSelection = false
+  // The highlighted peak — transient VIEW state for the chart-dot ↔ results-row cross-highlight; NOT
+  // selection and NOT measurement state (lives here like Swift/Python `highlightedPeakID`, but is never
+  // persisted). Toggled by clicking a peak dot or its results row (desktop only); cleared on a fresh sequence.
+  highlightedPeakId: number | null = null
   materialTapPhase: MaterialTapPhase = 'notStarted'
   // Material (plate/brace) result data — the per-phase averaged spectra + located peaks. Owned by the
   // analyzer, mirroring Swift longitudinalSpectrum/crossSpectrum/flcSpectrum + the material peaks. 3c-C3.
@@ -346,6 +350,7 @@ export class TapToneAnalyzer {
     this.selectedPeakIds = new Set()
     this.selectedPeakFrequencies = []
     this.userModifiedSelection = false
+    this.highlightedPeakId = null
     this.isMeasurementComplete = false // setter also clears the loaded-settings warning
     this.notify()
   }
@@ -713,6 +718,14 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
+  /** Toggle the highlighted peak (clicking its chart dot or its results row): same id → clear, else set.
+   *  Mirrors Swift's macOS dot `.onTapGesture` toggle and the results-row tap (both toggle). Transient
+   *  view state — not selection, not persisted. */
+  toggleHighlightedPeak(id: number): void {
+    this.highlightedPeakId = this.highlightedPeakId === id ? null : id
+    this.notify()
+  }
+
   // ── Material (plate/brace) phase machine (mirrors Swift TapToneAnalyzer+SpectrumCapture) ──────────
   // The analyzer holds a REFERENCE to the device (Swift's TapToneAnalyzer owns fftAnalyzer); its
   // lifecycle stays in useAudioEngine until C5. Material transitions arm/checkpoint it and read its
@@ -1042,6 +1055,7 @@ export class TapToneAnalyzer {
         annotationOffsets: this.annotationOffsets,
         selectedPeakIds: this.selectedPeakIds,
         userModifiedSelection: this.userModifiedSelection,
+        highlightedPeakId: this.highlightedPeakId,
         canReanalyze: this.canReanalyze,
         matSpectra: this.matSpectra,
         matPeaks: this.matPeaks,
@@ -1219,6 +1233,8 @@ export interface TapToneSnapshot {
   selectedPeakIds: Set<number>
   /** Whether the selection was hand-modified since the last auto-select (drives the wand's enabled state). */
   userModifiedSelection: boolean
+  /** The highlighted peak id (chart-dot ↔ results-row cross-highlight), or null. Transient view state. */
+  highlightedPeakId: number | null
   /** Whether the Re-analyze button is offered (any complete guitar measurement with a frozen
    *  spectrum; never material). See `TapToneAnalyzer.canReanalyze` for why it is not a dirty flag. */
   canReanalyze: boolean

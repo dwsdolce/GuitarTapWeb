@@ -1317,6 +1317,12 @@ export default function App() {
               hasMovedLabels={annotationOffsets.size > 0}
               frozen={captured != null || (material && matPhase === 'complete')}
               crosshairMode={crosshairMode}
+              highlightedPeakId={comparison || showMultiTap ? null : snapshot.highlightedPeakId}
+              // Dot ↔ results-row highlight is a guitar, desktop-only feature (mirrors Swift's macOS-only
+              // behaviour — on touch the results panel is a modal overlay, so cross-highlight is moot).
+              onToggleHighlight={
+                isTouch || comparison || showMultiTap || material ? undefined : (id) => analyzer.toggleHighlightedPeak(id)
+              }
             />
           </div>
           {material && !comparison && (
@@ -1433,6 +1439,9 @@ export default function App() {
                         onToggle={() => toggleSelect(p.id)}
                         onSetLabel={(label) => analyzer.setModeOverride(p.id, label)}
                         onResetLabel={() => analyzer.resetModeOverride(p.id)}
+                        highlighted={snapshot.highlightedPeakId === p.id}
+                        // Reverse direction (row → dot): desktop only, matching the chart's dot click.
+                        onHighlight={isTouch ? undefined : () => analyzer.toggleHighlightedPeak(p.id)}
                       />
                     )
                   })}

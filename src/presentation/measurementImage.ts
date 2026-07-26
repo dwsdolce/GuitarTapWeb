@@ -96,6 +96,7 @@ export function buildGuitarMarkers(
     const annotated = annotationMode === 'all' ? true : annotationMode === 'selected' ? selectedIds.has(p.id) : false
     const note = pitch.note(p.frequency)
     return {
+      id: p.id,
       frequency: p.frequency,
       magnitude: p.magnitude,
       color: override != null

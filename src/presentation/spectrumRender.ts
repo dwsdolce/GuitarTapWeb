@@ -7,10 +7,35 @@
 import type { Spectrum } from '../dsp/guitarFFT'
 import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_COLOR, MODE_LABEL } from './modeColors'
-import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect } from './chartTypes'
+import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect, DotHit } from './chartTypes'
 
 export function fmtFreq(hz: number): string {
   return hz >= 1000 ? `${(hz / 1000).toFixed(2)} kHz` : `${hz.toFixed(1)} Hz`
+}
+
+/** Fill a `points`-pointed star centred at (cx, cy) between `outerR` and `innerR`. Used for the
+ *  highlighted peak dot (mirrors Swift's `star.fill`). */
+function drawStar(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  points: number,
+  outerR: number,
+  innerR: number,
+  color: string,
+): void {
+  ctx.beginPath()
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outerR : innerR
+    const a = (Math.PI / points) * i - Math.PI / 2 // first point up
+    const x = cx + r * Math.cos(a)
+    const y = cy + r * Math.sin(a)
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.closePath()
+  ctx.fillStyle = color
+  ctx.fill()
 }
 
 export function niceLinearTicks(minHz: number, maxHz: number): number[] {
@@ -98,6 +123,12 @@ export interface RenderOpts {
   theme?: ChartTheme
   /** When provided, the renderer pushes each drawn (keyed) badge's screen rect here for hit-testing. */
   badgeRectsOut?: AnnotationRect[]
+  /** When provided, the renderer pushes each drawn dot's screen centre+radius+id here, so a click can
+   *  hit-test back to a peak (the dot ↔ results-row highlight). Live chart only. */
+  dotRectsOut?: DotHit[]
+  /** The highlighted peak id (dot ↔ results-row cross-highlight) — its dot renders as a red star
+   *  (mirrors Swift's macOS highlighted `star.fill`). Live chart only; omit for exports. */
+  highlightedPeakId?: number | null
   /** Live pointer crosshair (CSS px). Always-on hover readout; mirrors Python fft_canvas
    *  `_on_mouse_moved` / Swift desktop crosshair. Omitted for exports (no crosshair in PNG/PDF). */
   crosshair?: { x: number; y: number } | null
@@ -265,10 +296,21 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   // Peaks below the visible dB floor are omitted (Swift `.filter { $0.magnitude >= minDB }`).
   for (const m of markers) {
     if (m.frequency < minHz || m.frequency > maxHz || m.magnitude < minDb) continue
-    ctx.beginPath()
-    ctx.arc(xFor(m.frequency), yFor(m.magnitude), 4, 0, Math.PI * 2)
-    ctx.fillStyle = m.color ?? '#8a96a5'
-    ctx.fill()
+    const cx = xFor(m.frequency)
+    const cy = yFor(m.magnitude)
+    if (m.id != null && m.id === opts.highlightedPeakId) {
+      // The highlighted peak renders as a red star, enlarged (Swift's macOS highlighted `star.fill`,
+      // symbolSize 120 vs the normal circle's 40).
+      drawStar(ctx, cx, cy, 5, 8, 3.5, '#ff3b30') // systemRed
+    } else {
+      ctx.beginPath()
+      ctx.arc(cx, cy, 4, 0, Math.PI * 2)
+      ctx.fillStyle = m.color ?? '#8a96a5'
+      ctx.fill()
+    }
+    // Hit radius 30 (CSS px) matches Swift's nearestPeak hitRadius — a forgiving click target; the
+    // nearest dot within it wins (hitDot in SpectrumChart).
+    if (opts.dotRectsOut && m.id != null) opts.dotRectsOut.push({ id: m.id, x: cx, y: cy, r: 30 })
   }
   ctx.restore()
 

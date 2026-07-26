@@ -1,4 +1,5 @@
 // @parity view/peak-card
+import { useRef, useEffect } from 'react'
 import type { Peak } from '../dsp/peaks'
 import type { ResolvedMode } from '../dsp/classify'
 import {
@@ -58,6 +59,12 @@ export interface PeakCardProps {
   onSetLabel: (label: string) => void
   /** Clear the override and revert to the auto-classified mode. */
   onResetLabel: () => void
+  /** This peak is the highlighted one (dot ↔ row cross-highlight) → the card gets a ring + scrolls
+   *  into view. Distinct from `selected` (the star). */
+  highlighted?: boolean
+  /** Clicking the card body toggles the highlight (the reverse of clicking the chart dot). Omitted on
+   *  touch, where the feature is off — so the card is inert. */
+  onHighlight?: () => void
 }
 
 const RESET = '__reset__'
@@ -81,7 +88,15 @@ export function PeakCard({
   onToggle,
   onSetLabel,
   onResetLabel,
+  highlighted = false,
+  onHighlight,
 }: PeakCardProps) {
+  // Scroll the card into view when it becomes the highlighted one (mirrors Swift's
+  // scrollTo on highlightedPeakID change). `nearest` avoids re-scrolling an already-visible row.
+  const cardRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (highlighted) cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [highlighted])
   const autoName = MODE_DISPLAY_NAME[mode]
   // Glyph + colour follow the EFFECTIVE (possibly overridden) label, like Swift — a manual override
   // swaps both. A custom label that isn't a known mode gets the tag glyph in teal.
@@ -105,10 +120,22 @@ export function PeakCard({
   }
 
   return (
-    <div className="peak-card" style={{ background: `${color}14`, borderLeftColor: color }}>
+    <div
+      ref={cardRef}
+      className={`peak-card${highlighted ? ' highlighted' : ''}`}
+      style={{
+        background: `${color}14`,
+        borderLeftColor: color,
+        boxShadow: highlighted ? `0 0 0 2px ${color}` : undefined,
+      }}
+      onClick={onHighlight}
+    >
       <button
         className="star"
-        onClick={onToggle}
+        onClick={(e) => {
+          e.stopPropagation() // the star toggles selection, not the highlight
+          onToggle()
+        }}
         aria-label={selected ? 'Deselect peak' : 'Select peak'}
         title={selected ? 'Deselect peak' : 'Select peak'}
       >
@@ -132,6 +159,7 @@ export function PeakCard({
             className={`mode-select${isManualOverride ? ' override' : ''}`}
             style={{ color }}
             value={effectiveLabel}
+            onClick={(e) => e.stopPropagation()} // opening the mode dropdown must not toggle the highlight
             onChange={(e) => onPick(e.target.value)}
             title={isManualOverride ? 'Manually assigned — click to change or reset' : 'Click to assign a mode label'}
           >
