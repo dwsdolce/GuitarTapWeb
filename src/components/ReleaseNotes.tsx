@@ -124,6 +124,10 @@ export const RELEASES: RNRelease[] = [
             body: 'Dump Capture Audio previously wrote both a WAV for every tap and a continuous recording of the whole session. It now writes only the continuous session recording, which already contains every approved tap in capture order — the per-tap files were redundant. In the browser, captured audio downloads to your Downloads folder.',
           },
           {
+            title: 'Entering Numbers',
+            body: 'Numeric fields now keep a consistent precision. Each field accepts only as many decimal places as it actually uses — plate and brace dimensions to 0.01 mm, mass to 0.1 g, and body dimensions, the display frequency range, and the magnitude range to whole units — and declines an extra digit as you type. The value you enter is therefore exactly what is stored and what appears in Settings, the measurement, and the report. Previously a field could show more decimals than it kept, so a saved value could read back a hair different from what you typed.',
+          },
+          {
             title: 'Saving',
             body: 'Saving a measurement now requires a name, so every measurement is identifiable at a glance in the list and in exports. The Save button stays disabled until you enter one; notes remain optional.',
           },
