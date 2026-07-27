@@ -1,6 +1,34 @@
 # Numeric Precision Consistency — spec (all three editions)
 
-**Status:** 📋 spec written, not started (2026-07-26). Cross-platform (Swift canonical · Python · web).
+**Status:** 🔨 in progress (2026-07-26). **Swift ✅ done + committed + user-verified.** Python + web
+remaining — see Resume below.
+
+## Resume (for a fresh session)
+
+Swift is the committed reference — read `GuitarTap/Models/FieldPrecision.swift` (the module + the
+in-code precision table) and its wiring (below) as the model to mirror. Remaining:
+
+- **Python** ⬜ — mirror `FieldPrecision` (same table, `@parity util/field-precision`) as a module (e.g.
+  `models/field_precision.py`); **restrict entry** on every settings field with a validator whose
+  decimals = the field's `P` (`QDoubleValidator`, or a regex mirroring `decimalsWithin` — 0-decimal
+  fields reject the `.` outright); keep round-to-`P` on commit as a safety net; format every dimension
+  display in `tap_analysis_results_view.py` (report) via the constant (Length/Width → 2 dp to match).
+  Entry point: `tap_tone_analysis_view.py` `_dim_field` / `_pf` + the freq/dB/threshold fields.
+- **Web** ⬜ — mirror `FieldPrecision` as `src/precision.ts`; `NumberField` (`SettingsPanel.tsx`)
+  **rejects over-precise input** (reject on change; `step = P`) and displays at `P`; align
+  `MaterialResults.tsx` (`f1/f2/f3`) and `presentation/pdfReport.ts` (`toFixed`) to the per-field `P`.
+- **After all 3:** confirm `@parity util/field-precision` on each of the three + **regenerate
+  PARITY-MAP** (it is a Swift-only orphan until then).
+- **Release notes** ⬜ — update on **all three** editions (the numbers now enforce/display a consistent
+  per-field precision; brace/plate linear dims are 2 dp). See `[[project_doc_surfaces]]` for the exact
+  files.
+- **User manual** ⬜ — consider a short note on entry precision (per-field decimal limits). **NOT** the
+  in-app Help/Quick-Start (user's call). Shared manual under `GuitarTap/Documentation/manual`.
+
+**Swift wiring landed (the reference):** `FieldPrecision.swift` (constants + `string()`/`rounded()`/
+`decimalsWithin()`); `TapSettingsView.limitedInput(_:_:)` binding wraps all 16 settings fields (12
+direct `TextField`s + 4 freq/dB range-row bindings); commit rounds via `FieldPrecision.rounded`; PDF
+`Sample Dimensions` rows format via the constant. Input, storage, display agree per field.
 
 ## Problem
 
@@ -34,8 +62,10 @@ Three axes must agree **per field**:
 Define **one precision `P` per field**, as a single source of truth, applied identically on all three
 editions:
 
-1. **Input** — on commit, round the entered value to `P`; the field immediately re-displays the rounded
-   value. That redisplay *is* the feedback (type `4.356778` → the field shows `4.36`). No error dialog.
+1. **Input** — the field **restricts entry to `P` decimals**: a keystroke that would exceed `P`
+   fractional digits is rejected, so the over-precise digit never appears (a 2-dp field accepts
+   `29.35` but not `29.356`). No apply/re-display round-trip needed. Round-on-commit is retained only
+   as a safety net for values that reach settings by a non-typed path.
 2. **Storage** — persist the `P`-rounded value to **both** settings and the measurement. (Round to `P`
    *before* the `f32` encode so the stored bits equal the displayed value.)
 3. **Display** — every on-screen and PDF site shows the value at `P`. No context-dependent re-rounding.
@@ -79,14 +109,14 @@ Display-only (no input round-trip), but pin one precision each so a value reads 
 
 ## Per-platform work
 
-- **Swift (most work — it's the offender).** Replace the ad-hoc `String(format: "%.Nf", …)` `@State`
-  seeds and the save-parse with a per-field precision constant; round on commit; format the field and
-  every display/PDF site (`PDFReportGenerator`, results views) from the same constant. Round to `P`
-  before writing `Float` settings and before the measurement `f32` encode.
-- **Python.** Input (`_dim_field`/`_pf`) is already faithful; add round-to-`P` on commit + `P`-format
-  display, and align the report/results f-strings to the same per-field `P`.
-- **Web.** `NumberField`: round-to-`P` on change/blur, display at `P`, set `step = P`; align
-  `MaterialResults` (`f1/f2/f3`) and `pdfReport` (`toFixed`) to the per-field `P`.
+- **Swift** ✅ done. `FieldPrecision` (per-field constants + `string()` / `rounded()` /
+  `decimalsWithin()`, with the table documented in-code). A `limitedInput` binding **rejects any
+  keystroke beyond `P` decimals** on every settings field; round-on-commit kept as a safety net; all
+  seeds and the PDF Sample-Dimensions rows format via the constant.
+- **Python.** Mirror `FieldPrecision`; restrict entry with a validator (decimals = `P`, e.g.
+  `QDoubleValidator`/regex) on each field; align the report/results f-strings to the per-field `P`.
+- **Web.** Mirror `FieldPrecision`; `NumberField` **rejects over-precise input** (reject on change;
+  `step = P`) and displays at `P`; align `MaterialResults` (`f1/f2/f3`) and `pdfReport` (`toFixed`).
 
 ## Constraints
 
@@ -97,9 +127,9 @@ Display-only (no input round-trip), but pin one precision each so a value reads 
 
 ## Acceptance
 
-1. Enter an over-precise value (`4.356778`) in each field on each edition → the field snaps to `P`, and
-   the **same** value appears identically in Settings, the saved `.guitartap`, the on-screen results,
-   and the PDF.
+1. In each field on each edition, a keystroke beyond `P` decimals is **refused** (a 2-dp field won't
+   accept `29.356`); the value shown is what's stored, and it appears identically in Settings, the
+   saved `.guitartap`, the on-screen results, and the PDF.
 2. Merely opening + applying Settings never changes any stored value (the Swift drift is gone).
 3. Cross-platform: a value saved on one edition reads identically on the others (already true via `f32`;
    now display-consistent too).

@@ -11,7 +11,7 @@ completed detail docs are archived in [Completed/](Completed/). Open items are t
 
 Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified · 🔶 deferred (not blocking).
 
-**▶ Next up:** **12** implement the numeric-precision spec · **9** verify the Python progress-bar repro (fix or close) · **11** (release-prep) capture Windows + Linux Python datasets before 1.0.2. No open item blocks 1.0.2.
+**▶ Next up:** **12** — Swift ✅ done; do the Python + web mirrors + release-notes (see spec Resume) · **9** verify the Python progress-bar repro (fix or close) · **11** (release-prep) capture Windows + Linux Python datasets before 1.0.2. No open item blocks 1.0.2.
 
 | # | Item | State — next action | Detail |
 |---|---|---|---|
@@ -26,7 +26,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 9 | **Python: progress bar lingers after load-guitar-following-material** | ▶ **NEXT — verify it reproduces first** (was parked 2026-07-17; may be reset-timing, not a bug). If it reproduces, fix; else close. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
 | 10 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 11 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
-| 12 | **Numeric precision consistency (all 3)** | 📋 Spec written, not started. One precision `P` per field; input/storage/display agree. | [NUMERIC-PRECISION-SPEC.md](NUMERIC-PRECISION-SPEC.md) |
+| 12 | **Numeric precision consistency (all 3)** | 🔨 Swift ✅ committed + user-verified. Python + web mirrors + release-notes remaining (see spec Resume). | [NUMERIC-PRECISION-SPEC.md](NUMERIC-PRECISION-SPEC.md) |
 
 ## Done (for reference)
 
