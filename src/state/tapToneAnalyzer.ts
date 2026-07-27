@@ -327,6 +327,14 @@ export class TapToneAnalyzer {
     }))
     this.capturedTaps = [] // a loaded measurement has no raw taps (Swift doesn't restore them) — keeps
     this.analysisAnnounced = false // the "Analysis complete" guard off so load shows "Loaded measurement (frozen)"
+    // Tear down any in-progress capture the load interrupts (e.g. a plate sequence abandoned mid-phase),
+    // mirroring Swift loadMeasurement (SpectrumCapture:724-728 + materialTapPhase = .complete). Without
+    // this, an interrupted material capture leaves currentTapCount/isDetecting/materialTapPhase stale, so
+    // the status bar's progress bar (gated on currentTapCount > 0) and Analyzing indicator (isDetecting)
+    // linger over the loaded "frozen" measurement.
+    this.isDetecting = false
+    this.currentTapCount = 0
+    this.materialTapPhase = 'complete'
     this.isMeasurementComplete = true
     this.setStatusMessage(LOADED_STATUS)
     this.notify()

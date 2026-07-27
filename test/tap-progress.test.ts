@@ -196,3 +196,44 @@ describe('Redo rebases the count to the PRIOR phases (Swift Control:465-487)', (
     expect(a.tapProgress).toBe(0)
   })
 })
+
+// Regression: loading a measurement must tear down an in-progress capture the load interrupts, so the
+// status-bar progress bar (gated on currentTapCount > 0) and Analyzing indicator (isDetecting) don't
+// linger over the loaded "frozen" measurement. Swift's loadMeasurement does this reactively
+// (SpectrumCapture:724-728 + materialTapPhase = .complete); the web used to reset neither.
+describe('loadMeasurement tears down an interrupted capture', () => {
+  const FROZEN = () => ({ magnitudes: spectrum(100).magnitudesDb, frequencies: spectrum(100).frequencies })
+
+  it('a plate sequence abandoned after L+C (FLC pending) resets on load', () => {
+    const a = material('plate', 2, true)
+    a.recordMaterialTap(L_TAP())
+    a.recordMaterialTap(L_TAP()) // L done → reviewingL
+    a.acceptMaterial() // → capturingC
+    a.recordMaterialTap(C_TAP())
+    a.recordMaterialTap(C_TAP()) // C done → reviewingC
+    a.acceptMaterial() // → waitingForFlcTap (FLC never captured)
+    expect(a.currentTapCount).toBe(4)
+    expect(a.materialTapPhase).toBe('waitingForFlcTap')
+
+    a.loadMeasurement(FROZEN())
+
+    expect(a.currentTapCount).toBe(0)
+    expect(a.tapProgress).toBe(0)
+    expect(a.materialTapPhase).toBe('complete')
+    expect(a.isDetecting).toBe(false)
+    expect(a.isMeasurementComplete).toBe(true)
+  })
+
+  it('load clears an actively-detecting capture', () => {
+    const a = material('plate', 2, true) // capturingL, detecting
+    a.recordMaterialTap(L_TAP())
+    a.isDetecting = true // worst case: load arrives mid-detection
+    expect(a.currentTapCount).toBe(1)
+
+    a.loadMeasurement(FROZEN())
+
+    expect(a.isDetecting).toBe(false)
+    expect(a.currentTapCount).toBe(0)
+    expect(a.materialTapPhase).toBe('complete')
+  })
+})
