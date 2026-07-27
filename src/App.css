@@ -846,7 +846,7 @@
 .settings-body h4 {
   font-size: 0.82rem;
   margin: 0.75rem 0 0.4rem;
-  color: var(--muted);
+  color: var(--text);
 }
 .set-select,
 .set-input-select {
@@ -967,8 +967,15 @@
   font-style: normal;
   font-size: 0.78rem;
 }
-.set-field input[type='number']:disabled {
-  opacity: 0.45;
+/* A disabled setting (Peak Detection Minimum applies only to guitar types): dim the whole control —
+   its own label, field, unit, and description — matching Swift/Python, which grey the entire control
+   block. This is the control's label, not the "Analysis Settings" section header (a sibling), which
+   stays at full strength. */
+.set-range.disabled {
+  opacity: 0.4;
+}
+.set-range.disabled input {
+  cursor: not-allowed;
 }
 
 .mode-range-table {

@@ -8,6 +8,7 @@ import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
 import { MODE_COLOR, MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, USER_MODE_COLOR } from './modeColors'
 import { WOOD_QUALITY_COLOR } from './qualityColors'
+import { FieldPrecision } from '../precision'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
 import {
@@ -347,10 +348,10 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
   }))
 
   const dimensions: PdfMaterialProp[] = [
-    { label: 'Length', value: `${f1(dims.lengthMm)} mm` },
-    { label: 'Width', value: `${f1(dims.widthMm)} mm` },
-    { label: 'Thickness', value: `${f2(dims.thicknessMm)} mm` },
-    { label: 'Mass', value: `${f1(dims.massG)} g` },
+    { label: 'Length', value: `${FieldPrecision.string(dims.lengthMm, FieldPrecision.linearDimensionMM)} mm` },
+    { label: 'Width', value: `${FieldPrecision.string(dims.widthMm, FieldPrecision.linearDimensionMM)} mm` },
+    { label: 'Thickness', value: `${FieldPrecision.string(dims.thicknessMm, FieldPrecision.linearDimensionMM)} mm` },
+    { label: 'Mass', value: `${FieldPrecision.string(dims.massG, FieldPrecision.massG)} g` },
     { label: 'Density', value: `${f3(rhoGcm3)} g/cm³` },
   ]
 

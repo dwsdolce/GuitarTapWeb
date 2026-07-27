@@ -1,5 +1,6 @@
 // @parity view/settings
-import { useRef, useState } from 'react'
+import { useRef, useState, type ChangeEvent } from 'react'
+import { FieldPrecision } from '../precision'
 import type { StoredCalibration } from '../measurement/calibrationStore'
 import { densityGPerCm3, type Dimensions } from '../dsp/material'
 import { modeBands } from '../dsp/guitarModes'
@@ -70,24 +71,47 @@ const STIFFNESS_PRESETS: StiffnessPreset[] = [
   'custom',
 ]
 
+/** Restricts a number input to `decimals` fractional digits — the mirror of Swift `limitedInput` /
+ * Python `_decimal_validator`. A keystroke that would exceed the precision is reverted, so the
+ * over-precise digit never appears; an accepted value is rounded to P and pushed to state. */
+function restrictNumberInput(
+  e: ChangeEvent<HTMLInputElement>,
+  value: number,
+  decimals: number,
+  set: (v: number) => void,
+) {
+  const s = e.target.value
+  if (!FieldPrecision.decimalsWithin(s, decimals)) {
+    e.target.value = String(value) // reject: revert the over-precise character
+    return
+  }
+  if (s === '' || s === '-') return // in-progress entry; don't push 0
+  set(FieldPrecision.rounded(Number(s), decimals))
+}
+
 function NumberField({
   label,
   unit,
   value,
   onChange,
-  step = 1,
+  decimals,
 }: {
   label: string
   unit: string
   value: number
   onChange: (v: number) => void
-  step?: number
+  decimals: number
 }) {
   return (
     <label className="set-field">
       <span>{label}</span>
       <span className="set-input">
-        <input type="number" value={value} step={step} onChange={(e) => onChange(Number(e.target.value))} />
+        <input
+          type="text"
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => restrictNumberInput(e, value, decimals, onChange)}
+        />
         {unit && <em>{unit}</em>}
       </span>
     </label>
@@ -103,6 +127,7 @@ function RangeField({
   max,
   onMin,
   onMax,
+  decimals,
 }: {
   title: string
   description: string
@@ -111,18 +136,19 @@ function RangeField({
   max: number
   onMin: (v: number) => void
   onMax: (v: number) => void
+  decimals: number
 }) {
   return (
     <div className="set-range">
       <div className="set-range-title">{title}</div>
       <div className="set-range-inputs">
         <span className="set-input">
-          <input type="number" value={min} onChange={(e) => onMin(Number(e.target.value))} />
+          <input type="text" inputMode="decimal" value={min} onChange={(e) => restrictNumberInput(e, min, decimals, onMin)} />
           <em>{unit}</em>
         </span>
         <span className="set-range-dash">–</span>
         <span className="set-input">
-          <input type="number" value={max} onChange={(e) => onMax(Number(e.target.value))} />
+          <input type="text" inputMode="decimal" value={max} onChange={(e) => restrictNumberInput(e, max, decimals, onMax)} />
           <em>{unit}</em>
         </span>
       </div>
@@ -327,10 +353,10 @@ export function SettingsPanel({
             {d.measurementType === 'plate' && (
               <>
                 <h4>Sample Dimensions</h4>
-                <NumberField label="Length (along grain)" unit="mm" value={d.plateLength} onChange={(v) => patch({ plateLength: v })} />
-                <NumberField label="Width (cross grain)" unit="mm" value={d.plateWidth} onChange={(v) => patch({ plateWidth: v })} />
-                <NumberField label="Thickness" unit="mm" value={d.plateThickness} step={0.1} onChange={(v) => patch({ plateThickness: v })} />
-                <NumberField label="Mass" unit="g" value={d.plateMass} step={0.1} onChange={(v) => patch({ plateMass: v })} />
+                <NumberField label="Length (along grain)" unit="mm" value={d.plateLength} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ plateLength: v })} />
+                <NumberField label="Width (cross grain)" unit="mm" value={d.plateWidth} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ plateWidth: v })} />
+                <NumberField label="Thickness" unit="mm" value={d.plateThickness} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ plateThickness: v })} />
+                <NumberField label="Mass" unit="g" value={d.plateMass} decimals={FieldPrecision.massG} onChange={(v) => patch({ plateMass: v })} />
                 <div className="set-readout">
                   Density <b>{densityGPerCm3(plateDims).toFixed(3)}</b> g/cm³
                 </div>
@@ -348,8 +374,8 @@ export function SettingsPanel({
                 <p className="set-desc">
                   Finished guitar body dimensions used in Gore's Eq. 4.5-7 to calculate target plate thickness.
                 </p>
-                <NumberField label="Body Length (a)" unit="mm" value={d.guitarBodyLength} onChange={(v) => patch({ guitarBodyLength: v })} />
-                <NumberField label="Lower Bout Width (b)" unit="mm" value={d.guitarBodyWidth} onChange={(v) => patch({ guitarBodyWidth: v })} />
+                <NumberField label="Body Length (a)" unit="mm" value={d.guitarBodyLength} decimals={FieldPrecision.bodyDimensionMM} onChange={(v) => patch({ guitarBodyLength: v })} />
+                <NumberField label="Lower Bout Width (b)" unit="mm" value={d.guitarBodyWidth} decimals={FieldPrecision.bodyDimensionMM} onChange={(v) => patch({ guitarBodyWidth: v })} />
 
                 <h4>Plate Vibrational Stiffness (f_vs)</h4>
                 <label className="set-field">
@@ -367,7 +393,7 @@ export function SettingsPanel({
                   </select>
                 </label>
                 {d.plateStiffnessPreset === 'custom' && (
-                  <NumberField label="Custom f_vs value" unit="" value={d.customPlateStiffness} onChange={(v) => patch({ customPlateStiffness: v })} />
+                  <NumberField label="Custom f_vs value" unit="" value={d.customPlateStiffness} decimals={FieldPrecision.stiffness} onChange={(v) => patch({ customPlateStiffness: v })} />
                 )}
               </>
             )}
@@ -375,11 +401,11 @@ export function SettingsPanel({
             {d.measurementType === 'brace' && (
               <>
                 <h4>Brace Dimensions</h4>
-                <NumberField label="Length (along grain)" unit="mm" value={d.braceLength} onChange={(v) => patch({ braceLength: v })} />
-                <NumberField label="Width (breadth)" unit="mm" value={d.braceWidth} onChange={(v) => patch({ braceWidth: v })} />
-                <NumberField label="Height (tap direction)" unit="mm" value={d.braceThickness} step={0.1} onChange={(v) => patch({ braceThickness: v })} />
+                <NumberField label="Length (along grain)" unit="mm" value={d.braceLength} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ braceLength: v })} />
+                <NumberField label="Width (breadth)" unit="mm" value={d.braceWidth} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ braceWidth: v })} />
+                <NumberField label="Height (tap direction)" unit="mm" value={d.braceThickness} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ braceThickness: v })} />
                 <p className="set-desc">Brace height when lying flat — this is the t dimension in the stiffness formula</p>
-                <NumberField label="Mass" unit="g" value={d.braceMass} step={0.1} onChange={(v) => patch({ braceMass: v })} />
+                <NumberField label="Mass" unit="g" value={d.braceMass} decimals={FieldPrecision.massG} onChange={(v) => patch({ braceMass: v })} />
                 <div className="set-readout">
                   Density <b>{densityGPerCm3(braceDims).toFixed(3)}</b> g/cm³
                 </div>
@@ -409,6 +435,7 @@ export function SettingsPanel({
                   max={displayRangeFor(d, d.measurementType).maxHz}
                   onMin={(v) => patch(setDisplayRangePatch(d, d.measurementType, { minHz: v }))}
                   onMax={(v) => patch(setDisplayRangePatch(d, d.measurementType, { maxHz: v }))}
+                  decimals={FieldPrecision.frequencyHz}
                 />
                 <RangeField
                   title="Magnitude Range"
@@ -418,6 +445,7 @@ export function SettingsPanel({
                   max={d.maxDb}
                   onMin={(v) => patch({ minDb: v })}
                   onMax={(v) => patch({ maxDb: v })}
+                  decimals={FieldPrecision.magnitudeDB}
                 />
                 <div className="set-buttons">
                   <button className="btn mini" onClick={saveCurrentView} title="Save the spectrum chart's current zoom as the display range">
@@ -441,14 +469,15 @@ export function SettingsPanel({
                 {/* The analysis frequency range is a fixed 30–2000 Hz constant, not a user setting — it
                     bounds the useful modal region and never needs changing (see ANALYSIS_MIN_HZ /
                     ANALYSIS_MAX_HZ). The control was removed; detection still restricts to the range. */}
-                <div className="set-range">
+                <div className={`set-range${isGuitarType(d.measurementType) ? '' : ' disabled'}`}>
                   <div className="set-range-title">Peak Detection Minimum</div>
                   <span className="set-input">
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       value={d.peakMinThreshold}
                       disabled={!isGuitarType(d.measurementType)}
-                      onChange={(e) => patch({ peakMinThreshold: Number(e.target.value) })}
+                      onChange={(e) => restrictNumberInput(e, d.peakMinThreshold, FieldPrecision.magnitudeDB, (v) => patch({ peakMinThreshold: v }))}
                     />
                     <em>dB</em>
                   </span>
