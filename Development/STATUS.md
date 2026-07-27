@@ -4,7 +4,7 @@
 scope. This file is a **status index, not a log** — one line per item: state, next action, pointer.
 The detail lives in each item's linked doc.
 
-_Last updated: 2026-07-25. The 1.0.2 respin and the peak-lifecycle rework are complete (see Done);
+_Last updated: 2026-07-26. The 1.0.2 respin and the peak-lifecycle rework are complete (see Done);
 completed detail docs are archived in [Completed/](Completed/). Open items are tracked below._
 
 ## Open work
@@ -26,6 +26,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 9 | **Python: progress bar lingers after load-guitar-following-material** | ▶ **NEXT — verify it reproduces first** (was parked 2026-07-17; may be reset-timing, not a bug). If it reproduces, fix; else close. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
 | 10 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 11 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
+| 12 | **Numeric precision consistency (input/storage/display, all 3)** | 📋 Spec written, not started. One precision `P` per field (single source of truth); round-on-input → store-`P` → display-`P` everywhere, identical across editions. Surfaced by the brace-thickness `%.1f` settings round-trip (29.35→29.4, width 20.38→20.4). Swift is the offender (ad-hoc `%.0f`/`%.1f`/`%.2f` + settings re-commit drift); Python/web input faithful but reports round independently. Table validated vs `Wood Property Measurementsl.xlsx`. | [NUMERIC-PRECISION-SPEC.md](NUMERIC-PRECISION-SPEC.md) |
 
 ## Done (for reference)
 
@@ -90,6 +91,7 @@ Audit trail, not a to-do list.
 | [MATERIAL-MULTITAP-DISCREPANCIES.md](MATERIAL-MULTITAP-DISCREPANCIES.md) | Swift audio buffer size, Material multi-tap | multi-tap material analysis: buffer per-tap divergence, Gore-thickness validation |
 | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) | Playback bit-identity | replay ≠ live capture by ~0.02 dB (pre-existing capture-path gap); proven independent of the peak fix; re-run harness in playback-validation/ |
 | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) | frozen-recalc test divergence | Python drives real detection, Swift injects peaks — align the paired tests fixture-for-fixture |
+| [NUMERIC-PRECISION-SPEC.md](NUMERIC-PRECISION-SPEC.md) | Numeric precision consistency | one precision `P` per field across input/storage/display, all 3; single source of truth; surfaced by the brace-thickness settings round-trip |
 | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) | Results panel consistency | live Analysis Results panel — cross-platform divergences (screenshots in `images/`); §3 Gore nesting, §7 spacing |
 
 **Reference** (living — consult, don't complete)
