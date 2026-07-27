@@ -11,7 +11,7 @@ completed detail docs are archived in [Completed/](Completed/). Open items are t
 
 Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified · 🔶 deferred (not blocking).
 
-**▶ Next up:** **9** verify the Python progress-bar repro (fix or close) · **11** (release-prep) capture Windows + Linux Python datasets before 1.0.2. No open item blocks 1.0.2.
+**▶ Next up:** **10** (release-prep) capture Windows + Linux Python datasets before 1.0.2 (pre-ship gate) · **9** align the frozen-recalc paired tests. No open item blocks 1.0.2.
 
 | # | Item | State — next action | Detail |
 |---|---|---|---|
@@ -23,13 +23,14 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 6 | **Material multi-tap: Swift ~2 dB / sub-bin below Python/web** | 🔶 Not blocking. Same 4800-buffer cause as item 3 — resolve there. | MATERIAL-MULTITAP §3 |
 | 7 | **Results panel cross-platform consistency** | 📋 Post-release; presentation only (numbers correct). Spec against Swift first. | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) |
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
-| 9 | **Python: progress bar lingers after load-guitar-following-material** | ▶ **NEXT — verify it reproduces first** (was parked 2026-07-17; may be reset-timing, not a bug). If it reproduces, fix; else close. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
-| 10 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
-| 11 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
+| 9 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
+| 10 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
 
 ## Done (for reference)
 
 Audit trail, not a to-do list.
+
+- **Progress bar / capture-state lingers after load-following-material** ✅ DONE + user-verified, committed (2026-07-27). Verified real (not reset-timing) — was the old item 9. Loading a measurement that interrupts a material capture (plate abandoned mid-phase) left the status-bar progress bar — and on web the Analyzing indicator (`isDetecting`) — lingering over the loaded frozen measurement. Swift was already correct (reactive full reset). Web `loadMeasurement` now resets `isDetecting`/`currentTapCount`/`materialTapPhase` (+ 2 regression tests); Python `_restore_measurement` hides `_sb_progress` (Qt non-reactive, view-only). | *(no doc)*
 
 - **Numeric precision consistency (all 3)** ✅ DONE + user-verified, committed all 3 (2026-07-27). One precision `P` per field (single source of truth — Swift `FieldPrecision` / Python `field_precision` / web `precision.ts`) governs input (restrict-on-entry), storage, and display. Swift got a pre-display keystroke veto (`ValidatedNumberField`, NS/UITextField) to match Python's `QValidator` / web's synchronous revert. `test/field-precision` parity suite (13 tests × 3); release notes updated; no manual change. | [NUMERIC-PRECISION-SPEC.md](Completed/NUMERIC-PRECISION-SPEC.md)
 
