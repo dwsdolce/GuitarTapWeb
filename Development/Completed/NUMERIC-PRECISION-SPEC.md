@@ -1,7 +1,12 @@
 # Numeric Precision Consistency — spec (all three editions)
 
-**Status:** 🔨 in progress (2026-07-26). **Swift ✅ done + committed + user-verified.** Python + web
-remaining — see Resume below.
+**Status:** ✅ COMPLETE — committed + user-verified on all three (2026-07-27). One `P` per field
+(single source of truth: Swift `FieldPrecision` / Python `field_precision` / web `precision.ts`)
+governs input (restrict-on-entry), storage, and display. Swift additionally got a pre-display
+keystroke veto (`ValidatedNumberField`, wrapping NS/UITextField) so the over-precise character never
+flashes, matching Python's `QValidator` and the web's synchronous revert. A `test/field-precision`
+parity suite (13 tests × 3) pins the table, regex, and rounding; release notes updated on all three;
+no user-manual change needed. The Resume checklist below is retained as the historical record.
 
 ## Resume (for a fresh session)
 

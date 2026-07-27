@@ -4,14 +4,14 @@
 scope. This file is a **status index, not a log** — one line per item: state, next action, pointer.
 The detail lives in each item's linked doc.
 
-_Last updated: 2026-07-26. The 1.0.2 respin and the peak-lifecycle rework are complete (see Done);
+_Last updated: 2026-07-27. The 1.0.2 respin and the peak-lifecycle rework are complete (see Done);
 completed detail docs are archived in [Completed/](Completed/). Open items are tracked below._
 
 ## Open work
 
 Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified · 🔶 deferred (not blocking).
 
-**▶ Next up:** **12** — Swift ✅ done; do the Python + web mirrors + release-notes (see spec Resume) · **9** verify the Python progress-bar repro (fix or close) · **11** (release-prep) capture Windows + Linux Python datasets before 1.0.2. No open item blocks 1.0.2.
+**▶ Next up:** **9** verify the Python progress-bar repro (fix or close) · **11** (release-prep) capture Windows + Linux Python datasets before 1.0.2. No open item blocks 1.0.2.
 
 | # | Item | State — next action | Detail |
 |---|---|---|---|
@@ -26,11 +26,12 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 9 | **Python: progress bar lingers after load-guitar-following-material** | ▶ **NEXT — verify it reproduces first** (was parked 2026-07-17; may be reset-timing, not a bug). If it reproduces, fix; else close. `_sb_progress` (`tap_tone_analysis_view.py:2358`/`:3276`). | *(no doc — this row)* |
 | 10 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 11 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
-| 12 | **Numeric precision consistency (all 3)** | 🔨 Swift ✅ committed + user-verified. Python + web mirrors + release-notes remaining (see spec Resume). | [NUMERIC-PRECISION-SPEC.md](NUMERIC-PRECISION-SPEC.md) |
 
 ## Done (for reference)
 
 Audit trail, not a to-do list.
+
+- **Numeric precision consistency (all 3)** ✅ DONE + user-verified, committed all 3 (2026-07-27). One precision `P` per field (single source of truth — Swift `FieldPrecision` / Python `field_precision` / web `precision.ts`) governs input (restrict-on-entry), storage, and display. Swift got a pre-display keystroke veto (`ValidatedNumberField`, NS/UITextField) to match Python's `QValidator` / web's synchronous revert. `test/field-precision` parity suite (13 tests × 3); release notes updated; no manual change. | [NUMERIC-PRECISION-SPEC.md](Completed/NUMERIC-PRECISION-SPEC.md)
 
 - **Peak lifecycle — durability of per-peak state** ✅ DONE — full rework across Swift/Python/web (all phases + docs, user-verified, suites green 2026-07-25); soak/stress harness split to item 12. | [SWIFT plan](Completed/PEAK-LIFECYCLE-PLAN-SWIFT.md) · [PYTHON plan](Completed/PEAK-LIFECYCLE-PLAN-PYTHON.md) · [WEB plan](Completed/PEAK-LIFECYCLE-PLAN-WEB.md)
 
@@ -91,7 +92,6 @@ Audit trail, not a to-do list.
 | [MATERIAL-MULTITAP-DISCREPANCIES.md](MATERIAL-MULTITAP-DISCREPANCIES.md) | Swift audio buffer size, Material multi-tap | multi-tap material analysis: buffer per-tap divergence, Gore-thickness validation |
 | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) | Playback bit-identity | replay ≠ live capture by ~0.02 dB (pre-existing capture-path gap); proven independent of the peak fix; re-run harness in playback-validation/ |
 | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) | frozen-recalc test divergence | Python drives real detection, Swift injects peaks — align the paired tests fixture-for-fixture |
-| [NUMERIC-PRECISION-SPEC.md](NUMERIC-PRECISION-SPEC.md) | Numeric precision consistency | one precision `P` per field across input/storage/display, all 3; single source of truth; surfaced by the brace-thickness settings round-trip |
 | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) | Results panel consistency | live Analysis Results panel — cross-platform divergences (screenshots in `images/`); §3 Gore nesting, §7 spacing |
 
 **Reference** (living — consult, don't complete)
@@ -107,6 +107,7 @@ Audit trail, not a to-do list.
 **History** (done — audit trail)
 | Doc | Purpose |
 |---|---|
+| [NUMERIC-PRECISION-SPEC.md](Completed/NUMERIC-PRECISION-SPEC.md) | one precision `P` per field across input/storage/display (all 3); Swift pre-display keystroke veto (`ValidatedNumberField`); `test/field-precision` parity suite — ✅ done + committed all 3 (2026-07-27) |
 | [RESPIN-1.0.2-PLAN.md](Completed/RESPIN-1.0.2-PLAN.md) | the 1.0.2 respin plan — all steps (0–7) done + committed on all 3; debug stripped; shipping is the user's call (item closed) |
 | [SOAK-STRESS-HARNESS.md](Completed/SOAK-STRESS-HARNESS.md) | cross-platform soak/stress dev tool (item 12) — ✅ done + run-reviewed (web 200, Python 1000 on Windows + overnight, Swift ASan) |
 | [DEINIT-CRASH-INVESTIGATION.md](Completed/DEINIT-CRASH-INVESTIGATION.md) | Swift `TapToneAnalyzer.deinit` parallel-teardown crash — ✅ RESOLVED (off-main teardown of the `@MainActor` analyzer; fix = default the test target to `MainActor`) |
