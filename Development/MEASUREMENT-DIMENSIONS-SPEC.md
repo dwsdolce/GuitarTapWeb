@@ -63,36 +63,43 @@ for repeated tests on one sample.
 - **What they are:** ordinary settings — reusable, persistent defaults; nothing novel. They are the
   starting values for the next material measurement.
 - **Edited:** in the Settings panel, and nowhere else.
-- **Consumed:** copied into a measurement's values **only when a new measurement is created** —
-  (i) **New Tap**, or (ii) **switching to a material measurement _type_** in Settings.
-- **Never changed by:** **Cancel** (not a new measurement), or **Load** (a loaded measurement never
-  changes what the next new measurement starts from).
+- **Consumed:** copied into a measurement's values **at measurement-complete** — the final freeze,
+  when the last tap/phase is accepted. **Not** at New Tap, **not** on type-change, **not** on Cancel.
+  (This is the key timing decision: settings edited *during* a capture — while paused/reviewing —
+  therefore flow into the completed measurement, since Settings is the only dimension surface before
+  the Results block exists.)
+- **Never changed by:** **Load** (a loaded measurement never changes the defaults). Cancel simply
+  never completes, so it produces no measurement values at all — nothing to seed or discard.
 - Persist like any setting — that's what makes them reusable.
 
 ### Store B — a measurement's material values = per-measurement (in the snapshot)
 - **Purpose:** the **sole** authoritative source for that measurement's derived properties, on-screen
   display, and PDF (R7).
-- **Origin:** populated from the template (Store A) at creation; restored from the file's snapshot on
-  **Load**.
+- **Origin:** populated from the settings (Store A) **at measurement-complete**; restored from the
+  file's snapshot on **Load**. Nothing reads Store B before completion (the Results properties are
+  hidden until then), so it needs no value earlier.
 - **Edited:** in the **Results panel** — an editable dimensions block (L / Width / Thickness / Mass +
-  Calculated Density; plate also shows body `L × W` + f_vs). Editing recalculates that measurement's
-  derived values live and **never touches the template** (D-a).
+  Calculated Density; plate also shows body `L × W` + f_vs), shown **only when the measurement is
+  complete**. Editing recalculates that measurement's derived values live and **never touches the
+  settings** (D-a). Since the block appears only on completion, "the fields show up" and "the fields
+  are editable" coincide — including for multi-tap / multi-phase, which display nothing until done.
 - **Saved:** on **Save** → a **new measurement** with the edited values; the loaded original is
   untouched (R5 / D-c).
 
 ### Flows
-| Action | Store A (template) | Store B (measurement values) |
+| Action | Store A (settings) | Store B (measurement values) |
 |---|---|---|
-| New Tap | unchanged | **← copied from A** |
-| Switch to a material *type* in Settings | unchanged | **← copied from A** |
-| Cancel | unchanged | unchanged (not a new measurement) |
+| New Tap / start capture | unchanged | not yet created |
+| Edit settings mid-capture (paused/review) | changed | not yet created (the new values will be used) |
+| **Measurement completes** (final freeze) | unchanged | **← copied from settings now** |
+| Cancel | unchanged | never created (no completion) |
 | Load a file | **unchanged** | **← the file's snapshot** |
-| Edit dims in Results panel | unchanged | changed + recalc |
+| Edit dims in Results panel (post-complete) | unchanged | changed + recalc |
 | Edit dims in Settings | changed | unchanged |
 | Save | unchanged | persisted as a **new** measurement |
 
-The Settings panel **only ever shows the template** — never a loaded measurement's values (D-b). A
-loaded/edited measurement's values live and are edited in the Results panel.
+The Settings panel **only ever shows the defaults** — never a loaded measurement's values (D-b). A
+completed/loaded measurement's values live and are edited in the Results panel.
 
 ## 5. Design status — settled
 
@@ -142,9 +149,36 @@ This changes user-visible behaviour, so the doc surfaces update in the same effo
   chapters and the **Settings reference (ch08)**: dimensions are per-measurement and edited in the
   Results panel; Settings holds the new-measurement defaults.
 
-## 8. Resume / next step
+## 8. Implementation plan — Swift (canonical, first)
 
-Design is settled. Next: write the per-platform implementation plan (Swift first) — the editable
-Results-panel dims block, the calc/display/PDF re-sourcing to the measurement's own values, the
-settings→measurement copy at creation (New Tap / type-change), restoring **notes** (not just the name)
-on load (R10), and the §7 documentation updates landed with the code.
+Build in reviewable chunks; each builds clean and is run-reviewed before the next. Then mirror on
+Python + web in lock-step (keep @parity tags + PARITY-MAP current).
+
+**Chunk A — re-sourcing (keeps the app consistent):**
+1. **Store B** — add current-measurement material state to `TapToneAnalyzer` (plate/brace L·W·T·M +
+   Gore body dims + f_vs + measureFlc).
+2. **Calc reads Store B** — `calculated{Plate,Brace}Properties` + `goreThicknessView` read
+   `analyzer.current…` instead of `TapDisplaySettings.*` (TapAnalysisResultsView.swift:715-719,
+   929-933, 1030-1032).
+3. **Seed at complete** — at the material measurement-complete freeze, copy `TapDisplaySettings` →
+   Store B. One hook; nothing on New Tap / type-change / Cancel.
+4. **Load sets Store B ← snapshot; stop writing settings** — `loadMeasurement` sets `current…` from
+   the snapshot; **remove** the `loaded*`-dim → `TapDisplaySettings` writes
+   (TapToneAnalysisView.swift:583-687). Keep the guitarType / measurementType restores.
+5. **Save writes Store B → snapshot** — the save builder reads `current…`
+   (MeasurementManagement:197-209).
+6. **PDF** — unchanged (reads the snapshot); correct once Save writes Store B (verify).
+
+**Chunk B — Results-panel editable dims block (R3/R4):** L / W / Thickness / Mass + Calculated Density
+(derived, read-only) in `{brace,plate}PropertiesSection`, using `ValidatedNumberField`; shown only
+when the measurement is complete.
+
+**Chunk C — notes on load (R10):** add `loadedNotes` mirroring `loadedMeasurementName`; seed the Save
+form's notes symmetrically.
+
+**Chunk D — tests + docs:** parity tests (calc reads B; seed at complete; load sets B and leaves
+settings untouched; save writes B; notes restored) + release notes / Help-Quick-Start (plate/brace) /
+manual ch04-05-08.
+
+*Build detail to confirm during Chunk A:* the exact single hook for the material measurement-complete
+freeze (in `TapToneAnalyzer+SpectrumCapture` material-complete path) so the seed lands in one place.
