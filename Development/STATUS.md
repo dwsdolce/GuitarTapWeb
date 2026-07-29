@@ -11,7 +11,7 @@ completed detail docs are archived in [Completed/](Completed/). Open items are t
 
 Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified · 🔶 deferred (not blocking).
 
-**▶ Next up:** **11** material-dimensions design SETTLED → write the per-platform implementation plan (Swift first) (active) · **10** (release-prep) capture Windows + Linux Python datasets before 1.0.2 (pre-ship gate) · **9** align the frozen-recalc paired tests. No open item blocks 1.0.2.
+**▶ Next up:** **11** material-dimensions Swift done → mirror on Python (active) · **10** (release-prep) capture Windows + Linux Python datasets before 1.0.2 (pre-ship gate) · **9** align the frozen-recalc paired tests. No open item blocks 1.0.2.
 
 | # | Item | State — next action | Detail |
 |---|---|---|---|
@@ -25,7 +25,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
 | 9 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 10 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
-| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 📋 Design **settled**, no code. Two-store model (Settings = defaults vs per-measurement values, edited in the Results panel; calc/display/PDF read the measurement); also restores **notes** (not just name) on load. Next = per-platform implementation plan (Swift first). | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) |
+| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 🚧 Swift done (`98e09ef`). Next = mirror on Python, then web. | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) §8 |
 
 ## Done (for reference)
 
@@ -94,7 +94,7 @@ Audit trail, not a to-do list.
 | [MATERIAL-MULTITAP-DISCREPANCIES.md](MATERIAL-MULTITAP-DISCREPANCIES.md) | Swift audio buffer size, Material multi-tap | multi-tap material analysis: buffer per-tap divergence, Gore-thickness validation |
 | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) | Playback bit-identity | replay ≠ live capture by ~0.02 dB (pre-existing capture-path gap); proven independent of the peak fix; re-run harness in playback-validation/ |
 | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) | frozen-recalc test divergence | Python drives real detection, Swift injects peaks — align the paired tests fixture-for-fixture |
-| [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) | Material dimensions override/display | two-store model (Settings template vs per-measurement values, edited in Results panel); calc/display/PDF read the measurement; Save-as-new; open OD2/OD5/OD6 |
+| [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) | Material dimensions override/display | two-store model (Settings template vs per-measurement values, edited in Results panel); calc/display/PDF read the measurement; Save-as-new |
 | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) | Results panel consistency | live Analysis Results panel — cross-platform divergences (screenshots in `images/`); §3 Gore nesting, §7 spacing |
 
 **Reference** (living — consult, don't complete)

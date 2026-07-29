@@ -156,7 +156,10 @@ Python + web in lock-step (keep @parity tags + PARITY-MAP current).
 
 **Chunk A — re-sourcing (keeps the app consistent):**
 1. **Store B** — add current-measurement material state to `TapToneAnalyzer` (plate/brace L·W·T·M +
-   Gore body dims + f_vs + measureFlc).
+   Gore body dims + f_vs). **Not** `measureFlc` — it decides *at capture* whether fLC is tapped; the
+   completed calc keys on whether an fLC *peak* was captured, not the flag, so editing it could only
+   *ignore a captured fLC* (not worth it). It stays a Settings-only capture setting. f_vs *is*
+   included: verified it affects only the Gore calc (`goreTargetThickness`), nothing about capture.
 2. **Calc reads Store B** — `calculated{Plate,Brace}Properties` + `goreThicknessView` read
    `analyzer.current…` instead of `TapDisplaySettings.*` (TapAnalysisResultsView.swift:715-719,
    929-933, 1030-1032).
@@ -169,9 +172,97 @@ Python + web in lock-step (keep @parity tags + PARITY-MAP current).
    (MeasurementManagement:197-209).
 6. **PDF** — unchanged (reads the snapshot); correct once Save writes Store B (verify).
 
+*Chunk A status — ✅ COMMITTED + user-verified (2026-07-27), full suites green (Swift 462 / Python 585
+/ web 386). Committed together with the playback-deadlock test-infra fix — see below.* Landed:
+- `Models/MaterialMeasurementInputs.swift` (Store B type: `dimensions`, `stiffness`, `fromSettings`).
+- `TapToneAnalyzer.materialInputs` + seed in the `isMeasurementComplete` `didSet` (guard `!oldValue &&
+  !isGuitar && !isLoadingMeasurement`).
+- `calculated{Plate,Brace}Properties` + `goreThicknessView` read `analyzer.materialInputs`.
+- `loadMeasurement` builds `materialInputs` from the snapshot **and drops the `loaded*`-dimension
+  assignments** — so the settings-clobber `onReceive` handlers (TapToneAnalysisView ~511-605) no
+  longer fire. Load now touches no Settings defaults.
+- `buildSnapshot` reads `materialInputs` for dims + Gore f_vs; `measureFlc` stays from settings.
+
+*Chunk A cleanup / notes (next):* the `loaded*`-dim `@Published` props + their now-dead `onReceive`
+handlers are unused — remove them. Loading no longer restores `measureFlc` into the Settings default
+(correct — load must not touch defaults); this is invisible in practice, because the phase-count
+display is a capture-time indicator that *correctly* reads the live Settings, and `snapshot.measureFlc`
+is now read nowhere — harmless documentation in the file, left as-is (removing it from the format would
+be a separate change, not needed). The editable Results-panel dims block is **Chunk B** (not in A) —
+you can view the re-sourcing effects but not yet edit dims in Results.
+
 **Chunk B — Results-panel editable dims block (R3/R4):** L / W / Thickness / Mass + Calculated Density
 (derived, read-only) in `{brace,plate}PropertiesSection`, using `ValidatedNumberField`; shown only
 when the measurement is complete.
+
+*Chunk B status (2026-07-27) — ✅ SWIFT DONE, user-approved ("I like… major improvements on plate and
+brace"); committed `98e09ef`; builds clean macOS + iOS; full test suite green (462 tests / 101 suites).
+NEXT = mirror on Python, then web.*
+
+**➡️ NEXT TASK = PYTHON** (`/Users/dws/src/guitar_tap`). Mirror everything below (all ✅ on Swift) exactly:
+the two-store Chunk B editable dims, the layout restructure, the frequency-band removal, and the
+Diagonal naming across every surface. Read the Swift files named in each bullet as the canonical source.
+Then repeat on web (`/Users/dws/src/GuitarTapWeb`). Chunk C (notes-on-load) + Chunk D (tests+docs) still
+pending on all three.
+
+Uncommitted Swift files (this chunk): `Views/MaterialDimensionsEditor.swift` (new),
+`Views/PlateBodyDimensionsEditor.swift` (new), `Views/TapAnalysisResultsView.swift`,
+`Views/ExportableSpectrumChart.swift`, `Views/TapToneAnalysisView+SpectrumViews.swift`,
+`Views/HelpView.swift`, `Models/TapToneMeasurement.swift`, `Views/Utilities/PDFReportGenerator.swift`.
+
+**Layout restructure + naming — ✅ DONE on Swift (2026-07-27); mirror on Python then web:**
+- **Brace:** own **Sample Dimensions** box (L/W/T/M + Density) → **Brace Properties**. (Currently brace's
+  dims are inline in Brace Properties — move them to a separate box like plate, for consistency.)
+- **Plate:** **Sample Dimensions** box → **Body Dimensions** box → **Gore Target Thickness** (result
+  only, smaller) → **Plate Properties**.
+- **New Body Dimensions box (plate):** editable Body Length (a) + Lower Bout Width (b) + f_vs. f_vs is a
+  setting not a dimension → put it as a **"Panel Stiffness (f_vs)"** row (preset picker + custom value)
+  inside the Body Dimensions box. Group name **"Body Dimensions"**, row label **"Panel Stiffness (f_vs)"**
+  — both confirmed by the user. Swift: `Views/PlateBodyDimensionsEditor.swift` (new).
+- **Trim the Gore box:** it currently shows target thickness + GLC (shear) + a "Body: L×W / f_vs = …"
+  echo. Keep ONLY the target-thickness result (make it smaller). Remove the GLC line — GLC is already
+  shown in `platePropertiesSection` (the Young's-modulus block), which is where it belongs. Remove the
+  body/f_vs echo — those move to the editable Body Dimensions box.
+- Make the Sample Dimensions box a shared section used by both brace and plate (generalize the current
+  `plateSampleDimensionsSection`).
+- **PDF report follows the same layout** (`Views/Utilities/PDFReportGenerator.swift`, and mirror in
+  Python + web PDF/report generators): Sample Dimensions → (plate) Body Dimensions → trimmed Gore Target
+  Thickness → Plate/Brace Properties (GLC with the moduli, not in the Gore block). The PDF already reads
+  the snapshot's own dims (correct per Chunk A) — this is a *layout/section-ordering* change, not a
+  sourcing change. **PDF Body Dimensions box:** Body Length (a) + Lower Bout Width (b) share the first
+  line; **Panel Stiffness is on its own line below** (the `f_vs = NN (Preset Name)` label is long and
+  wraps awkwardly if squeezed into a third column). The trimmed Gore box is the target-thickness number
+  only (no body/f_vs echo, no GLC line). The Detected Peaks role cells read "Longitudinal (fL)" /
+  "Cross-grain (fC)" / "Diagonal (fLC)" (brace role cell flipped to the same name-first order). Directional
+  property labels stay "(L)"/"(C)" (Young's Modulus, Speed of Sound, etc. — a *direction*, not a frequency).
+- **Frequencies are inputs, not calculated properties** — remove the fL/fC/fLC (plate) and fL (brace)
+  frequency band from the Plate/Brace Properties sections (they already appear in the Detected Peaks
+  list). Applies to the Results panel AND the PDF report (`plateSection`/`braceSection` frequency band —
+  the Detected Peaks table keeps them). Mirror on Python + web.
+- **Diagonal-mode naming is inconsistent across 3 chart/list surfaces** — the diagonal always shows the
+  bare abbreviation "FLC" while Longitudinal/Cross show a name + abbreviation. Unify to name = **Diagonal**,
+  abbreviation = **fLC**, and switch L/C to the `fL`/`fC` frequency notation used in the property rows,
+  PDF, and tips:
+
+  | Surface | Longitudinal | Cross | Diagonal |
+  |---|---|---|---|
+  | Chart legend (`ExportableSpectrumChart` materialSpectra labels) | Longitudinal (fL) | Cross-grain (fC) | **Diagonal (fLC)** |
+  | Chart annotation name (`peakModeLabel` / `roleLabel`) | Longitudinal | Cross-grain | **Diagonal** |
+  | Peak-list + live slot badge (`MaterialPeakRowView`) | fL | fC | **fLC** |
+  | Three-Tap Measurement Process items (2 copies: empty-plate in `peaksAndModesSection` + `plateMeasurementInstructions`) | Longitudinal (fL) Tap | Cross-grain (fC) Tap | **Diagonal (fLC) Tap** |
+
+  Brace already uses "Longitudinal (fL) Tap" — no change. Also update the Help text mention
+  ("Longitudinal, Cross, and FLC" → "Longitudinal, Cross-grain, and Diagonal"). Cross-platform: Swift +
+  Python + web (all three surfaces exist in every edition). Also updated the live-capture phase
+  titles/descriptions (Step 1/2/3, "Review … Tap", completion summary) to the same fL/fC/fLC + Diagonal
+  scheme.
+
+  **File format:** the per-peak `modeLabel` written to `.guitartap` is a *write-only convenience* field
+  (ignored on decode — roles restore from the selected-peak IDs), so changing it does **not** affect
+  round-trip or old-file loading. Updated its diagonal value `"FLC"` → `"Diagonal"` (Swift
+  `TapToneMeasurement.encode`) to match the UI; mirror in the Python/web writers for consistency.
+
+Then: Chunk C (notes on load, R10) + Chunk D (tests + docs), then mirror all of Chunk B–D on Python + web.
 
 **Chunk C — notes on load (R10):** add `loadedNotes` mirroring `loadedMeasurementName`; seed the Save
 form's notes symmetrically.
