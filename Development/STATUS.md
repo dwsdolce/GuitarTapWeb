@@ -4,7 +4,7 @@
 scope. This file is a **status index, not a log** — one line per item: state, next action, pointer.
 The detail lives in each item's linked doc.
 
-_Last updated: 2026-07-27. The 1.0.2 respin and the peak-lifecycle rework are complete (see Done);
+_Last updated: 2026-07-29. The 1.0.2 respin and the peak-lifecycle rework are complete (see Done);
 completed detail docs are archived in [Completed/](Completed/). Open items are tracked below._
 
 ## Open work
@@ -25,12 +25,13 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
 | 9 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 10 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
-| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 🚧 Un-parked (item 12 resolved). Swift + Python complete through Chunk D (tests); **web chunk** is all that remains (plan = spec §10). (Per-chunk status, hashes, lessons in the spec — §11 matrix + §12.) | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) §10 |
-| 12 | **Calibration/device-state single-source fix (Python)** | ✅ DONE + user-verified, committed `5fdd8fd` (591 green). Collapsed two divergent device keys / two restore paths into one (mirrors Swift `didSet`); unified `CalibrationStorage` QSettings scope + legacy migration; fixed a macOS quit deadlock (`os._exit` skips sounddevice's atexit `Pa_Terminate` vs a stalled USB CoreAudio teardown — F1-exposed). | [CALIBRATION-DEVICE-STATE-SPEC.md](CALIBRATION-DEVICE-STATE-SPEC.md) |
+| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 🚧 Web chunk remaining (Swift + Python done through Chunk D). | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) §10 |
 
 ## Done (for reference)
 
 Audit trail, not a to-do list.
+
+- **Calibration/device-state single-source fix (Python)** ✅ DONE + user-verified, committed `5fdd8fd` (591 green). One canonical device key + one restore path (mirrors Swift `didSet`); `CalibrationStorage` QSettings scope unified + legacy migration; macOS quit-deadlock fixed (`os._exit` skips sounddevice's atexit `Pa_Terminate` vs a stalled USB CoreAudio teardown, F1-exposed). Swift/web already single-source. | [CALIBRATION-DEVICE-STATE-SPEC.md](Completed/CALIBRATION-DEVICE-STATE-SPEC.md)
 
 - **Progress bar / capture-state lingers after load-following-material** ✅ DONE + user-verified, committed (2026-07-27). Verified real (not reset-timing) — was the old item 9. Loading a measurement that interrupts a material capture (plate abandoned mid-phase) left the status-bar progress bar — and on web the Analyzing indicator (`isDetecting`) — lingering over the loaded frozen measurement. Swift was already correct (reactive full reset). Web `loadMeasurement` now resets `isDetecting`/`currentTapCount`/`materialTapPhase` (+ 2 regression tests); Python `_restore_measurement` hides `_sb_progress` (Qt non-reactive, view-only). | *(no doc)*
 
@@ -111,6 +112,7 @@ Audit trail, not a to-do list.
 **History** (done — audit trail)
 | Doc | Purpose |
 |---|---|
+| [CALIBRATION-DEVICE-STATE-SPEC.md](Completed/CALIBRATION-DEVICE-STATE-SPEC.md) | Python single-source device+calibration fix — one device key + one restore path (F1), unified `CalibrationStorage` QSettings scope + migration (F4), macOS `os._exit` quit-deadlock fix — ✅ done + committed `5fdd8fd`; Swift/web already correct |
 | [NUMERIC-PRECISION-SPEC.md](Completed/NUMERIC-PRECISION-SPEC.md) | one precision `P` per field across input/storage/display (all 3); Swift pre-display keystroke veto (`ValidatedNumberField`); `test/field-precision` parity suite — ✅ done + committed all 3 (2026-07-27) |
 | [RESPIN-1.0.2-PLAN.md](Completed/RESPIN-1.0.2-PLAN.md) | the 1.0.2 respin plan — all steps (0–7) done + committed on all 3; debug stripped; shipping is the user's call (item closed) |
 | [SOAK-STRESS-HARNESS.md](Completed/SOAK-STRESS-HARNESS.md) | cross-platform soak/stress dev tool (item 12) — ✅ done + run-reviewed (web 200, Python 1000 on Windows + overnight, Swift ASan) |
