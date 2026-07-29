@@ -25,7 +25,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
 | 9 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 10 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
-| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 🚧 Swift + Python complete through Chunk D (tests); the whole **web** chunk is all that remains. (Per-chunk status, hashes, and lessons live in the spec — §10 matrix + §11.) | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) §9 |
+| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 🚧 Swift + Python complete through Chunk D (tests); the whole **web** chunk is all that remains (plan = spec §10). (Per-chunk status, hashes, and lessons live in the spec — §11 matrix + §12.) | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) §10 |
 
 ## Done (for reference)
 

@@ -334,7 +334,7 @@ in PyQt idioms. Same chunked order as §8; build + full `pytest` + user review b
 *Chunk A status — ✅ DONE + user-verified on Python (2026-07-28), committed `5fc9aa5`; full `pytest` green (585).
 Includes the same-session load-type fix (read `resolved_measurement_type`, not the raw field, in
 `_load_measurement_body:482` + `_restore_measurement:4426/4433`) — a just-saved in-memory brace/plate was
-loading as a Generic guitar because `create()` leaves the raw `measurement_type` None (see §11).* Landed: `models/material_measurement_inputs.py` (new); `material_inputs` on the
+loading as a Generic guitar because `create()` leaves the raw `measurement_type` None (see §12).* Landed: `models/material_measurement_inputs.py` (new); `material_inputs` on the
 analyzer + seed in `set_measurement_complete` (guard: transition & not-guitar & not-loading);
 `_make_phase_snapshot` reads Store B; load builds `material_inputs` from the snapshot and **drops the
 settings-clobber** (`_load_measurement_body`, kept guitar/measurement-type restores); view display calc
@@ -408,7 +408,109 @@ transient runtime) → display strings safe to change. `PlateStiffnessPreset` �
 `SpectrumSnapshot` encodes it; Python snapshot + settings) → raw values unchanged both sides. `modeLabel`
 — write-only, ignored on decode → safe.
 
-## 10. Verification (run per edition — Swift, Python, web)
+## 10. Implementation plan — Web (mirror of Swift, non-divergent)
+
+Web (`/Users/dws/src/GuitarTapWeb`, React/TS) sits at its **pre-Chunk-A** state and is the **most
+divergent** edition. Unlike Swift/Python — which already had a per-measurement snapshot the calc *could*
+read — the web has **no live Store B at all**: `MaterialResults` computes straight from the live
+`Settings`, and **load copies the snapshot's dims back into `Settings`** (`measurementToLiveMaterial` →
+`settingsPatch`), so `Settings` doubles as both the template (Store A) *and* the current measurement's
+values. Introducing Store B (a per-measurement material-dims object in live state) is therefore the core
+of the web port — the settings-clobber isn't a stray write to remove, it *is* the current sourcing
+mechanism. Same chunked order as §8/§9; `npx tsc --noEmit` + `npm test` (vitest) + user run-review
+between chunks. Keep `@parity` tags + PARITY-MAP current.
+
+**File-role map (Web):**
+- `src/settings.ts` — **Store A**: the `Settings` type + `DEFAULTS` carry `plateLength/Width/Thickness/Mass`,
+  `guitarBodyLength/Width`, `plateStiffnessPreset`/`customPlateStiffness`, `measureFlc`, `brace*`;
+  `effectiveStiffness(s)` (`:208`) resolves f_vs. `components/SettingsPanel.tsx` is the Settings UI (material
+  dim fields ~`:192`) — the Store-A editor, unchanged in role.
+- `src/components/MaterialResults.tsx` — the **Results panel** material section; today takes
+  `settings: Settings` + `peaks` + `complete` and computes properties from settings (rendered
+  `App.tsx:1450` with `settings={settings}`). This is the origin bug on web **and** where the editable
+  dims block goes.
+- `src/dsp/material.ts` — **pure calc** (`Dimensions` in): density, plate/brace Young's, `speedOfSound`,
+  `specificModulus`, radiation, `goreYoungsLongPa`/Gore target, etc. Dimension-source-agnostic →
+  **unchanged** by the port; only its *inputs* change.
+- `src/measurement/types.ts` — `SpectrumSnapshotModel` already carries per-measurement dims
+  (`plateLength…`, `guitarBody*`, `plateStiffnessPreset`, `brace*` `:48-61`) = the file-side of Store B.
+  `resolvedMeasurementType` (`:130`) — see §12.
+- `src/measurement/fromLive.ts` — `buildMaterialMeasurement` (`:605`) writes the snapshot dims **from
+  `a.settings.*`** (must read Store B); `measurementToLiveMaterial` (`:520`) returns
+  `MaterialRestore.settingsPatch` (`:555-568`) that **clobbers Settings on load** (must populate Store B
+  instead). `decode.ts`/`encode.ts` = file round-trip (dims already round-trip).
+- `src/state/tapToneAnalyzer.ts` — material capture state machine (phase L→C→(FLC), `isMeasurementComplete`);
+  no per-measurement material store today.
+- `src/App.tsx` — the live host: holds `settings`, `matPeaks`, `matPhase`, `loadedName`; load handlers
+  (~`:892/911/967`), `clearLoadedMeasurement` (`:464`), `newTap`/`onMaterialNewTap`, the Save flow, and the
+  chart legend labels (`:658-660`). Store B lives here (or in the analyzer) as new live state.
+- `src/presentation/pdfReport.ts` (PDF) + `measurementImage.ts` (exported chart) — report/image builders
+  (naming + PDF layout + page-height, §11 V-PDF).
+
+**Chunk A — introduce Store B + re-source (parity foundation):**
+1. **Store B** — a per-measurement material-inputs object in live state (App or analyzer): plate/brace
+   L·W·T·M + body a/b + stiffness preset/custom (mirror `MaterialMeasurementInputs`). **Not** `measureFlc`
+   (capture-time only); f_vs *is* included (Gore only).
+2. **Calc reads Store B** — `MaterialResults` takes the measurement's own dims (Store B) instead of
+   `settings`; `App.tsx:1450` passes Store B for a complete/loaded measurement. `dsp/material.ts` unchanged.
+3. **Seed at complete** — copy `Settings` → Store B at the material measurement-complete freeze (one hook;
+   nothing on New Tap / type-change / Cancel).
+4. **Load sets Store B ← snapshot; STOP clobbering Settings** — `measurementToLiveMaterial` populates
+   Store B from the snapshot; **delete the dim entries from `settingsPatch`** (keep `measurementType`).
+   Load no longer touches the template.
+5. **Save writes Store B → snapshot** — `buildMaterialMeasurement` reads Store B, not `a.settings.*`.
+6. **PDF/report + exported image read the snapshot/Store B** — `pdfReport.ts` + `measurementImage.ts`
+   (verify no settings read for a loaded measurement's dims — the analog of the Swift/Python export-block bug).
+
+**Chunk B — editable Results-panel dims + layout restructure** (`MaterialResults.tsx`): editable **Sample
+Dimensions** block (plate + brace: L/W/T/M + read-only Calculated Density) + plate **Body Dimensions**
+block (body a/b + a **Panel Stiffness (f_vs)** row: preset picker + custom), writing Store B live (reuse
+the Settings-panel field/validator components + `util/field-precision`). Reorder plate: Sample → Body →
+**trimmed** Gore (result only; drop the body/f_vs echo + GLC line) → Plate Properties (GLC among moduli).
+Remove the fL/fC/fLC frequency band + brace fL subtitle. Settings-panel fields stay (they're the template).
+Shown only when complete.
+
+**Naming unification (Diagonal / fL / fC / fLC)** — mirror §8/§9 across the web surfaces: chart legend
+`App.tsx:658-660` (`'Longitudinal (L)'`/`'Cross-grain (C)'`/`'FLC'` → `'Longitudinal (fL)'`/`'Cross-grain
+(fC)'`/`'Diagonal (fLC)'`); chart annotation/role label for the diagonal peak; peak-list/slot badges
+(L/C/FLC → fL/fC/fLC); the Three-Tap Measurement Process step text; live phase title/status strings; Help
+mention; and the **write-only** `modeLabel` in `encode.ts:72` (`'FLC'` → `'Diagonal'`, ignored on decode →
+old files still load). Grep `FLC` / `Cross-grain (C)` / `(L)` across `App.tsx`, `MaterialResults.tsx`,
+`measurementImage.ts`, `pdfReport.ts`, the status/phase module, and help content.
+
+**PDF (`pdfReport.ts`) — two parts:**
+- **Layout** (V-PDF): mirror Swift — Sample Dimensions → plate Body Dimensions (Panel Stiffness on its own
+  line) → trimmed Gore (number only) → Plate/Brace Properties (GLC among moduli); remove the fL/fC/fLC
+  frequency band; role cells "Longitudinal (fL)/Cross-grain (fC)/Diagonal (fLC)"; directional labels stay
+  (L)/(C). Mirror the same in `measurementImage.ts` if it renders the same sections.
+- **Page height:** the report is fixed Letter (`new jsPDF({format:'letter'})`, `PAGE_H=792`,
+  `ensure()`→`addPage()`) and spills tall material/multi-tap reports. Mirror Swift's single variable-height
+  page: two-pass — dry-render into a throwaway doc to capture the final `cur.y` (natural height), then
+  create the real doc with `format:[612, measuredHeight]` and set `PAGE_H` so `ensure()` never breaks;
+  multi-tap uses `addPage([612, page2Height])` for its second page.
+
+**Chunk C — notes on load (R10):** add a `loadedNotes` state alongside `loadedName`; set it in the three
+load paths (`App.tsx` ~`:892/911/967`); pass it as a `defaultNotes` prop to `SaveSheet` (seed
+`useState(defaultNotes)`); add `setLoadedNotes(null)` to `clearLoadedMeasurement` (`:464`) — the New-Tap
+clear then comes **for free** (both `newTap` and `onMaterialNewTap` call it). **No sheet refactor** — the web
+already seeds the Save fields ephemerally (remount-per-open); this is the architecture Swift had to adopt in
+its ephemeral-sheet fix (§11 V-C). The New-Tap stale-name/notes leak that hit Swift never applies here.
+
+**Type-resolution (§12; tracked as V-Type):** align to Swift — route the web's `.measurementType` **logic**
+reads through `resolvedMeasurementType` (`types.ts:130`, the snapshot), not the stored top-level field
+(populated `fromLive.ts`/`decode.ts:106`); leave `settings.measurementType` reads (the live settings type)
+alone. `grep -rn "\.measurementType" src` and classify each. Do NOT "fix" it by keeping the stored duplicate
+— derive, don't duplicate. Verify against **V-Type** (same-session save→load keeps the type).
+
+**Chunk D — tests + docs:** the vitest suite is **pure-logic (no React component-test infra — no
+testing-library/jsdom)**, so the parity coverage lands as logic tests, not rendered-component tests:
+seed-at-complete, load-populates-Store-B, save-writes-Store-B, load-leaves-Settings-untouched, and
+notes-on-load — exercised at the `fromLive`/state layer (`buildMaterialMeasurement`,
+`measurementToLiveMaterial`, the seed/clear helpers). Plus `@parity` tags + PARITY-MAP regen (`--check`
+clean) and the shared docs (release notes / Help / manual, §7). If a genuine UI-render assertion is needed,
+note the missing infra rather than adding a framework mid-item.
+
+## 11. Verification (run per edition — Swift, Python, web)
 
 The behaviour is identical across editions, so this is the **shared close-out checklist**: a chunk is
 not "done" until these pass **by running the app** (green suites ≠ run-review — see
@@ -495,6 +597,15 @@ Green = user-run-verified; leave ⏳ until then.
 3. **Help / Quick-Start / manual** updated for the dimension-editing UI (see §7).
 4. **`@parity` tags updated + PARITY-MAP regenerated**; `--check` clean.
 
+### V-Type — type resolves from the snapshot (§12)
+1. **Same-session save → load keeps the type.** Complete a plate (or brace) measurement, Save, then Load it
+   back **in the same session** → it loads as a plate/brace, **not** a Generic guitar. (This is the bug §12
+   fixed on Python; Swift is immune; web must not regress when it aligns.)
+2. **Logic reads derive, don't duplicate.** A measurement's type used for *logic* comes from the snapshot
+   (`resolvedMeasurementType`), never a stored top-level field read back. (Web audit: `grep -rn
+   "\.measurementType" src` — every logic read routes through `resolvedMeasurementType`; only
+   `settings.measurementType` — the live settings type — is exempt.)
+
 ### Verification tracking (2026-07-28)
 
 Legend: **✅** user-run-verified · **⏳** code-complete + suites green, awaiting the run-review above ·
@@ -508,8 +619,9 @@ Legend: **✅** user-run-verified · **⏳** code-complete + suites green, await
 | **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | — |
 | **V-C** notes-on-load | ✅ user-validated + regression test (`e409ce2`); Save-sheet made ephemeral so New Tap can't leak stale name/notes (`2bb1813`) | ✅ user-verified `eeca018` (loaded_notes; Python & web already immune to the New-Tap leak — ephemeral seed) | — |
 | **V-D** tests + docs | ◑ tests ✅ (`e409ce2`, 468/102); docs pending | ◑ tests ✅ `242f756` (`test_material_measurement_inputs.py`, 6 tests, 591 green) + `@parity` orphans/coverage-gap closed (Swift tag backfill `b100157`, map regenerated, 85 groups clean); docs pending | — |
+| **V-Type** type resolves from snapshot (§12) | ✅ immune (no stored field) | ✅ user-verified `5fc9aa5` (read `resolved_measurement_type` at both load readers) | — |
 
-## 11. Type-resolution parity — `measurementType` derives from the snapshot (decided)
+## 12. Type-resolution parity — `measurementType` derives from the snapshot (decided)
 
 **Decision:** a measurement's type has **one source of truth — the snapshot** — and is *derived on read*,
 never stored a second time on the in-memory model and read back for logic. This is the **Swift** model
@@ -535,23 +647,6 @@ reads (`grep -rn "\.measurementType" src`) and route the ones used for **logic**
 `resolvedMeasurementType` (`src/measurement/types.ts:130`) — the snapshot, not the stored field. Settings
 reads (`settings.measurementType`) are unaffected (that's the live settings type, not a measurement's).
 
-**➡️ WEB TO-DO (PDF page height — same class as Python `c3d1556`):** `src/presentation/pdfReport.ts` uses
-a **fixed Letter page** (`new jsPDF({ format: 'letter' })`, `PAGE_H = 792`) and `ensure()` calls `addPage()`
-when content overflows (line ~173) — so tall material/multi-tap reports paginate, unlike Swift's single
-variable-height page. **Align to Swift:** two-pass — dry-render into a throwaway doc to capture the final
-`cur.y` (natural height), then create the real doc with `format: [612, measuredHeight]` and set `PAGE_H` to
-that height so `ensure()` never breaks; multi-tap uses `addPage([612, page2Height])` for its second page.
-Also confirm the web **material PDF layout** matches the restructure (Sample → Body → Gore number-only →
-Properties; no fL/fC/fLC frequency band) — part of the web chunk's V-PDF, mirror from Swift.
-
-**➡️ WEB TO-DO (Chunk C, notes-on-load):** the web has no `loadedNotes` yet — its `SaveSheet` seeds notes
-from `useState('')` (`components/SaveSheet.tsx:19`), so re-saving a loaded measurement drops its notes (the
-R10 bug). Add a `loadedNotes` state alongside `loadedName`, set it in the three load paths (App.tsx ~892 /
-911 / 967, next to `setLoadedName(m.measurementName ?? null)`), pass it as a `defaultNotes` prop to
-`SaveSheet` (seed `useState(defaultNotes)`), and — critically — the **New-Tap clear comes for free**: just
-add `setLoadedNotes(null)` to the existing `clearLoadedMeasurement()` choke point (`App.tsx:464`, called by
-both `newTap` and `onMaterialNewTap`). No sheet refactor is needed because the web already seeds the Save
-fields ephemerally (remount-per-open, mount-seed from props) — the same architecture Swift had to adopt in
-the `SaveMeasurementSheet` alignment. That alignment is why, unlike Swift, the web never had the New-Tap
-stale-name/notes leak (Swift's sheet used to persist its seed into long-lived `@State`; the web and Python
-keep it ephemeral).
+*(The other two former web to-dos — **PDF page-height** and **Chunk C notes-on-load** — are now folded into
+the §10 web plan (PDF section and Chunk C respectively), with their full file/line detail. This block keeps
+only the type-resolution parity, which is §12's own subject and is referenced from §10.)*
