@@ -170,9 +170,29 @@ Python + web in lock-step (keep @parity tags + PARITY-MAP current).
    (TapToneAnalysisView.swift:583-687). Keep the guitarType / measurementType restores.
 5. **Save writes Store B → snapshot** — the save builder reads `current…`
    (MeasurementManagement:197-209).
-6. **PDF** — unchanged (reads the snapshot); correct once Save writes Store B (verify).
+6. **PDF** — TWO builders: `PDFReportData.from(measurement:)` (snapshot-based; used by the saved-list
+   & detail export — correct) and `TapToneAnalysisView+Export.exportPDFReport()` (the Results-panel
+   "Export PDF" button — **was reading `TapDisplaySettings`, a bug**). See the review note below.
 
-*Chunk A status — ✅ COMMITTED + user-verified (2026-07-27), full suites green (Swift 462 / Python 585
+### Swift review outcome — PDF export bug FIXED (2026-07-28, found during the Python port)
+
+A full trace of every material-dimension read (`grep TapDisplaySettings.{plate,brace,body,stiffness}`)
+found the Chunk-A "PDF reads the snapshot (verify)" note was **wrong for the Results-panel export**. The
+render path (`PDFReportGenerator.generate(data:)`) was fine, but the *build* path
+`TapToneAnalysisView+Export.exportPDFReport()` (two blocks) built `PDFReportData` from `TapDisplaySettings`,
+never `materialInputs`. After the de-clobber this meant: **load → Export PDF** computed from the template,
+and **edit dims in the Results panel → Export PDF** silently ignored the edits. (The saved-list/detail
+export via `PDFReportData.from(measurement:)` reads the snapshot and was always correct.)
+**✅ FIXED — committed `fa62764` (macOS+iOS build, 462 tests green):** both export blocks now read
+`tap.materialInputs?.dimensions` / `?.bodyLengthMM` / `?.stiffness` / `?.stiffnessPreset` with a Settings
+fallback — matching the snapshot builder and the Python port (which re-sourced the same two export blocks
+in Chunk A, which is what surfaced this). Also **deleted the now-dead** `loaded*`-dimension `@Published`
+publishers (`TapToneAnalyzer.swift`) + their `onReceive` handlers (`TapToneAnalysisView.swift`) — load
+no longer routes dims through Settings at all. Everything else (model, seed, load, save `makePhaseSnapshot`,
+display calc `calculated{Plate,Brace}Properties`/`goreThicknessView`) correctly reads Store B.
+**Lesson: verify the data *source* (build path), not just the *renderer*; "(verify)" notes must be actioned.**
+
+*Chunk A status — ✅ COMMITTED (`81571ec`) + user-verified (2026-07-27), full suites green (Swift 462 / Python 585
 / web 386). Committed together with the playback-deadlock test-infra fix — see below.* Landed:
 - `Models/MaterialMeasurementInputs.swift` (Store B type: `dimensions`, `stiffness`, `fromSettings`).
 - `TapToneAnalyzer.materialInputs` + seed in the `isMeasurementComplete` `didSet` (guard `!oldValue &&
@@ -205,7 +225,7 @@ Diagonal naming across every surface. Read the Swift files named in each bullet 
 Then repeat on web (`/Users/dws/src/GuitarTapWeb`). Chunk C (notes-on-load) + Chunk D (tests+docs) still
 pending on all three.
 
-Uncommitted Swift files (this chunk): `Views/MaterialDimensionsEditor.swift` (new),
+Swift files (this chunk, committed `98e09ef`): `Views/MaterialDimensionsEditor.swift` (new),
 `Views/PlateBodyDimensionsEditor.swift` (new), `Views/TapAnalysisResultsView.swift`,
 `Views/ExportableSpectrumChart.swift`, `Views/TapToneAnalysisView+SpectrumViews.swift`,
 `Views/HelpView.swift`, `Models/TapToneMeasurement.swift`, `Views/Utilities/PDFReportGenerator.swift`.
@@ -273,3 +293,265 @@ manual ch04-05-08.
 
 *Build detail to confirm during Chunk A:* the exact single hook for the material measurement-complete
 freeze (in `TapToneAnalyzer+SpectrumCapture` material-complete path) so the seed lands in one place.
+
+### Swift addendum — `MaterialTapPhase` display strings (found during the Python audit, 2026-07-28)
+
+My Swift naming pass updated the *view-level* `materialPhaseTitle`/`materialPhaseDescription`
+(`TapToneAnalysisView+SpectrumViews.swift`) but **missed `MaterialTapPhase.shortStatus`**, which is
+displayed live at `TapToneAnalysisView+SpectrumViews.swift:298` and still returns the old `"L tap…"` /
+`"Review L"` / `"Tap for FLC"` / `"FLC tap…"`. `MaterialTapPhase.instruction` is **dead** (no callers).
+The enum + its raw values are **never persisted** (`materialTapPhase` appears only in a debug log; not
+in `TapToneMeasurement`/`TapDisplaySettings`/`SpectrumSnapshot`) → changing display strings is safe.
+
+**✅ DONE (Swift, 2026-07-28) — committed `ccdb7dc` (builds + full suite green 462/101):** updated
+`shortStatus` (→ `"fL tap…"`/`"Review fL"`/`"fC tap…"`/`"Review fC"`/`"Tap for fLC"`/`"fLC tap…"`) and
+`instruction` in `MaterialTapPhase.swift`. **Raw values left unchanged** ("Capturing FLC" etc. — internal, unpersisted;
+Python must match). The audit also surfaced a **wider miss the first pass didn't touch**: user-facing
+`statusMessage` capture/guidance strings in the analyzer — `TapToneAnalyzer+Control.swift` ("Ready for
+fL/fC/fLC tap", "Rotate 90° and tap for fC", "Set up for fLC tap", the "— tap again" variants) and
+`TapToneAnalyzer+SpectrumCapture.swift` ("fL/fC/fLC tap n/N captured…", "File: fL complete, capturing
+fC…", etc.). `gtLog` debug strings left as-is (internal). Test + doc-comment fixups:
+`StatusMessageTests.swift` assertions ("Ready for fL tap", "Rotate 90° and tap for fC") + header
+examples. **These analyzer status strings are additional naming surfaces to mirror on Python + web.**
+
+## 9. Implementation plan — Python (mirror of Swift, non-divergent)
+
+Python (`/Users/dws/src/guitar_tap`) currently sits at its **pre-Chunk-A** state and its structure
+diverges from Swift; the port must reproduce Swift's *design*, read from the Swift source as canonical,
+in PyQt idioms. Same chunked order as §8; build + full `pytest` + user review between chunks. Keep
+`@parity` tags + PARITY-MAP current.
+
+**File-role map (Python):**
+- `views/tap_tone_analysis_view.py` (large) — live UI: the **Results panel** material section AND the
+  **Settings dialog** editable dim fields both live here.
+- `views/tap_analysis_results_view.py` (misnamed) — the **PDF/report builder** + JSON load/save helpers.
+- `models/tap_tone_analyzer*.py` — analyzer + helpers; freeze setter `set_measurement_complete`
+  (`tap_tone_analyzer_measurement_management.py:995-1020`); snapshot writer `_make_phase_snapshot`
+  (`…measurement_management.py:138-188`, reads `TDS.*`); load clobber `…measurement_management.py:585-604`.
+- `models/field_precision.py` (constants `LINEAR_DIMENSION_MM`/`MASS_G`/`BODY_DIMENSION_MM`/`STIFFNESS`,
+  `fp.string`/`fp.rounded`) and `models/plate_stiffness_preset.py` (`.stiffness`, `.short_name`) — exist.
+
+*Chunk A status — ✅ DONE + user-verified on Python (2026-07-28), committed `5fc9aa5`; full `pytest` green (585).
+Includes the same-session load-type fix (read `resolved_measurement_type`, not the raw field, in
+`_load_measurement_body:482` + `_restore_measurement:4426/4433`) — a just-saved in-memory brace/plate was
+loading as a Generic guitar because `create()` leaves the raw `measurement_type` None (see §11).* Landed: `models/material_measurement_inputs.py` (new); `material_inputs` on the
+analyzer + seed in `set_measurement_complete` (guard: transition & not-guitar & not-loading);
+`_make_phase_snapshot` reads Store B; load builds `material_inputs` from the snapshot and **drops the
+settings-clobber** (`_load_measurement_body`, kept guitar/measurement-type restores); view display calc
+re-sourced via `_get_current_dims` + Gore populate; **both live PDF-export blocks** (`_on_export_pdf`)
+re-sourced to Store B for dims + Gore params (required — the de-clobber would otherwise make a loaded
+measurement's live PDF read stale template dims). `measure_flc` stays Settings-sourced.
+
+**Chunk A — two-store re-sourcing (parity foundation):**
+1. New `models/material_measurement_inputs.py` mirroring Swift `MaterialMeasurementInputs`
+   (L/W/T/M + body L/W + stiffness preset/custom; `dimensions`, `stiffness`, `from_settings`).
+2. Add `material_inputs` to the analyzer; **seed at the material complete freeze** — one hook in
+   `set_measurement_complete` (guard: newly-complete & not-guitar & not-loading).
+3. Calc/display read `material_inputs` (live Results panel populate handlers `_populate_brace_section`
+   `:3816`, `_populate_plate_section` `:3833`, Gore populate `:3876-3900`) instead of `TDS.*`.
+4. **Load** sets `material_inputs` from the snapshot **and removes the settings clobber**
+   (`…measurement_management.py:585-604`). Keep guitarType/measurementType restores.
+5. **Save** writes `material_inputs` → snapshot (`_make_phase_snapshot` reads the store, not `TDS`).
+6. **PDF builder** (`tap_analysis_results_view.py pdf_report_data_from_measurement:271`) already reads
+   the snapshot — verify it stays correct once Save writes the store.
+
+*Chunk B status — ✅ DONE on Python (2026-07-28), committed `5fc9aa5`; full `pytest` green (585); the two new
+editor widgets smoke-tested offscreen (seed, live edit → recompute, preset combo, None-safe). ✅
+user-verified 2026-07-28, committed `5fc9aa5` — including a material-panel layout rebuild to match Swift's GroupBox sections:
+each section is a separator line + bold header + rounded gray body box (Sample Dimensions / Body
+Dimensions / Gore Target Thickness / Plate·Brace Properties / Measurement Process), correct order, peak
+list constrained so it no longer leaves a big vertical gap.* Landed: new `views/material_dimensions_editor.py`
+(`MaterialDimensionsEditor` — L/W/T/M + read-only density) and `views/plate_body_dimensions_editor.py`
+(`PlateBodyDimensionsEditor` — body a/b + Panel Stiffness f_vs preset/custom), both mirroring the Swift
+`View` structs and writing `analyzer.material_inputs` live via `textEdited`→`_commit`. View: brace gets a
+Sample Dimensions box; plate reordered to Sample → Body → trimmed Gore (number only) → Plate Properties
+(GLC among moduli); removed the fL/fC/fLC labels + brace fL subtitle; new `_refresh_material_properties`
+(editors' on-change) + `_seed_material_editors` (called at complete/load/repopulate).
+
+**Chunk B — editable Results-panel dims + layout restructure** (`tap_tone_analysis_view.py`,
+`_material_section:1234`): add an editable **Sample Dimensions** group (plate + brace: L/W/T/M +
+read-only Density) and a plate **Body Dimensions** group (body a/b + a **Panel Stiffness (f_vs)** row:
+preset combo + custom), all writing `material_inputs` live (QLineEdit + `fp` validators, mirroring the
+Settings-dialog fields at `:5896-6138`). Reorder plate: Sample → Body → **trimmed** Gore (result only;
+drop the params echo `:1430` + GLC line) → Plate Properties (GLC stays among moduli). Remove the
+fL/fC/fLC frequency labels (`_plate_fl_lbl:1449`/`_plate_fc_lbl:1453`/`_plate_flc_lbl:1457`) and the
+brace fL subtitle. Keep the Settings-dialog fields (they're the template).
+
+**Naming unification (Diagonal / fL / fC / fLC)** — every surface from the audit:
+`tap_tone_analysis_view.py` badges (`_mode_btn("FLC"…)` `:241,285`; `_plate_row` `"L:"/"C:"`
+`:1478,1481`), tap-step instructions (`:397,402,408`), phase titles/short-status (`:3611-3612,3641,
+3674,3683,3691-3696`), results labels (`:1449,1453,1457`, brace subtitle `:3818`, placeholder `:1268`),
+redo/short (`:2952,3681,3672`); `exportable_spectrum_chart.py` `peak_mode_label` (`:302,304,306`) +
+legend (`:1087,1095,1103`); PDF role labels + tap rows (`tap_analysis_results_view.py:880,882,884,888,
+1346,1352,1359`); `material_tap_phase.py` `instruction`/`short_status` (`:129-172`) — **display strings
+only, match the (updated) Swift enum; raw values `:65,74,89` unchanged**; `help_view.py` mentions;
+write-only `modeLabel` (`tap_tone_measurement.py:716,718,720`, `"FLC"`→`"Diagonal"`). **Also grep the
+Python analyzer for user-facing `status_message` capture/guidance strings** (mirror of Swift
+`TapToneAnalyzer+Control`/`+SpectrumCapture`: "Ready for fL/fC/fLC tap", "Rotate 90° and tap for fC",
+"Set up for fLC tap", "fL/fC/fLC tap n/N captured…", "File: fL complete, capturing fC…") — likely in
+`tap_tone_analyzer_control.py`/`tap_tone_analyzer_spectrum_capture.py`; leave debug logs alone. Update
+matching Python status-string test assertions (Swift needed `StatusMessageTests` fixups).
+
+**PDF layout (`tap_analysis_results_view.py _build_averaged_story:516`)** — mirror Swift: reorder to
+Sample Dimensions → plate **Body Dimensions** (Panel Stiffness on its own line) → **trimmed** Gore
+(drop Body echo `:950` + f_vs echo `:946-948`; keep the GLC-assumed-0 note wording as `fLC`) → Plate/
+Brace Properties (GLC among moduli). Remove the fL/fC/fLC freq row (`:1080-1085`) and brace fL row
+(`:1236-1238`). Directional property labels stay `(L)`/`(C)`.
+
+**Tests + docs:** update/extend `tests/test_plate.py`, `test_brace.py`, `test_material_selection.py`,
+`test_measurement_codable.py` (modeLabel + snapshot dims round-trip), `test_measurement_complete_transitions.py`
+(seed-at-complete), `test_wi6_tap_display_settings.py`/`test_wi1_settings_persistence.py`
+(load no longer clobbers settings), plus any phase/status-string assertions. Run full `pytest`.
+
+**Persistence validation (done 2026-07-28):** `MaterialTapPhase` — NOT persisted (Swift + Python;
+transient runtime) → display strings safe to change. `PlateStiffnessPreset` — **IS persisted** (Swift
+`SpectrumSnapshot` encodes it; Python snapshot + settings) → raw values unchanged both sides. `modeLabel`
+— write-only, ignored on decode → safe.
+
+## 10. Verification (run per edition — Swift, Python, web)
+
+The behaviour is identical across editions, so this is the **shared close-out checklist**: a chunk is
+not "done" until these pass **by running the app** (green suites ≠ run-review — see
+[[feedback_not_done_until_user_verifies]]). Record pass/fail per edition in that chunk's status block.
+Green = user-run-verified; leave ⏳ until then.
+
+### V-A — Chunk A (two-store re-sourcing) — mostly invisible; verify by consequence
+1. **Load doesn't disturb Settings.** Open Settings, note the plate (or brace) dimensions. Load a saved
+   measurement whose dims **differ**. Reopen Settings → the template values are **unchanged**.
+2. **Loaded measurement calc uses its own dims.** The loaded measurement's Results properties (specific
+   modulus, Gore target) match the values it was saved with — not the current Settings template.
+3. **Save round-trips.** Complete a measurement, Save, reload it → same dims and same computed values.
+4. **PDF of a loaded measurement uses its own dims** (this is the bug the Swift review caught): load a
+   saved measurement whose dims differ from Settings → Export PDF → the PDF's dimensions + properties are
+   the **measurement's**, not the template's.
+
+### V-B — Chunk B (editable Results-panel dims + layout)
+1. **Layout — plate:** Results panel shows, in order, **Sample Dimensions** (L/W/T/M + Calculated
+   Density) → **Body Dimensions** (Body Length a, Lower Bout Width b, Panel Stiffness f_vs) → **Gore
+   Target Thickness** (just the number — no Body/f_vs echo, no GLC line in this box) → **Plate
+   Properties** (GLC appears among the moduli). **No fL/fC/fLC frequency rows** in Properties.
+2. **Layout — brace:** **Sample Dimensions** box → **Brace Properties**. **No fL subtitle** in Properties.
+3. **Live edit recomputes (sample):** edit Length/Width/Thickness/Mass → Calculated Density updates, and
+   Speed of Sound / Young's / Specific Modulus / Radiation / Gore target all recompute **live**.
+4. **Live edit recomputes (body, plate):** edit Body Length/Width, or change the Panel Stiffness preset
+   (and the Custom f_vs value when preset = Custom) → **only the Gore target** changes; the plate
+   moduli (which don't depend on body dims/f_vs) do not.
+5. **Precision on entry:** fields reject over-precise keystrokes (L/W/T = 2 dp, Mass = 1 dp, Body = 0 dp,
+   f_vs = 0 dp) — mirrors the Settings fields.
+6. **Seeded on complete/load:** a freshly completed measurement and a freshly loaded one both show their
+   own values in the editor fields (not blank, not the previous measurement's).
+7. **Settings untouched by editing:** edit dims in the Results panel, then open Settings → the template
+   values are **unchanged** (editing writes Store B only).
+8. **Save = new measurement:** after editing a loaded measurement's dims, Save → a **new** measurement
+   with the edited values; the original file is unchanged.
+
+### V-Naming — Diagonal / fL / fC / fLC
+1. **Peak list / slot badges** read `fL` / `fC` / `fLC` (not L / C / FLC).
+2. **Chart legend** reads "Longitudinal (fL)" / "Cross-grain (fC)" / "Diagonal (fLC)".
+3. **Chart annotation** for the diagonal peak reads "Diagonal" (not "FLC").
+4. **Live capture** — the Three-Tap Measurement Process items read "Longitudinal (fL) / Cross-grain (fC)
+   / Diagonal (fLC) Tap"; the phase title/status strings read fL/fC/fLC (e.g. "Step 3: Diagonal (fLC)
+   Mode", "Ready for fLC tap", "Review fC").
+5. **Help** text mentions "Longitudinal, Cross-grain, and Diagonal".
+6. **File format unaffected:** save a plate measurement, confirm the `.guitartap` still round-trips (the
+   `modeLabel` change "FLC"→"Diagonal" is write-only, ignored on decode — old files still load).
+
+### V-PDF
+1. Section order matches the panel: Sample Dimensions → (plate) Body Dimensions (**Panel Stiffness on its
+   own line**) → trimmed Gore (number only) → Plate/Brace Properties (GLC among the moduli).
+2. **No fL/fC/fLC frequency band** in Plate/Brace Properties (they remain in the Detected Peaks table).
+3. Role labels + tap instructions use "Longitudinal (fL) / Cross-grain (fC) / Diagonal (fLC)".
+4. Directional property labels still read "(L)"/"(C)" (a direction, not a frequency).
+5. **Pagination (Python `c3d1556`)** — the PDF is a **single variable-height page** (each report the
+   natural height of its content), matching Swift's ImageRenderer media box (612 × natural), **not** a
+   fixed Letter page. Python was pinned to 612×792 and spilled tall material/multi-tap reports onto extra
+   pages. Fix: a shared `_measure_story_height` / `_build_variable_page_pdf` (lay the story on a throwaway
+   20 000-pt frame, read the consumed height, size the page to fit + 2 pt guard, zero frame padding for the
+   full 540 pt width). All 3 renderers route through it — `export_pdf` & `export_comparison_pdf` = 1 page;
+   `export_multi_tap_pdf` = 2 **independently-sized** pages (per-`PageTemplate` `onPage` `setPageSize`).
+   Residual divergence: font family (ReportLab Helvetica vs Swift SF Pro) — inherent, not fixable here.
+
+### V-C — Chunk C (notes-on-load)
+1. Save a measurement **with notes**. Load it → Save again → the notes are **preserved** (today they're
+   dropped because only the name is restored).
+2. **New Tap must NOT carry stale Save fields** (found 2026-07-29). Load a measurement → New Tap → open Save:
+   the name/notes fields must be **empty**, not the loaded measurement's. Root cause was **Swift-only**:
+   `SaveMeasurementSheet` bound to the view's long-lived `@State` and its `.onAppear` wrote the seed into that
+   binding, which cleared only on Save — so after New Tap the stale seed persisted. Fixed by making the sheet
+   **ephemeral** (`2bb1813`): sheet-local `@State` seeded at `init` from `defaultName`/`defaultNotes`, values
+   returned via `onSave(name, notes)`; the view field is now a transient save carrier (set on confirm, cleared
+   after) that exports still read (`isEmpty ? loaded : field`, `""` at rest). **Python and web were already
+   immune** — Python seeds a fresh `QDialog` (its widgets hold the edit; `self._measurement_name`/`_notes` are
+   `""` at rest, set only on accept) and web remounts `SaveSheet` per open (`useState(defaultName)`), both
+   seeding from `loaded*`/`loadedName` which New Tap already clears. **Lesson:** persisting a sheet's seed into
+   shared long-lived state is the anti-pattern; seed ephemerally from the analyzer's `loaded*` each open.
+
+### V-D — Chunk D (tests + docs)
+1. **Parity tests exist and pass** for the two-store model: calc reads Store B; seed-at-complete (not on
+   New Tap / type-change / Cancel); load sets Store B **and leaves the Settings template untouched**;
+   save writes Store B → snapshot; notes restored on load (V-C). Full suite green on the edition.
+2. **Release notes** entry (all editions) — viewing and editing a measurement's dimensions in the
+   Results panel.
+3. **Help / Quick-Start / manual** updated for the dimension-editing UI (see §7).
+4. **`@parity` tags updated + PARITY-MAP regenerated**; `--check` clean.
+
+### Verification tracking (2026-07-28)
+
+Legend: **✅** user-run-verified · **⏳** code-complete + suites green, awaiting the run-review above ·
+**⛔** not yet implemented on this edition · **—** not started.
+
+| Verification | Swift | Python | Web |
+|---|---|---|---|
+| **V-A** two-store re-sourcing | ✅ (`81571ec`; V-A#4 PDF-export gap fixed post-review in `fa62764`) | ✅ user-verified `5fc9aa5` | — |
+| **V-B** editable dims + layout | ✅ (`98e09ef`) | ✅ user-verified `5fc9aa5` | — |
+| **V-Naming** Diagonal/fL/fC/fLC | ✅ (`98e09ef` + `ccdb7dc` + `afda88a` PeakAnnotations/DetailView misses) | ✅ user-verified `33740d1` | — |
+| **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | — |
+| **V-C** notes-on-load | ✅ user-validated + regression test (`e409ce2`); Save-sheet made ephemeral so New Tap can't leak stale name/notes (`2bb1813`) | ✅ user-verified `eeca018` (loaded_notes; Python & web already immune to the New-Tap leak — ephemeral seed) | — |
+| **V-D** tests + docs | ◑ tests ✅ (`e409ce2`, 468/102); docs pending | ◑ tests ✅ `242f756` (`test_material_measurement_inputs.py`, 6 tests, 591 green) + `@parity` orphans/coverage-gap closed (Swift tag backfill `b100157`, map regenerated, 85 groups clean); docs pending | — |
+
+## 11. Type-resolution parity — `measurementType` derives from the snapshot (decided)
+
+**Decision:** a measurement's type has **one source of truth — the snapshot** — and is *derived on read*,
+never stored a second time on the in-memory model and read back for logic. This is the **Swift** model
+(`TapToneMeasurement.resolvedMeasurementType` = `spectrumSnapshot?.measurementType ?? longitudinalSnapshot?.measurementType`;
+no stored `measurementType` field). Chosen on the merits, not just because Swift is canonical: a stored
+duplicate must be re-populated on every construction path and can fall out of sync with the snapshot —
+"derive, don't duplicate." (Writing a top-level `measurementType` into the **.guitartap file** is fine and
+stays — it's a write-only convenience for external readers, resolved from the snapshot at encode time. The
+rule is only about an in-memory model field that logic reads back.)
+
+**Surfaced by (Python, fixed 2026-07-28):** a same-session save→load showed a plate/brace as a Generic
+guitar. Root cause: `TapToneMeasurement.create()` leaves the raw `measurement_type` field `None` (only
+`from_dict` populates it), and the load path read that raw field → `from_string("")` → `GENERIC`. Fixed by
+reading `resolved_measurement_type` at the two load-path readers: `tap_tone_analyzer_measurement_management.py:482`
+(model — was also the reason Store B wasn't built on load) and `tap_tone_analysis_view.py:4426/4433` (view —
+the type switch). Committed `5fc9aa5`; user-verified in the app. Full suite green (585). Swift is immune (no stored
+field). **Do NOT "fix" Python by populating the raw field web-style — that would add divergence from Swift.**
+
+**➡️ WEB TO-DO (when the web chunk lands):** the web is the divergent one — its measurement model stores a
+top-level `measurementType` and reads it for logic (populated in `fromLive.ts:169`/`decode.ts:106`). It works
+only because every construction path currently sets it. **Align to Swift:** sweep the web's `.measurementType`
+reads (`grep -rn "\.measurementType" src`) and route the ones used for **logic** through the existing
+`resolvedMeasurementType` (`src/measurement/types.ts:130`) — the snapshot, not the stored field. Settings
+reads (`settings.measurementType`) are unaffected (that's the live settings type, not a measurement's).
+
+**➡️ WEB TO-DO (PDF page height — same class as Python `c3d1556`):** `src/presentation/pdfReport.ts` uses
+a **fixed Letter page** (`new jsPDF({ format: 'letter' })`, `PAGE_H = 792`) and `ensure()` calls `addPage()`
+when content overflows (line ~173) — so tall material/multi-tap reports paginate, unlike Swift's single
+variable-height page. **Align to Swift:** two-pass — dry-render into a throwaway doc to capture the final
+`cur.y` (natural height), then create the real doc with `format: [612, measuredHeight]` and set `PAGE_H` to
+that height so `ensure()` never breaks; multi-tap uses `addPage([612, page2Height])` for its second page.
+Also confirm the web **material PDF layout** matches the restructure (Sample → Body → Gore number-only →
+Properties; no fL/fC/fLC frequency band) — part of the web chunk's V-PDF, mirror from Swift.
+
+**➡️ WEB TO-DO (Chunk C, notes-on-load):** the web has no `loadedNotes` yet — its `SaveSheet` seeds notes
+from `useState('')` (`components/SaveSheet.tsx:19`), so re-saving a loaded measurement drops its notes (the
+R10 bug). Add a `loadedNotes` state alongside `loadedName`, set it in the three load paths (App.tsx ~892 /
+911 / 967, next to `setLoadedName(m.measurementName ?? null)`), pass it as a `defaultNotes` prop to
+`SaveSheet` (seed `useState(defaultNotes)`), and — critically — the **New-Tap clear comes for free**: just
+add `setLoadedNotes(null)` to the existing `clearLoadedMeasurement()` choke point (`App.tsx:464`, called by
+both `newTap` and `onMaterialNewTap`). No sheet refactor is needed because the web already seeds the Save
+fields ephemerally (remount-per-open, mount-seed from props) — the same architecture Swift had to adopt in
+the `SaveMeasurementSheet` alignment. That alignment is why, unlike Swift, the web never had the New-Tap
+stale-name/notes leak (Swift's sheet used to persist its seed into long-lived `@State`; the web and Python
+keep it ephemeral).
