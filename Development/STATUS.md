@@ -9,9 +9,9 @@ completed detail docs are archived in [Completed/](Completed/). Open items are t
 
 ## Open work
 
-Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified · 🔶 deferred (not blocking).
+Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified · 🔶 deferred (not blocking) · ⏸️ parked behind a blocker.
 
-**▶ Next up:** **11** material-dimensions — Swift + Python done (through Chunk D tests) → the whole web chunk is all that remains (active) · **10** (release-prep) capture Windows + Linux Python datasets before 1.0.2 (pre-ship gate) · **9** align the frozen-recalc paired tests. No open item blocks 1.0.2.
+**▶ Next up:** **11** material-dimensions **web chunk** (un-parked — item 12 blocker resolved `5fdd8fd`); plan = spec §10. · **10** (release-prep) capture Windows + Linux Python datasets before 1.0.2 (pre-ship gate) · **9** align the frozen-recalc paired tests. No open item blocks 1.0.2.
 
 | # | Item | State — next action | Detail |
 |---|---|---|---|
@@ -25,7 +25,8 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
 | 9 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 10 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
-| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 🚧 Swift + Python complete through Chunk D (tests); the whole **web** chunk is all that remains (plan = spec §10). (Per-chunk status, hashes, and lessons live in the spec — §11 matrix + §12.) | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) §10 |
+| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 🚧 Un-parked (item 12 resolved). Swift + Python complete through Chunk D (tests); **web chunk** is all that remains (plan = spec §10). (Per-chunk status, hashes, lessons in the spec — §11 matrix + §12.) | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) §10 |
+| 12 | **Calibration/device-state single-source fix (Python)** | ✅ DONE + user-verified, committed `5fdd8fd` (591 green). Collapsed two divergent device keys / two restore paths into one (mirrors Swift `didSet`); unified `CalibrationStorage` QSettings scope + legacy migration; fixed a macOS quit deadlock (`os._exit` skips sounddevice's atexit `Pa_Terminate` vs a stalled USB CoreAudio teardown — F1-exposed). | [CALIBRATION-DEVICE-STATE-SPEC.md](CALIBRATION-DEVICE-STATE-SPEC.md) |
 
 ## Done (for reference)
 
