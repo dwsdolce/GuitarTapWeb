@@ -447,6 +447,19 @@ between chunks. Keep `@parity` tags + PARITY-MAP current.
 - `src/presentation/pdfReport.ts` (PDF) + `measurementImage.ts` (exported chart) — report/image builders
   (naming + PDF layout + page-height, §11 V-PDF).
 
+*Chunk A status — ✅ DONE + user-verified (V-A), committed `30dff21`; tsc clean, 386 web tests green.* Landed:
+`src/measurement/materialMeasurementInputs.ts` (new — `MaterialMeasurementInputs` type + `materialInputsFromSettings`/
+`materialInputsFromSnapshot`/`materialDimensions`/`materialStiffness`; `STIFFNESS_FROM_RAW` moved to `settings.ts` as the
+shared source); `MaterialResults` takes `matInputs` + `measureFlc` (not `settings`); Store B is App state (`matInputs`),
+seeded at complete via a guarded `useEffect` (the web analyzer has no settings global, so it can't live on the analyzer
+like Swift/Python — the one accepted architecture divergence), reset on New Tap via `clearLoadedMeasurement`;
+`measurementToLiveMaterial` returns `materialInputs` + a dim-free `settingsPatch` (type + measureFlc only);
+`buildMaterialMeasurement` reads Store B; PDF/image export already build via `buildCurrentMeasurement`, so covered.
+**Also fixed (bundled):** Settings `NumberField` was a controlled *numeric* input, so a decimal point could never be
+typed (onChange rounded "4." → 4) — the plate/brace/body dim fields were integer-only; now backed by a string buffer
+that preserves the in-progress "4.85", rejecting only over-precise keystrokes (mirrors Swift `limitedInput` / Python
+`_decimal_validator`). Slipped past the pure-logic `test/field-precision` suite (no web component-test harness).
+
 **Chunk A — introduce Store B + re-source (parity foundation):**
 1. **Store B** — a per-measurement material-inputs object in live state (App or analyzer): plate/brace
    L·W·T·M + body a/b + stiffness preset/custom (mirror `MaterialMeasurementInputs`). **Not** `measureFlc`
@@ -613,7 +626,7 @@ Legend: **✅** user-run-verified · **⏳** code-complete + suites green, await
 
 | Verification | Swift | Python | Web |
 |---|---|---|---|
-| **V-A** two-store re-sourcing | ✅ (`81571ec`; V-A#4 PDF-export gap fixed post-review in `fa62764`) | ✅ user-verified `5fc9aa5` | — |
+| **V-A** two-store re-sourcing | ✅ (`81571ec`; V-A#4 PDF-export gap fixed post-review in `fa62764`) | ✅ user-verified `5fc9aa5` | ✅ user-verified `30dff21` (Store B `MaterialMeasurementInputs`; load no longer clobbers Settings; PDF/save read Store B) |
 | **V-B** editable dims + layout | ✅ (`98e09ef`) | ✅ user-verified `5fc9aa5` | — |
 | **V-Naming** Diagonal/fL/fC/fLC | ✅ (`98e09ef` + `ccdb7dc` + `afda88a` PeakAnnotations/DetailView misses) | ✅ user-verified `33740d1` | — |
 | **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | — |
