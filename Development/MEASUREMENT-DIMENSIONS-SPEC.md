@@ -529,6 +529,20 @@ Manual untouched (still on hold). REMAIN on web: PDF, Chunk C, §12 type-resolut
   create the real doc with `format:[612, measuredHeight]` and set `PAGE_H` so `ensure()` never breaks;
   multi-tap uses `addPage([612, page2Height])` for its second page.
 
+*PDF status — ✅ DONE + user-verified (V-PDF, 2026-07-29), committed `e11c6a4`; tsc clean, 389 web tests
+green (3 new).* Landed all of the above: layout order (`drawMaterialAnalysis` rewritten → Sample →
+Body → Gore-number → Properties; `drawBodyDimensions`/`drawGoreThickness` added; freq band + old
+gore-box-with-glc/body/fvs removed), variable-height page (`Cur.pageH`/`grow`, `measureHeight` two-pass,
+per-page footers, `addPage([612,h2])` for multi-tap), and the export-renderer naming
+(`measurementImage.ts` overlay legend/role cells/process titles + GLC note lowercase). **Plus a
+correctness fix (the V-A#4 twin):** `materialPdfData` sourced dims/body/stiffness from `DEFAULT_SETTINGS`
+(Chunk A had removed dims from `settingsPatch` but this builder wasn't switched) → every material
+PDF/PNG computed density/moduli/Gore from template dims; now reads Store B (`materialInputs`) via
+`materialDimensions`/`materialStiffness`, mirroring `buildMaterialMeasurement`. Guarded by 3 regression
+tests in `g8-material-load.test.ts`. Chart height left at `PDF_CHART_HEIGHT=460` (auto-page removes the
+one-Letter-page rationale, but the size is fine; not part of the material-layout parity). REMAIN on web:
+Chunk C, §12 type-resolution, Chunk D.
+
 **Chunk C — notes on load (R10):** add a `loadedNotes` state alongside `loadedName`; set it in the three
 load paths (`App.tsx` ~`:892/911/967`); pass it as a `defaultNotes` prop to `SaveSheet` (seed
 `useState(defaultNotes)`); add `setLoadedNotes(null)` to `clearLoadedMeasurement` (`:464`) — the New-Tap
@@ -656,7 +670,7 @@ Legend: **✅** user-run-verified · **⏳** code-complete + suites green, await
 | **V-A** two-store re-sourcing | ✅ (`81571ec`; V-A#4 PDF-export gap fixed post-review in `fa62764`) | ✅ user-verified `5fc9aa5` | ✅ user-verified `30dff21` (Store B `MaterialMeasurementInputs`; load no longer clobbers Settings; PDF/save read Store B) |
 | **V-B** editable dims + layout | ✅ (`98e09ef`) | ✅ user-verified `5fc9aa5` | ✅ user-verified `b490c0a` (plate + brace; Sample/Body editors → Store B, shared NumberField, plate reorder + `.mat-lc` right-justify parity) |
 | **V-Naming** Diagonal/fL/fC/fLC | ✅ (`98e09ef` + `ccdb7dc` + `afda88a` PeakAnnotations/DetailView misses) | ✅ user-verified `33740d1` | ✅ user-verified `228c24b` (live surfaces: legend/badge/on-chart annotation/phase strings/process steps/modeLabel; toggle rename cross-platform Swift `2233479` + Python `ead835c`) |
-| **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | — |
+| **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | ✅ user-verified `e11c6a4` (Swift layout order + variable-height page + renderer naming; **also fixed the V-A#4 twin** — materialPdfData read DEFAULT_SETTINGS dims, now reads Store B; 3 regression tests) |
 | **V-C** notes-on-load | ✅ user-validated + regression test (`e409ce2`); Save-sheet made ephemeral so New Tap can't leak stale name/notes (`2bb1813`) | ✅ user-verified `eeca018` (loaded_notes; Python & web already immune to the New-Tap leak — ephemeral seed) | — |
 | **V-D** tests + docs | ◑ tests ✅ (`e409ce2`, 468/102); docs pending | ◑ tests ✅ `242f756` (`test_material_measurement_inputs.py`, 6 tests, 591 green) + `@parity` orphans/coverage-gap closed (Swift tag backfill `b100157`, map regenerated, 85 groups clean); docs pending | — |
 | **V-Type** type resolves from snapshot (§12) | ✅ immune (no stored field) | ✅ user-verified `5fc9aa5` (read `resolved_measurement_type` at both load readers) | — |
