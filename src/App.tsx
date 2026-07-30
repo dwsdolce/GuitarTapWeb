@@ -671,11 +671,11 @@ export default function App() {
     if (!material) return []
     const out: SpectrumOverlay[] = []
     if (matSpectra.longitudinal)
-      // Chart legend uses the mode key "(L)" uniformly for plate AND brace, matching Swift/Python
-      // (the brace's "(fL)" form is reserved for step instructions + the fL readout). (RESPIN-1.0.2, fix N.)
-      out.push({ ...matSpectra.longitudinal, color: MAT_L_COLOR, label: 'Longitudinal (L)' })
-    if (matSpectra.cross) out.push({ ...matSpectra.cross, color: MAT_C_COLOR, label: 'Cross-grain (C)' })
-    if (matSpectra.flc) out.push({ ...matSpectra.flc, color: MAT_FLC_COLOR, label: 'FLC' })
+      // Chart legend uses the frequency notation (fL/fC) and the "Diagonal (fLC)" name uniformly for
+      // plate AND brace, matching Swift/Python.
+      out.push({ ...matSpectra.longitudinal, color: MAT_L_COLOR, label: 'Longitudinal (fL)' })
+    if (matSpectra.cross) out.push({ ...matSpectra.cross, color: MAT_C_COLOR, label: 'Cross-grain (fC)' })
+    if (matSpectra.flc) out.push({ ...matSpectra.flc, color: MAT_FLC_COLOR, label: 'Diagonal (fLC)' })
     return out
   }, [material, matSpectra])
   // Per-measurement-type display range (plate 20–200, brace 30–1000, guitar 75–350),

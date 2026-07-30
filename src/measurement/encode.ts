@@ -69,7 +69,7 @@ function buildModeLabels(m: TapToneMeasurementModel): Map<string, string> {
           : p.id === m.selectedCrossPeakID
             ? 'Cross-grain'
             : p.id === m.selectedFlcPeakID
-              ? 'FLC'
+              ? 'Diagonal'
               : 'Peak'
       out.set(p.id, label)
     }

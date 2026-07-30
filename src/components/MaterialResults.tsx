@@ -106,14 +106,17 @@ const QUALITY_COLOR = WOOD_QUALITY_COLOR.dark
 
 type Role = 'L' | 'C' | 'FLC'
 
+// Badge display uses the frequency notation (fL/fC/fLC), matching Swift MaterialPeakRowView.
+const ROLE_LABEL: Record<Role, string> = { L: 'fL', C: 'fC', FLC: 'fLC' }
+
 /** One row of the sorted peak list: star, frequency, magnitude, phase badges.
  *  Mirrors Swift MaterialPeakRowView (display-only in plate/brace mode). */
 function PeakRow({ peak, role, showCross, showFlc }: { peak: MaterialPeak | null; role: Role; showCross: boolean; showFlc: boolean }) {
   // Dashes + an unselected bubble until this phase's peak is captured.
   const found = peak != null
-  const badge = (label: Role, color: string) => (
-    <span className="mat-badge" style={role === label && found ? { background: color, color: '#fff' } : undefined}>
-      {label}
+  const badge = (r: Role, color: string) => (
+    <span className="mat-badge" style={role === r && found ? { background: color, color: '#fff' } : undefined}>
+      {ROLE_LABEL[r]}
     </span>
   )
   return (
@@ -158,10 +161,10 @@ function ProcessSection({ type, measureFlc }: { type: 'plate' | 'brace'; measure
       {type === 'plate' ? (
         <>
           <div className="mat-process-head">{measureFlc ? 'Three-Tap Measurement Process:' : 'Two-Tap Measurement Process:'}</div>
-          {step('#0a84ff', '1. Longitudinal (L) Tap', 'Hold plate at 22% from one end along the length, near one long edge (not at the width node). Tap center.')}
-          {step('#ff9f0a', '2. Cross-grain (C) Tap', 'Rotate 90°. Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.')}
+          {step('#0a84ff', '1. Longitudinal (fL) Tap', 'Hold plate at 22% from one end along the length, near one long edge (not at the width node). Tap center.')}
+          {step('#ff9f0a', '2. Cross-grain (fC) Tap', 'Rotate 90°. Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.')}
           {measureFlc &&
-            step('#bf5af2', '3. FLC (Diagonal) Tap', 'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.')}
+            step('#bf5af2', '3. Diagonal (fLC) Tap', 'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.')}
           <p className="mat-process-foot">The strongest peak from each tap is auto-selected. Redo if needed.</p>
         </>
       ) : (

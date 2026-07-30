@@ -138,11 +138,11 @@ describe('statusMessage — guitar detection-loop strings', () => {
 })
 
 describe('statusMessage — material phase strings', () => {
-  it('plate capturingL arms at "Ready for L tap" (mirrors Swift; brace → "Ready for fL tap")', () => {
+  it('plate + brace capturingL both arm at "Ready for fL tap" (mirrors Swift)', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
     a.startMaterial(false)
-    expect(a.statusMessage).toBe('Ready for L tap')
+    expect(a.statusMessage).toBe('Ready for fL tap')
 
     const b = new TapToneAnalyzer()
     b.measurementType = 'brace'
@@ -150,7 +150,7 @@ describe('statusMessage — material phase strings', () => {
     expect(b.statusMessage).toBe('Ready for fL tap')
   })
 
-  it('Accept L → "Rotate 90° and tap for C"; Accept C (FLC) → "Set up for FLC tap, then tap"', () => {
+  it('Accept fL → "Rotate 90° and tap for fC"; Accept fC (fLC) → "Set up for fLC tap, then tap"', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
     a.measureFlc = true
@@ -158,11 +158,11 @@ describe('statusMessage — material phase strings', () => {
     a.materialTapPhase = 'reviewingL'
     a.acceptMaterial()
     expect(a.materialTapPhase).toBe('capturingC')
-    expect(a.statusMessage).toBe('Rotate 90° and tap for C')
+    expect(a.statusMessage).toBe('Rotate 90° and tap for fC')
     a.materialTapPhase = 'reviewingC'
     a.acceptMaterial()
     expect(a.materialTapPhase).toBe('waitingForFlcTap')
-    expect(a.statusMessage).toBe('Set up for FLC tap, then tap')
+    expect(a.statusMessage).toBe('Set up for fLC tap, then tap')
   })
 
   it('Redo re-arms the phase with the "— tap again" prompt', () => {
@@ -172,7 +172,7 @@ describe('statusMessage — material phase strings', () => {
     a.materialTapPhase = 'reviewingC'
     a.redoMaterial()
     expect(a.materialTapPhase).toBe('capturingC')
-    expect(a.statusMessage).toBe('Ready for C tap — tap again')
+    expect(a.statusMessage).toBe('Ready for fC tap — tap again')
   })
 
   it('plate (L,C only) complete lists fL/fC; plate+FLC completes generically', () => {
@@ -202,9 +202,9 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     a.setDevice(fakeDevice())
     a.startMaterial(false)
     a.recordMaterialTap(spectrum(60)) // fL bump in 20–100 Hz
-    expect(a.statusMessage).toBe('L tap 1/3 captured. Tap again...')
+    expect(a.statusMessage).toBe('fL tap 1/3 captured. Tap again...')
     a.recordMaterialTap(spectrum(60))
-    expect(a.statusMessage).toBe('L tap 2/3 captured. Tap again...')
+    expect(a.statusMessage).toBe('fL tap 2/3 captured. Tap again...')
     a.recordMaterialTap(spectrum(60)) // 3/3 → phase complete → review
     expect(a.materialTapPhase).toBe('reviewingL')
     expect(a.statusMessage).toMatch(/^fL: \d+\.\d Hz — Accept to continue or Redo to re-tap$/)
@@ -222,7 +222,7 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     expect(a.currentTapCount).toBe(0) // did NOT count
   })
 
-  it('file playback auto-advances L→C with the "File:" transition string', () => {
+  it('file playback auto-advances fL→fC with the "File:" transition string', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
     a.setNumberOfTaps(1)
@@ -230,7 +230,7 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     a.startMaterial(false)
     a.recordMaterialTap(spectrum(60)) // 1/1 → phase complete → auto-advance (playing)
     expect(a.materialTapPhase).toBe('capturingC')
-    expect(a.statusMessage).toBe('File: L complete, capturing C...')
+    expect(a.statusMessage).toBe('File: fL complete, capturing fC...')
   })
 })
 

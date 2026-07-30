@@ -56,7 +56,7 @@ const fHz = (p: { frequency: number } | null): string => (p ? p.frequency.toFixe
 /** Loaded-measurement (frozen) status — curly quotes around New Tap match Swift/Python. */
 const LOADED_STATUS = 'Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.'
 /** Short phase label for the "L/C/FLC tap X/N captured" progress strings. */
-const matPhaseLabel = (ph: MaterialPhaseName): string => (ph === 'cross' ? 'C' : ph === 'flc' ? 'FLC' : 'L')
+const matPhaseLabel = (ph: MaterialPhaseName): string => (ph === 'cross' ? 'fC' : ph === 'flc' ? 'fLC' : 'fL')
 
 // Swift tapCooldown (0.5 s): after the C tap is accepted, the FLC capture is held disarmed for this
 // long while the user repositions the plate, so the repositioning bump can't be taken as the FLC tap.
@@ -817,7 +817,7 @@ export class TapToneAnalyzer {
       this.materialBuffer = []
       this.device?.checkpointSession() // C phase start (so a redo can drop it)
       this.device?.armMaterial(this.matSearch('cross'))
-      this.setStatusMessage('Rotate 90° and tap for C')
+      this.setStatusMessage('Rotate 90° and tap for fC')
       this.notify()
     } else if (phase === 'reviewingC') {
       if (this.measureFlc) {
@@ -828,14 +828,14 @@ export class TapToneAnalyzer {
         this.currentTapCount = this.materialPhaseBase('waitingForFlcTap') // cumulative: L+C stay counted
         this.materialBuffer = []
         this.device?.checkpointSession() // FLC phase start (so a redo can drop it)
-        this.setStatusMessage('Set up for FLC tap, then tap')
+        this.setStatusMessage('Set up for fLC tap, then tap')
         this.notify()
         this.flcCooldownTimer = setTimeout(() => {
           this.flcCooldownTimer = null
           if (this.materialTapPhase !== 'waitingForFlcTap') return // canceled (reset / type change)
           this.materialTapPhase = 'capturingFlc'
           this.device?.armMaterial(this.matSearch('flc'))
-          this.setStatusMessage('Set up for FLC tap, then tap') // capturingFlc resting = same prompt
+          this.setStatusMessage('Set up for fLC tap, then tap') // capturingFlc resting = same prompt
           this.notify()
         }, FLC_COOLDOWN_MS)
       } else {
@@ -862,15 +862,15 @@ export class TapToneAnalyzer {
     if (phase === 'reviewingL') {
       this.materialTapPhase = 'capturingL'
       this.device?.armMaterial(this.matSearch('longitudinal'))
-      this.setStatusMessage('Ready for L tap — tap again')
+      this.setStatusMessage('Ready for fL tap — tap again')
     } else if (phase === 'reviewingC') {
       this.materialTapPhase = 'capturingC'
       this.device?.armMaterial(this.matSearch('cross'))
-      this.setStatusMessage('Ready for C tap — tap again')
+      this.setStatusMessage('Ready for fC tap — tap again')
     } else if (phase === 'reviewingFlc') {
       this.materialTapPhase = 'capturingFlc'
       this.device?.armMaterial(this.matSearch('flc'))
-      this.setStatusMessage('Ready for FLC tap — tap again')
+      this.setStatusMessage('Ready for fLC tap — tap again')
     }
     // Rebase the cumulative count to the taps completed in the PRIOR phases — redoing C keeps L's taps
     // counted, redoing FLC keeps L+C's (Swift redo: `currentTapCount = lCount` / `= lcCount`).
@@ -949,7 +949,7 @@ export class TapToneAnalyzer {
       } else if (playing) {
         this.materialTapPhase = 'capturingC'
         this.currentTapCount = this.materialPhaseBase('capturingC') // cumulative: L's taps stay counted
-        this.setStatusMessage('File: L complete, capturing C...')
+        this.setStatusMessage('File: fL complete, capturing fC...')
         this.device?.armMaterial(this.matSearch('cross'))
       } else {
         this.materialTapPhase = 'reviewingL'
@@ -962,7 +962,7 @@ export class TapToneAnalyzer {
         if (this.measureFlc) {
           this.materialTapPhase = 'capturingFlc'
           this.currentTapCount = this.materialPhaseBase('capturingFlc') // cumulative: L+C stay counted
-          this.setStatusMessage('File: C complete, capturing FLC...')
+          this.setStatusMessage('File: fC complete, capturing fLC...')
           this.device?.armMaterial(this.matSearch('flc'))
         } else {
           this.materialTapPhase = 'complete'
@@ -1112,9 +1112,9 @@ export class TapToneAnalyzer {
     }
     if (this.numberOfTaps > 1) {
       const phases = this.measureFlc ? 'L, C, FLC' : 'L, C'
-      return `Ready for L tap (×${this.numberOfTaps} each for ${phases})`
+      return `Ready for fL tap (×${this.numberOfTaps} each for ${phases})`
     }
-    return 'Ready for L tap'
+    return 'Ready for fL tap'
   }
 
   /** The resting "waiting for a tap" prompt for the current mode/phase (used on resume + tap-count change). */
@@ -1126,12 +1126,12 @@ export class TapToneAnalyzer {
     }
     switch (this.materialTapPhase) {
       case 'capturingC':
-        return 'Rotate 90° and tap for C'
+        return 'Rotate 90° and tap for fC'
       case 'waitingForFlcTap':
       case 'capturingFlc':
-        return 'Set up for FLC tap, then tap'
+        return 'Set up for fLC tap, then tap'
       default:
-        return this.materialArmPrompt() // capturingL / notStarted → "Ready for L tap" (mirrors Swift)
+        return this.materialArmPrompt() // capturingL / notStarted → "Ready for fL tap" (mirrors Swift)
     }
   }
 

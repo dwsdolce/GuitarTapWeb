@@ -136,7 +136,7 @@ export function buildMaterialMarkers(
   }
   if (matPeaks.longitudinal) push(matPeaks.longitudinal, '#4ea1ff', 'Longitudinal')
   if (matPeaks.cross) push(matPeaks.cross, '#f0a03a', 'Cross-grain')
-  if (matPeaks.flc) push(matPeaks.flc, '#b07ad8', 'FLC')
+  if (matPeaks.flc) push(matPeaks.flc, '#b07ad8', 'Diagonal')
   return out
 }
 

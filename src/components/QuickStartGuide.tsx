@@ -181,7 +181,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
     rows: [
       {
         title: 'Overview',
-        body: "Plate material mode measures the stiffness of a rectangular tonewood sample using three free-free beam bending taps: Longitudinal (along grain), Cross-grain, and optionally FLC (diagonal/torsional). From the tap frequencies it derives Young's modulus, speed of sound, specific modulus, radiation ratio, and a quality rating.",
+        body: "Plate material mode measures the stiffness of a rectangular tonewood sample using three free-free beam bending taps: Longitudinal (along grain), Cross-grain, and optionally Diagonal (fLC, torsional). From the tap frequencies it derives Young's modulus, speed of sound, specific modulus, radiation ratio, and a quality rating.",
       },
       {
         title: 'Prepare the Sample',
@@ -204,12 +204,12 @@ export const QUICK_START_SECTIONS: QSSection[] = [
         body: 'Rotate the plate 90° so the grain runs front–back. Hold at one point 22% from one end along the width, near one short edge (not at the length nodal line — this damps the longitudinal resonance). Tap center. The app prompts "Capturing Cross-Grain" automatically after the longitudinal tap is accepted.',
       },
       {
-        title: 'Tap 3 — FLC (Optional)',
-        body: 'Enable Measure FLC in Settings. Hold the plate at the midpoint of one long edge and tap near the opposite corner (~22% from both the end and the side). This adds a shear modulus measurement used in the Gore target-thickness calculation. Omitting it over-estimates target thickness by roughly 5–7%.',
+        title: 'Tap 3 — Diagonal (Optional)',
+        body: 'Enable Measure Diagonal (fLC) Tap in Settings. Hold the plate at the midpoint of one long edge and tap near the opposite corner (~22% from both the end and the side). This adds a shear modulus measurement used in the Gore target-thickness calculation. Omitting it over-estimates target thickness by roughly 5–7%.',
       },
       {
         title: 'Reading the Results',
-        body: 'After all taps, view Results to see: E_L / E_C — Young’s modulus along and across grain (GPa); c_L / c_C — speed of sound in each direction (m/s); Specific modulus E/ρ — the primary quality metric (GPa per g/cm³); Radiation ratio — sound radiation efficiency; Cross/Long ratio — anisotropy (spruce: typically 0.04–0.08); Quality rating — Excellent / Very Good / Good / Fair / Poor (spruce scale); and Gore target thickness — the recommended finished plate thickness for a guitar of your specified body dimensions (requires FLC or uses an approximation).',
+        body: 'After all taps, view Results to see: E_L / E_C — Young’s modulus along and across grain (GPa); c_L / c_C — speed of sound in each direction (m/s); Specific modulus E/ρ — the primary quality metric (GPa per g/cm³); Radiation ratio — sound radiation efficiency; Cross/Long ratio — anisotropy (spruce: typically 0.04–0.08); Quality rating — Excellent / Very Good / Good / Fair / Poor (spruce scale); and Gore target thickness — the recommended finished plate thickness for a guitar of your specified body dimensions (requires the Diagonal (fLC) tap or uses an approximation).',
       },
       {
         title: 'Spruce Quality Scale',
@@ -227,7 +227,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
     rows: [
       {
         title: 'Overview',
-        body: 'Brace mode is a fast single-tap variant of Plate mode designed for brace strips. Only a longitudinal tap is needed; cross-grain and FLC are skipped.',
+        body: 'Brace mode is a fast single-tap variant of Plate mode designed for brace strips. Only a longitudinal tap is needed; cross-grain and Diagonal (fLC) are skipped.',
       },
       {
         title: 'Brace Orientation',
@@ -285,7 +285,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Annotations',
         icon: 'eye',
-        body: 'Cycles through three label modes: All peaks annotated, Selected peaks only, or None. For plate and brace there is no per-peak selection, so All and Selected show the same thing — all three identified frequencies (Longitudinal, Cross, and FLC) — while None hides them.',
+        body: 'Cycles through three label modes: All peaks annotated, Selected peaks only, or None. For plate and brace there is no per-peak selection, so All and Selected show the same thing — all three identified frequencies (Longitudinal, Cross-grain, and Diagonal) — while None hides them.',
       },
       {
         title: 'Peak Labels',
@@ -476,7 +476,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
         body: 'A plate thickness prediction based on Gore Equation 4.5-7, derived from E_L, E_C, shear modulus G_LC, the wood density, and the guitar body dimensions. It targets a specified vibrational stiffness (f_vs) preset.',
       },
       {
-        title: 'FLC Tap',
+        title: 'Diagonal (fLC) Tap',
         body: 'A diagonal-mode tap that excites the torsional resonance of the plate. Used to calculate the shear modulus G_LC for the Gore thickness formula. Hold the plate at the midpoint of one long edge and tap near the opposite corner (~22% from both the end and the side).',
       },
       {

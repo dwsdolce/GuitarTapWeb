@@ -483,6 +483,15 @@ the Settings-panel field/validator components + `util/field-precision`). Reorder
 Remove the fL/fC/fLC frequency band + brace fL subtitle. Settings-panel fields stay (they're the template).
 Shown only when complete.
 
+*Chunk B status — ✅ DONE + user-verified (V-B, plate + brace, 2026-07-29), committed `b490c0a`; tsc clean, 386
+web tests green.* Landed: Sample/Body editors bound to Store B (shared `NumberField` extracted from
+SettingsPanel = the string-buffer decimal-entry fix); plate reorder Sample → Body → trimmed Gore → Plate
+Properties (GLC among moduli, shown only when an FLC peak exists — no assumed-0 note); fL/fC/fLC band + brace
+fL subtitle removed. Layout-parity fix vs Swift `platePropertiesSection`: Speed of Sound / Young's Modulus /
+Radiation Ratio stack the title over an L/C row, and `.mat-lc` uses `space-between` so C right-justifies
+(Swift `HStack … Spacer()`). REMAIN on web: Naming, PDF (layout + page-height), Chunk C, §12 type-resolution,
+Chunk D.
+
 **Naming unification (Diagonal / fL / fC / fLC)** — mirror §8/§9 across the web surfaces: chart legend
 `App.tsx:658-660` (`'Longitudinal (L)'`/`'Cross-grain (C)'`/`'FLC'` → `'Longitudinal (fL)'`/`'Cross-grain
 (fC)'`/`'Diagonal (fLC)'`); chart annotation/role label for the diagonal peak; peak-list/slot badges
@@ -627,7 +636,7 @@ Legend: **✅** user-run-verified · **⏳** code-complete + suites green, await
 | Verification | Swift | Python | Web |
 |---|---|---|---|
 | **V-A** two-store re-sourcing | ✅ (`81571ec`; V-A#4 PDF-export gap fixed post-review in `fa62764`) | ✅ user-verified `5fc9aa5` | ✅ user-verified `30dff21` (Store B `MaterialMeasurementInputs`; load no longer clobbers Settings; PDF/save read Store B) |
-| **V-B** editable dims + layout | ✅ (`98e09ef`) | ✅ user-verified `5fc9aa5` | — |
+| **V-B** editable dims + layout | ✅ (`98e09ef`) | ✅ user-verified `5fc9aa5` | ✅ user-verified `b490c0a` (plate + brace; Sample/Body editors → Store B, shared NumberField, plate reorder + `.mat-lc` right-justify parity) |
 | **V-Naming** Diagonal/fL/fC/fLC | ✅ (`98e09ef` + `ccdb7dc` + `afda88a` PeakAnnotations/DetailView misses) | ✅ user-verified `33740d1` | — |
 | **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | — |
 | **V-C** notes-on-load | ✅ user-validated + regression test (`e409ce2`); Save-sheet made ephemeral so New Tap can't leak stale name/notes (`2bb1813`) | ✅ user-verified `eeca018` (loaded_notes; Python & web already immune to the New-Tap leak — ephemeral seed) | — |

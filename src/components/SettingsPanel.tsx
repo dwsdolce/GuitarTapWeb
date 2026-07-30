@@ -336,7 +336,7 @@ export function SettingsPanel({
 
                 <label className="set-field check">
                   <input type="checkbox" checked={d.measureFlc} onChange={(e) => patch({ measureFlc: e.target.checked })} />
-                  <span>Measure FLC (Diagonal Tap)</span>
+                  <span>Measure Diagonal (fLC) Tap</span>
                 </label>
                 <p className="set-desc">
                   Add a 3rd tap: hold plate at midpoint of one long edge, tap near opposite corner. Measures

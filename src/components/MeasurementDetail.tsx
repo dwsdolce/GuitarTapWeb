@@ -20,7 +20,7 @@ export interface MeasurementDetailProps {
 const MATERIAL_LABEL_COLOR: Record<string, string> = {
   Longitudinal: '#4ea1ff',
   'Cross-grain': '#f0a03a',
-  FLC: '#b07ad8',
+  Diagonal: '#b07ad8',
 }
 function labelColor(label: string): string {
   for (const [mode, name] of Object.entries(MODE_DISPLAY_NAME)) {
@@ -61,7 +61,7 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
     if (isMaterial) {
       if (p.id === m.selectedLongitudinalPeakID) return 'Longitudinal'
       if (p.id === m.selectedCrossPeakID) return 'Cross-grain'
-      if (p.id === m.selectedFlcPeakID) return 'FLC'
+      if (p.id === m.selectedFlcPeakID) return 'Diagonal'
       return 'Peak'
     }
     return p.modeLabel ?? 'Peak'

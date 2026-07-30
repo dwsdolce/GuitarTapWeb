@@ -23,13 +23,13 @@ const PHASE_COLOR: Record<MatPhase, string> = {
 // Mirrors Swift MaterialTapPhase.shortStatus.
 const SHORT_STATUS: Record<MatPhase, string> = {
   notStarted: 'Ready',
-  capturingL: 'L tap...',
-  reviewingL: 'Review L',
-  capturingC: 'C tap...',
-  reviewingC: 'Review C',
-  waitingForFlcTap: 'Tap for FLC',
-  capturingFlc: 'FLC tap...',
-  reviewingFlc: 'Review FLC',
+  capturingL: 'fL tap...',
+  reviewingL: 'Review fL',
+  capturingC: 'fC tap...',
+  reviewingC: 'Review fC',
+  waitingForFlcTap: 'Tap for fLC',
+  capturingFlc: 'fLC tap...',
+  reviewingFlc: 'Review fLC',
   complete: 'Done',
 }
 
@@ -109,24 +109,24 @@ function phaseStep(phase: MatPhase, brace: boolean, measureFlc: boolean): number
   }
 }
 
-function phaseTitle(phase: MatPhase, brace: boolean): string {
+function phaseTitle(phase: MatPhase): string {
   switch (phase) {
     case 'notStarted':
       return 'Press ‘New Tap’ to Begin'
     case 'capturingL':
-      return brace ? 'Step 1: Longitudinal (fL) Mode' : 'Step 1: Longitudinal (L) Mode'
+      return 'Step 1: Longitudinal (fL) Mode'
     case 'reviewingL':
-      return 'Review L Tap — Accept or Redo'
+      return 'Review fL Tap — Accept or Redo'
     case 'capturingC':
-      return 'Step 2: Cross-grain (C) Mode'
+      return 'Step 2: Cross-grain (fC) Mode'
     case 'reviewingC':
-      return 'Review C Tap — Accept or Redo'
+      return 'Review fC Tap — Accept or Redo'
     case 'waitingForFlcTap':
-      return 'C Captured — Prepare for Step 3'
+      return 'fC Captured — Prepare for Step 3'
     case 'capturingFlc':
-      return 'Step 3: FLC (Diagonal) Mode'
+      return 'Step 3: Diagonal (fLC) Mode'
     case 'reviewingFlc':
-      return 'Review FLC Tap — Accept or Redo'
+      return 'Review fLC Tap — Accept or Redo'
     case 'complete':
       return 'Measurement Complete'
   }
@@ -142,21 +142,21 @@ function phaseDescription(phase: MatPhase, brace: boolean, measureFlc: boolean):
         ? 'Hold brace at 22% from one end along the length. Tap center.'
         : 'Hold plate at 22% from one end along the length, near one long edge (not at the width node). Tap center.'
     case 'reviewingL':
-      return 'L tap captured. Review the spectrum — press Accept to continue to the C tap, or Redo to re-capture.'
+      return 'fL tap captured. Review the spectrum — press Accept to continue to the fC tap, or Redo to re-capture.'
     case 'capturingC':
       return 'Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.'
     case 'reviewingC':
-      return 'C tap captured. Review the spectrum — press Accept to continue, or Redo to re-capture.'
+      return 'fC tap captured. Review the spectrum — press Accept to continue, or Redo to re-capture.'
     case 'waitingForFlcTap':
-      return 'Cross-grain mode captured! Now hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both sides) for FLC.'
+      return 'Cross-grain mode captured! Now hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both sides) for the fLC (Diagonal) tap.'
     case 'capturingFlc':
       return 'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.'
     case 'reviewingFlc':
-      return 'FLC tap captured. Review the spectrum — press Accept to complete the measurement, or Redo to re-capture.'
+      return 'fLC tap captured. Review the spectrum — press Accept to complete the measurement, or Redo to re-capture.'
     case 'complete':
       if (brace)
         return 'fL captured! Review the fL (blue) peak selection in the Results panel. Redo if the auto-selection isn’t correct.'
-      return `All modes captured! Review the L (blue), C (orange)${measureFlc ? ', and FLC (purple)' : ''} peak selections in the Results panel. Redo if the auto-selection isn’t correct.`
+      return `All modes captured! Review the fL (blue), fC (orange)${measureFlc ? ', and fLC (purple)' : ''} peak selections in the Results panel. Redo if the auto-selection isn’t correct.`
   }
 }
 
@@ -191,7 +191,7 @@ export function MaterialInstructionPanel({
           <PhaseIcon kind={PHASE_ICON[phase]} color={color} />
         </span>
         <div className="mat-instr-text">
-          <div className="mat-instr-title">{phaseTitle(phase, brace)}</div>
+          <div className="mat-instr-title">{phaseTitle(phase)}</div>
           <div className="mat-instr-desc">{phaseDescription(phase, brace, measureFlc)}</div>
         </div>
       </div>
