@@ -224,6 +224,10 @@ export default function App() {
   const [showLoadedSettings, setShowLoadedSettings] = useState(false)
   // Name of the currently loaded measurement → chart title ("FFT Peaks — {name}", else "New").
   const [loadedName, setLoadedName] = useState<string | null>(null)
+  // Loaded measurement's notes — seeds the Save sheet symmetrically with loadedName (Swift loadedNotes).
+  // Cleared wherever loadedName is (New Tap / capture / play / compare / type change), so the sheet never
+  // offers a prior measurement's notes under a blanked name.
+  const [loadedNotes, setLoadedNotes] = useState<string | null>(null)
   // Store B — the current material measurement's OWN dimensions. `null` for guitar and before a
   // material measurement completes. Seeded from Settings at completion, restored from the snapshot on
   // load, and the sole source for MaterialResults' calc + Save (never the live Settings). Mirrors
@@ -369,6 +373,7 @@ export default function App() {
     setLoadedPeaks(null)
     analyzer.clearResult() // drop the frozen guitar spectrum + per-tap comparison spectra
     setLoadedName(null)
+    setLoadedNotes(null)
     setLoadedView(null) // a new measurement context drops the loaded measurement's transient range
     setShowLoadedSettings(false)
     setShowMultiTap(false)
@@ -387,6 +392,7 @@ export default function App() {
     setLoadedPeaks(null)
     setLoadWarning(null)
     setLoadedName(null)
+    setLoadedNotes(null)
     setLoadedView(null) // a live capture supersedes the loaded measurement's transient range
     setShowLoadedSettings(false)
     setShowMultiTap(false)
@@ -443,6 +449,7 @@ export default function App() {
       setLoadedPeaks(null)
       setLoadWarning(null)
       setLoadedName(null)
+      setLoadedNotes(null)
       setLoadedView(null) // playing a file starts a new measurement — drop any loaded range
       setShowLoadedSettings(false)
       analyzer.clearResult()
@@ -482,6 +489,7 @@ export default function App() {
     setLoadedPeaks(null)
     setLoadWarning(null)
     setLoadedName(null)
+    setLoadedNotes(null)
     setLoadedView(null) // drop the loaded measurement's transient axis range
     setMatInputs(null)  // drop Store B — a fresh material capture re-seeds it from Settings at complete
     setShowLoadedSettings(false)
@@ -911,6 +919,7 @@ export default function App() {
         setShowMultiTap(false)
         setLoadWarning(null)
         setLoadedName(m.measurementName ?? null)
+        setLoadedNotes(m.notes ?? null)
         setShowMeasurements(false)
         engineRef.current?.disarm() // freeze the comparison (see onCompare)
         return
@@ -931,6 +940,7 @@ export default function App() {
           measurementWarning(m, { microphoneName: deviceLabel, sampleRate, calibrationName: calibrationRef.current?.name }),
         )
         setLoadedName(m.measurementName ?? null)
+        setLoadedNotes(m.notes ?? null)
         {
           const loadedTaps = m.numberOfTaps ?? 1
           analyzer.setNumberOfTaps(loadedTaps)
@@ -987,6 +997,7 @@ export default function App() {
         measurementWarning(m, { microphoneName: deviceLabel, sampleRate, calibrationName: calibrationRef.current?.name }),
       )
       setLoadedName(m.measurementName ?? null)
+      setLoadedNotes(m.notes ?? null)
       // Restore the measurement's Taps and show the loaded-settings banner (Swift parity).
       {
         const loadedTaps = m.numberOfTaps ?? 1
@@ -1019,6 +1030,7 @@ export default function App() {
     setShowMultiTap(false)
     setLoadWarning(null)
     setLoadedName(null)
+    setLoadedNotes(null)
     setShowMeasurements(false)
     // Freeze the comparison: stop the always-on listener so a stray tap can't clobber it
     // (mirrors Swift displayMode == .comparison). New Tap re-arms.
@@ -1655,6 +1667,7 @@ export default function App() {
       {showSave && (
         <SaveSheet
           defaultName={loadedName ?? ''}
+          defaultNotes={loadedNotes ?? ''}
           onSave={onSaveMeasurement}
           onClose={() => setShowSave(false)}
         />

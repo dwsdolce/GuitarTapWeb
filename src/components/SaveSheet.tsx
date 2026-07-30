@@ -7,6 +7,9 @@ export interface SaveSheetProps {
   /** Pre-fill for the measurement-name field: the loaded measurement's name on re-save, else ""
    *  (§3). Mirrors Swift SaveMeasurementSheet `defaultName`. */
   defaultName?: string
+  /** Pre-fill for the notes field: the loaded measurement's notes on re-save, else "" — seeds
+   *  symmetrically with `defaultName` (Swift SaveMeasurementSheet `defaultNotes`). */
+  defaultNotes?: string
   /** Called with the entered name (trimmed, always non-empty) + notes when the user confirms Save. */
   onSave: (name: string, notes: string) => void
   /** Dismiss the sheet (Cancel, backdrop click, or after a successful Save). */
@@ -14,9 +17,9 @@ export interface SaveSheetProps {
 }
 
 /** Name + notes sheet for saving the current frozen measurement to the library. */
-export function SaveSheet({ defaultName = '', onSave, onClose }: SaveSheetProps) {
+export function SaveSheet({ defaultName = '', defaultNotes = '', onSave, onClose }: SaveSheetProps) {
   const [name, setName] = useState(defaultName)
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes] = useState(defaultNotes)
 
   // A name is required (§3): Save is disabled until the field is non-empty after trimming.
   const canSave = isValidMeasurementName(name)
