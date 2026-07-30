@@ -55,6 +55,10 @@ export const RELEASES: RNRelease[] = [
         heading: 'New Features',
         items: [
           {
+            title: 'Set a Plate or Brace’s Dimensions in the Results',
+            body: 'You now enter a sample’s dimensions where you read its results. After tapping, the Analysis Results panel has editable Sample Dimensions (length, width, thickness, mass) and — for a plate — Body Dimensions (body length, lower bout width, and panel stiffness); every property and the Gore target thickness recompute as you type. You no longer have to fill the numbers into Settings before you start: the Settings dimension fields are now just the defaults for a new measurement, and each measurement keeps its own values. Tap first, then enter or correct the exact dimensions afterward.',
+          },
+          {
             title: 'Ring-Out (Decay Time)',
             body: 'Guitar Tap now measures ring-out — how long the tap tone takes to decay — and shows it alongside the peaks, both live and on saved measurements. It is rated as well, so you can see at a glance whether an instrument’s sustain is where you would expect it.',
           },
@@ -64,7 +68,7 @@ export const RELEASES: RNRelease[] = [
           },
           {
             title: 'Material (Plate & Brace) Measurements',
-            body: 'The chart now shows the live signal while you tap a plate or brace, instead of waiting for the phase to complete. The Analysis Results panel fills in as you tap: the Long / Cross / (FLC) rows appear immediately as dashed placeholders and complete as each phase finishes, with the calculated properties appearing once the whole measurement is done. Each phase averages its taps and locates the peak from the averaged spectrum, matching the other editions.',
+            body: 'The chart now shows the live signal while you tap a plate or brace, instead of waiting for the phase to complete. The Analysis Results panel fills in as you tap: the Longitudinal (fL), Cross-grain (fC), and Diagonal (fLC) rows appear immediately as dashed placeholders and complete as each phase finishes, with the calculated properties appearing once the whole measurement is done. Each phase averages its taps and locates the peak from the averaged spectrum, matching the other editions.',
           },
           {
             title: 'Spectrum Chart',
@@ -91,6 +95,14 @@ export const RELEASES: RNRelease[] = [
       {
         heading: 'Improvements',
         items: [
+          {
+            title: 'Clearer Tap-Mode Names',
+            body: 'The three material taps are now labelled consistently everywhere — Longitudinal (fL), Cross-grain (fC), and Diagonal (fLC) — on the chart, in the results, and on the report. The Settings option for the third tap is now Measure Diagonal (fLC) Tap.',
+          },
+          {
+            title: 'More Panel-Stiffness Presets',
+            body: 'The Gore target-thickness calculation adds Classical Top and Classical Back to the existing Steel String Top, Steel String Back, and Custom presets.',
+          },
           {
             title: 'Tap Detection',
             body: 'Plate and brace measurements now detect taps relative to the measured noise floor rather than against a fixed threshold, with hysteresis to reject bounce — the same detector the macOS/iOS and desktop editions use. In a noisy room a fixed threshold could miss every tap; this tracks the room. Guitar measurements gained the same hysteresis.',

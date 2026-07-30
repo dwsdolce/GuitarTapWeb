@@ -1,6 +1,10 @@
 # Material Measurement Dimensions — Override, Display & Sourcing (design spec)
 
-**Status:** 🔨 DRAFT — design phase, no code. The **two-store model is decided and the design is
+**Status:** ✅ COMPLETE — done all 3 platforms (2026-07-30). Two-store model, Diagonal (fL/fC/fLC)
+naming, notes-on-load, §12 type-from-snapshot, shared validated-number-field widget; docs (manual +
+Help + 1.0.2 release notes) done. See §10 (web plan / V-D / docs-status) + the STATUS Done entry.
+
+**Original status:** 🔨 DRAFT — design phase, no code. The **two-store model is decided and the design is
 settled** (2026-07-27, §4–5); the earlier OD2/OD5/OD6 dissolved on review. Scope also folds in a
 **notes-on-load defect** found while tracing (§3 R10, §5). Swift is canonical; Python + web mirror.
 
@@ -572,11 +576,13 @@ notes-on-load — exercised at the `fromLive`/state layer (`buildMaterialMeasure
 clean) and the shared docs (release notes / Help / manual, §7). If a genuine UI-render assertion is needed,
 note the missing infra rather than adding a framework mid-item.
 
-*Docs status (2026-07-29) — tests + @parity ✅ (see V-D). **Manual** (Swift `Documentation/Manual/*.md`)
-restructured for the dimensions-in-Results flow + naming + 4 presets, user-reviewed; **Help** reframed +
-naming on all three (Swift `HelpView`, Python `help_view`, web `QuickStartGuide`), Swift wording approved.
-Quick-Start + manual HTML/PDF regenerated. Commits pending (per-repo messages given). **REMAINING (tomorrow):
-release notes (all 3, §7) + re-capture the manual screenshots (list below).***
+*Docs status (2026-07-30) — ✅ COMPLETE. Manual (Swift `Documentation/Manual/*.md`) restructured for the
+dimensions-in-Results flow + naming + 4 presets + screenshots re-captured (image-sizing fixed in `manual.css`
+by capping screenshot height, so tall portrait shots no longer orphan their heading); Help reframed + naming
+on all three (Swift `HelpView`, Python `help_view`, web `QuickStartGuide`); release notes updated in the
+1.0.2 section on all three (new "Set Dimensions in the Results" feature + naming/preset improvements, and the
+existing 1.0.2 material entries renamed). Manual/Quick-Start HTML/PDF regenerated. **Item 11 done pending
+only: user commits the doc changes (per-repo) + regenerates the Swift/Python release-notes PDFs (pandoc).***
 
 **Manual screenshots to re-capture (macOS, Swift repo `Documentation/Manual/images/`) — user takes these:**
 - **`ch04-results-panel.png`** — Plate Results panel. **Major change:** now shows the editable **Sample
@@ -699,7 +705,7 @@ Legend: **✅** user-run-verified · **⏳** code-complete + suites green, await
 | **V-Naming** Diagonal/fL/fC/fLC | ✅ (`98e09ef` + `ccdb7dc` + `afda88a` PeakAnnotations/DetailView misses) | ✅ user-verified `33740d1` | ✅ user-verified `228c24b` (live surfaces: legend/badge/on-chart annotation/phase strings/process steps/modeLabel; toggle rename cross-platform Swift `2233479` + Python `ead835c`) |
 | **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | ✅ user-verified `e11c6a4` (Swift layout order + variable-height page + renderer naming; **also fixed the V-A#4 twin** — materialPdfData read DEFAULT_SETTINGS dims, now reads Store B; 3 regression tests) |
 | **V-C** notes-on-load | ✅ user-validated + regression test (`e409ce2`); Save-sheet made ephemeral so New Tap can't leak stale name/notes (`2bb1813`) | ✅ user-verified `eeca018` (loaded_notes; Python & web already immune to the New-Tap leak — ephemeral seed) | ✅ user-verified `ebc2f53` (`loadedNotes` paired with `loadedName` at all 3 loads + 5 clears; `SaveSheet defaultNotes`; remount-per-open = already leak-immune) |
-| **V-D** tests + docs | ◑ tests ✅ (`e409ce2`, 468/102); docs pending | ◑ tests ✅ `242f756` (`test_material_measurement_inputs.py`, 6 tests, 591 green) + `@parity` orphans/coverage-gap closed (Swift tag backfill `b100157`, map regenerated, 85 groups clean); docs pending | ◑ tests ✅ user-verified `581d04d` (`test/material-measurement-inputs.test.ts`, sourcing invariants) + `@parity`/PARITY-MAP: `view/validated-number-field` now a real 3-way group (Python widget `23e3cea` + Swift `19d976e`), 86 groups clean; docs pending |
+| **V-D** tests + docs | ✅ tests (`e409ce2`, 468/102) + docs ✅ | ✅ tests `242f756` (`test_material_measurement_inputs.py`, 6 tests, 591 green) + `@parity` orphans/coverage-gap closed (`b100157`, map regenerated) + docs ✅ | ✅ tests user-verified `581d04d` (`test/material-measurement-inputs.test.ts`, sourcing invariants) + `@parity`/PARITY-MAP: `view/validated-number-field` now a real 3-way group (Python widget `23e3cea` + Swift `19d976e`), 86 groups clean + docs ✅ (manual + Help + 1.0.2 release notes, all 3, user-reviewed 2026-07-30) |
 | **V-Type** type resolves from snapshot (§12) | ✅ immune (no stored field) | ✅ user-verified `5fc9aa5` (read `resolved_measurement_type` at both load readers) | ✅ immune (audit: no top-level field on the model; logic derives via `resolvedMeasurementType`; load-derives-type in g6/g8) |
 
 ## 12. Type-resolution parity — `measurementType` derives from the snapshot (decided)
