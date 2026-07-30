@@ -28,7 +28,7 @@ export interface PdfPeakRow {
   modeLabel?: string
   modeColor?: string
   isOverride?: boolean
-  /** Material: phase role ("Longitudinal (L)" / "Cross-grain (C)" / "FLC (Diagonal)" / "–"). */
+  /** Material: phase role ("Longitudinal (fL)" / "Cross-grain (fC)" / "Diagonal (fLC)" / "–"). */
   role?: string
   roleColor?: string
 }
@@ -61,10 +61,12 @@ export interface PdfMaterialProp {
 
 export interface PdfMaterialAnalysis {
   title: string // "Plate Properties" / "Brace Properties"
-  gore?: { thickness: string; glc: string; goreItalic: boolean; body: string; fvs: string } | null
-  /** fL / fC / fLC — label+value so the value can be bold, and laid out in THREE columns inside a
-   *  grey box (Swift plateSection:778-793 / braceSection:851-861). Was a pre-joined string[]. */
-  freqs: PdfMaterialProp[]
+  /** Plate only: the Gore Target Thickness result — JUST the number now (Swift
+   *  `goreThicknessPDFSection`:975-997). The body inputs + f_vs live in `body`, GLC among the moduli. */
+  gore?: { thickness: string } | null
+  /** Plate only: Body Dimensions block (Swift `plateBodyDimensionsPDFSection`:945-970) — body a/b on
+   *  one line (`dims`, two columns), Panel Stiffness (f_vs) on its own full-width line. */
+  body?: { dims: PdfMaterialProp[]; stiffness: PdfMaterialProp } | null
   dimensions: PdfMaterialProp[] // sample dimension rows (label/value) — 3 columns, grey box
   props: PdfMaterialProp[] // speed/young/specmod/radiation rows (color = quality where relevant)
   /** Plate only: the GLC row Swift draws FULL-WIDTH after the two-column property block
@@ -108,13 +110,23 @@ export interface PdfReportData {
 }
 
 // ── Page geometry (points) ──────────────────────────────────────────────────
+// The page is US Letter WIDTH (612 pt) with a VARIABLE height: like Swift's ImageRenderer
+// ("the natural height of the view determines the PDF page height", PDFReportGenerator.swift:300),
+// each report renders onto ONE page grown to fit its content — no mid-report pagination. Height is
+// found with a two-pass render (measure into a tall throwaway page, then emit at the measured size).
 const PAGE_W = 612
-const PAGE_H = 792
 const MARGIN = 36
 const CONTENT_W = PAGE_W - MARGIN * 2
 const L = MARGIN
 const R = PAGE_W - MARGIN
 const FOOTER_RESERVE = 30 // band at the page bottom kept clear for the footer
+// Throwaway measuring page — tall enough that no real report paginates within it (PDF max is 14400 pt).
+const MEASURE_H = 14400
+
+/** Page height that fits `contentBottom` plus the footer band below it. */
+function pageHeightFor(contentBottom: number): number {
+  return Math.ceil(contentBottom + MARGIN + 20)
+}
 // Plot height (px) for the embedded spectrum image — shorter than the standalone PNG's 660 so the
 // embedded image is ~280pt tall (vs ~360), freeing ~70pt and keeping the analysis on page 1.
 const PDF_CHART_HEIGHT = 460
@@ -156,10 +168,14 @@ function fmtFreq(hz: number): string {
 
 type Doc = import('jspdf').jsPDF
 
-/** The single mutable layout cursor threaded through every draw routine. */
+/** The single mutable layout cursor threaded through every draw routine. `pageH` is the current
+ *  page's height (variable — see the geometry note); `grow` (single-page reports) makes `ensure`
+ *  never paginate, since the page is sized to fit the whole report. */
 interface Cur {
   doc: Doc
   y: number
+  pageH: number
+  grow?: boolean
 }
 
 // ── Layout primitives (all advance cur.y) ─────────────────────────────────────
@@ -169,9 +185,11 @@ const font = (doc: Doc, size: number, style: 'normal' | 'bold' | 'italic' = 'nor
 }
 const setColor = (doc: Doc, c: RGB) => doc.setTextColor(c[0], c[1], c[2])
 
-/** Paginate if `h` more points won't fit above the footer band; returns true on a page break. */
+/** Paginate if `h` more points won't fit above the footer band; returns true on a page break.
+ *  In `grow` mode the page is sized to the whole report (measured first), so this never breaks. */
 function ensure(cur: Cur, h: number): boolean {
-  if (cur.y + h > PAGE_H - MARGIN - FOOTER_RESERVE) {
+  if (cur.grow) return false
+  if (cur.y + h > cur.pageH - MARGIN - FOOTER_RESERVE) {
     cur.doc.addPage()
     cur.y = MARGIN
     return true
@@ -185,34 +203,50 @@ function divider(cur: Cur) {
   cur.doc.line(L, cur.y, R, cur.y)
 }
 
-/** Render the report to a PDF Blob. */
+type JsPdfCtor = typeof import('jspdf').jsPDF
+
+/** Dry-render `data` into a throwaway tall page to measure its natural content height, then return
+ *  the page height that fits it (Swift's auto-height page, done as a two-pass in jsPDF). */
+function measureHeight(JsPDF: JsPdfCtor, data: PdfReportData): number {
+  const probe = new JsPDF({ unit: 'pt', format: [PAGE_W, MEASURE_H] })
+  const cur: Cur = { doc: probe, y: MARGIN, pageH: MEASURE_H, grow: true }
+  renderReportContent(cur, data)
+  return pageHeightFor(cur.y)
+}
+
+/** Render the report to a PDF Blob — a single page grown to fit the content (mirrors Swift). */
 export async function generatePdfReport(data: PdfReportData): Promise<Blob> {
   const { jsPDF } = await import('jspdf')
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
-  renderReportContent({ doc, y: MARGIN }, data)
-  drawFooters(doc, data.timestamp)
+  const pageH = measureHeight(jsPDF, data)
+  const doc = new jsPDF({ unit: 'pt', format: [PAGE_W, pageH] })
+  renderReportContent({ doc, y: MARGIN, pageH, grow: true }, data)
+  drawFooters(doc, data.timestamp, [pageH])
   return doc.output('blob')
 }
 
 /** Render a multi-tap guitar report (Swift `generateMultiTapReport`): page 1 = the averaged
- *  single-measurement report, page 2 = the per-tap comparison. Both pages reuse the same drawers
- *  as the single/comparison reports, so the multi-tap PDF never drifts from them. */
+ *  single-measurement report, page 2 = the per-tap comparison. Each page is sized to its own content
+ *  (Swift auto-height). Both pages reuse the same drawers as the single/comparison reports. */
 export async function generateMultiTapPdfReport(averaged: PdfReportData, comparison: PdfReportData): Promise<Blob> {
   const { jsPDF } = await import('jspdf')
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' })
-  renderReportContent({ doc, y: MARGIN }, averaged) // page 1 — averaged result
-  doc.addPage()
-  renderReportContent({ doc, y: MARGIN }, comparison) // page 2 — per-tap comparison
-  drawFooters(doc, averaged.timestamp)
+  const h1 = measureHeight(jsPDF, averaged)
+  const h2 = measureHeight(jsPDF, comparison)
+  const doc = new jsPDF({ unit: 'pt', format: [PAGE_W, h1] })
+  renderReportContent({ doc, y: MARGIN, pageH: h1, grow: true }, averaged) // page 1 — averaged result
+  doc.addPage([PAGE_W, h2])
+  renderReportContent({ doc, y: MARGIN, pageH: h2, grow: true }, comparison) // page 2 — per-tap comparison
+  drawFooters(doc, averaged.timestamp, [h1, h2])
   return doc.output('blob')
 }
 
-/** The footer band on every page (divider + "Generated by …" + timestamp). */
-function drawFooters(doc: Doc, timestamp: string) {
+/** The footer band on every page (divider + "Generated by …" + timestamp), placed relative to each
+ *  page's own height (pages can differ — multi-tap). */
+function drawFooters(doc: Doc, timestamp: string, pageHeights: number[]) {
   const pages = doc.getNumberOfPages()
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p)
-    const fy = PAGE_H - MARGIN + 6
+    const ph = pageHeights[p - 1] ?? pageHeights[pageHeights.length - 1] ?? MEASURE_H
+    const fy = ph - MARGIN + 6
     doc.setDrawColor(DIVIDER[0], DIVIDER[1], DIVIDER[2])
     doc.setLineWidth(0.75)
     doc.line(L, fy - 12, R, fy - 12)
@@ -471,61 +505,43 @@ function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
 function drawMaterialAnalysis(cur: Cur, a: PdfMaterialAnalysis) {
   const { doc } = cur
 
-  // Gore target thickness (plate only)
-  if (a.gore) {
-    const goreH = 56
-    ensure(cur, goreH + 14)
-    const g = a.gore
-    doc.setFillColor(GORE_BG[0], GORE_BG[1], GORE_BG[2])
-    doc.roundedRect(L, cur.y, CONTENT_W, goreH, 4, 4, 'F')
-    font(doc, 10, 'bold')
-    setColor(doc, SECONDARY)
-    doc.text('Gore Target Thickness', L + 8, cur.y + 14)
-    font(doc, 16, 'bold')
-    setColor(doc, ACCENT)
-    doc.text(g.thickness, L + 8, cur.y + 32)
-    // Swift order: thickness → Body/f_vs → GLC (PDFReportGenerator.swift:966-993). The web had the
-    // last two swapped.
-    font(doc, 9, 'normal')
-    setColor(doc, SECONDARY)
-    doc.text(`${g.body} · ${g.fvs}`, L + 8, cur.y + 44)
-    font(doc, 9, g.goreItalic ? 'italic' : 'normal')
-    setColor(doc, SECONDARY)
-    doc.text(g.glc, L + 8, cur.y + 53)
-    cur.y += goreH + 14
-    divider(cur)
-    cur.y += 14
-  }
+  // Section order mirrors Swift `analysisSection` (PDFReportGenerator.swift:673-706) and the Results
+  // panel: Sample Dimensions → Body Dimensions (plate) → Gore target (just the number, plate) →
+  // Plate/Brace Properties (with GLC among the moduli). Dividers sit BETWEEN the blocks. fL/fC/fLC are
+  // inputs shown in the Detected Peaks table, NOT repeated as a frequency band here.
 
-  // Keep the section title with its first block. Each drew its own `ensure()`, so the title could
-  // claim the last 30pt of a page and the Sample Dimensions box would then paginate away — leaving
-  // "Plate Properties" stranded at the foot of the page, which reads as missing content. Swift never
-  // hits this: its page auto-grows, so nothing is ever pushed.
-  const firstBlockH = a.dimensions.length ? threeColBoxHeight(a.dimensions, 'Sample Dimensions') + 6 : 0
-  ensure(cur, Math.max(30, 18 + firstBlockH))
-  font(doc, 13, 'bold')
-  setColor(doc, PRIMARY)
-  doc.text(a.title, L, cur.y)
-  cur.y += 18
-
-  // Sample dimensions — THREE columns in a grey box, heading inside the box.
-  // Swift dimensionsSubsection (PDFReportGenerator.swift:929-956):
-  //   Length | Width | Thickness
-  //   Mass   | Density
-  // The web drew 2 columns of plain text, which pushed Thickness onto its own line AND spilled
-  // Density onto page 2, splitting the block across a page break.
+  // Sample dimensions — THREE columns in a grey box, heading inside the box
+  // (Swift dimensionsSubsection:914-941): Length | Width | Thickness / Mass | Density.
   if (a.dimensions.length) {
     threeColBox(cur, a.dimensions, 'Sample Dimensions')
     cur.y += 8
   }
 
-  // Frequencies row — fL | fC | fLC across three columns in a grey box, values bold
-  // (Swift plateSection:778-793 / braceSection:851-861). The web drew one line of plain,
-  // unbolded text with no box.
-  if (a.freqs.length) {
-    threeColBox(cur, a.freqs)
+  // Body Dimensions (plate only) — body a/b two-up, Panel Stiffness on its own full-width line
+  // (Swift plateBodyDimensionsPDFSection:945-970).
+  if (a.body) {
+    divider(cur)
+    cur.y += 14
+    drawBodyDimensions(cur, a.body)
     cur.y += 8
   }
+
+  // Gore Target Thickness (plate only) — just the number, in an accent-tinted box
+  // (Swift goreThicknessPDFSection:975-997).
+  if (a.gore) {
+    divider(cur)
+    cur.y += 14
+    drawGoreThickness(cur, a.gore.thickness)
+    cur.y += 8
+  }
+
+  // Properties title (Swift plateSection/braceSection heading) after a divider from the blocks above.
+  divider(cur)
+  cur.y += 14
+  font(doc, 13, 'bold')
+  setColor(doc, PRIMARY)
+  doc.text(a.title, L, cur.y)
+  cur.y += 18
 
   // Property rows (two columns) — COLUMN-major, matching Swift's two side-by-side VStacks.
   // Plate (8): L | Speed of Sound (L), Speed of Sound (C), Young's Modulus (L), Young's Modulus (C)
@@ -571,6 +587,43 @@ function drawMaterialAnalysis(cur: Cur, a: PdfMaterialAnalysis) {
   setColor(doc, hexToRgb(a.overall.color))
   doc.text(a.overall.value, L + 110, cur.y + 1)
   cur.y += 16
+}
+
+/** Body Dimensions block (plate) — grey box with heading, body a/b two-up, then Panel Stiffness on
+ *  its own full-width line. Mirrors Swift `plateBodyDimensionsPDFSection` (PDFReportGenerator.swift:945). */
+function drawBodyDimensions(cur: Cur, body: { dims: PdfMaterialProp[]; stiffness: PdfMaterialProp }) {
+  const { doc } = cur
+  const colW = CONTENT_W / 2
+  const boxH = 12 + 12 + 2 * 14 // heading + body-dims row + Panel Stiffness row
+  ensure(cur, boxH + 6)
+  doc.setFillColor(BOX_BG[0], BOX_BG[1], BOX_BG[2])
+  doc.roundedRect(L, cur.y - 10, CONTENT_W, boxH, 4, 4, 'F')
+  font(doc, 10, 'bold')
+  setColor(doc, SECONDARY)
+  doc.text('Body Dimensions', L + 6, cur.y)
+  cur.y += 14
+  body.dims.forEach((row, i) => propAt(cur, row, L + 6 + i * colW))
+  cur.y += 14
+  propAt(cur, body.stiffness, L + 6) // Panel Stiffness — own line (the preset label is long)
+  cur.y += 16
+}
+
+/** Gore Target Thickness result (plate) — just the number, in an accent-tinted box. Mirrors Swift
+ *  `goreThicknessPDFSection` (PDFReportGenerator.swift:975); inputs live in Body Dimensions, GLC among moduli. */
+function drawGoreThickness(cur: Cur, thickness: string) {
+  const { doc } = cur
+  const boxH = 12 + 12 + 18 // heading + big number
+  ensure(cur, boxH + 6)
+  doc.setFillColor(GORE_BG[0], GORE_BG[1], GORE_BG[2])
+  doc.roundedRect(L, cur.y - 10, CONTENT_W, boxH, 4, 4, 'F')
+  font(doc, 10, 'bold')
+  setColor(doc, SECONDARY)
+  doc.text('Gore Target Thickness', L + 6, cur.y)
+  cur.y += 18
+  font(doc, 16, 'bold')
+  setColor(doc, ACCENT)
+  doc.text(thickness, L + 6, cur.y)
+  cur.y += 10
 }
 
 /** How a two-column block is filled.

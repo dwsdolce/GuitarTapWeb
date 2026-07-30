@@ -3,6 +3,7 @@ import { measurementToLiveMaterial, buildMaterialMeasurement } from '../src/meas
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { materialInputsFromSettings } from '../src/measurement/materialMeasurementInputs'
+import { measurementToPdfData } from '../src/presentation/measurementImage'
 
 // Phase 4b (material follow-up): loading a saved plate/brace measurement restores the
 // per-phase spectra (chart overlay), the selected L/C/FLC peaks (markers + results), and
@@ -241,5 +242,60 @@ describe('material annotation offsets round-trip (6d)', () => {
       deviceLabel: 'Test Mic',
     })
     expect(plain.peakAnnotationOffsets).toBeUndefined()
+  })
+})
+
+// Regression: the PDF/PNG export data builder must source dims, body size, AND stiffness from the
+// measurement's own Store B (materialInputs) — never DEFAULT_SETTINGS. Chunk A moved dims out of the
+// settings patch but this builder kept reading them, so exports computed density/moduli/Gore from the
+// template (500×200 plate, steelStringTop) instead of the sample. (Swift V-A#4; missed on web.)
+describe('measurementToPdfData — material analysis reads Store B dims, not defaults', () => {
+  const matPeak = (id: number, f: number, mag: number) => ({ id, frequency: f, magnitude: mag, quality: 20, bandwidth: 5 })
+  const inputs = {
+    ...materialInputsFromSettings('plate', { ...DEFAULT_SETTINGS, measurementType: 'plate' as const }),
+    lengthMm: 610, // ≠ DEFAULT 500
+    widthMm: 175, // ≠ DEFAULT 200
+    thicknessMm: 4.5,
+    massG: 92,
+    bodyLengthMm: 480,
+    bodyWidthMm: 355,
+    stiffnessPreset: 'classicalBack' as const, // ≠ DEFAULT steelStringTop; raw name "Classical Back"
+  }
+  const built = buildMaterialMeasurement({
+    name: 'Reg', notes: '',
+    spectra: {
+      longitudinal: { frequencies: [100, 120, 140], magnitudesDb: [-50, -40, -60] },
+      cross: { frequencies: [200, 250, 300], magnitudesDb: [-55, -45, -65] },
+      flc: null,
+    },
+    peaks: { longitudinal: matPeak(0, 120, -40), cross: matPeak(1, 250, -45), flc: null },
+    view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
+    settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const, measureFlc: false },
+    materialInputs: inputs,
+    numberOfTaps: 1, sampleRate: 48000, deviceLabel: 'Test Mic',
+  })
+  // Round-trip through the file so this exercises the saved-measurement export path exactly.
+  const m = parseGuitarTapFile(serializeGuitarTapFile([built]))[0]!
+  const data = measurementToPdfData(m)
+  const a = data.materialAnalysis!
+
+  it('Sample Dimensions come from the measurement (not DEFAULT 500×200)', () => {
+    const byLabel = Object.fromEntries(a.dimensions.map((d) => [d.label, d.value]))
+    expect(byLabel['Length']).toBe('610.00 mm')
+    expect(byLabel['Width']).toBe('175.00 mm')
+    expect(byLabel['Thickness']).toBe('4.50 mm')
+    expect(byLabel['Mass']).toBe('92.0 g')
+  })
+
+  it('Body Dimensions + Panel Stiffness come from the measurement', () => {
+    expect(a.body?.dims[0]?.value).toBe('480 mm')
+    expect(a.body?.dims[1]?.value).toBe('355 mm')
+    expect(a.body?.stiffness.value).toContain('Classical Back')
+    expect(a.body?.stiffness.value).toContain('50')
+  })
+
+  it('drops the frequency band and uses the fL/fC role naming', () => {
+    expect((a as unknown as { freqs?: unknown }).freqs).toBeUndefined()
+    expect(data.peaks.map((p) => p.role)).toEqual(['Longitudinal (fL)', 'Cross-grain (fC)'])
   })
 })

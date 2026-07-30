@@ -25,10 +25,9 @@ import {
   isGuitarType,
   MEASUREMENT_FULL_NAME,
   STIFFNESS_RAW_NAME,
-  effectiveStiffness,
   DEFAULT_SETTINGS,
-  type Settings,
 } from '../settings'
+import { materialDimensions, materialStiffness } from '../measurement/materialMeasurementInputs'
 import { formatDisplayDate } from '../format/date'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { TapToneMeasurementModel } from '../measurement'
@@ -162,9 +161,9 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
   if (m.longitudinalSnapshot) {
     const r = measurementToLiveMaterial(m)
     const overlays: SpectrumOverlay[] = []
-    if (r.matSpectra.longitudinal) overlays.push({ ...r.matSpectra.longitudinal, color: '#4ea1ff', label: 'Longitudinal (L)' })
-    if (r.matSpectra.cross) overlays.push({ ...r.matSpectra.cross, color: '#f0a03a', label: 'Cross-grain (C)' })
-    if (r.matSpectra.flc) overlays.push({ ...r.matSpectra.flc, color: '#b07ad8', label: 'FLC' })
+    if (r.matSpectra.longitudinal) overlays.push({ ...r.matSpectra.longitudinal, color: '#4ea1ff', label: 'Longitudinal (fL)' })
+    if (r.matSpectra.cross) overlays.push({ ...r.matSpectra.cross, color: '#f0a03a', label: 'Cross-grain (fC)' })
+    if (r.matSpectra.flc) overlays.push({ ...r.matSpectra.flc, color: '#b07ad8', label: 'Diagonal (fLC)' })
     const s = m.longitudinalSnapshot
     return {
       title,
@@ -320,23 +319,28 @@ function guitarPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData
 function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData {
   const r = measurementToLiveMaterial(m)
   const plate = r.measurementType === 'plate'
-  const s: Settings = { ...DEFAULT_SETTINGS, ...r.settingsPatch }
-  const dims: Dimensions = plate
-    ? { lengthMm: s.plateLength, widthMm: s.plateWidth, thicknessMm: s.plateThickness, massG: s.plateMass }
-    : { lengthMm: s.braceLength, widthMm: s.braceWidth, thicknessMm: s.braceThickness, massG: s.braceMass }
+  // Dimensions, body size, and stiffness ALL come from the measurement's own Store B (materialInputs),
+  // never the live/default Settings — mirrors buildMaterialMeasurement + Swift's PDFReportData.from,
+  // which read materialInputs. (Sourcing these from DEFAULT_SETTINGS made every export compute density,
+  // moduli, and Gore thickness from template dims.) `measureFlc` is a capture flag, so it stays from the
+  // restored settings patch.
+  const mi = r.materialInputs
+  const dims: Dimensions = materialDimensions(mi)
+  const fvs = materialStiffness(mi)
   const rho = density(dims)
   const rhoGcm3 = densityGPerCm3(dims)
   const fL = r.matPeaks.longitudinal?.frequency ?? null
   const fC = r.matPeaks.cross?.frequency ?? null
   const fLC = r.matPeaks.flc?.frequency ?? null
-  const showFlc = plate && s.measureFlc
+  const measureFlc = r.settingsPatch.measureFlc ?? DEFAULT_SETTINGS.measureFlc
+  const showFlc = plate && measureFlc
 
-  // Peaks table — selected L/C/FLC, sorted low → high (Swift visibleSortedPeaks + role cell).
+  // Peaks table — selected peaks, sorted low → high, role cell name-first (Swift peakRoleCell:559).
   const roleRows: { peak: MaterialPeak; role: string; color: string }[] = []
   if (r.matPeaks.longitudinal)
-    roleRows.push({ peak: r.matPeaks.longitudinal, role: plate ? 'Longitudinal (L)' : 'fL (Longitudinal)', color: ROLE_L })
-  if (plate && r.matPeaks.cross) roleRows.push({ peak: r.matPeaks.cross, role: 'Cross-grain (C)', color: ROLE_C })
-  if (showFlc && r.matPeaks.flc) roleRows.push({ peak: r.matPeaks.flc, role: 'FLC (Diagonal)', color: ROLE_FLC })
+    roleRows.push({ peak: r.matPeaks.longitudinal, role: 'Longitudinal (fL)', color: ROLE_L })
+  if (plate && r.matPeaks.cross) roleRows.push({ peak: r.matPeaks.cross, role: 'Cross-grain (fC)', color: ROLE_C })
+  if (showFlc && r.matPeaks.flc) roleRows.push({ peak: r.matPeaks.flc, role: 'Diagonal (fLC)', color: ROLE_FLC })
   roleRows.sort((a, b) => a.peak.frequency - b.peak.frequency)
   const peaks: PdfPeakRow[] = roleRows.map((rr) => ({
     frequency: rr.peak.frequency,
@@ -366,7 +370,7 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     analysis = {
       title: 'Brace Properties',
       gore: null,
-      freqs: fL != null ? [{ label: 'fL', value: `${f1(fL)} Hz` }] : [],
+      body: null,
       dimensions,
       props: [
         { label: 'Speed of Sound', value: `${f0(cL)} m/s` },
@@ -392,34 +396,25 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     const shearPa = goreShearPa(dims, fLC)
     const target =
       fL != null && fC != null
-        ? goreTargetThicknessMm(dims, fL, fC, fLC, s.guitarBodyLength, s.guitarBodyWidth, effectiveStiffness(s))
+        ? goreTargetThicknessMm(dims, fL, fC, fLC, mi.bodyLengthMm, mi.bodyWidthMm, fvs)
         : null
     const crossLong = eL > 0 ? eC / eL : 0
     const longCross = eC > 0 ? eL / eC : 0
-    const fvs = effectiveStiffness(s)
-    const presetName = STIFFNESS_RAW_NAME[s.plateStiffnessPreset]
-    const fvsLine = s.plateStiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
-
-    // fL / fC always; fLC only when the third tap was performed (Swift plateSection:778-793).
-    const freqs: PdfMaterialProp[] = [
-      { label: 'fL', value: `${f1(fL ?? 0)} Hz` },
-      { label: 'fC', value: `${f1(fC ?? 0)} Hz` },
-    ]
-    if (fLC != null) freqs.push({ label: 'fLC', value: `${f1(fLC)} Hz` })
+    const presetName = STIFFNESS_RAW_NAME[mi.stiffnessPreset]
+    const fvsLine = mi.stiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
 
     analysis = {
       title: 'Plate Properties',
-      gore:
-        target != null
-          ? {
-              thickness: `${f2(target)} mm`,
-              glc: shearPa != null ? `GLC (Shear Modulus): ${f3(shearPa / 1e9)} GPa` : 'GLC assumed 0 — FLC tap not performed',
-              goreItalic: shearPa == null,
-              body: `Body: ${f0(s.guitarBodyLength)} × ${f0(s.guitarBodyWidth)} mm`,
-              fvs: fvsLine,
-            }
-          : null,
-      freqs,
+      // Gore Target Thickness = just the number now (Swift goreThicknessPDFSection). Body inputs + f_vs
+      // move to the Body Dimensions block; GLC moves among the Plate Properties moduli.
+      gore: target != null ? { thickness: `${f2(target)} mm` } : null,
+      body: {
+        dims: [
+          { label: 'Body Length (a)', value: `${FieldPrecision.string(mi.bodyLengthMm, FieldPrecision.bodyDimensionMM)} mm` },
+          { label: 'Lower Bout Width (b)', value: `${FieldPrecision.string(mi.bodyWidthMm, FieldPrecision.bodyDimensionMM)} mm` },
+        ],
+        stiffness: { label: 'Panel Stiffness', value: fvsLine },
+      },
       dimensions,
       props: [
         { label: 'Speed of Sound (L)', value: `${f0(cL)} m/s` },
@@ -431,11 +426,11 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
         { label: 'Radiation Ratio (L)', value: f1(rL) },
         { label: 'Radiation Ratio (C)', value: f1(rC) },
       ],
-      // Full-width GLC row after the two-column block — Swift PDFReportGenerator.swift:825-834:
+      // Full-width GLC row after the two-column block — Swift PDFReportGenerator.swift:822-831:
       //   if let glc = props.goreShearModulus { platePropRow("GLC (Shear Modulus)", …) }
-      //   else { Text("GLC assumed 0 — FLC tap not performed").italic() }
+      //   else { Text("GLC assumed 0 — fLC tap not performed").italic() }
       glc: shearPa != null ? { label: 'GLC (Shear Modulus)', value: `${f3(shearPa / 1e9)} GPa` } : null,
-      glcNote: shearPa == null ? 'GLC assumed 0 — FLC tap not performed' : null,
+      glcNote: shearPa == null ? 'GLC assumed 0 — fLC tap not performed' : null,
       // `note`, not `hint`: Swift puts the typical range on its OWN line beneath the ratio, italic
       // and WITHOUT parentheses (PDFReportGenerator.swift:837-856) — not inline after the value.
       ratios: [
@@ -472,19 +467,19 @@ function materialTapInstructions(plate: boolean, hasFlc: boolean): PdfTapInstruc
   const steps = [
     {
       color: ROLE_L,
-      title: '1. Longitudinal (L) Tap',
+      title: '1. Longitudinal (fL) Tap',
       detail: 'Hold plate at 22% from one end along the length, near one long edge (not at the width node). Tap center.',
     },
     {
       color: ROLE_C,
-      title: '2. Cross-grain (C) Tap',
+      title: '2. Cross-grain (fC) Tap',
       detail: 'Rotate 90°. Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.',
     },
   ]
   if (hasFlc) {
     steps.push({
       color: ROLE_FLC,
-      title: '3. FLC (Diagonal) Tap',
+      title: '3. Diagonal (fLC) Tap',
       detail:
         'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.',
     })
