@@ -572,6 +572,12 @@ notes-on-load — exercised at the `fromLive`/state layer (`buildMaterialMeasure
 clean) and the shared docs (release notes / Help / manual, §7). If a genuine UI-render assertion is needed,
 note the missing infra rather than adding a framework mid-item.
 
+*Docs status (2026-07-29) — tests + @parity ✅ (see V-D). **Manual** (Swift `Documentation/Manual/*.md`)
+restructured for the dimensions-in-Results flow + naming + 4 presets, user-reviewed; **Help** reframed +
+naming on all three (Swift `HelpView`, Python `help_view`, web `QuickStartGuide`), Swift wording approved.
+Quick-Start + manual HTML/PDF regenerated. Commits pending (per-repo messages given). **REMAINING (tomorrow):
+release notes (all 3, §7) + re-capture the manual screenshots (list below).***
+
 **Manual screenshots to re-capture (macOS, Swift repo `Documentation/Manual/images/`) — user takes these:**
 - **`ch04-results-panel.png`** — Plate Results panel. **Major change:** now shows the editable **Sample
   Dimensions** + **Body Dimensions** blocks, section order Sample → Body → Gore (number only) → Plate
