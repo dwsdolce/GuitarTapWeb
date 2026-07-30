@@ -550,6 +550,16 @@ clear then comes **for free** (both `newTap` and `onMaterialNewTap` call it). **
 already seeds the Save fields ephemerally (remount-per-open); this is the architecture Swift had to adopt in
 its ephemeral-sheet fix (§11 V-C). The New-Tap stale-name/notes leak that hit Swift never applies here.
 
+*Chunk C status — ✅ DONE + user-verified (V-C, 2026-07-29), committed `ebc2f53`; tsc clean, 389 web tests
+green.* Landed `loadedNotes` (App state) seeded from `m.notes` in all three load paths and cleared at all
+FIVE `loadedName`-null sites (`clearLoadedMeasurement` + the four inline handlers: type-change reset, live
+capture, play-file, compare) — Swift pairs `loadedNotes` with `loadedMeasurementName` at every set/clear
+(`TapToneAnalyzer+Control:135-136`, `+MeasurementManagement:531-532/561-564/974-975`), so the web pairs
+`setLoadedNotes` with every `setLoadedName`. `SaveSheet` gained a `defaultNotes` prop seeded like
+`defaultName`; the sheet remounts per open (already leak-immune). **Non-divergent** vs Swift; the 5-vs-2
+clear-site count is the pre-existing view-layer divergence (loaded state in App state + split New Tap),
+behaviour identical. REMAIN on web: §12 type-resolution, Chunk D.
+
 **Type-resolution (§12; tracked as V-Type):** align to Swift — route the web's `.measurementType` **logic**
 reads through `resolvedMeasurementType` (`types.ts:130`, the snapshot), not the stored top-level field
 (populated `fromLive.ts`/`decode.ts:106`); leave `settings.measurementType` reads (the live settings type)
@@ -671,7 +681,7 @@ Legend: **✅** user-run-verified · **⏳** code-complete + suites green, await
 | **V-B** editable dims + layout | ✅ (`98e09ef`) | ✅ user-verified `5fc9aa5` | ✅ user-verified `b490c0a` (plate + brace; Sample/Body editors → Store B, shared NumberField, plate reorder + `.mat-lc` right-justify parity) |
 | **V-Naming** Diagonal/fL/fC/fLC | ✅ (`98e09ef` + `ccdb7dc` + `afda88a` PeakAnnotations/DetailView misses) | ✅ user-verified `33740d1` | ✅ user-verified `228c24b` (live surfaces: legend/badge/on-chart annotation/phase strings/process steps/modeLabel; toggle rename cross-platform Swift `2233479` + Python `ead835c`) |
 | **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | ✅ user-verified `e11c6a4` (Swift layout order + variable-height page + renderer naming; **also fixed the V-A#4 twin** — materialPdfData read DEFAULT_SETTINGS dims, now reads Store B; 3 regression tests) |
-| **V-C** notes-on-load | ✅ user-validated + regression test (`e409ce2`); Save-sheet made ephemeral so New Tap can't leak stale name/notes (`2bb1813`) | ✅ user-verified `eeca018` (loaded_notes; Python & web already immune to the New-Tap leak — ephemeral seed) | — |
+| **V-C** notes-on-load | ✅ user-validated + regression test (`e409ce2`); Save-sheet made ephemeral so New Tap can't leak stale name/notes (`2bb1813`) | ✅ user-verified `eeca018` (loaded_notes; Python & web already immune to the New-Tap leak — ephemeral seed) | ✅ user-verified `ebc2f53` (`loadedNotes` paired with `loadedName` at all 3 loads + 5 clears; `SaveSheet defaultNotes`; remount-per-open = already leak-immune) |
 | **V-D** tests + docs | ◑ tests ✅ (`e409ce2`, 468/102); docs pending | ◑ tests ✅ `242f756` (`test_material_measurement_inputs.py`, 6 tests, 591 green) + `@parity` orphans/coverage-gap closed (Swift tag backfill `b100157`, map regenerated, 85 groups clean); docs pending | — |
 | **V-Type** type resolves from snapshot (§12) | ✅ immune (no stored field) | ✅ user-verified `5fc9aa5` (read `resolved_measurement_type` at both load readers) | — |
 

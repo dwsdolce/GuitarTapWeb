@@ -25,7 +25,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
 | 9 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 10 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
-| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 🚧 Web A+B+naming+PDF done (`30dff21`, `b490c0a`, `228c24b`, `e11c6a4`; toggle rename Swift `2233479`/Python `ead835c`); remaining: notes-on-load, §12 type-res, tests. Swift + Python done through Chunk D. | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) §10 |
+| 11 | **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** | 🚧 Web A+B+naming+PDF+notes done (`30dff21`, `b490c0a`, `228c24b`, `e11c6a4`, `ebc2f53`; toggle rename Swift `2233479`/Python `ead835c`); remaining: §12 type-res, Chunk D. Swift + Python done through Chunk D. | [MEASUREMENT-DIMENSIONS-SPEC.md](MEASUREMENT-DIMENSIONS-SPEC.md) §10 |
 
 ## Done (for reference)
 
