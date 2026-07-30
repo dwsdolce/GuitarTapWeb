@@ -397,6 +397,7 @@
 }
 .mat-lc {
   display: flex;
+  justify-content: space-between;
   gap: 1rem;
   color: var(--muted);
   font-size: 0.82rem;

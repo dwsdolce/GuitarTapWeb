@@ -17,12 +17,14 @@ import {
 } from '../dsp/material'
 import type { MaterialPeak } from '../dsp/gatedCapture'
 import { WOOD_QUALITY_COLOR } from '../presentation/qualityColors'
-import { STIFFNESS_RAW_NAME } from '../settings'
+import { STIFFNESS_LABEL, type StiffnessPreset } from '../settings'
 import {
   materialDimensions,
   materialStiffness,
   type MaterialMeasurementInputs,
 } from '../measurement/materialMeasurementInputs'
+import { NumberField } from './NumberField'
+import { FieldPrecision } from '../precision'
 
 export interface MaterialPeaks {
   longitudinal: MaterialPeak | null
@@ -35,11 +37,60 @@ export interface MaterialResultsProps {
   /** Store B — the measurement's OWN dimensions (seeded at complete / restored on load). `null` until
    *  the measurement completes; the property sections (which need it) are gated on `complete`. */
   matInputs: MaterialMeasurementInputs | null
+  /** Commit an edit to Store B — the Results-panel dimension editors write the measurement's own
+   *  values live (recompute), never the Settings defaults. */
+  onInputsChange: (next: MaterialMeasurementInputs) => void
   /** Capture setting (not part of Store B) — gates the FLC slot/process display. */
   measureFlc: boolean
   peaks: MaterialPeaks
   /** All phases captured — gates the properties sections (hidden during live capture). */
   complete: boolean
+}
+
+const STIFFNESS_PRESETS = Object.keys(STIFFNESS_LABEL) as StiffnessPreset[]
+
+/** Editable Sample Dimensions (L/W/T/M + read-only Calculated Density), writing Store B live.
+ *  Mirrors Swift MaterialDimensionsEditor. */
+function SampleDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasurementInputs; onChange: (n: MaterialMeasurementInputs) => void }) {
+  const set = (patch: Partial<MaterialMeasurementInputs>) => onChange({ ...inputs, ...patch })
+  const P = FieldPrecision
+  return (
+    <div className="mat-section">
+      <h3>Sample Dimensions</h3>
+      <NumberField label="Length" unit="mm" value={inputs.lengthMm} decimals={P.linearDimensionMM} onChange={(v) => set({ lengthMm: v })} />
+      <NumberField label="Width" unit="mm" value={inputs.widthMm} decimals={P.linearDimensionMM} onChange={(v) => set({ widthMm: v })} />
+      <NumberField label="Thickness" unit="mm" value={inputs.thicknessMm} decimals={P.linearDimensionMM} onChange={(v) => set({ thicknessMm: v })} />
+      <NumberField label="Mass" unit="g" value={inputs.massG} decimals={P.massG} onChange={(v) => set({ massG: v })} />
+      <Row label="Calculated Density" value={`${f3(densityGPerCm3(materialDimensions(inputs)))} g/cm³`} />
+    </div>
+  )
+}
+
+/** Editable plate Body Dimensions (body a/b + Panel Stiffness f_vs preset/custom), writing Store B.
+ *  These feed only the Gore target. Mirrors Swift PlateBodyDimensionsEditor. */
+function BodyDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasurementInputs; onChange: (n: MaterialMeasurementInputs) => void }) {
+  const set = (patch: Partial<MaterialMeasurementInputs>) => onChange({ ...inputs, ...patch })
+  const P = FieldPrecision
+  return (
+    <div className="mat-section">
+      <h3>Body Dimensions</h3>
+      <NumberField label="Body Length (a)" unit="mm" value={inputs.bodyLengthMm} decimals={P.bodyDimensionMM} onChange={(v) => set({ bodyLengthMm: v })} />
+      <NumberField label="Lower Bout Width (b)" unit="mm" value={inputs.bodyWidthMm} decimals={P.bodyDimensionMM} onChange={(v) => set({ bodyWidthMm: v })} />
+      <label className="set-field">
+        <span>Panel Stiffness (f_vs)</span>
+        <span className="set-input">
+          <select value={inputs.stiffnessPreset} onChange={(e) => set({ stiffnessPreset: e.target.value as StiffnessPreset })}>
+            {STIFFNESS_PRESETS.map((p) => (
+              <option key={p} value={p}>{STIFFNESS_LABEL[p]}</option>
+            ))}
+          </select>
+        </span>
+      </label>
+      {inputs.stiffnessPreset === 'custom' && (
+        <NumberField label="Custom f_vs" unit="" value={inputs.customStiffness} decimals={P.stiffness} onChange={(v) => set({ customStiffness: v })} />
+      )}
+    </div>
+  )
 }
 
 const f0 = (n: number) => Math.round(n).toString()
@@ -124,7 +175,7 @@ function ProcessSection({ type, measureFlc }: { type: 'plate' | 'brace'; measure
   )
 }
 
-export function MaterialResults({ type, matInputs, measureFlc, peaks, complete }: MaterialResultsProps) {
+export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, peaks, complete }: MaterialResultsProps) {
   const plate = type === 'plate'
   const fL = peaks.longitudinal?.frequency ?? null
   const fC = peaks.cross?.frequency ?? null
@@ -179,10 +230,9 @@ export function MaterialResults({ type, matInputs, measureFlc, peaks, complete }
     return (
       <div className="material-results">
         {peakList}
+        <SampleDimensionsEditor inputs={matInputs} onChange={onInputsChange} />
         <div className="mat-section">
           <h3>Brace Properties</h3>
-          <Row label="Longitudinal (fL)" value={`${f1(fL)} Hz`} />
-          <hr className="mat-divider" />
           <Row label="Speed of Sound" value={`${f0(cL)} m/s`} />
           <Row label="Young's Modulus (E)" value={`${f2(eL)} GPa`} />
           <div className="mat-specmod">
@@ -226,13 +276,11 @@ export function MaterialResults({ type, matInputs, measureFlc, peaks, complete }
   const crossLong = eL > 0 ? eC / eL : 0
   const longCross = eC > 0 ? eL / eC : 0
 
-  const fvs = materialStiffness(matInputs)
-  const presetName = STIFFNESS_RAW_NAME[matInputs.stiffnessPreset]
-  const fvsLine = matInputs.stiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
-
   return (
     <div className="material-results">
       {peakList}
+      <SampleDimensionsEditor inputs={matInputs} onChange={onInputsChange} />
+      <BodyDimensionsEditor inputs={matInputs} onChange={onInputsChange} />
 
       {target != null && (
         <div className="mat-section mat-gore">
@@ -240,31 +288,18 @@ export function MaterialResults({ type, matInputs, measureFlc, peaks, complete }
           <div className="mat-gore-thickness">
             {f2(target)} <em>mm</em>
           </div>
-          {shearPa != null ? (
-            <Row label="Shear Modulus (GLC)" value={`${f3(shearPa / 1e9)} GPa`} />
-          ) : (
-            <p className="mat-info">ⓘ GLC assumed 0 — enable FLC tap for a more accurate result</p>
-          )}
-          <p className="mat-params">Body: {f0(matInputs.bodyLengthMm)} × {f0(matInputs.bodyWidthMm)} mm</p>
-          <p className="mat-params">{fvsLine}</p>
         </div>
       )}
 
       <div className="mat-section">
         <h3>Plate Properties</h3>
-        <div className="mat-freqs">
-          <div>fL (Longitudinal): {f1(fL)} Hz</div>
-          <div>fC (Cross-grain): {f1(fC)} Hz</div>
-          {fLC != null && <div>fLC (Diagonal): {f1(fLC)} Hz</div>}
-        </div>
-        <hr className="mat-divider" />
 
-        <div className="mat-prop">
-          <span className="mat-label">Speed of Sound</span>
-          <span className="mat-lc">
+        <div className="mat-prop-block">
+          <div className="mat-prop-title">Speed of Sound</div>
+          <div className="mat-lc">
             <span>L: {f0(cL)} m/s</span>
             <span>C: {f0(cC)} m/s</span>
-          </span>
+          </div>
         </div>
 
         <div className="mat-prop-block">
@@ -300,12 +335,12 @@ export function MaterialResults({ type, matInputs, measureFlc, peaks, complete }
           </div>
         </div>
 
-        <div className="mat-prop">
-          <span className="mat-label">Radiation Ratio (R)</span>
-          <span className="mat-lc">
+        <div className="mat-prop-block">
+          <div className="mat-prop-title">Radiation Ratio (R)</div>
+          <div className="mat-lc">
             <span>L: {f1(rL)}</span>
             <span>C: {f1(rC)}</span>
-          </span>
+          </div>
         </div>
 
         <div className="mat-row">

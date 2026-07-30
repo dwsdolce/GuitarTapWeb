@@ -1469,7 +1469,7 @@ export default function App() {
           {comparison ? (
             <ComparisonResultsView rows={comparisonRows} />
           ) : material ? (
-            <MaterialResults type={brace ? 'brace' : 'plate'} matInputs={matInputs} measureFlc={settings.measureFlc} peaks={matPeaks} complete={matPhase === 'complete'} />
+            <MaterialResults type={brace ? 'brace' : 'plate'} matInputs={matInputs} onInputsChange={(next) => setMatInputs(next)} measureFlc={settings.measureFlc} peaks={matPeaks} complete={matPhase === 'complete'} />
           ) : showMultiTap && multiTapAvailable ? (
             <MultiTapComparisonResultsView taps={tapRows} avg={avgModes} />
           ) : (
