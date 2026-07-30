@@ -500,6 +500,24 @@ mention; and the **write-only** `modeLabel` in `encode.ts:72` (`'FLC'` → `'Dia
 old files still load). Grep `FLC` / `Cross-grain (C)` / `(L)` across `App.tsx`, `MaterialResults.tsx`,
 `measurementImage.ts`, `pdfReport.ts`, the status/phase module, and help content.
 
+*Naming status — ✅ DONE + user-verified (V-Naming, 2026-07-29), committed `228c24b`; tsc clean, 386 web
+tests green.* Live surfaces done, each value re-verified against Swift source (not just the spec table):
+chart legend `App.tsx` (`ExportableSpectrumChart.swift:755/758/761`); on-chart peak annotation via
+`buildMaterialMarkers` (`peakModeLabel`/`roleLabel` `:214-218`/`:529-531` → "Diagonal") + `MeasurementDetail`
+peak label/color key; peak badges `MaterialResults` `ROLE_LABEL` fL/fC/fLC (`MaterialPeakRowView:1279/1282/1286`);
+process step titles (`TapAnalysisResultsView:488/503/519`); phase title/desc/`shortStatus` + analyzer status
+prompts (`tapToneAnalyzer`); write-only `modeLabel` `encode.ts` → "Diagonal" (`TapToneMeasurement.swift:892`);
+`status-message.test.ts` assertions updated. **Gotcha recorded:** `buildMaterialMarkers` lives in
+`measurementImage.ts` but feeds the LIVE chart (`App.tsx:631`) as well as export — it was almost mis-filed
+into the PDF chunk; the on-chart annotation is a LIVE surface. **Also — cross-platform toggle rename** (user
+call, "100% consistent"): "Measure FLC (Diagonal Tap)" → **"Measure Diagonal (fLC) Tap"** on all three —
+web `SettingsPanel` (`228c24b`), Swift `TapSettingsView+Sections` (`2233479`), Python `tap_tone_analysis_view`
+(`ead835c`); pure display label, no persisted-data impact. Export-only renderer naming (`measurementImage.ts`
+overlay legend/role cells/process titles + `pdfReport.ts`) deliberately deferred to the PDF chunk below.
+**In-app Help edited early** (against the docs-hold, NOT undone): web `QuickStartGuide`, Swift `HelpView`
+(+ regenerated Quick-Start `.md`/`.pdf`), Python `help_view` — committed with the naming. Standalone User
+Manual untouched (still on hold). REMAIN on web: PDF, Chunk C, §12 type-resolution, Chunk D.
+
 **PDF (`pdfReport.ts`) — two parts:**
 - **Layout** (V-PDF): mirror Swift — Sample Dimensions → plate Body Dimensions (Panel Stiffness on its own
   line) → trimmed Gore (number only) → Plate/Brace Properties (GLC among moduli); remove the fL/fC/fLC
@@ -637,7 +655,7 @@ Legend: **✅** user-run-verified · **⏳** code-complete + suites green, await
 |---|---|---|---|
 | **V-A** two-store re-sourcing | ✅ (`81571ec`; V-A#4 PDF-export gap fixed post-review in `fa62764`) | ✅ user-verified `5fc9aa5` | ✅ user-verified `30dff21` (Store B `MaterialMeasurementInputs`; load no longer clobbers Settings; PDF/save read Store B) |
 | **V-B** editable dims + layout | ✅ (`98e09ef`) | ✅ user-verified `5fc9aa5` | ✅ user-verified `b490c0a` (plate + brace; Sample/Body editors → Store B, shared NumberField, plate reorder + `.mat-lc` right-justify parity) |
-| **V-Naming** Diagonal/fL/fC/fLC | ✅ (`98e09ef` + `ccdb7dc` + `afda88a` PeakAnnotations/DetailView misses) | ✅ user-verified `33740d1` | — |
+| **V-Naming** Diagonal/fL/fC/fLC | ✅ (`98e09ef` + `ccdb7dc` + `afda88a` PeakAnnotations/DetailView misses) | ✅ user-verified `33740d1` | ✅ user-verified `228c24b` (live surfaces: legend/badge/on-chart annotation/phase strings/process steps/modeLabel; toggle rename cross-platform Swift `2233479` + Python `ead835c`) |
 | **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | — |
 | **V-C** notes-on-load | ✅ user-validated + regression test (`e409ce2`); Save-sheet made ephemeral so New Tap can't leak stale name/notes (`2bb1813`) | ✅ user-verified `eeca018` (loaded_notes; Python & web already immune to the New-Tap leak — ephemeral seed) | — |
 | **V-D** tests + docs | ◑ tests ✅ (`e409ce2`, 468/102); docs pending | ◑ tests ✅ `242f756` (`test_material_measurement_inputs.py`, 6 tests, 591 green) + `@parity` orphans/coverage-gap closed (Swift tag backfill `b100157`, map regenerated, 85 groups clean); docs pending | — |
