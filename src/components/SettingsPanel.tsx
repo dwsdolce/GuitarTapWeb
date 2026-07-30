@@ -1,5 +1,5 @@
 // @parity view/settings
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { FieldPrecision } from '../precision'
 import type { StoredCalibration } from '../measurement/calibrationStore'
 import { densityGPerCm3, type Dimensions } from '../dsp/material'
@@ -102,6 +102,19 @@ function NumberField({
   onChange: (v: number) => void
   decimals: number
 }) {
+  // A STRING buffer backs the input so an in-progress decimal ("4." → "4.8" → "4.85") survives keystroke
+  // to keystroke. Binding the input straight to the numeric `value` (as before) meant onChange rounded
+  // "4." back to 4 and re-rendered "4", so a decimal point could never be typed — the field was
+  // integer-only. An over-precise keystroke is still rejected (decimalsWithin), matching Swift
+  // `limitedInput` / Python `_decimal_validator`. The parsed number commits live for recompute; on blur
+  // the buffer re-syncs to the canonical value. `test/field-precision` covers the pure P logic; there is
+  // no web component-test harness, so this input round-trip is verified by running the app.
+  const [text, setText] = useState<string>(() => String(value))
+  const focused = useRef(false)
+  // Re-sync from the external value when NOT mid-edit (Reset, Cancel-revert, type switch).
+  useEffect(() => {
+    if (!focused.current) setText(String(value))
+  }, [value])
   return (
     <label className="set-field">
       <span>{label}</span>
@@ -109,8 +122,17 @@ function NumberField({
         <input
           type="text"
           inputMode="decimal"
-          value={value}
-          onChange={(e) => restrictNumberInput(e, value, decimals, onChange)}
+          value={text}
+          onFocus={() => { focused.current = true }}
+          onBlur={() => { focused.current = false; setText(String(value)) }}
+          onChange={(e) => {
+            const s = e.target.value
+            if (!FieldPrecision.decimalsWithin(s, decimals)) return // reject over-precise keystroke (revert)
+            setText(s) // accept — including the intermediate '', '-', '4.'
+            if (s !== '' && s !== '-' && Number.isFinite(Number(s))) {
+              onChange(FieldPrecision.rounded(Number(s), decimals))
+            }
+          }}
         />
         {unit && <em>{unit}</em>}
       </span>

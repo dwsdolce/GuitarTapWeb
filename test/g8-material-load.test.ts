@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { measurementToLiveMaterial, buildMaterialMeasurement } from '../src/measurement/fromLive'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
+import { materialInputsFromSettings } from '../src/measurement/materialMeasurementInputs'
 
 // Phase 4b (material follow-up): loading a saved plate/brace measurement restores the
 // per-phase spectra (chart overlay), the selected L/C/FLC peaks (markers + results), and
@@ -61,11 +62,15 @@ describe('measurementToLiveMaterial — restore a plate measurement', () => {
     expect(r.matPeaks.flc).toBeNull()
   })
 
-  it('restores type + dimensions into the settings patch (NOT the axis range)', () => {
+  it('restores dimensions into Store B (materialInputs), only the type into the settings patch', () => {
     expect(r.settingsPatch.measurementType).toBe('plate')
-    expect(r.settingsPatch.plateLength).toBe(500)
-    expect(r.settingsPatch.plateMass).toBe(100)
-    expect(r.settingsPatch.plateStiffnessPreset).toBe('steelStringTop')
+    // Dims go to Store B (the measurement's own values) — NOT the Settings patch, so loading never
+    // clobbers the user's next-measurement defaults.
+    expect(r.materialInputs.lengthMm).toBe(500)
+    expect(r.materialInputs.massG).toBe(100)
+    expect(r.materialInputs.stiffnessPreset).toBe('steelStringTop')
+    expect(r.settingsPatch.plateLength).toBeUndefined()
+    expect(r.settingsPatch.plateStiffnessPreset).toBeUndefined()
     // The axis range is a transient override (Swift loadedAxisRange), not a persisted
     // setting — so it must NOT be in the settings patch.
     expect(r.settingsPatch.minDb).toBeUndefined()
@@ -84,8 +89,8 @@ describe('material survives the .guitartap file round-trip (export → import)',
     expect(r.matSpectra.longitudinal?.frequencies).toEqual([100, 120, 140])
     expect(r.matSpectra.cross?.frequencies).toEqual([200, 250, 300])
     expect(r.matPeaks.longitudinal?.frequency).toBe(120)
-    expect(r.settingsPatch.plateLength).toBe(500)
-    expect(r.settingsPatch.plateStiffnessPreset).toBe('steelStringTop')
+    expect(r.materialInputs.lengthMm).toBe(500)
+    expect(r.materialInputs.stiffnessPreset).toBe('steelStringTop')
   })
 })
 
@@ -111,6 +116,12 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
       plateStiffnessPreset: 'steelStringTop' as const,
       measureFlc: false,
       peakMinThreshold: -70,
+    },
+    // Store B is the source for the saved dims (the measurement's own values).
+    materialInputs: {
+      lengthMm: 500, widthMm: 200, thicknessMm: 3, massG: 100,
+      bodyLengthMm: DEFAULT_SETTINGS.guitarBodyLength, bodyWidthMm: DEFAULT_SETTINGS.guitarBodyWidth,
+      stiffnessPreset: 'steelStringTop', customStiffness: DEFAULT_SETTINGS.customPlateStiffness,
     },
     // A real multi-tap count: the builder used to hardcode `numberOfTaps: 1`, so every
     // saved material measurement claimed one tap however many were captured+averaged.
@@ -172,8 +183,8 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
     expect(r.matSpectra.flc).toBeNull()
     expect(r.matPeaks.longitudinal?.frequency).toBe(120)
     expect(r.matPeaks.cross?.frequency).toBe(250)
-    expect(r.settingsPatch.plateLength).toBe(500)
-    expect(r.settingsPatch.plateStiffnessPreset).toBe('steelStringTop')
+    expect(r.materialInputs.lengthMm).toBe(500)
+    expect(r.materialInputs.stiffnessPreset).toBe('steelStringTop')
   })
 })
 
@@ -193,6 +204,7 @@ describe('material annotation offsets round-trip (6d)', () => {
     peaks: { longitudinal: matPeak(0, 120, -40), cross: matPeak(1, 250, -45), flc: null },
     view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
     settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const },
+    materialInputs: materialInputsFromSettings('plate', { ...DEFAULT_SETTINGS, measurementType: 'plate' as const }),
     numberOfTaps: 1,
     sampleRate: 48000,
     deviceLabel: 'Test Mic',
@@ -223,6 +235,7 @@ describe('material annotation offsets round-trip (6d)', () => {
       peaks: { longitudinal: matPeak(0, 120, -40), cross: null, flc: null },
       view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
       settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const },
+      materialInputs: materialInputsFromSettings('plate', { ...DEFAULT_SETTINGS, measurementType: 'plate' as const }),
       numberOfTaps: 1,
       sampleRate: 48000,
       deviceLabel: 'Test Mic',

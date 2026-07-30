@@ -88,6 +88,10 @@ export const STIFFNESS_RAW_NAME: Record<StiffnessPreset, string> = {
   classicalBack: 'Classical Back',
   custom: 'Custom',
 }
+// Reverse of STIFFNESS_RAW_NAME: a snapshot's persisted preset name (Swift rawValue) → web preset.
+export const STIFFNESS_FROM_RAW: Record<string, StiffnessPreset> = Object.fromEntries(
+  Object.entries(STIFFNESS_RAW_NAME).map(([preset, raw]) => [raw, preset as StiffnessPreset]),
+) as Record<string, StiffnessPreset>
 
 export interface Settings {
   measurementType: MeasurementType

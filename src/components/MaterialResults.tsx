@@ -14,11 +14,15 @@ import {
   goreTargetThicknessMm,
   woodQuality,
   overallQuality,
-  type Dimensions,
 } from '../dsp/material'
 import type { MaterialPeak } from '../dsp/gatedCapture'
 import { WOOD_QUALITY_COLOR } from '../presentation/qualityColors'
-import { effectiveStiffness, STIFFNESS_RAW_NAME, type Settings } from '../settings'
+import { STIFFNESS_RAW_NAME } from '../settings'
+import {
+  materialDimensions,
+  materialStiffness,
+  type MaterialMeasurementInputs,
+} from '../measurement/materialMeasurementInputs'
 
 export interface MaterialPeaks {
   longitudinal: MaterialPeak | null
@@ -28,7 +32,11 @@ export interface MaterialPeaks {
 
 export interface MaterialResultsProps {
   type: 'plate' | 'brace'
-  settings: Settings
+  /** Store B — the measurement's OWN dimensions (seeded at complete / restored on load). `null` until
+   *  the measurement completes; the property sections (which need it) are gated on `complete`. */
+  matInputs: MaterialMeasurementInputs | null
+  /** Capture setting (not part of Store B) — gates the FLC slot/process display. */
+  measureFlc: boolean
   peaks: MaterialPeaks
   /** All phases captured — gates the properties sections (hidden during live capture). */
   complete: boolean
@@ -116,18 +124,12 @@ function ProcessSection({ type, measureFlc }: { type: 'plate' | 'brace'; measure
   )
 }
 
-export function MaterialResults({ type, settings: s, peaks, complete }: MaterialResultsProps) {
+export function MaterialResults({ type, matInputs, measureFlc, peaks, complete }: MaterialResultsProps) {
   const plate = type === 'plate'
-  const dims: Dimensions = plate
-    ? { lengthMm: s.plateLength, widthMm: s.plateWidth, thicknessMm: s.plateThickness, massG: s.plateMass }
-    : { lengthMm: s.braceLength, widthMm: s.braceWidth, thicknessMm: s.braceThickness, massG: s.braceMass }
-
-  const rhoGcm3 = densityGPerCm3(dims)
-  const rho = density(dims)
   const fL = peaks.longitudinal?.frequency ?? null
   const fC = peaks.cross?.frequency ?? null
   const fLC = peaks.flc?.frequency ?? null
-  const showFlc = plate && s.measureFlc
+  const showFlc = plate && measureFlc
 
   // Fixed per-phase slot rows (L, C, [FLC] for plate; fL for brace). The layout matches the
   // final display, but each row shows a dash + unselected bubble until its phase is captured.
@@ -148,11 +150,12 @@ export function MaterialResults({ type, settings: s, peaks, complete }: Material
     </div>
   )
 
-  const process = <ProcessSection type={type} measureFlc={s.measureFlc} />
+  const process = <ProcessSection type={type} measureFlc={measureFlc} />
 
-  // Properties are hidden until all phases are complete — during live capture only the
-  // fixed slot rows + Measurement Process show.
-  if (!complete || fL == null) {
+  // Properties are hidden until all phases are complete — during live capture only the fixed slot
+  // rows + Measurement Process show. matInputs (Store B) is set at completion / on load, so a complete
+  // measurement always has it; the null-guard also narrows the type for the calc below.
+  if (!complete || fL == null || matInputs == null) {
     return (
       <div className="material-results">
         {peakList}
@@ -160,6 +163,11 @@ export function MaterialResults({ type, settings: s, peaks, complete }: Material
       </div>
     )
   }
+
+  // Dimensions come from Store B (the measurement's own values), never the live Settings.
+  const dims = materialDimensions(matInputs)
+  const rhoGcm3 = densityGPerCm3(dims)
+  const rho = density(dims)
 
   if (!plate) {
     // ── Brace Properties ────────────────────────────────────────────────────
@@ -214,13 +222,13 @@ export function MaterialResults({ type, settings: s, peaks, complete }: Material
   const qC = woodQuality(smC, 'cross')
   const overall = overallQuality(smL, smC)
   const shearPa = goreShearPa(dims, fLC)
-  const target = goreTargetThicknessMm(dims, fL, fC, fLC, s.guitarBodyLength, s.guitarBodyWidth, effectiveStiffness(s))
+  const target = goreTargetThicknessMm(dims, fL, fC, fLC, matInputs.bodyLengthMm, matInputs.bodyWidthMm, materialStiffness(matInputs))
   const crossLong = eL > 0 ? eC / eL : 0
   const longCross = eC > 0 ? eL / eC : 0
 
-  const fvs = effectiveStiffness(s)
-  const presetName = STIFFNESS_RAW_NAME[s.plateStiffnessPreset]
-  const fvsLine = s.plateStiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
+  const fvs = materialStiffness(matInputs)
+  const presetName = STIFFNESS_RAW_NAME[matInputs.stiffnessPreset]
+  const fvsLine = matInputs.stiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
 
   return (
     <div className="material-results">
@@ -237,7 +245,7 @@ export function MaterialResults({ type, settings: s, peaks, complete }: Material
           ) : (
             <p className="mat-info">ⓘ GLC assumed 0 — enable FLC tap for a more accurate result</p>
           )}
-          <p className="mat-params">Body: {f0(s.guitarBodyLength)} × {f0(s.guitarBodyWidth)} mm</p>
+          <p className="mat-params">Body: {f0(matInputs.bodyLengthMm)} × {f0(matInputs.bodyWidthMm)} mm</p>
           <p className="mat-params">{fvsLine}</p>
         </div>
       )}

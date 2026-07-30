@@ -60,6 +60,7 @@ import {
   measurementToLiveMaterial,
   measurementWarning,
 } from './measurement/fromLive'
+import { materialInputsFromSettings, type MaterialMeasurementInputs } from './measurement/materialMeasurementInputs'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
@@ -223,6 +224,11 @@ export default function App() {
   const [showLoadedSettings, setShowLoadedSettings] = useState(false)
   // Name of the currently loaded measurement → chart title ("FFT Peaks — {name}", else "New").
   const [loadedName, setLoadedName] = useState<string | null>(null)
+  // Store B — the current material measurement's OWN dimensions. `null` for guitar and before a
+  // material measurement completes. Seeded from Settings at completion, restored from the snapshot on
+  // load, and the sole source for MaterialResults' calc + Save (never the live Settings). Mirrors
+  // Swift analyzer.materialInputs. See Development/MEASUREMENT-DIMENSIONS-SPEC.md §10.
+  const [matInputs, setMatInputs] = useState<MaterialMeasurementInputs | null>(null)
   const annotationMode = settings.annotationVisibilityMode
   const guitarType: GuitarTypeName = isGuitarType(settings.measurementType) ? settings.measurementType : 'generic'
   const material = isMaterialType(settings.measurementType)
@@ -256,6 +262,17 @@ export default function App() {
   const matPhase = snapshot.materialTapPhase
   const matPeaks = snapshot.matPeaks
   const matSpectra = snapshot.matSpectra
+
+  // Seed Store B from the Settings defaults when a material measurement COMPLETES — the single seed
+  // hook (nothing on New Tap / type-change; New Tap nulls it via clearLoadedMeasurement, load sets it
+  // from the snapshot). The `matInputs == null` guard makes it fire once per capture and never
+  // overwrite a load's snapshot values (load sets matInputs before the phase reads 'complete').
+  // Mirrors Swift isMeasurementComplete.didSet seeding materialInputs from TapDisplaySettings.
+  useEffect(() => {
+    if (material && matPhase === 'complete' && matInputs == null) {
+      setMatInputs(materialInputsFromSettings(brace ? 'brace' : 'plate', settings))
+    }
+  }, [material, matPhase, matInputs, brace, settings])
 
   // Mirror the settings the analyzer needs onto it: Swift/Python read these from the TapDisplaySettings
   // singleton, but the web has no analyzer-visible global. `measurementType` drives the material search
@@ -466,6 +483,7 @@ export default function App() {
     setLoadWarning(null)
     setLoadedName(null)
     setLoadedView(null) // drop the loaded measurement's transient axis range
+    setMatInputs(null)  // drop Store B — a fresh material capture re-seeds it from Settings at complete
     setShowLoadedSettings(false)
   }, [])
 
@@ -793,6 +811,9 @@ export default function App() {
         if (!matSpectra.longitudinal) return null
         return buildMaterialMeasurement({
           name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, numberOfTaps, sampleRate, deviceLabel,
+          // Store B is the sole source for the saved dims (seeded at complete). Fall back to the
+          // Settings snapshot defensively if it's somehow unset.
+          materialInputs: matInputs ?? materialInputsFromSettings(brace ? 'brace' : 'plate', settings),
           microphoneUID: currentDeviceId ?? undefined,
           calibrationName: calibrationRef.current?.name,
           annotationOffsetsById: annotationOffsets,
@@ -826,7 +847,7 @@ export default function App() {
         userModified,
       })
     },
-    [comparison, material, matSpectra, matPeaks, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, loadedDecayTime, loadedPeaks, userModified, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId],
+    [comparison, material, matSpectra, matPeaks, matInputs, brace, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, loadedDecayTime, loadedPeaks, userModified, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId],
   )
 
   const onSaveMeasurement = useCallback(
@@ -898,7 +919,8 @@ export default function App() {
       if (m.longitudinalSnapshot) {
         const mat = measurementToLiveMaterial(m)
         if (mat.measurementType !== settings.measurementType) skipNextTypeResetRef.current = true
-        updateSettings(mat.settingsPatch)
+        updateSettings(mat.settingsPatch)          // only the type (+ measureFlc); NOT the dims (see below)
+        setMatInputs(mat.materialInputs)           // Store B ← the measurement's own dims (no Settings clobber)
         setLoadedView(mat.view) // transient loaded axis range (Swift loadedAxisRange)
         setLoadedPeaks(null)
         analyzer.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
@@ -1447,7 +1469,7 @@ export default function App() {
           {comparison ? (
             <ComparisonResultsView rows={comparisonRows} />
           ) : material ? (
-            <MaterialResults type={brace ? 'brace' : 'plate'} settings={settings} peaks={matPeaks} complete={matPhase === 'complete'} />
+            <MaterialResults type={brace ? 'brace' : 'plate'} matInputs={matInputs} measureFlc={settings.measureFlc} peaks={matPeaks} complete={matPhase === 'complete'} />
           ) : showMultiTap && multiTapAvailable ? (
             <MultiTapComparisonResultsView taps={tapRows} avg={avgModes} />
           ) : (

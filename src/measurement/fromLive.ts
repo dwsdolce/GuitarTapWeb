@@ -22,8 +22,8 @@ import {
   STIFFNESS_RAW_NAME,
   type MeasurementType,
   type Settings,
-  type StiffnessPreset,
 } from '../settings'
+import { materialInputsFromSnapshot, type MaterialMeasurementInputs } from './materialMeasurementInputs'
 import type { AnnotationOffsets, ComparisonEntryModel, ResonantPeakModel, SpectrumSnapshotModel, TapEntryModel, TapToneMeasurementModel } from './types'
 
 const GUITAR_TYPE_RAW: Record<string, string> = {
@@ -39,12 +39,6 @@ const GUITAR_TYPE_NAME_FROM_RAW: Record<string, GuitarTypeName> = {
   Classical: 'classical',
   Flamenco: 'flamenco',
 }
-
-// Snapshot `plateStiffnessPreset` raw values (Swift `PlateStiffnessPreset.rawValue`) ↔ web preset.
-// Reverse of the store's STIFFNESS_RAW_NAME (dedupes what used to be a local copy of both maps).
-const STIFFNESS_FROM_RAW: Record<string, StiffnessPreset> = Object.fromEntries(
-  Object.entries(STIFFNESS_RAW_NAME).map(([preset, raw]) => [raw, preset as StiffnessPreset]),
-) as Record<string, StiffnessPreset>
 
 const uuid = (): string => crypto.randomUUID().toUpperCase()
 
@@ -507,7 +501,10 @@ export interface MaterialRestore {
   matSpectra: { longitudinal: Spectrum | null; cross: Spectrum | null; flc: Spectrum | null }
   /** The selected L/C/FLC peaks, for the markers + Material Results panel. */
   matPeaks: { longitudinal: MaterialPeak | null; cross: MaterialPeak | null; flc: MaterialPeak | null }
-  /** Type + dimensions to restore so Material Results recomputes correctly. */
+  /** The measurement's OWN material dimensions (Store B) — restored here, NOT into Settings, so the
+   *  calc/display/PDF read the measurement's values and loading never clobbers the Settings defaults. */
+  materialInputs: MaterialMeasurementInputs
+  /** Only the type (+ measureFlc, a capture setting) is restored into Settings; dims go to `materialInputs`. */
   settingsPatch: Partial<Settings>
   /** The saved axis range — applied as a transient override (not persisted), like guitar. */
   view: ChartView
@@ -550,25 +547,17 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
     if (liveId != null) annotationOffsetsById.set(liveId, pos)
   }
 
-  // Restore the dimensions so MaterialResults recomputes moduli/quality/Gore numbers.
-  // The axis range is transient (see `view` below), so it is NOT in the patch.
+  // Store B ← the measurement's OWN dims from the snapshot (the calc/display/PDF read this). Loading no
+  // longer writes the dims into Settings (Store A) — that was the clobber that silently overwrote the
+  // user's next-measurement defaults. Only the type and measureFlc (a capture setting the process/slot
+  // display reads) go into the Settings patch; the axis range is transient (see `view` below).
+  const materialInputs = materialInputsFromSnapshot(measurementType === 'brace' ? 'brace' : 'plate', snap)
   const patch: Partial<Settings> = { measurementType }
-  if (snap.plateLength != null) patch.plateLength = snap.plateLength
-  if (snap.plateWidth != null) patch.plateWidth = snap.plateWidth
-  if (snap.plateThickness != null) patch.plateThickness = snap.plateThickness
-  if (snap.plateMass != null) patch.plateMass = snap.plateMass
-  if (snap.guitarBodyLength != null) patch.guitarBodyLength = snap.guitarBodyLength
-  if (snap.guitarBodyWidth != null) patch.guitarBodyWidth = snap.guitarBodyWidth
-  if (snap.plateStiffnessPreset != null) patch.plateStiffnessPreset = STIFFNESS_FROM_RAW[snap.plateStiffnessPreset] ?? 'custom'
-  if (snap.customPlateStiffness != null) patch.customPlateStiffness = snap.customPlateStiffness
   if (snap.measureFlc != null) patch.measureFlc = snap.measureFlc
-  if (snap.braceLength != null) patch.braceLength = snap.braceLength
-  if (snap.braceWidth != null) patch.braceWidth = snap.braceWidth
-  if (snap.braceThickness != null) patch.braceThickness = snap.braceThickness
-  if (snap.braceMass != null) patch.braceMass = snap.braceMass
 
   return {
     measurementType,
+    materialInputs,
     matSpectra: {
       longitudinal: toSpectrum(m.longitudinalSnapshot),
       cross: toSpectrum(m.crossSnapshot),
@@ -588,6 +577,8 @@ export interface BuildMaterialArgs {
   peaks: { longitudinal: MaterialPeak | null; cross: MaterialPeak | null; flc: MaterialPeak | null }
   view: ChartView
   settings: Settings
+  /** The measurement's OWN dims (Store B) — the sole source for the snapshot dims written on save. */
+  materialInputs: MaterialMeasurementInputs
   /** Taps averaged per phase. Required (not optional) so the call site must supply the real
    *  count — a hardcoded 1 here shipped a wrong tap count in every saved material measurement. */
   numberOfTaps: number
@@ -610,23 +601,26 @@ export function buildMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasureme
   // (falls back to "Generic"); external consumers read it for the top-level guitarType.
   const guitarTypeRaw = GUITAR_TYPE_RAW[a.settings.measurementType] ?? 'Generic'
 
-  // Dimensions written on every per-phase snapshot (matches Swift makePhaseSnapshot).
+  // Dimensions written on every per-phase snapshot come from Store B (the measurement's own values),
+  // NOT the live Settings — mirrors Swift makePhaseSnapshot reading materialInputs. measureFlc is a
+  // capture setting (not in Store B), so it still comes from settings.
+  const mi = a.materialInputs
   const dims: Partial<SpectrumSnapshotModel> = brace
     ? {
-        braceLength: a.settings.braceLength,
-        braceWidth: a.settings.braceWidth,
-        braceThickness: a.settings.braceThickness,
-        braceMass: a.settings.braceMass,
+        braceLength: mi.lengthMm,
+        braceWidth: mi.widthMm,
+        braceThickness: mi.thicknessMm,
+        braceMass: mi.massG,
       }
     : {
-        plateLength: a.settings.plateLength,
-        plateWidth: a.settings.plateWidth,
-        plateThickness: a.settings.plateThickness,
-        plateMass: a.settings.plateMass,
-        guitarBodyLength: a.settings.guitarBodyLength,
-        guitarBodyWidth: a.settings.guitarBodyWidth,
-        plateStiffnessPreset: STIFFNESS_RAW_NAME[a.settings.plateStiffnessPreset],
-        customPlateStiffness: a.settings.customPlateStiffness,
+        plateLength: mi.lengthMm,
+        plateWidth: mi.widthMm,
+        plateThickness: mi.thicknessMm,
+        plateMass: mi.massG,
+        guitarBodyLength: mi.bodyLengthMm,
+        guitarBodyWidth: mi.bodyWidthMm,
+        plateStiffnessPreset: STIFFNESS_RAW_NAME[mi.stiffnessPreset],
+        customPlateStiffness: mi.customStiffness,
         measureFlc: a.settings.measureFlc,
       }
 
