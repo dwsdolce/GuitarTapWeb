@@ -572,6 +572,19 @@ notes-on-load — exercised at the `fromLive`/state layer (`buildMaterialMeasure
 clean) and the shared docs (release notes / Help / manual, §7). If a genuine UI-render assertion is needed,
 note the missing infra rather than adding a framework mid-item.
 
+**Manual screenshots to re-capture (macOS, Swift repo `Documentation/Manual/images/`) — user takes these:**
+- **`ch04-results-panel.png`** — Plate Results panel. **Major change:** now shows the editable **Sample
+  Dimensions** + **Body Dimensions** blocks, section order Sample → Body → Gore (number only) → Plate
+  Properties (GLC among the moduli), and fL/fC/fLC + Diagonal naming. Capture a completed **three-phase**
+  (Diagonal enabled) measurement so the GLC row is populated.
+- **`ch05-results-panel.png`** — Brace Results panel. Now shows the editable **Sample Dimensions** block and
+  the blue **fL** badge.
+- **`ch04-settings-plate.png`** — Plate Settings sheet. Toggle renamed to **Measure Diagonal (fLC) Tap**.
+- **`ch05-settings-brace.png`** — *optional*; brace Settings fields are unchanged (Length/Width/Height/Mass,
+  no toggle), re-capture only for fresh framing.
+- Not affected: `ch01-main-analysis-screen` (guitar), `ch06-scroll-zones` (zoom/pan). All other chapters
+  unchanged.
+
 ## 11. Verification (run per edition — Swift, Python, web)
 
 The behaviour is identical across editions, so this is the **shared close-out checklist**: a chunk is
