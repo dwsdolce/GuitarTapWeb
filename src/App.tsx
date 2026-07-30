@@ -414,6 +414,7 @@ export default function App() {
     error,
     errorKind,
     setError,
+    setErrorKind,
     inputDevices,
     currentDeviceId,
     calibrations,
@@ -899,11 +900,18 @@ export default function App() {
       } else {
         await exportPdfReport(measurementToPdfData(m), filename)
       }
+    } catch (e) {
+      // Never let a PDF failure die as a console-only unhandled rejection. The likeliest cause is a
+      // stale service worker after a deploy: the report code lazy-loads jsPDF, and an old cached shell
+      // asks for a jsPDF chunk the new build renamed ("Importing a module script failed") — a reload
+      // updates the worker and fixes it. Hence the reload hint, unlike the spectrum/PNG path.
+      setError(`Couldn't export the PDF report. A newer version of the app may be available — reload the page (or fully close and reopen), then try again.\n\n(${e instanceof Error ? e.message : String(e)})`)
+      setErrorKind('other')
     } finally {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [buildCurrentMeasurement, loadedName])
+  }, [buildCurrentMeasurement, loadedName, setError, setErrorKind])
 
   const onLoadMeasurement = useCallback(
     (m: TapToneMeasurementModel) => {
@@ -1068,11 +1076,16 @@ export default function App() {
     }
     try {
       await exportSpectrumPng(opts, `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'spectrum')}.png`)
+    } catch (e) {
+      // Surface the failure instead of a console-only rejection (mirrors the PDF path). No jsPDF/lazy
+      // chunk here, so no reload hint — a plain image/save error.
+      setError(`Couldn't export the spectrum image.\n\n(${e instanceof Error ? e.message : String(e)})`)
+      setErrorKind('other')
     } finally {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, loadedName, settings.measurementType, guitarType])
+  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, loadedName, settings.measurementType, guitarType, setError, setErrorKind])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>

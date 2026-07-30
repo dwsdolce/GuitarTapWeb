@@ -60,6 +60,9 @@ export interface AudioEngineModel {
    *  'permission' → "Microphone Access Required", else → "Audio Engine Error". */
   errorKind: 'permission' | 'engine' | 'other' | null
   setError: (e: string | null) => void
+  /** Set alongside `setError` so a non-audio failure (e.g. an export error) shows the neutral
+   *  "Error" alert with a plain OK, not "Audio Engine Error" with a bogus Retry. */
+  setErrorKind: (k: 'permission' | 'engine' | 'other' | null) => void
   inputDevices: { deviceId: string; label: string }[]
   currentDeviceId: string | null
   calibrations: StoredCalibration[]
@@ -292,6 +295,7 @@ export function useAudioEngine({
     error,
     errorKind,
     setError,
+    setErrorKind,
     inputDevices,
     currentDeviceId,
     calibrations,
