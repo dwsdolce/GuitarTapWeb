@@ -1,6 +1,7 @@
 // @parity view/validated-number-field
-// Shared precision-restricted numeric input — the web mirror of Swift `ValidatedNumberField` / Python's
-// QLineEdit + `_decimal_validator`. Used by the Settings panel and the Results-panel dimension editors.
+// Shared precision-restricted numeric input — the web member of the validated-number-field mirror
+// (Swift `ValidatedNumberField`, Python `ValidatedNumberField`), each a per-platform input adapter over
+// the shared `FieldPrecision` precision policy. Used by the Settings panel and the dimension editors.
 //
 // A STRING buffer backs the input so an in-progress decimal ("4." → "4.8" → "4.85") survives keystroke to
 // keystroke; binding straight to the numeric value rounds "4." back to 4 and erases the dot (the field
