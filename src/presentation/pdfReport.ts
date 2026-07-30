@@ -18,6 +18,13 @@
 import type { SpectrumImageOpts } from './spectrumExport'
 import { renderSpectrumToCanvas } from './spectrumExport'
 import { saveFile } from '../saveFile'
+// jsPDF is imported STATICALLY (not `await import('jspdf')`) on purpose. A lazy chunk goes missing for
+// a client running a stale service-worker shell after a deploy: the old shell requests a jsPDF chunk
+// the new build renamed, the fetch fails ("Importing a module script failed"), and PDF export silently
+// dies. Bundling jsPDF into the main entry — which the service worker always precaches — makes the shell
+// self-contained, so that failure mode can't occur. Do NOT switch this back to a dynamic import.
+// jsPDF's own optional html2canvas/dompurify deps stay lazy and are never fetched (we use only core drawing).
+import { jsPDF } from 'jspdf'
 
 export interface PdfPeakRow {
   frequency: number
@@ -166,7 +173,7 @@ function fmtFreq(hz: number): string {
   return hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${hz.toFixed(1)} Hz`
 }
 
-type Doc = import('jspdf').jsPDF
+type Doc = jsPDF
 
 /** The single mutable layout cursor threaded through every draw routine. `pageH` is the current
  *  page's height (variable — see the geometry note); `grow` (single-page reports) makes `ensure`
@@ -203,7 +210,7 @@ function divider(cur: Cur) {
   cur.doc.line(L, cur.y, R, cur.y)
 }
 
-type JsPdfCtor = typeof import('jspdf').jsPDF
+type JsPdfCtor = typeof jsPDF
 
 /** Dry-render `data` into a throwaway tall page to measure its natural content height, then return
  *  the page height that fits it (Swift's auto-height page, done as a two-pass in jsPDF). */
@@ -216,7 +223,6 @@ function measureHeight(JsPDF: JsPdfCtor, data: PdfReportData): number {
 
 /** Render the report to a PDF Blob — a single page grown to fit the content (mirrors Swift). */
 export async function generatePdfReport(data: PdfReportData): Promise<Blob> {
-  const { jsPDF } = await import('jspdf')
   const pageH = measureHeight(jsPDF, data)
   const doc = new jsPDF({ unit: 'pt', format: [PAGE_W, pageH] })
   renderReportContent({ doc, y: MARGIN, pageH, grow: true }, data)
@@ -228,7 +234,6 @@ export async function generatePdfReport(data: PdfReportData): Promise<Blob> {
  *  single-measurement report, page 2 = the per-tap comparison. Each page is sized to its own content
  *  (Swift auto-height). Both pages reuse the same drawers as the single/comparison reports. */
 export async function generateMultiTapPdfReport(averaged: PdfReportData, comparison: PdfReportData): Promise<Blob> {
-  const { jsPDF } = await import('jspdf')
   const h1 = measureHeight(jsPDF, averaged)
   const h2 = measureHeight(jsPDF, comparison)
   const doc = new jsPDF({ unit: 'pt', format: [PAGE_W, h1] })
