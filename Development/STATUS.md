@@ -26,6 +26,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
 | 9 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 10 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
+| 11 | **Saved Measurements — sort / reorder** | 🔶 Post-1.0.2. New feature (no ordering control today). Investigation done; write the spec, ship sort-button first, decide manual-reorder after. | [SAVED-MEASUREMENTS-ORDERING.md](SAVED-MEASUREMENTS-ORDERING.md) |
 
 ## Done (for reference)
 
@@ -99,6 +100,7 @@ Audit trail, not a to-do list.
 | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) | Playback bit-identity | replay ≠ live capture by ~0.02 dB (pre-existing capture-path gap); proven independent of the peak fix; re-run harness in playback-validation/ |
 | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) | frozen-recalc test divergence | Python drives real detection, Swift injects peaks — align the paired tests fixture-for-fixture |
 | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) | Results panel consistency | live Analysis Results panel — cross-platform divergences (screenshots in `images/`); §3 Gore nesting, §7 spacing |
+| [SAVED-MEASUREMENTS-ORDERING.md](SAVED-MEASUREMENTS-ORDERING.md) | Saved Measurements sort/reorder | new feature — sort button and/or manual drag-reorder for the Saved Measurements list; investigation + sizing captured, spec still to write |
 
 **Reference** (living — consult, don't complete)
 | Doc | Purpose |
