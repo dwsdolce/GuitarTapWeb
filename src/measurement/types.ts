@@ -87,6 +87,12 @@ export interface TapEntryModel {
 }
 
 export interface TapToneMeasurementModel {
+  // Measurement TYPE is deliberately NOT a field here. It is derived on read from the snapshot via
+  // `resolvedMeasurementType` (below) — mirroring Swift's `TapToneMeasurement` (no stored
+  // `measurementType`): "derive, don't duplicate", since a stored copy can fall out of sync with the
+  // snapshot. Do NOT add a top-level `measurementType` and read it for logic (TypeScript already makes
+  // such a read a compile error). The write-only top-level copy in the `.guitartap` FILE (encode.ts,
+  // resolved from the snapshot at encode time) is a separate, fine thing — for external readers. See §12.
   id: string
   timestamp: string
   peaks: ResonantPeakModel[]

@@ -560,11 +560,9 @@ capture, play-file, compare) — Swift pairs `loadedNotes` with `loadedMeasureme
 clear-site count is the pre-existing view-layer divergence (loaded state in App state + split New Tap),
 behaviour identical. REMAIN on web: §12 type-resolution, Chunk D.
 
-**Type-resolution (§12; tracked as V-Type):** align to Swift — route the web's `.measurementType` **logic**
-reads through `resolvedMeasurementType` (`types.ts:130`, the snapshot), not the stored top-level field
-(populated `fromLive.ts`/`decode.ts:106`); leave `settings.measurementType` reads (the live settings type)
-alone. `grep -rn "\.measurementType" src` and classify each. Do NOT "fix" it by keeping the stored duplicate
-— derive, don't duplicate. Verify against **V-Type** (same-session save→load keeps the type).
+**Type-resolution (§12; tracked as V-Type): ✅ immune — no code change.** Audit (2026-07-29) found the web
+already matches Swift: `TapToneMeasurementModel` has no top-level `measurementType`, and all logic reads
+derive via `resolvedMeasurementType` (`types.ts:130`). See §12 for the detail.
 
 **Chunk D — tests + docs:** the vitest suite is **pure-logic (no React component-test infra — no
 testing-library/jsdom)**, so the parity coverage lands as logic tests, not rendered-component tests:
@@ -682,8 +680,8 @@ Legend: **✅** user-run-verified · **⏳** code-complete + suites green, await
 | **V-Naming** Diagonal/fL/fC/fLC | ✅ (`98e09ef` + `ccdb7dc` + `afda88a` PeakAnnotations/DetailView misses) | ✅ user-verified `33740d1` | ✅ user-verified `228c24b` (live surfaces: legend/badge/on-chart annotation/phase strings/process steps/modeLabel; toggle rename cross-platform Swift `2233479` + Python `ead835c`) |
 | **V-PDF** report layout + naming | ✅ (`98e09ef`) | ✅ user-verified `33740d1` (naming) + `c3d1556` (layout restructure + variable-height pages, all 3 renderers) | ✅ user-verified `e11c6a4` (Swift layout order + variable-height page + renderer naming; **also fixed the V-A#4 twin** — materialPdfData read DEFAULT_SETTINGS dims, now reads Store B; 3 regression tests) |
 | **V-C** notes-on-load | ✅ user-validated + regression test (`e409ce2`); Save-sheet made ephemeral so New Tap can't leak stale name/notes (`2bb1813`) | ✅ user-verified `eeca018` (loaded_notes; Python & web already immune to the New-Tap leak — ephemeral seed) | ✅ user-verified `ebc2f53` (`loadedNotes` paired with `loadedName` at all 3 loads + 5 clears; `SaveSheet defaultNotes`; remount-per-open = already leak-immune) |
-| **V-D** tests + docs | ◑ tests ✅ (`e409ce2`, 468/102); docs pending | ◑ tests ✅ `242f756` (`test_material_measurement_inputs.py`, 6 tests, 591 green) + `@parity` orphans/coverage-gap closed (Swift tag backfill `b100157`, map regenerated, 85 groups clean); docs pending | — |
-| **V-Type** type resolves from snapshot (§12) | ✅ immune (no stored field) | ✅ user-verified `5fc9aa5` (read `resolved_measurement_type` at both load readers) | — |
+| **V-D** tests + docs | ◑ tests ✅ (`e409ce2`, 468/102); docs pending | ◑ tests ✅ `242f756` (`test_material_measurement_inputs.py`, 6 tests, 591 green) + `@parity` orphans/coverage-gap closed (Swift tag backfill `b100157`, map regenerated, 85 groups clean); docs pending | ◑ tests ✅ user-verified `581d04d` (`test/material-measurement-inputs.test.ts`, sourcing invariants) + `@parity`/PARITY-MAP: `view/validated-number-field` now a real 3-way group (Python widget `23e3cea` + Swift `19d976e`), 86 groups clean; docs pending |
+| **V-Type** type resolves from snapshot (§12) | ✅ immune (no stored field) | ✅ user-verified `5fc9aa5` (read `resolved_measurement_type` at both load readers) | ✅ immune (audit: no top-level field on the model; logic derives via `resolvedMeasurementType`; load-derives-type in g6/g8) |
 
 ## 12. Type-resolution parity — `measurementType` derives from the snapshot (decided)
 
@@ -704,12 +702,13 @@ reading `resolved_measurement_type` at the two load-path readers: `tap_tone_anal
 the type switch). Committed `5fc9aa5`; user-verified in the app. Full suite green (585). Swift is immune (no stored
 field). **Do NOT "fix" Python by populating the raw field web-style — that would add divergence from Swift.**
 
-**➡️ WEB TO-DO (when the web chunk lands):** the web is the divergent one — its measurement model stores a
-top-level `measurementType` and reads it for logic (populated in `fromLive.ts:169`/`decode.ts:106`). It works
-only because every construction path currently sets it. **Align to Swift:** sweep the web's `.measurementType`
-reads (`grep -rn "\.measurementType" src`) and route the ones used for **logic** through the existing
-`resolvedMeasurementType` (`src/measurement/types.ts:130`) — the snapshot, not the stored field. Settings
-reads (`settings.measurementType`) are unaffected (that's the live settings type, not a measurement's).
+**✅ WEB — immune (audit, 2026-07-29):** the earlier premise (web stores a top-level `measurementType` and
+reads it for logic) was stale. `TapToneMeasurementModel` has **no** top-level `measurementType` field; the
+type lives only on the snapshot, and every logic read already derives via `resolvedMeasurementType`
+(`types.ts:130`) — `isMaterialMeasurement`, `measurementTypeName`, and the `fromLive` restore structs. The
+`.measurementType` hits in `decode.ts`/`fromLive.ts`/`encode.ts` are all *snapshot* reads/writes (the
+source) or the write-only file convenience copy; `settings.measurementType` is the live settings type. No
+code change; load-derives-type covered by g6/g8. Web matches Swift ("no stored field").
 
 *(The other two former web to-dos — **PDF page-height** and **Chunk C notes-on-load** — are now folded into
 the §10 web plan (PDF section and Chunk C respectively), with their full file/line detail. This block keeps
