@@ -569,6 +569,9 @@ export default function App() {
   // Live tap-tone ratio (f_Top / f_Air) over the DEFINITIVE Air/Top (selected + override-aware), so a
   // renamed/deselected Top drops it — matching the saved-list and PDF ratios. Recomputes on any snapshot
   // change (selection / overrides / peaks). Mirrors Swift analyzer.calculateTapToneRatio.
+  // `snapshot` is a deliberate recompute trigger for the imperative analyzer read — not a lexical dep,
+  // so exhaustive-deps flags it; removing it would stop the ratio updating on selection/override changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const tapRatio = useMemo(() => (material ? null : analyzer.tapToneRatio()), [material, analyzer, snapshot])
   // displayPeaks / displayPeaksInRange are defined below useAnnotations — they now depend on the
   // override state (a user-named peak is "known"), which the hook provides.
@@ -658,6 +661,9 @@ export default function App() {
   // durable set — a fact about the measurement, independent of the Peak-Min slider (spec §5). An
   // overridden value carries an isOverride flag so the row can mark it italic + " *". Recomputes on any
   // snapshot change (selection / overrides / peaks). Mirrors Swift analyzer.definitiveModeInfo().
+  // `snapshot` is a deliberate recompute trigger for the imperative analyzer read — not a lexical dep,
+  // so exhaustive-deps flags it; removing it would stop the averaged modes updating on selection/override changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const avgModes = useMemo<DefinitiveModeInfo>(() => analyzer.definitiveModeInfo(), [analyzer, snapshot])
   const multiTapOverlays = useMemo<SpectrumOverlay[]>(() => {
     const out: SpectrumOverlay[] = tapEntries.map((e, i) => ({

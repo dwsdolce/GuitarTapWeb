@@ -18,7 +18,7 @@
 // and measured, so adding a menu item cannot re-introduce the bug.
 
 import { describe, it, expect } from 'vitest'
-import { menuPlacement } from '../src/components/MeasurementsPanel'
+import { menuPlacement } from '../src/components/menuPlacement'
 
 const VIEWPORT = 800
 /** The real menu height: 7 items + 2 separators + padding/borders. */

@@ -4,7 +4,7 @@
 scope. This file is a **status index, not a log** — one line per item: state, next action, pointer.
 The detail lives in each item's linked doc.
 
-_Last updated: 2026-07-30. The 1.0.2 respin, the peak-lifecycle rework, and the material
+_Last updated: 2026-07-31. The 1.0.2 respin, the peak-lifecycle rework, and the material
 measurement-dimensions feature (item 11) are complete (see Done); completed detail docs are archived
 in [Completed/](Completed/). Open items are tracked below._
 
@@ -26,6 +26,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
 | 9 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
 | 10 | **Saved Measurements — sort / reorder** | 🔶 Post-1.0.2. New feature (no ordering control today). Investigation done; write the spec, ship sort-button first, decide manual-reorder after. | [SAVED-MEASUREMENTS-ORDERING.md](SAVED-MEASUREMENTS-ORDERING.md) |
+| 11 | **Swift release-process rework** (post-1.0.2) | 🔶 After release (changing it now rolls the build number). (1) Mirror the Python release-notes auto-stamping (build-less source + git-derived build/since; PDF built in the macOS build). (2) Website **extracted** to its own repo `guitar_tap_website` (2026-07-31) — remaining: `git rm` the now-frozen `Website/` from the Swift repo post-release. | *(no doc yet)* |
 
 ## Done (for reference)
 

@@ -25,7 +25,9 @@ export interface RNGroup {
 export interface RNRelease {
   /** Marketing version, e.g. "1.0.2". */
   version: string
-  /** Build number — the git commit count at the release commit. Omit for the initial release. */
+  /** Build number — the git commit count at the release commit. Omit for the initial release.
+   *  For the current (newest) release use `__APP_BUILD__` so it auto-matches the deployed build;
+   *  historical entries keep their literal number (past counts can't be derived from the current one). */
   build?: string
   /** What this release is measured against, e.g. "1.0.1". */
   since?: string
@@ -44,9 +46,10 @@ export interface RNRelease {
 export const RELEASES: RNRelease[] = [
   {
     version: '1.0.2',
-    // The git commit count at the release commit — the same number vite.config.ts stamps into
-    // the app (`git rev-list --count HEAD`), so the notes and the About line always agree.
-    build: '116',
+    // Newest entry auto-binds to the deployed build: __APP_BUILD__ is exactly what vite.config.ts
+    // stamps into the About line (`git rev-list --count HEAD` at build time), so the top-of-notes
+    // build and the About line can never drift and there is nothing to update by hand at release.
+    build: __APP_BUILD__,
     since: '1.0.1',
     intro:
       'The browser edition has caught up with the macOS/iOS and desktop editions: ring-out measurement, the full Analysis Results panel, in-app help, live material spectra, phone support, and the same tap detection the other editions use. Everything below is new since the first release.',
