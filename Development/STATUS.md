@@ -12,7 +12,7 @@ in [Completed/](Completed/). Open items are tracked below._
 
 Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified · 🔶 deferred (not blocking) · ⏸️ parked behind a blocker.
 
-**▶ Next up:** **10** (release-prep) capture Windows + Linux Python datasets before 1.0.2 (pre-ship gate) · **9** align the frozen-recalc paired tests. No open item blocks 1.0.2.
+**▶ Next up:** **9** align the frozen-recalc paired tests. No open item blocks 1.0.2.
 
 | # | Item | State — next action | Detail |
 |---|---|---|---|
@@ -25,12 +25,13 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 7 | **Results panel cross-platform consistency** | 📋 Post-release; presentation only (numbers correct). Spec against Swift first. | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) |
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
 | 9 | **Python↔Swift test-fixture divergence (frozen-recalc)** | 📋 Open. Python drives real detection, Swift injects peaks — same slug, not true twins (`--check` verifies presence, not equivalence). Align fixture-for-fixture. | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) |
-| 10 | **Capture Windows + Linux Python reference datasets** (release-prep) | ▶ Before shipping 1.0.2 — **user** captures live datasets on Windows and Linux. Pre-ship gate, not code work. | *(release-prep — no doc)* |
-| 11 | **Saved Measurements — sort / reorder** | 🔶 Post-1.0.2. New feature (no ordering control today). Investigation done; write the spec, ship sort-button first, decide manual-reorder after. | [SAVED-MEASUREMENTS-ORDERING.md](SAVED-MEASUREMENTS-ORDERING.md) |
+| 10 | **Saved Measurements — sort / reorder** | 🔶 Post-1.0.2. New feature (no ordering control today). Investigation done; write the spec, ship sort-button first, decide manual-reorder after. | [SAVED-MEASUREMENTS-ORDERING.md](SAVED-MEASUREMENTS-ORDERING.md) |
 
 ## Done (for reference)
 
 Audit trail, not a to-do list.
+
+- **Windows + Linux Python reference datasets captured** ✅ DONE (2026-07-30, user-captured) — the 1.0.2 pre-ship gate. Live guitar/plate/brace captures on Windows (`pc`) and Linux across mics, added to `GuitarTap/Tests/AllPlatforms/` beside the existing mac/iPad/iPhone/web set. | *(release-prep — no doc)*
 
 - **Material measurement dimensions — override, display, sourcing (+ notes-on-load)** ✅ DONE all 3 (2026-07-30). Two-store model (Settings = template, per-measurement Store B edited in the Analysis Results); calc/display/PDF/save read Store B; Diagonal (fL/fC/fLC) naming + toggle rename; notes-on-load; §12 type derived from the snapshot; shared validated-number-field widget (3-way parity). Web `30dff21`/`b490c0a`/`228c24b`/`e11c6a4`/`ebc2f53`; toggle Swift `2233479`/Python `ead835c`; Chunk-D tests `581d04d` + widget `23e3cea`/`19d976e`. Docs: manual + Help + 1.0.2 release notes, all 3. | [MEASUREMENT-DIMENSIONS-SPEC.md](Completed/MEASUREMENT-DIMENSIONS-SPEC.md)
 
