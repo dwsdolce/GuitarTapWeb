@@ -20,7 +20,7 @@ Status key: 🔴 blocker · 📋 open/queued · ⏳ code-written-not-verified ·
 | 2 | **Theme — Light/Dark/System** | 📋 Blocked on THEME-SPEC §8. Also owns the deferred colour-value/layer work. | [THEME-SPEC.md](THEME-SPEC.md) |
 | 3 | **Swift audio buffer size** (4800 frames, not the 1024 requested) | 🔶 Not blocking. **NEXT = iPad `buffer.frameLength` experiment**; do fix A first. | [AUDIO-BUFFER-SIZE.md](AUDIO-BUFFER-SIZE.md) · MATERIAL-MULTITAP §3 |
 | 4 | **Audio watchdog blind to a SILENT stream** | 🔶 Not blocking (self-recovers). Fix needs a signal-level criterion + design. | [AUDIO-WATCHDOG-SILENT-STREAM.md](AUDIO-WATCHDOG-SILENT-STREAM.md) |
-| 5 | **Project hub repo** (docs + cross-repo bug tracking) | 📋 Idea, needs a spec; no action yet. | [PROJECT-HUB-REPO.md](PROJECT-HUB-REPO.md) |
+| 5 | **Project hub repo** (`guitar-tap-project`) | 📋 Spec settled (2026-08-01) — design decisions resolved; no repo created yet. | [PROJECT-HUB-REPO.md](PROJECT-HUB-REPO.md) |
 | 6 | **Material multi-tap: Swift ~2 dB / sub-bin below Python/web** | 🔶 Not blocking. Same 4800-buffer cause as item 3 — resolve there. | MATERIAL-MULTITAP §3 |
 | 7 | **Results panel cross-platform consistency** | 📋 Post-release; presentation only (numbers correct). Spec against Swift first. | [RESULTS-PANEL-CONSISTENCY.md](RESULTS-PANEL-CONSISTENCY.md) |
 | 8 | **Replay does not bit-reproduce live capture** | 📋 Open. Replay reproduces closely but not bit-for-bit (~0.02 dB/bin); likely the same window-alignment family as items 3/6. Requirement (user): exact reproduction. | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) |
@@ -98,7 +98,7 @@ Audit trail, not a to-do list.
 | [THEME-SPEC.md](THEME-SPEC.md) | Theme | Light/Dark/System theme spec — blocked on §8 |
 | [AUDIO-BUFFER-SIZE.md](AUDIO-BUFFER-SIZE.md) | Swift audio buffer size | Swift's 4800-frame buffer (not 1024) → 3 symptoms; fixes A/B/C |
 | [AUDIO-WATCHDOG-SILENT-STREAM.md](AUDIO-WATCHDOG-SILENT-STREAM.md) | Audio watchdog | watchdog blind to a stream of digital silence |
-| [PROJECT-HUB-REPO.md](PROJECT-HUB-REPO.md) | Project hub repo | idea: a repo for project docs + cross-repo issue tracking |
+| [PROJECT-HUB-REPO.md](PROJECT-HUB-REPO.md) | Project hub repo | spec: `guitar-tap-project` for project docs + cross-repo issue tracking |
 | [MATERIAL-MULTITAP-DISCREPANCIES.md](MATERIAL-MULTITAP-DISCREPANCIES.md) | Swift audio buffer size, Material multi-tap | multi-tap material analysis: buffer per-tap divergence, Gore-thickness validation |
 | [PLAYBACK-BIT-IDENTITY.md](PLAYBACK-BIT-IDENTITY.md) | Playback bit-identity | replay ≠ live capture by ~0.02 dB (pre-existing capture-path gap); proven independent of the peak fix; re-run harness in playback-validation/ |
 | [FROZEN-RECALC-TEST-PARITY.md](FROZEN-RECALC-TEST-PARITY.md) | frozen-recalc test divergence | Python drives real detection, Swift injects peaks — align the paired tests fixture-for-fixture |
