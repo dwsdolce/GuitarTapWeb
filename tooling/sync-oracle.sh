@@ -13,10 +13,10 @@
 
 set -euo pipefail
 
-# Published canonical home: the public Python repo (always on GitHub, kept in
-# lockstep with Swift on algorithm changes). Swap for a release asset / data repo
-# if you prefer a neutral home — the pull model is identical.
-ORACLE_URL="${ORACLE_URL:-https://raw.githubusercontent.com/dwsdolce/guitar_tap/main/tests/parity-oracle.json}"
+# Published canonical home: the project hub (guitar-tap-project), the neutral home for
+# the shared parity contract. The raw URL is unauthenticated once the hub is public;
+# while the hub is private, the maintainer refreshes by copying from a local hub checkout.
+ORACLE_URL="${ORACLE_URL:-https://raw.githubusercontent.com/dwsdolce/guitar-tap-project/main/tooling/parity/parity-oracle.json}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCAL="$REPO_ROOT/test/fixtures/parity-oracle.json"

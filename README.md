@@ -138,9 +138,9 @@ Behaviour is pinned to the canonical Swift app, not to this code:
   exactly; `.guitartap` files round-trip across all three editions.
 - The contract is the **oracle** (`test/fixtures/parity-oracle.json`), which is
   **committed to this repository** — so the test suite is self-contained and needs
-  nothing else to run. It is generated from the canonical Swift build by the
-  maintainer (`tooling/sync-oracle.sh`), and the Vitest suite (`test/g*.test.ts`)
-  checks every DSP result against it.
+  nothing else to run. It is a **vendored copy** of the shared oracle whose canonical
+  home is the project hub; `tooling/sync-oracle.sh` refreshes it, and the Vitest suite
+  (`test/g*.test.ts`) checks every DSP result against it.
 - Each mirrored module carries a `@parity` slug the maintainer uses to keep the
   Swift, Python, and web implementations in step.
 
