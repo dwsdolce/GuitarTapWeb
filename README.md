@@ -58,7 +58,6 @@ public/
 test/            Vitest oracle-driven parity tests (g0–g11 + regressions).
   fixtures/parity-oracle.json   Expected values, generated from the Swift reference.
 tooling/sync-oracle.sh          Maintainer script: refresh the vendored oracle.
-Development/     Design & planning docs (PLAN, PHASE*, PARITY-MAP, WEB-UI-GUIDELINES…).
 ```
 
 ## Getting started
@@ -92,7 +91,7 @@ effect-cleanup) that a single run hides:
 
 Runs under bash on macOS, Linux, and Windows (Cygwin / Git-Bash). A green soak is
 **confidence, not proof** — use a few hundred to ~1000 runs. See
-[`Development/SOAK-STRESS-HARNESS.md`](Development/SOAK-STRESS-HARNESS.md) for the
+`SOAK-STRESS-HARNESS.md` in the project hub repo (`guitar-tap-project`) for the
 cross-platform rationale.
 
 ## Build
@@ -151,8 +150,8 @@ together, with the oracle regenerated.
 
 - **User manual** (shared across editions): <https://www.dolcesfogato.com/guitar_tap/manual/>
 - **In-app Quick Start**: the Help menu inside the app.
-- **Design & planning docs**: the [`Development/`](Development/) directory
-  (`PLAN.md`, the `PHASE*` writeups, `PARITY-MAP.md`, `WEB-UI-GUIDELINES.md`, …).
+- **Design & planning docs**: maintained in the project hub repo `guitar-tap-project`
+  (`PLAN.md`, `PARITY-MAP.md`, `WEB-UI-GUIDELINES.md`, the specs, …).
 
 ## Related projects
 
