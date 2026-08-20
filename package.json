@@ -1,12 +1,15 @@
 {
   "name": "guitartap-web",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "description": "Web port of GuitarTap — headless DSP core (Phase 2) + React UI (Phase 3).",
   "scripts": {
+    "predev": "./tooling/check-release-ready.sh",
     "dev": "vite",
+    "prebuild": "./tooling/check-release-ready.sh",
     "build": "tsc --noEmit && vite build",
+    "prepreview": "./tooling/check-release-ready.sh",
     "preview": "vite preview",
     "test": "vitest run",
     "test:fast": "vitest run --exclude '**/file-playback.test.ts'",

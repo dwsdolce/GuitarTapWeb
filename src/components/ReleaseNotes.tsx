@@ -45,11 +45,22 @@ export interface RNRelease {
 // eslint-disable-next-line react-refresh/only-export-components -- static release content; kept with the component rather than in its own data module
 export const RELEASES: RNRelease[] = [
   {
-    version: '1.0.2',
+    version: '1.0.3',
     // Newest entry auto-binds to the deployed build: __APP_BUILD__ is exactly what vite.config.ts
     // stamps into the About line (`git rev-list --count HEAD` at build time), so the top-of-notes
     // build and the About line can never drift and there is nothing to update by hand at release.
+    // At release this entry gets PINNED to the literal build it shipped as and a new entry is added
+    // above it; tooling/check-release-ready.sh refuses to run until that roll-over is done, because
+    // an un-rolled top entry silently re-renders shipped notes under a new build number.
     build: __APP_BUILD__,
+    since: '1.0.2',
+    // TODO(1.0.3): add this release's user-facing changes here before shipping, then delete this comment.
+    groups: [],
+  },
+  {
+    version: '1.0.2',
+    // Frozen at the build it shipped as — `git rev-list --count 1.0.2`.
+    build: '213',
     since: '1.0.1',
     intro:
       'The browser edition has caught up with the macOS/iOS and desktop editions: ring-out measurement, the full Analysis Results panel, in-app help, live material spectra, phone support, and the same tap detection the other editions use. Everything below is new since the first release.',
