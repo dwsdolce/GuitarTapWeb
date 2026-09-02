@@ -1,5 +1,5 @@
 // @parity audio/realtime-analyzer
-import { chunkCarriesSignal } from './deadInput'
+import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, watchdogDecision } from './deadInput'
 import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { DecayTracker } from '../dsp/decay'
@@ -280,7 +280,8 @@ export class RealtimeFFTAnalyzer {
   private engineStartTime = 0
   private isRecovering = false
   private recoveryAttempts = 0
-  private readonly watchdogSilenceMs = 2500
+  // Thresholds are owned by deadInput.ts so the rule and its constants are testable.
+  private readonly watchdogSilenceMs = BUFFER_DELIVERY_TIMEOUT_MS
   private readonly watchdogMaxAttempts = 6
   private readonly watchdogBackoffsMs = [500, 1000, 2000, 4000]
 
@@ -297,7 +298,7 @@ export class RealtimeFFTAnalyzer {
   // microphone clears this floor on its own self-noise, so a silent room can never
   // trigger a re-acquire.
   private lastSignalTime = 0
-  private readonly watchdogDeadInputMs = 15000
+  private readonly watchdogDeadInputMs = DEAD_INPUT_DWELL_MS
   /** True once recovery has exhausted its attempts. Re-acquire attempts stop, but the
    *  watchdog keeps WATCHING, so the app heals itself the moment audio returns instead
    *  of staying deaf until the page is reloaded. Mirrors Swift/Python. */
@@ -743,40 +744,49 @@ export class RealtimeFFTAnalyzer {
     if (performance.now() - this.engineStartTime <= 4000) return // startup grace
     const now = performance.now()
 
-    // Failure mode 1: chunks stopped arriving at all.
-    const starvedFor = now - this.lastChunkTime
-    if (starvedFor > this.watchdogSilenceMs && !this.watchdogRecoveryExhausted) {
-      console.warn(`[engine] buffer watchdog: no audio for ${Math.round(starvedFor)}ms — re-acquiring input`)
-      this.isRecovering = true
-      void this.attemptWatchdogRecovery()
-      return
-    }
+    // The rule itself lives in deadInput.ts as a pure function, so the whole truth
+    // table is unit-testable without an AudioContext. This tick only carries out the
+    // decision.
+    switch (
+      watchdogDecision(
+        now,
+        this.lastChunkTime,
+        this.lastSignalTime,
+        this.watchdogRecoveryExhausted,
+        this.watchdogSilenceMs,
+        this.watchdogDeadInputMs,
+      )
+    ) {
+      case 'starved':
+        console.warn(`[engine] buffer watchdog: no audio for ${Math.round(now - this.lastChunkTime)}ms — re-acquiring input`)
+        this.isRecovering = true
+        void this.attemptWatchdogRecovery()
+        return
 
-    // Failure mode 2: chunks still arriving on schedule, but carrying nothing.
-    const deadFor = now - this.lastSignalTime
-    if (deadFor > this.watchdogDeadInputMs && !this.watchdogRecoveryExhausted) {
-      console.warn(`[engine] dead-input watchdog: chunks arriving but no signal for ${Math.round(deadFor)}ms — re-acquiring input`)
-      this.setInputAppearsDead(true)
-      this.isRecovering = true
-      void this.attemptWatchdogRecovery()
-      return
-    }
+      case 'deadInput':
+        console.warn(`[engine] dead-input watchdog: chunks arriving but no signal for ${Math.round(now - this.lastSignalTime)}ms — re-acquiring input`)
+        this.setInputAppearsDead(true)
+        this.isRecovering = true
+        void this.attemptWatchdogRecovery()
+        return
 
-    // Still dead, but out of re-acquire attempts: keep the warning up and keep
-    // watching. Nothing is attempted until signal returns.
-    if (this.watchdogRecoveryExhausted && deadFor > this.watchdogDeadInputMs) {
-      this.setInputAppearsDead(true)
-      return
-    }
+      case 'deadInputExhausted':
+        // Out of attempts: keep the warning up and keep watching, so the app heals
+        // itself the moment audio returns instead of staying deaf until a reload.
+        this.setInputAppearsDead(true)
+        return
 
-    // Healthy — signal is flowing again. Clear the warning, the recovery streak and the
-    // exhausted latch, so a later failure gets a full set of attempts.
-    this.setInputAppearsDead(false)
-    if (this.watchdogRecoveryExhausted) {
-      console.warn('[engine] audio input returned — dead-input warning cleared, recovery re-armed')
-      this.watchdogRecoveryExhausted = false
+      case 'healthy':
+        // Signal is flowing again. Clear the warning, the recovery streak and the
+        // exhausted latch, so a later failure gets a full set of attempts.
+        this.setInputAppearsDead(false)
+        if (this.watchdogRecoveryExhausted) {
+          console.warn('[engine] audio input returned — dead-input warning cleared, recovery re-armed')
+          this.watchdogRecoveryExhausted = false
+        }
+        if (this.recoveryAttempts !== 0) this.recoveryAttempts = 0
+        return
     }
-    if (this.recoveryAttempts !== 0) this.recoveryAttempts = 0
   }
 
   private async attemptWatchdogRecovery(): Promise<void> {
