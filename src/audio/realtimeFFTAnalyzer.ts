@@ -1,4 +1,5 @@
 // @parity audio/realtime-analyzer
+import { chunkCarriesSignal } from './deadInput'
 import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { DecayTracker } from '../dsp/decay'
@@ -282,6 +283,25 @@ export class RealtimeFFTAnalyzer {
   private readonly watchdogSilenceMs = 2500
   private readonly watchdogMaxAttempts = 6
   private readonly watchdogBackoffsMs = [500, 1000, 2000, 4000]
+
+  // Dead-input watchdog (mirrors Swift RealtimeFFTAnalyzer+Watchdog / Python).
+  // A second, distinct failure mode: chunks keep arriving on schedule but carry NO
+  // SIGNAL. Delivery looks healthy — `lastChunkTime` is stamped by every chunk
+  // regardless of content — so the delivery watchdog above is blind to it, the
+  // spectrum keeps updating, and every reading is silence. This is MORE likely in
+  // the browser than natively: a MediaStreamTrack that goes `muted` (device removed
+  // or switched by the OS, permission revoked, another app taking an exclusive
+  // device, sleep/wake) keeps the graph running and simply feeds zeros forever.
+  //
+  // The discriminator is "impossibly quiet", never merely "quiet": any real
+  // microphone clears this floor on its own self-noise, so a silent room can never
+  // trigger a re-acquire.
+  private lastSignalTime = 0
+  private readonly watchdogDeadInputMs = 15000
+  /** True while the input delivers chunks carrying no signal. Surfaced to the user
+   *  rather than only auto-healed: a device-level failure cannot be fixed by
+   *  re-acquiring the stream, so recovery exhausts its attempts and stops. */
+  inputAppearsDead = false
 
   // Live-FFT performance (30-frame moving average), for the Metrics panel.
   private readonly procTimes: number[] = []
@@ -690,8 +710,19 @@ export class RealtimeFFTAnalyzer {
     this.stopBufferWatchdog()
     this.engineStartTime = performance.now()
     this.lastChunkTime = performance.now()
+    this.lastSignalTime = performance.now() // measure the no-signal window from the start
     this.watchdogTimer = setInterval(() => this.checkBufferWatchdog(), 1000)
   }
+
+  /** Edge-triggered dead-input state change, forwarded to the UI. */
+  private setInputAppearsDead(dead: boolean): void {
+    if (this.inputAppearsDead === dead) return
+    this.inputAppearsDead = dead
+    this.onInputAppearsDeadChange?.(dead)
+  }
+
+  /** Set by the owner to surface "no audio input" in the status line. */
+  onInputAppearsDeadChange: ((dead: boolean) => void) | null = null
 
   private stopBufferWatchdog(): void {
     if (this.watchdogTimer != null) {
@@ -705,14 +736,30 @@ export class RealtimeFFTAnalyzer {
     // legitimately delivers no chunks and must not be "recovered").
     if (!this.context || this.context.state !== 'running' || this.playingFile || this.isRecovering) return
     if (performance.now() - this.engineStartTime <= 4000) return // startup grace
-    const silentFor = performance.now() - this.lastChunkTime
-    if (silentFor <= this.watchdogSilenceMs) {
-      if (this.recoveryAttempts !== 0) this.recoveryAttempts = 0 // healthy — clear the streak
+    const now = performance.now()
+
+    // Failure mode 1: chunks stopped arriving at all.
+    const starvedFor = now - this.lastChunkTime
+    if (starvedFor > this.watchdogSilenceMs) {
+      console.warn(`[engine] buffer watchdog: no audio for ${Math.round(starvedFor)}ms — re-acquiring input`)
+      this.isRecovering = true
+      void this.attemptWatchdogRecovery()
       return
     }
-    console.warn(`[engine] buffer watchdog: no audio for ${Math.round(silentFor)}ms — re-acquiring input`)
-    this.isRecovering = true
-    void this.attemptWatchdogRecovery()
+
+    // Failure mode 2: chunks still arriving on schedule, but carrying nothing.
+    const deadFor = now - this.lastSignalTime
+    if (deadFor > this.watchdogDeadInputMs) {
+      console.warn(`[engine] dead-input watchdog: chunks arriving but no signal for ${Math.round(deadFor)}ms — re-acquiring input`)
+      this.setInputAppearsDead(true)
+      this.isRecovering = true
+      void this.attemptWatchdogRecovery()
+      return
+    }
+
+    // Healthy — signal is flowing again; clear the warning and any recovery streak.
+    this.setInputAppearsDead(false)
+    if (this.recoveryAttempts !== 0) this.recoveryAttempts = 0
   }
 
   private async attemptWatchdogRecovery(): Promise<void> {
@@ -730,6 +777,7 @@ export class RealtimeFFTAnalyzer {
       // source to the existing worklet node — the context/worklet survive.
       await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId)
       this.lastChunkTime = performance.now() // give the fresh stream a grace window
+      this.lastSignalTime = performance.now()
       this.engineStartTime = performance.now()
       console.warn('[engine] buffer watchdog: input re-acquired')
       this.isRecovering = false
@@ -740,20 +788,34 @@ export class RealtimeFFTAnalyzer {
   }
 
   private onChunk(data: ChunkMessage): void {
-    this.lastChunkTime = performance.now() // watchdog liveness stamp (the mic worklet is alive)
+    const now = performance.now()
+    this.lastChunkTime = now // watchdog liveness stamp (the mic worklet is alive)
+    // Dead-input stamp: reuses the rms the worklet already computed, so this costs
+    // nothing. A dead track feeds exact zeros, giving rms 0.
+    if (chunkCarriesSignal(data.rms)) this.lastSignalTime = now
     if (this.playingFile) return // mic chunks are ignored while a file plays through the pipeline
     this.processChunk(data.samples, data.rms)
   }
 
-  /** Wire a fresh input track's loss signals: `ended` (device truly gone) forces the watchdog
-   *  to recover on its next tick; `mute` is informational (a persistent mute is caught by the
-   *  watchdog's silence threshold; a transient one self-resolves without a disruptive re-acquire). */
+  /** Wire a fresh input track's loss signals. `ended` (device truly gone) forces the watchdog
+   *  to recover on its next tick. `mute` means the track is still live but now produces
+   *  SILENCE — the browser keeps delivering zero-filled chunks, so the delivery watchdog
+   *  never fires; it is the dead-input watchdog that must catch it. A brief mute is normal
+   *  (device switches, glitches), so rather than re-acquiring immediately this back-dates
+   *  the signal clock: a mute that self-resolves within the window costs nothing, and one
+   *  that persists trips the dead-input threshold on the next tick. */
   private watchTrack(track: MediaStreamTrack): void {
     track.onended = () => {
       this.lastChunkTime = 0 // force "starved" so the next watchdog tick re-acquires
     }
     track.onmute = () => {
-      /* no-op: the watchdog recovers only if the silence persists past the threshold */
+      console.warn('[engine] input track muted — silence until it unmutes; dead-input watchdog is armed')
+      // Leave most of the window intact so a transient mute self-resolves.
+      this.lastSignalTime = Math.min(this.lastSignalTime, performance.now() - this.watchdogDeadInputMs / 2)
+    }
+    track.onunmute = () => {
+      console.warn('[engine] input track unmuted')
+      this.lastSignalTime = performance.now()
     }
   }
 
