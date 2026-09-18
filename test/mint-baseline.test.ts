@@ -38,15 +38,21 @@ const TOLERANCE_KEYS: Record<string, string> = {
   deltaDb: 'gatedFftDb',
 }
 
+// The FIRST-MINT bar, not the parity bar. A new configuration has no prior to check against,
+// so the only available question is whether its numbers are plausible at all. Parity is now
+// tight enough (0.02 Hz / 0.01 dB) that a port still being built could fail it — and failing
+// it here would leave that port with no zero-tolerance regression check at exactly the moment
+// it most needs one. Falls back to the parity numbers for an older oracle predating the split.
+const BOOTSTRAP: Record<string, number> = oracle.bootstrapTolerances ?? oracle.tolerances
+
+/** The first-mint bar for a value. Per-case overrides are a parity concept and do not apply
+ *  here: this asks whether the numbers are garbage, which is not case-specific. */
 function toleranceFor(path: string): number | null {
-  const leaf = path.split('/').pop()!
-  const key = TOLERANCE_KEYS[leaf]
-  if (!key) return null
-  const name = path.split('/')[0]!
-  const per = oracle.filePlayback[name]?.tolerances?.[key]
-  return per !== undefined ? Number(per) : Number(oracle.tolerances[key])
+  const key = TOLERANCE_KEYS[path.split('/').pop()!]
+  return key ? Number(BOOTSTRAP[key]) : null
 }
 
+/** Paths where this configuration falls outside the first-mint bar. Empty is a pass. */
 function checkAgainstOracle(computed: Record<string, number>): string[] {
   const oracleFlat = flatten(oracle)
   const failures: string[] = []
@@ -108,17 +114,17 @@ describe.skipIf(!enabled)('mint the self-baseline', () => {
     const previous = load()
     if (previous === null) {
       console.log('\nNo baseline exists for this configuration — bootstrapping.')
-      console.log('Checking the values against the oracle\'s parity gate first, since there')
+      console.log('Checking the values against the oracle at the first-mint bar, since there')
       console.log('is no prior to compare them to.')
       const failures = checkAgainstOracle(computed)
       if (failures.length > 0) {
         throw new Error(
-          `${failures.length} value(s) fall outside the parity gate:\n${failures.slice(0, 20).join('\n')}\n\n` +
-            'No baseline written. These numbers disagree with the canonical edition by more than\n' +
-            'the cross-edition bar allows, so freezing them would freeze the disagreement.',
+          `${failures.length} value(s) fall outside the first-mint bar:\n${failures.slice(0, 20).join('\n')}\n\n` +
+            'No baseline written. These numbers are too far from the canonical edition to be\n' +
+            'plausible, so freezing them would freeze the defect into the detector.',
         )
       }
-      console.log('✅ Every value is within the parity gate.')
+      console.log('✅ Every value is within the first-mint bar.')
     } else {
       const lines = diffAgainst(flatten(previous.values), computed)
       if (lines.length === 0) {
