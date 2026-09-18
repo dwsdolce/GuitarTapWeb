@@ -1,11 +1,16 @@
 // @parity test/file-playback
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { RealtimeFFTAnalyzer, type MaterialCaptureResult, type MaterialPhaseName } from '../src/audio/realtimeFFTAnalyzer'
-import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import { decodeWav } from '../src/dsp/wav'
-import { parseCalibration, type Calibration } from '../src/dsp/calibration'
-import { modePeaksFromSpectrum, type Spectrum } from '../src/dsp/guitarFFT'
+import { RealtimeFFTAnalyzer, type MaterialCaptureResult } from '../src/audio/realtimeFFTAnalyzer'
+import { modePeaksFromSpectrum } from '../src/dsp/guitarFFT'
+import {
+  loadCal,
+  loadWav,
+  oracle,
+  playGuitar,
+  playMaterial,
+  type PeakRef,
+  type RegSettings,
+} from './parityRunner'
 
 // End-to-end regression of the FULL audio chain through the SAME engine.playFile path the app
 // uses — WAV → chunk pacing → RMS → level-crossing tap detection → gated/guitar FFT → peak
@@ -24,105 +29,11 @@ import { modePeaksFromSpectrum, type Spectrum } from '../src/dsp/guitarFFT'
 // The cost is real (~90 s of fixture audio) and accepted: it is the price of the three platforms
 // actually running the same code path. Tests carry explicit timeouts sized to their fixture.
 
-const oracle = JSON.parse(
-  readFileSync(new URL('./fixtures/parity-oracle.json', import.meta.url), 'utf8'),
-)
+// playGuitar/playMaterial live in parityRunner.ts, shared with the self-baseline mint and the
+// zero-tolerance regression check. The parity assertions below and that baseline are therefore
+// measurements of the same code — a separate copy here could drift, and the drift would be
+// invisible precisely where it matters.
 const TOL = oracle.tolerances as { freqHz: number; magDb: number; q: number }
-
-// Always downmix to mono (matches Swift readAudioFileAsMonoFloat32 + the mono live-mic path); a
-// no-op for already-mono files. Guitar fixtures are stereo, material fixtures are mono.
-function loadWav(name: string) {
-  return decodeWav(new Uint8Array(readFileSync(new URL(`./fixtures/${name}`, import.meta.url))), {
-    downmix: true,
-  })
-}
-function loadCal(name: string | null): Calibration | null {
-  if (!name) return null
-  return parseCalibration(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'), name)
-}
-
-interface RegSettings {
-  peakMinThreshold?: number
-  tapDetectionThreshold: number
-  numberOfTaps?: number
-  measureFlc?: boolean
-}
-interface PeakRef {
-  role: 'air' | 'top' | 'back' | 'longitudinal' | 'cross' | 'flc'
-  frequency: number
-  magnitude: number
-  q?: number
-}
-
-/** Run a guitar recording through engine.playFile (headless), wired to a real TapToneAnalyzer exactly
- *  as the app wires them (6-TEST 3c-C2a): the device delivers each per-tap spectrum RAW; the analyzer
- *  accumulates + power-averages them into the frozen result. Mirrors Swift's TapToneAnalyzer.forTesting()
- *  driving playFileForTesting → the averaged spectrum + per-tap spectra come from the analyzer. */
-async function playGuitar(
-  reg: { fixture: string; calibration: string | null; settings: RegSettings },
-): Promise<{ spectrum: Spectrum; taps?: Spectrum[] } | null> {
-  const wav = loadWav(reg.fixture)
-  const analyzer = new TapToneAnalyzer()
-  let complete = false
-  const engine = new RealtimeFFTAnalyzer(
-    {
-      onProgress: (collected) => {
-        if (collected === 0) analyzer.beginGuitarAccumulation()
-      },
-      onGuitarTap: (spectrum) => analyzer.recordGuitarTap(spectrum),
-      onGuitarComplete: () => {
-        analyzer.processMultipleTaps()
-        complete = true
-      },
-    },
-    { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
-  )
-  engine.initForTesting()
-  await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration) })
-  if (!complete) return null
-  const spectrum: Spectrum = { magnitudesDb: analyzer.frozenMagnitudes, frequencies: analyzer.frozenFrequencies }
-  const taps =
-    analyzer.capturedTaps.length > 1
-      ? analyzer.capturedTaps.map((t) => ({ magnitudesDb: t.magnitudes, frequencies: t.frequencies }))
-      : undefined
-  return { spectrum, taps }
-}
-
-/** Run a plate/brace session through engine.playFile (headless), wired to a real TapToneAnalyzer as the
- *  app wires them (6-TEST 3c-C4 Option C): the device emits each raw gated tap; the analyzer owns the
- *  per-tap validity gate, the tap count, the re-arm, and the L→C→FLC auto-advance (recordMaterialTap),
- *  averaging + findDominantPeak at each phase end. One result per completed phase is read off the analyzer. */
-async function playMaterial(
-  reg: { fixture: string; calibration: string | null; settings: RegSettings },
-  brace: boolean,
-) {
-  const wav = loadWav(reg.fixture)
-  const analyzer = new TapToneAnalyzer()
-  analyzer.measurementType = brace ? 'brace' : 'plate'
-  analyzer.measureFlc = reg.settings.measureFlc ?? false
-  analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1) // analyzer owns the material tap count now
-  const engine = new RealtimeFFTAnalyzer(
-    { onMaterialTap: (spectrum) => analyzer.recordMaterialTap(spectrum) },
-    { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
-  )
-  engine.initForTesting()
-  analyzer.setDevice(engine)
-  analyzer.startMaterial(false) // arm the analyzer's phase machine (playFile arms the device for playback)
-  await engine.playFile(wav.samples, wav.sampleRate, {
-    material: { brace, measureFlc: reg.settings.measureFlc ?? false, calibration: loadCal(reg.calibration) },
-  })
-  // Collect one result per completed phase off the analyzer (the engine auto-advanced L→C→(FLC)).
-  const phases: MaterialPhaseName[] = brace
-    ? ['longitudinal']
-    : reg.settings.measureFlc
-      ? ['longitudinal', 'cross', 'flc']
-      : ['longitudinal', 'cross']
-  const caps: MaterialCaptureResult[] = []
-  for (const ph of phases) {
-    if (analyzer.matSpectra[ph]) caps.push({ spectrum: analyzer.matSpectra[ph]!, peak: analyzer.matPeaks[ph], phase: ph })
-  }
-  return caps
-}
 
 describe('G11 — file playback through the live engine (parity REG-*)', () => {
   it('REG-G1: generic-guitar single tap → Air/Top/Back match the oracle', async () => {
