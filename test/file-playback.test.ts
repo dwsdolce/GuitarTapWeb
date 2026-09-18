@@ -158,21 +158,14 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
     }
   }, 60_000)
 
-  // Per-tap Air/Top/Back for all 8 taps. The web parity-oracle.json carries only averagedPeaks for
-  // REG-G2, so these references are the hardcoded values from Swift FilePlaybackRegressionTests
-  // (guitarPerTap) — [airFreq, airMag, topFreq, topMag, backFreq, backMag] per tap.
-  it('REG-G2: each of the 8 taps → Air/Top/Back match the Swift references', async () => {
+  // Per-tap Air/Top/Back for all 8 taps, from the oracle's REG-G2.perTap. These used to be a
+  // hand-copied transcript of the Swift constants sitting in this file; the oracle carries them
+  // now, so a change in Swift arrives here through sync-oracle.sh instead of through retyping.
+  // Taps 1 and 7 pin Back at ~296.5 Hz rather than ~240.6 — real selection behaviour on this
+  // fixture, pinned deliberately (see _perTapNote in the oracle).
+  it('REG-G2: each of the 8 taps → Air/Top/Back match the oracle', async () => {
     const reg = oracle.filePlayback['REG-G2']
-    const perTap: [number, number, number, number, number, number][] = [
-      [87.20365, -46.083164, 164.15787, -37.15723, 296.5797, -57.117817],
-      [87.22049, -43.714653, 163.98953, -34.96168, 240.6308, -54.930405],
-      [87.21567, -44.400375, 164.00642, -36.064285, 240.54478, -56.384575],
-      [87.23355, -43.930878, 164.02281, -34.72927, 240.58727, -55.048416],
-      [87.23911, -44.447514, 164.09766, -36.650166, 240.52957, -54.569893],
-      [87.258545, -44.08946, 164.05678, -34.239933, 240.63478, -54.847008],
-      [87.2434, -43.969948, 164.05476, -33.775253, 296.5151, -54.0257],
-      [87.24372, -44.523045, 164.0366, -34.412136, 240.49031, -54.849174],
-    ]
+    const perTap = reg.perTap as { tap: number; peaks: PeakRef[] }[]
     const cap = await playGuitar(reg)
     expect(cap!.taps?.length).toBe(perTap.length)
     cap!.taps!.forEach((tapSpectrum, i) => {
@@ -180,16 +173,17 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
         peakMinThreshold: reg.settings.peakMinThreshold,
         guitarType: 'generic',
       })
-      const [airF, airM, topF, topM, backF, backM] = perTap[i]!
-      expect(modes.air, `tap ${i + 1} Air`).toBeDefined()
-      expect(Math.abs(modes.air!.frequency - airF)).toBeLessThan(TOL.freqHz)
-      expect(Math.abs(modes.air!.magnitude - airM)).toBeLessThan(TOL.magDb)
-      expect(modes.top, `tap ${i + 1} Top`).toBeDefined()
-      expect(Math.abs(modes.top!.frequency - topF)).toBeLessThan(TOL.freqHz)
-      expect(Math.abs(modes.top!.magnitude - topM)).toBeLessThan(TOL.magDb)
-      expect(modes.back, `tap ${i + 1} Back`).toBeDefined()
-      expect(Math.abs(modes.back!.frequency - backF)).toBeLessThan(TOL.freqHz)
-      expect(Math.abs(modes.back!.magnitude - backM)).toBeLessThan(TOL.magDb)
+      for (const role of ['air', 'top', 'back'] as const) {
+        const want = perTap[i]!.peaks.find((pk) => pk.role === role)!
+        const got = modes[role]
+        expect(got, `tap ${i + 1} ${role}`).toBeDefined()
+        expect(Math.abs(got!.frequency - want.frequency), `tap ${i + 1} ${role} freq`).toBeLessThan(
+          TOL.freqHz,
+        )
+        expect(Math.abs(got!.magnitude - want.magnitude), `tap ${i + 1} ${role} mag`).toBeLessThan(
+          TOL.magDb,
+        )
+      }
     })
   }, 60_000)
 
@@ -305,22 +299,13 @@ describe('G11 — continuous session recording (6f)', () => {
 // recording). NB: Swift/Python historically read material peaks off the LAST tap (a buildAllPeaks
 // UUID-hack side-effect) — a latent bug fixed alongside this so all three read the averaged peak.
 describe('G11 — multi-tap averaging per material phase (6k)', () => {
-  const reg = {
-    fixture: 'plate-umik-1-web-mac-3-taps.wav',
-    calibration: '7108913.txt',
-    settings: { tapDetectionThreshold: -40, numberOfTaps: 3, measureFlc: true },
-  }
-  // [frequency Hz, magnitude dB, Q] — peaks read off the AVERAGED spectrum per phase.
-  const EXPECTED = {
-    longitudinal: [68.2587, -71.5858, 15.667],
-    cross: [117.4681, -56.5436, 26.667],
-    flc: [35.3011, -63.6008, 6.0],
-  } as const
-  // Tighter than the generic magDb tolerance: the averaged values are deterministic
-  // across platforms, so they agree far more closely than a single tap. 0.5 dB still
-  // leaves headroom for FFT-library differences while reliably catching a regression
-  // to last-tap selection (the masked deltas were fL 0.94, fC 0.81, fLC 2.62 dB).
-  const P2_MAG_TOL = 0.5
+  const reg = oracle.filePlayback['REG-P2']
+  // REG-P2 pins magnitudes tighter than the generic tolerance, and says so in the oracle:
+  // the averaged values are deterministic across editions, so they agree far more closely
+  // than a single tap would. 0.5 dB still leaves headroom for FFT-library differences while
+  // reliably catching a regression to last-tap selection (masked deltas: fL 0.94, fC 0.81,
+  // fLC 2.62 dB).
+  const P2_MAG_TOL: number = reg.tolerances?.magDb ?? TOL.magDb
 
   it('REG-P2: averages numberOfTaps per phase → one capture/phase, matches the canonical baseline', async () => {
     const caps = await playMaterial(reg, false)
@@ -328,10 +313,14 @@ describe('G11 — multi-tap averaging per material phase (6k)', () => {
     for (const phase of ['longitudinal', 'cross', 'flc'] as const) {
       const cap = caps.find((c) => c.phase === phase)
       expect(cap?.peak, `phase ${phase} not captured`).toBeTruthy()
-      const [ef, em, eq] = EXPECTED[phase]
-      expect(Math.abs(cap!.peak!.frequency - ef), `${phase} freq`).toBeLessThan(TOL.freqHz)
-      expect(Math.abs(cap!.peak!.magnitude - em), `${phase} mag`).toBeLessThan(P2_MAG_TOL)
-      expect(Math.abs(cap!.peak!.quality - eq), `${phase} Q`).toBeLessThan(TOL.q)
+      const want = (reg.peaks as PeakRef[]).find((pk) => pk.role === phase)!
+      expect(Math.abs(cap!.peak!.frequency - want.frequency), `${phase} freq`).toBeLessThan(
+        TOL.freqHz,
+      )
+      expect(Math.abs(cap!.peak!.magnitude - want.magnitude), `${phase} mag`).toBeLessThan(
+        P2_MAG_TOL,
+      )
+      expect(Math.abs(cap!.peak!.quality - want.q!), `${phase} Q`).toBeLessThan(TOL.q)
     }
   }, 120_000)
 })

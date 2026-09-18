@@ -84,10 +84,15 @@ describe('DecayTracker — streaming', () => {
 // (they run the file at real-time pace, where wall-clock ≈ audio-time, so they reach the same
 // crossing). 0.0853 s = 4 chunks @ 1024/48 kHz for this fixture.
 
-/** Shared cross-platform ring-out golden for Recording 5.wav (REG-G1 fixture, −40 dB, 1 tap). */
-export const RING_OUT_GOLDEN_SEC = 0.0853
+const oracle = JSON.parse(
+  readFileSync(new URL('./fixtures/parity-oracle.json', import.meta.url), 'utf8'),
+)
+/** Shared cross-platform ring-out golden for Recording 5.wav (REG-G1 fixture, −40 dB, 1 tap).
+ *  From the oracle, not a literal: Swift and Python assert the same number, and it drifted into
+ *  three hand-maintained copies before the oracle carried it. */
+export const RING_OUT_GOLDEN_SEC: number = oracle.filePlayback['REG-G1'].ringOutSec
 /** Tolerance covering per-platform chunk-granularity + seed differences (~1.5 chunks). */
-export const RING_OUT_TOL_SEC = 0.03
+export const RING_OUT_TOL_SEC: number = oracle.tolerances.ringOutSec
 
 describe('G4d — REG-G ring-out (file playback)', () => {
   it('Recording 5.wav decays to −15 dB in ~0.085 s', async () => {
