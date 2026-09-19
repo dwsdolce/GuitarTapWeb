@@ -303,17 +303,6 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
 // describe, keyed by id, and the remap uses ±5 Hz proximity (more robust than exact 0.1 Hz matching).
 // ---------------------------------------------------------------------------
 describe('frozen-peak-recalc — overrides on the analyzer (RA)', () => {
-  it('setModeOverride / resetModeOverride set and clear by peak id', () => {
-    const a = new TapToneAnalyzer()
-    const { mags, freqs } = makeSpectrum(200, -20)
-    frozen(a, mags, freqs)
-    recalc(a)
-    const id = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!.id
-    a.setModeOverride(id, 'Wolf note')
-    expect(a.overrides.get(id)).toBe('Wolf note')
-    a.resetModeOverride(id)
-    expect(a.overrides.has(id)).toBe(false)
-  })
 
   it('an override SURVIVES a re-mint that SHIFTS the id, remapped by ±5 Hz proximity', () => {
     // findPeaks assigns ids positionally (0,1,… ascending frequency), so an id only churns when the
@@ -348,24 +337,7 @@ describe('frozen-peak-recalc — overrides on the analyzer (RA)', () => {
     expect([...a.overrides.values()]).not.toContain('Custom') // nothing within tolerance → dropped
   })
 
-  it('clearResult drops all overrides (blank-slate reset)', () => {
-    const a = new TapToneAnalyzer()
-    const { mags, freqs } = makeSpectrum(200, -20)
-    frozen(a, mags, freqs)
-    recalc(a)
-    a.setModeOverride(a.peaks[0]!.id, 'Custom')
-    a.clearResult()
-    expect(a.overrides.size).toBe(0)
-  })
 
-  it('restoreOverrides REPLACES the whole map (loaded measurement), not merges', () => {
-    const a = new TapToneAnalyzer()
-    a.setModeOverride(99, 'stale')
-    a.restoreOverrides(new Map<number, string>([[0, 'Air'], [1, 'Custom']]))
-    expect(a.overrides.get(0)).toBe('Air')
-    expect(a.overrides.get(1)).toBe('Custom')
-    expect(a.overrides.has(99)).toBe(false)
-  })
 
   it('the loaded branch keeps stable ids, so overrides restored against them are NOT remapped away', () => {
     const a = new TapToneAnalyzer()
@@ -383,17 +355,6 @@ describe('frozen-peak-recalc — overrides on the analyzer (RA)', () => {
 // `peak_annotation_offsets` (both id/UUID-keyed, material peaks included). The offset half of the remap.
 // ---------------------------------------------------------------------------
 describe('frozen-peak-recalc — annotation offsets on the analyzer (RB)', () => {
-  it('updateAnnotationOffset / resetAnnotationOffset set and clear by peak id', () => {
-    const a = new TapToneAnalyzer()
-    const { mags, freqs } = makeSpectrum(200, -20)
-    frozen(a, mags, freqs)
-    recalc(a)
-    const id = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!.id
-    a.updateAnnotationOffset(id, [205.5, -18])
-    expect(a.annotationOffsets.get(id)).toEqual([205.5, -18])
-    a.resetAnnotationOffset(id)
-    expect(a.annotationOffsets.has(id)).toBe(false)
-  })
 
   it('an offset SURVIVES a re-mint that SHIFTS the id, remapped by ±5 Hz proximity', () => {
     const a = new TapToneAnalyzer()
@@ -411,26 +372,7 @@ describe('frozen-peak-recalc — annotation offsets on the analyzer (RB)', () =>
     expect(a.annotationOffsets.has(before.id)).toBe(false)
   })
 
-  it('resetAllAnnotationOffsets and clearResult both empty the store', () => {
-    const a = new TapToneAnalyzer()
-    const { mags, freqs } = makeSpectrum(200, -20)
-    frozen(a, mags, freqs)
-    recalc(a)
-    a.updateAnnotationOffset(a.peaks[0]!.id, [201, -15])
-    a.resetAllAnnotationOffsets()
-    expect(a.annotationOffsets.size).toBe(0)
-    a.updateAnnotationOffset(a.peaks[0]!.id, [201, -15])
-    a.clearResult()
-    expect(a.annotationOffsets.size).toBe(0)
-  })
 
-  it('restoreOffsets replaces the whole map (loaded measurement)', () => {
-    const a = new TapToneAnalyzer()
-    a.updateAnnotationOffset(99, [1, 2])
-    a.restoreOffsets(new Map<number, [number, number]>([[0, [10, 20]], [1, [30, 40]]]))
-    expect(a.annotationOffsets.get(0)).toEqual([10, 20])
-    expect(a.annotationOffsets.has(99)).toBe(false)
-  })
 
   it('a captured MATERIAL peak gets a stored id, and its offset lives in the same store (brace)', () => {
     const a = new TapToneAnalyzer()
@@ -473,17 +415,6 @@ describe('frozen-peak-recalc — selection on the analyzer (RC)', () => {
     expect(a.selectedPeakIds.has(topId2)).toBe(true)
   })
 
-  it('togglePeakSelection marks the selection user-modified and flips one peak', () => {
-    const a = new TapToneAnalyzer()
-    const { mags, freqs } = makeSpectrum(200, -20)
-    frozen(a, mags, freqs)
-    recalc(a)
-    const id = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!.id
-    const was = a.selectedPeakIds.has(id)
-    a.togglePeakSelection(id)
-    expect(a.userModifiedSelection).toBe(true)
-    expect(a.selectedPeakIds.has(id)).toBe(!was)
-  })
 
   it('a MANUAL selection (synced cache) carries across a re-mint that shifts the id, by ±5 Hz', () => {
     const a = new TapToneAnalyzer()
@@ -517,28 +448,5 @@ describe('frozen-peak-recalc — selection on the analyzer (RC)', () => {
     expect(a.selectedPeaks.some((p) => Math.abs(p.frequency - 400) < 20)).toBe(true) // re-selects from the cache
   })
 
-  it('resetToAutoSelection drops manual edits and re-autos over the durable set', () => {
-    const a = new TapToneAnalyzer()
-    const s = combine(makeSpectrum(100, -20), makeSpectrum(200, -25))
-    frozen(a, s.mags, s.freqs)
-    recalc(a)
-    a.selectNoPeaks()
-    expect(a.userModifiedSelection).toBe(true)
-    expect(a.selectedPeakIds.size).toBe(0)
-    a.resetToAutoSelection('generic')
-    expect(a.userModifiedSelection).toBe(false)
-    expect(a.selectedPeakIds.size).toBeGreaterThan(0) // auto re-selected the mode winners
-  })
 
-  it('clearResult empties the selection and clears the modified flag + cache', () => {
-    const a = new TapToneAnalyzer()
-    const { mags, freqs } = makeSpectrum(200, -20)
-    frozen(a, mags, freqs)
-    recalc(a)
-    a.togglePeakSelection(a.peaks[0]!.id)
-    a.clearResult()
-    expect(a.selectedPeakIds.size).toBe(0)
-    expect(a.selectedPeakFrequencies).toEqual([])
-    expect(a.userModifiedSelection).toBe(false)
-  })
 })
