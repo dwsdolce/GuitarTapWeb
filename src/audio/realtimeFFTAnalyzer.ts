@@ -4,10 +4,12 @@ import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { DecayTracker } from '../dsp/decay'
 import {
+  alignCaptureToOnset,
   gatedCaptureResult,
   GATED_CAPTURE_DURATION,
   PLATE_PHASES,
   BRACE_PHASE,
+  PRE_ONSET_DURATION,
   type DetectedMaterialPeak,
 } from '../dsp/gatedCapture'
 
@@ -1168,7 +1170,18 @@ export class RealtimeFFTAnalyzer {
     // delivers it RAW; the TapToneAnalyzer accumulates the taps and averages them into the frozen
     // result (processMultipleTaps). The device keeps only a lightweight tap counter — it no longer
     // owns averaging (6-TEST 3c-C2a).
-    const spectrum = this.applyCal(dftAnalRect(this.capture, this.sampleRate, GUITAR_FFT_SIZE))
+    // Align the capture window to the sample-level tap onset so that chunk-boundary
+    // differences (live vs file playback) don't shift the FFT input. The material path has
+    // always done this inside gatedCaptureResult; the guitar path fed this.capture straight
+    // to the FFT, so the same recording analysed live and on replay could land on a different
+    // sample range — and Swift, which does align here, was handed a different window than the
+    // web for the same audio. Mirrors Swift finishGuitarGatedCapture.
+    const aligned = alignCaptureToOnset(
+      this.capture,
+      GUITAR_FFT_SIZE,
+      Math.round(this.sampleRate * PRE_ONSET_DURATION),
+    )
+    const spectrum = this.applyCal(dftAnalRect(aligned, this.sampleRate, GUITAR_FFT_SIZE))
     this.captureIdx = 0
     this.guitarTapCount += 1
     this.callbacks.onGuitarTap?.(spectrum)

@@ -18,7 +18,7 @@ const LEVEL_CROSSING_CONFIRMATION_CHUNKS = 2
 /** Gated capture window length, in seconds (Swift/Python `gatedCaptureDuration` = 500 ms). */
 export const GATED_CAPTURE_DURATION = 0.5
 const GATED_FFT_WINDOW_DURATION = 0.4
-const PRE_ONSET_DURATION = 0.1
+export const PRE_ONSET_DURATION = 0.1
 
 const ONSET_NOISE_ESTIMATE_SAMPLES = 2048
 const ONSET_THRESHOLD_MULTIPLIER = 10.0
