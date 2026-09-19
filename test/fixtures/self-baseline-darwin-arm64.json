@@ -6,8 +6,8 @@
     "arch": "arm64"
   },
   "provenance": {
-    "mintedAt": "2026-09-19T02:06:09Z",
-    "oracleVersion": "75d4356-dirty",
+    "mintedAt": "2026-09-19T22:31:11Z",
+    "oracleVersion": "5bacce4-dirty",
     "node": "26.8.1",
     "v8": "14.6.202.34-node.28",
     "platform": "darwin-arm64",
@@ -22,6 +22,16 @@
             "frequency": 512.6888095520416,
             "magnitude": -70.9345127190593,
             "q": 87.5
+          }
+        ]
+      },
+      "REG-B2": {
+        "peaks": [
+          {
+            "role": "longitudinal",
+            "frequency": 553.6318746565486,
+            "magnitude": -65.49038947115362,
+            "q": 94.5
           }
         ]
       },

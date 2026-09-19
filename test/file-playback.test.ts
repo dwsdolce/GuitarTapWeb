@@ -98,6 +98,25 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
     })
   }, 60_000)
 
+  // REG-B2 — the brace counterpart to REG-P2: three taps, averaged. Captured live 2026-09-19 to
+  // close the gap that let a claimed 2 dB Swift/Python divergence sit unexamined for two months
+  // (project issue #5): REG-P2 pinned PLATE multi-tap and REG-B1 is single-tap brace, so brace
+  // averaging was exercised by nothing. Deliberately harder than the other material fixtures — the
+  // UMIK-1 is on its 18 dB gain path, so the peak sits at -65.5 dB against a -63.9 dB threshold.
+  // The peak must come off the AVERAGED spectrum, not the last tap: the three taps differ by ~6 dB,
+  // so a regression to last-tap selection lands well outside the bar rather than hiding inside it.
+  it('REG-B2: brace session, 3 taps → fL off the averaged spectrum', async () => {
+    const reg = oracle.filePlayback['REG-B2']
+    const caps = await playMaterial(reg, true)
+    expect(caps.length).toBe(1)
+    const cap = caps.find((c) => c.phase === 'longitudinal')!
+    expect(cap?.peak, 'no fL peak').toBeTruthy()
+    const exp = reg.peaks[0] as PeakRef
+    expect(Math.abs(cap.peak!.frequency - exp.frequency)).toBeLessThan(TOL.freqHz)
+    expect(Math.abs(cap.peak!.magnitude - exp.magnitude)).toBeLessThan(TOL.magDb)
+    expect(Math.abs(cap.peak!.quality - exp.q!)).toBeLessThan(TOL.q)
+  }, 30_000)
+
   it('REG-B1: brace session → fL via the engine material session', async () => {
     const reg = oracle.filePlayback['REG-B1']
     const caps = await playMaterial(reg, true)
