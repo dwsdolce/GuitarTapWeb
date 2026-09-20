@@ -1,20 +1,26 @@
-// @parity test/peak-state-store
+// @parity test/annotation-state
 //
 // The analyzer's IN-MEMORY state-store mutators: mode overrides, annotation offsets and the
 // selection. Set, clear, restore-whole-map, and blank-slate reset — the store itself, not the
 // remapping that happens over it when peaks are re-minted.
 //
-// SPLIT OUT of frozen-peak-recalc.test.ts on 2026-09-19 (project issue #8). That file's slug
-// claims a three-way pair, and these nine tests have NO Swift or Python counterpart — they are
-// web-only coverage of mutators the other editions exercise only indirectly, inside their
-// remapping tests. Leaving them under the paired slug made it report "paired" while the suites
-// diverged, which is how the divergence survived since July.
+// SPLIT OUT of frozen-peak-recalc.test.ts on 2026-09-19 (project issue #8), under a new
+// `test/peak-state-store` slug, on the claim that these nine tests had "NO Swift or Python
+// counterpart". **That claim was wrong**, and it stood for two days. Checked properly on
+// 2026-09-20 by looking for the BEHAVIOUR rather than the method name: six of the nine are
+// already paired natively, under `test/annotation-state` and `test/measurement-codable` —
+// `clearResult` is Swift's `startTapSequence` result reset, `restoreOffsets` is
+// `applyAnnotationOffsets`, and setModeOverride / updateAnnotationOffset / togglePeakSelection /
+// resetToAutoSelection all have direct twins.
 //
-// They are NOT `@parity none`: the other editions SHOULD have these tests. This slug is expected
-// to show as a web-only ORPHAN in `gen_parity_map.py --check` until they do, and that visible
-// orphan is the point — a real coverage gap, named, instead of hidden inside a green pair.
+// So the slug is retired and these join `test/annotation-state`, where their counterparts live.
+// A name that differs between editions is not a missing test — look for what the code DOES.
 //
-// The remapping tests that ARE twins of Swift PR3-PR7 stayed in frozen-peak-recalc.test.ts.
+// The three genuine gaps the same check turned up (resetModeOverride, resetAnnotationOffset,
+// resetAllAnnotationOffsets — the CLEAR half of pairs whose SET half was tested) were written
+// into Swift and Python rather than left as an orphan slug.
+//
+// The remapping tests that ARE twins of Swift PR20-PR31 stayed in frozen-peak-recalc.test.ts.
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { Peak } from '../src/dsp/peaks'

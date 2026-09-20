@@ -67,6 +67,7 @@ import { exportStem } from './measurement/exportFilename'
 import { parseCalibration, type Calibration } from './dsp/calibration'
 import { decodeWav, encodeWavFloat32 } from './dsp/wav'
 import { exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
+import { expandedToInclude } from './presentation/displayRange'
 import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData, multiTapPdfData } from './presentation/measurementImage'
 import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfReport'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
@@ -572,6 +573,32 @@ export default function App() {
   useLayoutEffect(() => {
     analyzer.setPeakMinThreshold(peakMin)
   }, [analyzer, peakMin])
+
+  // Widen the display range onto the identified material peaks, so an fL / fC / fFLC that landed
+  // outside the current axis is visible. Mirrors Swift's `.onReceive(tap.$autoSelected*PeakID)` ->
+  // `expandFreqRangeToInclude`, with the rule shared (presentation/displayRange).
+  //
+  // A plate or brace scans a wide band (brace: 100-1200 Hz) and this range is per-type and
+  // persisted, so the peak a measurement just produced can easily be off-screen. Swift has widened
+  // the axis since the feature was written; web and Python did neither — the same measurement
+  // showed the peak on one edition and hid it on two (project issue #8).
+  //
+  // Expands for ALL identified peaks rather than tracking which is new: idempotent, so the settings
+  // write it triggers re-runs this effect once and then finds nothing to change. Guitar ranges are
+  // the user's analysis window and are never widened for them, matching Swift's isGuitar guard.
+  useEffect(() => {
+    if (!material) return
+    const identified = [matPeaks.longitudinal, matPeaks.cross, matPeaks.flc].filter(
+      (p): p is NonNullable<typeof p> => p != null,
+    )
+    if (identified.length === 0) return
+    const current = displayRangeFor(settings, settings.measurementType)
+    let { minHz, maxHz } = current
+    for (const p of identified) ({ minHz, maxHz } = expandedToInclude(p.frequency, minHz, maxHz))
+    if (minHz !== current.minHz || maxHz !== current.maxHz) {
+      updateDisplayRange(settings.measurementType, { minHz, maxHz })
+    }
+  }, [material, matPeaks, settings, updateDisplayRange])
 
   const modeByPeak = snapshot.modeByPeak
 

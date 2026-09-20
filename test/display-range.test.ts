@@ -1,4 +1,5 @@
 // @parity test/display-range
+import { expandedToInclude, FLOOR_HZ } from '../src/presentation/displayRange'
 import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_SETTINGS,
@@ -54,5 +55,43 @@ describe('setDisplayRangePatch — per-type persistence without clobbering', () 
     // Editing only the max starts from the plate default (20) for the min.
     s = { ...s, ...setDisplayRangePatch(s, 'plate', { maxHz: 250 }) }
     expect(displayRangeFor(s, 'plate')).toEqual({ minHz: 20, maxHz: 250 })
+  })
+})
+// ---------------------------------------------------------------------------
+// The chart widens its frequency axis onto a newly identified material peak.
+//
+// A plate or brace scans a wide band (brace: 100–1200 Hz) and the display range is
+// per-measurement-type and persisted, so the fL / fC / fFLC a measurement just produced can land
+// off the edge of the chart. Swift has widened the axis since the feature was written; web and
+// Python did neither, so the same measurement showed the peak on one edition and hid it on two.
+// Ported 2026-09-20 (project issue #8) — user-visible behaviour, not an implementation difference.
+//
+// Twin of Swift DisplayRangeExpansionTests / Python test_display_range_expansion.py.
+// ---------------------------------------------------------------------------
+describe('display-range — widening onto an identified material peak', () => {
+  it('a peak above the range widens the maximum with padding', () => {
+    const r = expandedToInclude(1000, 100, 800)
+    expect(r.maxHz).toBe(1100) // 1000 Hz + 10%
+    expect(r.minHz).toBe(100) // untouched
+  })
+
+  it('a peak below the range widens the minimum with padding', () => {
+    const r = expandedToInclude(50, 100, 800)
+    expect(r.minHz).toBe(45) // 50 Hz - 10%
+    expect(r.maxHz).toBe(800) // untouched
+  })
+
+  it('a peak inside the range leaves it alone', () => {
+    const r = expandedToInclude(400, 100, 800)
+    expect(r).toEqual({ minHz: 100, maxHz: 800 }) // never NARROWED — that would hide other peaks
+  })
+
+  it('a very low peak is clamped at the floor', () => {
+    expect(expandedToInclude(0.5, 100, 800).minHz).toBe(FLOOR_HZ) // nothing to draw below 1 Hz
+  })
+
+  it('a peak exactly at the boundary changes nothing', () => {
+    expect(expandedToInclude(800, 100, 800).maxHz).toBe(800)
+    expect(expandedToInclude(100, 100, 800).minHz).toBe(100)
   })
 })
