@@ -71,6 +71,24 @@ describe('G2 — peak finding', () => {
     }
   })
 
+  // Two tones of UNEQUAL amplitude: a threshold between them keeps only the stronger. The
+  // three-tone case above uses near-equal amplitudes and one threshold, so it cannot show the
+  // threshold discriminating between peaks. Moved here from the frozen-recalc suite (project
+  // issue #8), where it was the only coverage of this case in any edition but sat under a slug
+  // about recalculation — it tests detection, not recalculation.
+  it('a raised threshold drops the weaker of two tones', () => {
+    const s = combine(makeSpectrum(400, -20, 15), makeSpectrum(900, -55, 15))
+    const opts = { minHz: 50, maxHz: 2000 }
+
+    const low = findPeaks(s.mags, s.freqs, { ...opts, peakMinThreshold: -60 })
+    expect(low.some((pk) => Math.abs(pk.frequency - 400) < 20)).toBe(true)
+    expect(low.some((pk) => Math.abs(pk.frequency - 900) < 20)).toBe(true)
+
+    const high = findPeaks(s.mags, s.freqs, { ...opts, peakMinThreshold: -40 })
+    expect(high.some((pk) => Math.abs(pk.frequency - 400) < 20)).toBe(true)
+    expect(high.some((pk) => Math.abs(pk.frequency - 900) < 20)).toBe(false)
+  })
+
   it('all below threshold → empty', () => {
     const { mags, freqs } = makeSpectrum(1000, -30, 20)
     expect(findPeaks(mags, freqs, { minHz: 50, maxHz: 2000, peakMinThreshold: -20 })).toHaveLength(0)
