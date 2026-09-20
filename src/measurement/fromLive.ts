@@ -4,7 +4,7 @@
 // into the view. Guitar measurements only for now (material persistence is a follow-up).
 
 import { type Spectrum } from '../dsp/guitarFFT'
-import { findPeaks, ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, type Peak } from '../dsp/peaks'
+import { type Peak } from '../dsp/peaks'
 import type { TapEntry } from '../state/tapToneAnalyzer'
 import type { MaterialPeak } from '../dsp/gatedCapture'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
@@ -78,15 +78,7 @@ export interface BuildMeasurementArgs {
    *  measurement re-runs auto-selection on Peak Min change when automatic. Omitted defaults to
    *  automatic (a fresh build that never touched selection). */
   userModified?: boolean
-  /** True when saving a still-loaded measurement (loadedPeaks != null) — its authoritative saved
-   *  peaks are kept verbatim, no full-set re-derivation. Live captures and re-analyzed measurements
-   *  (loadedPeaks cleared) omit this / pass false, so they persist the full set. */
-  isLoadedMeasurement?: boolean
 }
-
-/** Absolute magnitude floor (dBFS) for the persisted guitar peak set — the chart floor and the
- *  Peak Min slider's lower bound. See PEAK-MIN-SEMANTICS.md. */
-const PEAK_DETECTION_FLOOR = -100
 
 /** Construct a guitar TapToneMeasurementModel from the current frozen result. */
 export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurementModel {
@@ -119,36 +111,15 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
     })
   }
 
-  // Full-set save (Option 4; PEAK-MIN-SEMANTICS.md). A freshly captured (or re-analyzed) guitar
-  // measurement persists every peak down to the −100 dB floor, not just those above the current
-  // Peak Min, so a reloaded measurement can reveal peaks below the capture-time Peak Min exactly as
-  // the live one can — filtering the saved full set by Peak Min == re-detecting at that Peak Min.
-  // `a.peaks` (≥ Peak Min, with their modes / selection / annotations) are kept; only the
-  // sub-Peak-Min peaks are appended (unclassified, unselected). A still-loaded measurement keeps its
-  // authoritative saved peaks (Re-analyze regenerates them).
-  if (!a.isLoadedMeasurement) {
-    const full = findPeaks(a.spectrum.magnitudesDb, a.spectrum.frequencies, {
-      guitarType: guitarTypeName,
-      peakMinThreshold: PEAK_DETECTION_FLOOR,
-      minHz: ANALYSIS_MIN_HZ,
-      maxHz: ANALYSIS_MAX_HZ,
-    })
-    for (const p of full) {
-      if (p.magnitude >= a.settings.peakMinThreshold) continue // already in a.peaks
-      peakModels.push({
-        id: uuid(),
-        frequency: p.frequency,
-        magnitude: p.magnitude,
-        quality: p.quality,
-        bandwidth: p.bandwidth,
-        timestamp,
-        pitchNote: pitch.note(p.frequency),
-        pitchCents: pitch.cents(p.frequency),
-        pitchFrequency: pitch.freq0(p.frequency),
-        modeLabel: MODE_DISPLAY_NAME.unknown,
-      })
-    }
-  }
+  // Full-set save (Option 4; PEAK-MIN-SEMANTICS.md). `a.peaks` IS the full set — the analyzer detects
+  // at the -100 dB floor and `peaksAbovePeakMin` is only its display projection — so what gets saved
+  // is simply that set, built above. Mirrors Swift `guitarFullSavePeaks() { allPeaks }`.
+  //
+  // This block used to re-run findPeaks here and APPEND every peak below the current Peak Min, on
+  // the pre-Phase-1 assumption that `a.peaks` held only the peaks above it. Once the analyzer's
+  // durable set became the full -100 dB set, that appended a second copy of every sub-Peak-Min peak
+  // under a second UUID: a real capture saved 111 peaks as 217, with 106 frequencies duplicated.
+  // Swift deleted the same re-detect-and-append dance for the same reason. Do not reintroduce it.
 
   const snapshot: SpectrumSnapshotModel = {
     frequencies: a.spectrum.frequencies,

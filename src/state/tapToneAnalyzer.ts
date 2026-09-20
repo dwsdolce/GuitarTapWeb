@@ -120,7 +120,48 @@ export class TapToneAnalyzer {
   // peaks) + their mode classification. Owned by the analyzer, mirroring Swift `currentPeaks` /
   // `identifiedModes` (recomputed by recalculatePeaks — the web's recalculateFrozenPeaksIfNeeded). 3c §10 P1.
   peaks: Peak[] = []
+  // The Peak-Min DISPLAY projection of `peaks` — the same peak objects, filtered to the slider.
+  // Mirrors Swift `peaksAbovePeakMin` / Python `peaks_above_peak_min`. Assigning `peaks` or
+  // `peakMinThreshold` is the ONLY way this changes; nothing else may write it.
+  //
+  // This lives on the analyzer, not in the view. "Peak Min is guitar-only, material is never
+  // filtered" is a rule about the MEASUREMENT, and it had been implemented in App.tsx as a useMemo
+  // — so every other consumer (the save path, the PDF, the multi-tap table, the unit tests) had to
+  // re-derive it and could disagree. One rule, one home.
+  peaksAbovePeakMin: Peak[] = []
+  // The authoritative saved peaks of a LOADED measurement, or null for a live capture. Owned by the
+  // analyzer, not the view, so that it and the frozen spectrum can never be seen half-applied:
+  // a render that saw the spectrum set while this was still null would take the live branch,
+  // re-detect, mint fresh ids, and wipe the overrides/offsets/selection just restored from the file.
+  // Mirrors Swift `loadedMeasurementPeaks` / Python `loaded_measurement_peaks`.
+  loadedPeaks: Peak[] | null = null
+  // True for the duration of `loadMeasurement`, which applies the whole restore — spectrum, per-tap
+  // entries, peaks, overrides, offsets, selection — as ONE step. `recalculatePeaks` returns early
+  // while it is set, so nothing can recalculate against a half-applied measurement and clobber what
+  // is being loaded. Mirrors Swift `isLoadingMeasurement` / Python `is_loading_measurement`.
+  //
+  // Web-specific note: this used to be absent, and the parity table recorded it as "n/a — the view
+  // drives the load, so there is no state to construct". The restore was five separate analyzer
+  // calls orchestrated by App.tsx, so the protection came from React batching the handler rather
+  // than from the model. That made correctness of a loaded measurement's per-peak state depend on
+  // statement order inside a 100-line view handler, untested and easy to break.
+  isLoadingMeasurement = false
   modeByPeak: Map<number, ResolvedMode> = new Map()
+  // Minimum magnitude (dBFS) for a peak to be DISPLAYED. A display control and nothing more:
+  // assigning it re-projects `peaksAbovePeakMin` from the durable set — no detection, no
+  // classification, no per-peak state touched — so selection, overrides and dragged labels all
+  // survive a slider sweep, and a peak hidden then revealed comes back as the SAME object.
+  // Mirrors Swift `@Published var peakMinThreshold { didSet { refreshDisplayedPeaks() } }` and
+  // Python's `peak_min_threshold` setter. The persisted value still lives in the settings store
+  // (the web's TapDisplaySettings); App pushes it in here, exactly as Swift's settings do.
+  private _peakMinThreshold = -60
+  get peakMinThreshold(): number {
+    return this._peakMinThreshold
+  }
+  set peakMinThreshold(v: number) {
+    this._peakMinThreshold = v
+    this.refreshDisplayedPeaks()
+  }
   // Per-peak manual mode-label overrides, keyed by peak `id` (RA — was the view's frequency-keyed
   // `useAnnotations` map). The value stays the display label string (a predefined mode name or a
   // freeform label), matching the web's existing override idiom; only the KEY moved from frequency to
@@ -314,7 +355,26 @@ export class TapToneAnalyzer {
   /** Load a saved measurement: freeze its spectrum, restore its per-tap display spectra (for the
    *  multi-tap comparison view), and mark complete. Mirrors Swift loadMeasurement restoring both
    *  frozenMagnitudes/Frequencies and tapEntries (the raw capturedTaps are NOT restored). */
-  loadMeasurement(snapshot: { magnitudes: number[]; frequencies: number[]; taps?: Spectrum[] }): void {
+  /** Apply a saved measurement to the analyzer as ONE step.
+   *
+   *  Everything the file carries — the frozen spectrum, the per-tap entries, the authoritative
+   *  peaks, and the per-peak state keyed to them (overrides, dragged offsets, selection) — is
+   *  restored under `isLoadingMeasurement`, so `recalculatePeaks` cannot run against a partly
+   *  applied measurement. Mirrors Swift/Python `loadMeasurement`, which are likewise one method.
+   *
+   *  The per-peak arguments are optional: the material load path restores only offsets, and the
+   *  unit tests that just need a frozen spectrum pass none. */
+  loadMeasurement(snapshot: {
+    magnitudes: number[]
+    frequencies: number[]
+    taps?: Spectrum[]
+    /** The saved peaks — authoritative, never re-derived. Omit to leave `loadedPeaks` unchanged. */
+    loadedPeaks?: Peak[] | null
+    overrides?: Map<number, string>
+    annotationOffsets?: Map<number, [number, number]>
+    selection?: { ids: Set<number>; frequencies: number[]; userModified: boolean }
+  }): void {
+    this.isLoadingMeasurement = true
     this.frozenMagnitudes = snapshot.magnitudes
     this.frozenFrequencies = snapshot.frequencies
     // Phase 3: per-tap peaks found ONCE from the saved per-tap spectrum at the -100 floor and durable
@@ -337,6 +397,24 @@ export class TapToneAnalyzer {
     this.materialTapPhase = 'complete'
     this.isMeasurementComplete = true
     this.setStatusMessage(LOADED_STATUS)
+    // The peaks and the state keyed to them land together with the spectrum above — that pairing is
+    // the whole point of doing this in one method.
+    if (snapshot.loadedPeaks !== undefined) this.loadedPeaks = snapshot.loadedPeaks
+    if (snapshot.overrides) this.overrides = new Map(snapshot.overrides)
+    if (snapshot.annotationOffsets) this.annotationOffsets = new Map(snapshot.annotationOffsets)
+    if (snapshot.selection) {
+      this.selectedPeakIds = new Set(snapshot.selection.ids)
+      this.selectedPeakFrequencies = [...snapshot.selection.frequencies]
+      this.userModifiedSelection = snapshot.selection.userModified
+    }
+    this.isLoadingMeasurement = false
+    this.notify()
+  }
+
+  /** Drop the loaded-measurement peaks, returning the analyzer to the live/frozen branch.
+   *  Used by New Tap, a fresh capture, and Re-analyze (which deliberately re-detects). */
+  clearLoadedPeaks(): void {
+    this.loadedPeaks = null
     this.notify()
   }
 
@@ -401,13 +479,18 @@ export class TapToneAnalyzer {
    *  the web's equivalent of TapDisplaySettings.didSet). 3c §10 P1. */
   recalculatePeaks(p: {
     material: boolean
-    loadedPeaks: Peak[] | null
     /** The current live-FFT spectrum, so peaks track it while waiting/detecting (null once frozen). */
     liveSpectrum: Spectrum | null
     guitarType: GuitarTypeName
     minHz: number
     maxHz: number
   }): void {
+    // Loading guard. `loadMeasurement` applies the spectrum, the peaks and the per-peak state as one
+    // step; until it finishes there is no coherent measurement to recalculate against, and running
+    // here would re-detect on a spectrum whose peaks have not landed yet — minting fresh ids and
+    // wiping the overrides, offsets and selection being restored. Mirrors Swift
+    // `guard !isLoadingMeasurement else { return }` / Python's `if is_loading_measurement: return`.
+    if (this.isLoadingMeasurement) return
     // Phase 1: detection stores the FULL peak set, found at the fixed -100 dB floor — Peak Min is NOT
     // an input here (it moved to a display selector in App, so a slider tick no longer re-mints peaks
     // or destroys per-peak state). Mirrors Swift `allPeaks` found via `peakMinOverride: peakDetectionFloor`.
@@ -415,8 +498,10 @@ export class TapToneAnalyzer {
     let reminted = false // did this branch mint FRESH ids (findPeaks)? then per-peak state must be carried
     if (p.material) {
       peaks = [] // peaks are guitar-only; material uses matPeaks
-    } else if (p.loadedPeaks) {
-      peaks = p.loadedPeaks // loaded peaks are the authoritative FULL set; Peak Min projects them for display
+    } else if (this.loadedPeaks) {
+      // Read from the analyzer, not from a caller argument: the peaks and the frozen spectrum are
+      // set together in loadMeasurement, so this branch cannot be entered with one but not the other.
+      peaks = this.loadedPeaks // the authoritative FULL set; Peak Min projects them for display
     } else {
       // Peaks follow the DISPLAYED spectrum: the frozen result once complete, otherwise the live
       // spectrum while waiting/detecting — so the list + annotations update on each live FFT frame,
@@ -438,11 +523,19 @@ export class TapToneAnalyzer {
     const oldPeaks = this.peaks
     this.peaks = peaks
     this.modeByPeak = classifyAll(peaks, p.guitarType)
+    this.refreshDisplayedPeaks() // the projection follows the durable set (Swift allPeaks.didSet)
     // Carry per-peak state across a re-mint (Re-analyze, guitar-type/range change, a re-run while
     // frozen). The loaded/material branches keep STABLE ids (same peak objects), so their per-peak
     // state needs no remap — only the findPeaks branch mints new ids. Mirrors Swift calling
     // applyFrozenPeakState only where UUIDs change. RA carries overrides; RB/RC add offsets + selection.
-    if (reminted) this.applyFrozenPeakState(oldPeaks, peaks, p.guitarType)
+    //
+    // Empty-peaks guard. When detection yields nothing — every peak below the floor, an empty or
+    // flat spectrum — the carry-forward is SKIPPED, so `selectedPeakIds` is left alone rather than
+    // being rebuilt as empty. The selection is a fact about the measurement, not about what the
+    // detector just managed to find: lowering the threshold again must bring back the peaks the
+    // user chose, not an empty set. Mirrors Swift `guard !peaks.isEmpty else { … return }` and
+    // Python's `if not peaks: … return`, both of which return before applyFrozenPeakState.
+    if (reminted && peaks.length > 0) this.applyFrozenPeakState(oldPeaks, peaks, p.guitarType)
     // Phase 3: per-tap entry peaks are NO LONGER re-derived here. They are found ONCE when the entry is
     // built (processMultipleTaps / loadMeasurement) at the -100 floor and are durable — nothing may
     // re-derive them, least of all a display control. (This was the web's `recalculateTapEntryPeaks`
@@ -598,6 +691,24 @@ export class TapToneAnalyzer {
       this.selectedPeakIds = autoIds
       this.selectedPeakFrequencies = newPeaks.filter((np) => autoIds.has(np.id)).map((np) => np.frequency)
     }
+  }
+
+  /** Recompute `peaksAbovePeakMin` from the durable set — a cheap filter, no detection. Hands back
+   *  the SAME peak objects, so projecting can never disturb identity. Peak Min is a GUITAR control:
+   *  a material measurement's identified L/C/FLC peaks ARE the result and are never filtered out
+   *  from under it. Mirrors Swift `refreshDisplayedPeaks()` / Python `refresh_displayed_peaks()`. */
+  refreshDisplayedPeaks(): void {
+    this.peaksAbovePeakMin = this.isGuitar
+      ? this.peaks.filter((p) => p.magnitude >= this._peakMinThreshold)
+      : this.peaks
+  }
+
+  /** Set the Peak Min display threshold and publish the new projection. The persisted value lives in
+   *  the settings store; App mirrors it in here on change, the web's equivalent of Swift reading
+   *  `TapDisplaySettings.peakMinThreshold` into the analyzer. */
+  setPeakMinThreshold(v: number): void {
+    this.peakMinThreshold = v
+    this.notify()
   }
 
   // ── Peak selection (RC — moved off the view; concrete state, full-Swift paradigm) ─────────────────
@@ -1058,6 +1169,9 @@ export class TapToneAnalyzer {
         frozenSpectrum: this.frozenSpectrum(),
         tapEntries: this.tapEntries,
         peaks: this.peaks,
+        loadedPeaks: this.loadedPeaks,
+        peaksAbovePeakMin: this.peaksAbovePeakMin,
+        peakMinThreshold: this.peakMinThreshold,
         modeByPeak: this.modeByPeak,
         overrides: this.overrides,
         annotationOffsets: this.annotationOffsets,
@@ -1199,6 +1313,9 @@ export class TapToneAnalyzer {
 
   setMeasurementTypeAndNotify(t: MeasurementType): void {
     this.measurementType = t
+    // The type decides whether Peak Min applies at all (guitar-only), so the projection is stale
+    // the instant it changes. Mirrors Swift's refreshDisplayedPeaks() reading measurementType.
+    this.refreshDisplayedPeaks()
     this.notify()
   }
 
@@ -1229,8 +1346,16 @@ export interface TapToneSnapshot {
   frozenSpectrum: Spectrum | null
   /** Per-tap entries (spectrum + peaks) for the multi-tap comparison view ([] unless a multi-tap result). */
   tapEntries: TapEntry[]
-  /** Guitar peaks (findPeaks on the frozen spectrum, or a loaded measurement's filtered peaks). */
+  /** The DURABLE guitar peak set, found at the -100 dB floor — what selection and the save path read. */
   peaks: Peak[]
+  /** A loaded measurement's authoritative saved peaks, or null for a live capture. Analyzer-owned so
+   *  it can never be seen out of step with the frozen spectrum. */
+  loadedPeaks: Peak[] | null
+  /** The Peak-Min display projection of `peaks` (material passes through unfiltered). What the peak
+   *  list, the chart dots and the live ratio read. Never the set to save. */
+  peaksAbovePeakMin: Peak[]
+  /** The Peak Min display threshold the projection was computed at. */
+  peakMinThreshold: number
   /** Mode classification for `peaks`, keyed by peak id. */
   modeByPeak: Map<number, ResolvedMode>
   /** Manual mode-label overrides, keyed by peak `id` (RA — analyzer-owned, was the view's freq map). */

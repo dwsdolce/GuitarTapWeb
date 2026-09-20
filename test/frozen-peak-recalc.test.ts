@@ -12,20 +12,21 @@
 // `applyFrozenPeakState`) is moving onto the analyzer in the selection-ownership restructure. RA (mode
 // overrides) and RB (annotation offsets) have landed and their remap tests are appended below; SELECTION
 // (RC) is the remaining piece and its carry-forward tests land with it.
-// NOT TESTED HERE, DELIBERATELY — B10 / B11 (the isLoadingMeasurement guard).
+// B10 / B11 (the isLoadingMeasurement guard) ARE tested here now — see the B10/B11 describe block
+// at the end of this file.
 //
-// Swift and Python guard recalculation while a measurement is loading: both trigger it from
-// property observers that can fire part-way through a load, so without the guard a half-applied
-// measurement would be re-analysed and clobber what is being loaded.
+// This comment used to say the opposite, and ended "Do not 'fix' it by adding an isLoading flag."
+// The reasoning was: Swift and Python trigger recalculation from property observers that can fire
+// part-way through a load, whereas the web called recalculatePeaks from one useLayoutEffect keyed
+// on `loadedPeaks`, so there was no window and no state a test could construct.
 //
-// The web has no such state to guard. recalculatePeaks is called from ONE useLayoutEffect in
-// App.tsx, keyed on `loadedPeaks` itself, so it runs only once the loaded data is in place. There
-// is no window in which a partial load could be re-analysed, and no way for a test to construct
-// one. The invariant that guard protects — loading must not clobber the loaded peaks — is covered
-// here by PR2c (the loaded path returns saved peaks, does NOT re-analyse).
-//
-// Recorded in docs/FROZEN-RECALC-TEST-PARITY.md as n/a with this reason, so the absence is a
-// documented decision rather than an oversight. Do not "fix" it by adding an isLoading flag.
+// All of that was true and the conclusion was still wrong. The web's load was setLoadedPeaks()
+// (React state) + analyzer.loadMeasurement() + three restore* calls, sequenced by App.tsx — so the
+// peaks and the frozen spectrum stayed in step only because React batched the handler. The guard
+// was real but it lived in the framework and in statement order, not in the model, and nothing
+// tested it. loadMeasurement now applies the whole measurement — spectrum, per-tap entries, peaks,
+// overrides, offsets, selection — as one step under isLoadingMeasurement, and `loadedPeaks` lives
+// on the analyzer. See docs/FROZEN-RECALC-TEST-PARITY.md footnote 1 in the hub.
 
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
@@ -55,23 +56,37 @@ const peak = (frequency: number, magnitude: number, id = frequency): Peak => ({ 
 const near = (peaks: Peak[], hz: number, tol = 20) => peaks.some((p) => Math.abs(p.frequency - hz) < tol)
 
 /** Drive recalculatePeaks with sensible defaults (guitar, generic, 80–1200 Hz).
- *  Phase 1: recalculatePeaks stores the FULL set at the -100 floor — Peak Min is NOT an input; it is a
- *  display projection at the App layer (`peaksAbovePeakMin = allPeaks.filter(mag >= peakMin)`). Tests
- *  that used to assert the analyzer's `peaks` shrank with Peak Min now assert the full set + the
- *  projection separately. */
-function recalc(a: TapToneAnalyzer, over: Partial<Parameters<TapToneAnalyzer['recalculatePeaks']>[0]> = {}) {
+ *  Phase 1: recalculatePeaks stores the FULL set at the -100 floor — Peak Min is NOT an input to
+ *  detection, it is a display projection. Tests assert the durable set (`a.peaks`) and the
+ *  projection (`a.peaksAbovePeakMin`) separately. */
+function recalc(
+  a: TapToneAnalyzer,
+  over: Partial<Parameters<TapToneAnalyzer['recalculatePeaks']>[0]> & { loadedPeaks?: Peak[] | null } = {},
+) {
+  // `loadedPeaks` is analyzer state now, not a recalc argument — the peaks and the frozen spectrum
+  // are set together so a recalc can never see one without the other. Assigning it here mirrors what
+  // loadMeasurement does in the app.
+  const { loadedPeaks, ...rest } = over
+  if (loadedPeaks !== undefined) a.loadedPeaks = loadedPeaks
   a.recalculatePeaks({
     material: false,
-    loadedPeaks: null,
     liveSpectrum: null,
     guitarType: 'generic',
     minHz: 80,
     maxHz: 1200,
-    ...over,
+    ...rest,
   })
 }
-/** The Peak-Min display projection (App `peaksAbovePeakMin`): the SAME peak objects, filtered. */
-const project = (peaks: Peak[], peakMin: number) => peaks.filter((p) => p.magnitude >= peakMin)
+/** Set Peak Min and read back the analyzer's own projection.
+ *
+ *  This used to be a local `project()` that re-implemented the filter — a third copy of a rule that
+ *  also lived in App.tsx as a useMemo and in Swift/Python as `refreshDisplayedPeaks()`. A test
+ *  asserting its own copy of the behaviour under test proves nothing about the code that ships, so
+ *  the projection moved onto the analyzer and the copy is gone. Go through the real setter. */
+const projected = (a: TapToneAnalyzer, peakMin: number): Peak[] => {
+  a.setPeakMinThreshold(peakMin) // the entry point App.tsx calls — not the bare property
+  return a.peaksAbovePeakMin
+}
 function frozen(a: TapToneAnalyzer, mags: number[], freqs: number[]) {
   a.frozenMagnitudes = mags
   a.frozenFrequencies = freqs
@@ -95,11 +110,14 @@ describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () =
     recalc(a)
     expect(near(a.peaks, 200)).toBe(true) // the full set holds the -50 peak regardless of any Peak Min
     // The App projection is what hides/shows it — and it hands back the SAME peak object.
-    expect(near(project(a.peaks, -60), 200)).toBe(true)
-    expect(near(project(a.peaks, -40), 200)).toBe(false)
+    expect(near(projected(a, -60), 200)).toBe(true)
+    expect(near(projected(a, -40), 200)).toBe(false)
   })
 
-  it('PR-A3: the loaded path keeps the FULL authoritative set (not filtered at the analyzer)', () => {
+  // B03. Already asserted both surfaces; renamed to say so. Swift's twin was called
+  // "filtersAboveThresholdOnly" and checked only the projection, which is why this one read as a
+  // contradiction rather than the other half of the same rule. All three now name the surface.
+  it('PR-A3: Peak Min projects the loaded set for display and never shrinks the durable set', () => {
     const a = new TapToneAnalyzer()
     frozen(a, [100, 200, 400], [100, 200, 400]) // non-empty frozen (matches Swift guard); loaded path ignores it
     recalc(a, { loadedPeaks: [peak(200, -25), peak(400, -65)] })
@@ -107,7 +125,7 @@ describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () =
     expect(near(a.peaks, 200, 1)).toBe(true)
     expect(near(a.peaks, 400, 1)).toBe(true)
     // The projection filters the faint one for display, keeping the strong one's object.
-    expect(project(a.peaks, -60).map((p) => p.frequency)).toEqual([200])
+    expect(projected(a, -60).map((p) => p.frequency)).toEqual([200])
   })
 
   it('PR-A4: loaded peaks below the current Peak Min are KEPT in the set (projected out only for display)', () => {
@@ -115,7 +133,7 @@ describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () =
     frozen(a, [100, 200, 400], [100, 200, 400])
     recalc(a, { loadedPeaks: [peak(200, -70), peak(400, -65)] })
     expect(a.peaks).toHaveLength(2) // durable set keeps them — save must not prune
-    expect(project(a.peaks, -60)).toHaveLength(0) // display projection hides both at Peak Min -60
+    expect(projected(a, -60)).toHaveLength(0) // display projection hides both at Peak Min -60
   })
 
   it('PR-A5: empty frozen magnitudes → no peaks (no crash)', () => {
@@ -141,9 +159,9 @@ describe('frozen-peak-recalc — loaded peaks are authoritative (PR2c) + live/ma
     recalc(a)
     expect(near(a.peaks, 200)).toBe(true)
     expect(near(a.peaks, 400)).toBe(true) // the full set holds the -55 peak
-    expect(near(project(a.peaks, -60), 400)).toBe(true) // shown at -60
-    expect(near(project(a.peaks, -40), 200)).toBe(true) // strong shown at -40
-    expect(near(project(a.peaks, -40), 400)).toBe(false) // weak projected out at -40
+    expect(near(projected(a, -60), 400)).toBe(true) // shown at -60
+    expect(near(projected(a, -40), 200)).toBe(true) // strong shown at -40
+    expect(near(projected(a, -40), 400)).toBe(false) // weak projected out at -40
   })
 
   it('live-spectrum path: peaks track the live spectrum while not complete (Swift analyzeMagnitudes / P1b)', () => {
@@ -182,8 +200,8 @@ describe('frozen-peak-recalc — Peak-Min durability (Phase 1)', () => {
     frozen(a, s.mags, s.freqs)
     recalc(a)
     const before = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
-    expect(project(a.peaks, -40).some((p) => p === before)).toBe(false) // hidden at -40
-    const revealed = project(a.peaks, -60).find((p) => Math.abs(p.frequency - 400) < 20)!
+    expect(projected(a, -40).some((p) => p === before)).toBe(false) // hidden at -40
+    const revealed = projected(a, -60).find((p) => Math.abs(p.frequency - 400) < 20)!
     expect(revealed).toBe(before) // SAME object reference — identity/id preserved across the slider
   })
 
@@ -464,4 +482,218 @@ describe('frozen-peak-recalc — selection on the analyzer (RC)', () => {
   })
 
 
+})
+
+// ---------------------------------------------------------------------------
+// Behaviours the web could not express until Peak Min moved onto the analyzer.
+//
+// B08 / B09 / B14 were recorded as web-only absences on the grounds that "Peak Min is a display
+// selector in App, so there is no analyzer state a test could construct". That was true, and it was
+// the architecture problem rather than a reason: the rule "Peak Min is guitar-only; material is
+// never filtered" is a fact about the measurement, and it was living in a view useMemo (and in a
+// third copy inside this file). With `peakMinThreshold` / `peaksAbovePeakMin` /
+// `refreshDisplayedPeaks()` on the analyzer — mirroring Swift and Python — they are ordinary twins.
+// See docs/FROZEN-RECALC-TEST-PARITY.md (hub) for the behaviour list.
+// ---------------------------------------------------------------------------
+describe('frozen-peak-recalc — Peak Min is analyzer state (B08/B09/B14)', () => {
+  it('B08: all peaks below Peak Min empties the DISPLAY, keeping the durable set and classification', () => {
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(200, -60), makeSpectrum(400, -70))
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    const durable = a.peaks.length
+    const classified = a.modeByPeak.size
+    expect(durable).toBeGreaterThan(0)
+
+    a.setPeakMinThreshold(-10) // above every peak
+
+    expect(a.peaksAbovePeakMin).toHaveLength(0) // the projection is what empties
+    expect(a.peaks).toHaveLength(durable) // a display filter must never shrink the durable set
+    expect(a.modeByPeak.size).toBe(classified) // classification describes the measurement, not the screen
+  })
+
+  it('B09: a MATERIAL measurement is never filtered by Peak Min — its peaks ARE the result', () => {
+    for (const type of ['plate', 'brace'] as const) {
+      const a = new TapToneAnalyzer()
+      a.measurementType = type
+      // The identified L/C/FLC peaks, below any sane guitar Peak Min (the 2026-07-21 regression:
+      // a loaded plate whose fL sat at -62.41 dB with Peak Min -60 lost it from table AND chart).
+      a.peaks = [peak(66.88, -62.41), peak(116.75, -57.62)]
+      a.setPeakMinThreshold(-60) // would drop fL if the guitar filter applied
+
+      const freqs = a.peaksAbovePeakMin.map((p) => p.frequency)
+      expect(freqs).toContain(66.88) // Peak Min is a GUITAR control
+      expect(freqs).toContain(116.75)
+    }
+  })
+
+  it('B13/B21a: a Peak Min sweep preserves identity, selection, override AND dragged offset', () => {
+    // Swift and Python assert all four across the sweep; the web asserted identity alone, because
+    // Peak Min was not analyzer state and the rest could not be reached. THE point of the
+    // peak-lifecycle work: Peak Min re-projects and does nothing else.
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -50)) // 400 is the one we hide
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    a.setPeakMinThreshold(-60) // both displayed
+    const quiet = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+
+    a.selectedPeakIds = new Set([quiet.id])
+    a.setModeOverride(quiet.id, 'Wolf note')
+    a.updateAnnotationOffset(quiet.id, [12, 34])
+
+    a.setPeakMinThreshold(-40) // hidden from the DISPLAY only
+    expect(a.peaksAbovePeakMin.some((p) => p.id === quiet.id)).toBe(false)
+    expect(a.peaks.some((p) => p.id === quiet.id)).toBe(true) // hidden, not destroyed
+
+    a.setPeakMinThreshold(-60) // revealed again
+
+    expect(a.peaksAbovePeakMin.find((p) => p.id === quiet.id)).toBe(quiet) // the SAME object
+    expect(a.selectedPeakIds.has(quiet.id)).toBe(true)
+    expect(a.overrides.get(quiet.id)).toBe('Wolf note')
+    expect(a.annotationOffsets.get(quiet.id)).toEqual([12, 34])
+  })
+
+  it('B14: a DESELECTED peak does not re-select on a Peak Min sweep', () => {
+    const a = new TapToneAnalyzer()
+    const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -25))
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    const kept = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!
+    const dropped = a.peaks.find((p) => Math.abs(p.frequency - 400) < 20)!
+    a.selectedPeakIds = new Set([kept.id, dropped.id])
+
+    a.togglePeakSelection(dropped.id) // a deselection is a user decision too
+    expect(a.selectedPeakIds.has(dropped.id)).toBe(false)
+
+    a.setPeakMinThreshold(-10) // hide everything…
+    a.setPeakMinThreshold(-60) // …and bring it back
+
+    expect(a.selectedPeakIds.has(dropped.id)).toBe(false) // must NOT resurrect
+    expect(a.selectedPeakIds.has(kept.id)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Carry-forward edge cases (B21b / B27 / B28) — the negative halves of RA/RB/RC.
+// ---------------------------------------------------------------------------
+describe('frozen-peak-recalc — carry-forward edge cases (B21b/B27/B28)', () => {
+  it('B21b: an offset is DROPPED when no re-minted peak falls within ±5 Hz', () => {
+    const a = new TapToneAnalyzer()
+    const start = makeSpectrum(200, -20)
+    frozen(a, start.mags, start.freqs)
+    recalc(a)
+    const before = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!
+    a.updateAnnotationOffset(before.id, [12, -8])
+
+    const moved = makeSpectrum(300, -20) // far outside the tolerance
+    frozen(a, moved.mags, moved.freqs)
+    recalc(a)
+
+    expect(a.peaks.some((p) => Math.abs(p.frequency - 300) < 20)).toBe(true) // precondition
+    // Negative-only assertions pass vacuously on an empty map, so assert the VALUE is gone entirely —
+    // not merely absent from the new id, which a leak under the stale id would satisfy.
+    expect([...a.annotationOffsets.values()]).toEqual([])
+  })
+
+  it('B27: an empty detection PRESERVES the selection, so lowering the threshold restores it', () => {
+    const a = new TapToneAnalyzer()
+    const s = makeSpectrum(200, -20)
+    frozen(a, s.mags, s.freqs)
+    recalc(a)
+    const chosen = a.peaks.find((p) => Math.abs(p.frequency - 200) < 20)!
+    a.selectedPeakIds = new Set([chosen.id])
+    a.userModifiedSelection = true
+    const before = new Set(a.selectedPeakIds)
+
+    frozen(a, new Array(s.mags.length).fill(-100), s.freqs) // nothing to detect
+    recalc(a)
+
+    expect(a.peaks).toHaveLength(0) // precondition: detection found nothing
+    expect(a.selectedPeakIds).toEqual(before) // the selection is not the detector's to erase
+  })
+
+  it('B28: remapping with no prior overrides yields no overrides', () => {
+    const a = new TapToneAnalyzer()
+    const two = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
+    frozen(a, two.mags, two.freqs)
+    recalc(a)
+    expect(a.overrides.size).toBe(0)
+
+    const three = combine(two, makeSpectrum(300, -25)) // re-mint: ids shift
+    frozen(a, three.mags, three.freqs)
+    recalc(a)
+
+    expect(a.overrides.size).toBe(0) // no overrides in, none out — and none invented
+  })
+})
+
+// ---------------------------------------------------------------------------
+// B10 / B11 — the loading guard. Previously recorded as web "n/a — the view drives the load, so
+// there is no state to construct". The reason was accurate and the conclusion was wrong: the
+// restore WAS five analyzer calls sequenced by App.tsx, with the peaks in React state and the
+// spectrum on the analyzer, so the two stayed in step only because React batched the handler.
+// `loadMeasurement` now applies the whole measurement as one step under `isLoadingMeasurement`,
+// and these are ordinary twins of Swift's and Python's.
+// ---------------------------------------------------------------------------
+describe('frozen-peak-recalc — the loading guard (B10/B11)', () => {
+  it('B10: while isLoadingMeasurement is set, recalculatePeaks is a no-op', () => {
+    const a = new TapToneAnalyzer()
+    const s = makeSpectrum(200, -20)
+    frozen(a, s.mags, s.freqs)
+    a.loadedPeaks = [peak(300, -25)]
+    a.peaks = []
+
+    a.isLoadingMeasurement = true
+    recalc(a)
+
+    expect(a.peaks).toEqual([]) // must not adopt the loaded peaks, or re-detect the spectrum
+  })
+
+  it('B11: clearing it lets the next recalculation through — the guard suppresses, never disables', () => {
+    const a = new TapToneAnalyzer()
+    const s = makeSpectrum(200, -20)
+    frozen(a, s.mags, s.freqs)
+    const saved = peak(300, -25)
+    a.loadedPeaks = [saved]
+    a.peaks = []
+
+    a.isLoadingMeasurement = true
+    recalc(a)
+    expect(a.peaks).toEqual([]) // precondition: suppressed
+
+    a.isLoadingMeasurement = false
+    recalc(a)
+
+    expect(a.peaks.map((p) => p.frequency)).toEqual([300]) // the saved peaks are adopted
+  })
+
+  it('B10/B11: loadMeasurement is ATOMIC — a recalc mid-load cannot clobber the restored state', () => {
+    // The failure the guard exists for, driven end to end. The loaded spectrum has a real peak at
+    // 200 Hz, so if a recalc runs while the measurement is half-applied it takes the live branch,
+    // re-detects, mints fresh ids, and applyFrozenPeakState drops the override/offset/selection
+    // keyed to the SAVED ids. After loadMeasurement returns, all of it must still be there.
+    const a = new TapToneAnalyzer()
+    const s = makeSpectrum(200, -20)
+    const saved = peak(777, -30) // a frequency absent from the spectrum: only a restore can produce it
+    a.loadMeasurement({
+      magnitudes: s.mags,
+      frequencies: s.freqs,
+      loadedPeaks: [saved],
+      overrides: new Map<number, string>([[saved.id, 'Wolf note']]),
+      annotationOffsets: new Map<number, [number, number]>([[saved.id, [12, -8]]]),
+      selection: { ids: new Set([saved.id]), frequencies: [saved.frequency], userModified: true },
+    })
+
+    expect(a.isLoadingMeasurement).toBe(false) // cleared by the time it returns
+    expect(a.loadedPeaks?.map((p) => p.frequency)).toEqual([777])
+    expect(a.frozenMagnitudes.length).toBeGreaterThan(0) // peaks and spectrum landed together
+
+    recalc(a) // the effect's first run, after the load
+
+    expect(a.peaks.map((p) => p.frequency)).toEqual([777]) // saved peaks used, spectrum NOT re-detected
+    expect(a.overrides.get(saved.id)).toBe('Wolf note')
+    expect(a.annotationOffsets.get(saved.id)).toEqual([12, -8])
+    expect(a.selectedPeakIds.has(saved.id)).toBe(true)
+  })
 })

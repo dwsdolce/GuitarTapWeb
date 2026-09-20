@@ -304,7 +304,14 @@ export default function App() {
   // them by magnitude — findPeaks is never re-run on the loaded spectrum (matches Swift
   // recalculateFrozenPeaksIfNeeded / Python recalculate_frozen_peaks_if_needed). Cleared
   // on a fresh live capture / New Tap / measurement-type change, reverting to findPeaks.
-  const [loadedPeaks, setLoadedPeaks] = useState<Peak[] | null>(null)
+  // `loadedPeaks` lives on the ANALYZER now (Swift `loadedMeasurementPeaks`). It used to be React
+  // state here, which meant the peaks and the frozen spectrum were applied in two different places
+  // and could be observed half-applied. Reading it from the snapshot keeps one source of truth.
+  const loadedPeaks = snapshot.loadedPeaks
+  const setLoadedPeaks = useCallback(
+    (v: Peak[] | null) => { if (v === null) analyzer.clearLoadedPeaks(); else analyzer.loadedPeaks = v },
+    [analyzer],
+  )
   // Ring-out time of a LOADED guitar measurement (its stored `decayTime`). Read by the Analysis panel
   // only while `loadedPeaks != null`; live captures use the engine's live decayTime instead. Set on
   // the guitar-load path (the only place loadedPeaks becomes non-null), so it's always in sync there.
@@ -552,18 +559,28 @@ export default function App() {
   // no longer re-runs findPeaks or re-mints peaks, and per-peak state (selection/overrides/offsets)
   // survives it. Mirrors Swift `allPeaks` (durable) + `currentPeaks` (Peak-Min projection).
   useLayoutEffect(() => {
-    analyzer.recalculatePeaks({ material, loadedPeaks, liveSpectrum: liveForPeaks, guitarType, minHz: ANALYSIS_MIN_HZ, maxHz: ANALYSIS_MAX_HZ })
+    analyzer.recalculatePeaks({ material, liveSpectrum: liveForPeaks, guitarType, minHz: ANALYSIS_MIN_HZ, maxHz: ANALYSIS_MAX_HZ })
   }, [analyzer, material, loadedPeaks, liveForPeaks, guitarType, captured])
   const peaks = snapshot.peaks // the durable FULL set (down to -100) — used for selection state + save
+
+  // Peak Min is a DISPLAY control, so it is pushed into the analyzer on its OWN effect and never
+  // added to the recalc effect's deps. Making it a recalculatePeaks input would re-run findPeaks on
+  // every slider tick, re-minting peak ids and churning the per-peak state hanging off them — the
+  // Phase 1 defect (a deselected peak re-selecting, dragged labels snapping back). Setting the
+  // threshold only re-projects. Mirrors Swift, where the slider writes
+  // TapDisplaySettings.peakMinThreshold and the analyzer's didSet calls refreshDisplayedPeaks().
+  useLayoutEffect(() => {
+    analyzer.setPeakMinThreshold(peakMin)
+  }, [analyzer, peakMin])
+
   const modeByPeak = snapshot.modeByPeak
 
-  // The Peak-Min display projection: the same peak objects, filtered to the slider. Material passes
-  // through (its Peak Min never gates — the tap capture uses its own adaptive floor). The display list,
-  // chart dots/markers, and the live ratio read THIS; selection state + the save path read the full set.
-  const peaksAbovePeakMin = useMemo(
-    () => (material ? peaks : peaks.filter((pk) => pk.magnitude >= peakMin)),
-    [peaks, peakMin, material],
-  )
+  // The Peak-Min display projection, computed BY THE ANALYZER (Swift peaksAbovePeakMin / Python
+  // peaks_above_peak_min). It used to be a useMemo right here — which put a rule about the
+  // measurement ("Peak Min is guitar-only; material is never filtered") in the view, where the save
+  // path, the PDF and the tests each had to re-derive it. The display list, chart dots/markers and
+  // the live ratio read THIS; selection state and the save path read the full set above.
+  const peaksAbovePeakMin = snapshot.peaksAbovePeakMin
 
   const sortedPeaks = useMemo(() => [...peaksAbovePeakMin].sort((a, b) => a.frequency - b.frequency), [peaksAbovePeakMin])
   // Live tap-tone ratio (f_Top / f_Air) over the DEFINITIVE Air/Top (selected + override-aware), so a
@@ -858,7 +875,6 @@ export default function App() {
         calibrationName: calibrationRef.current?.name,
         // A still-loaded measurement (loadedPeaks not yet cleared by Re-analyze) keeps its
         // authoritative saved peaks; live captures and re-analyzed measurements persist the full set.
-        isLoadedMeasurement: loadedPeaks != null,
         userModified,
       })
     },
@@ -981,26 +997,35 @@ export default function App() {
       // The loaded measurement's axis range is a TRANSIENT override (Swift loadedAxisRange):
       // shown now, but the user's persisted per-type display range is left untouched.
       setLoadedView(live.view)
-      setLoadedPeaks(live.loadedPeaks) // authoritative saved peaks (Peak Min filters them)
       setLoadedDecayTime(m.decayTime ?? null) // show the FILE's stored ring-out, not the live engine's
-      // Freeze the loaded spectrum + restore per-tap comparison spectra on the analyzer (mirrors Swift
-      // loadMeasurement restoring frozenMagnitudes/Frequencies + tapEntries).
+      // ONE atomic restore, under the analyzer's isLoadingMeasurement guard: the frozen spectrum, the
+      // per-tap comparison spectra, the authoritative saved peaks, and the per-peak state keyed to
+      // them (overrides, dragged offsets, selection — RA/RB/RC, all id-keyed). Mirrors Swift/Python
+      // loadMeasurement, which are likewise a single method.
+      //
+      // This used to be setLoadedPeaks() + loadMeasurement() + three restore* calls, sequenced here.
+      // The peaks lived in React state while the spectrum went straight onto the analyzer, so the two
+      // were only ever in step because React batched this handler — an ordering nothing tested and a
+      // refactor could quietly break. A recalc against that torn state re-detects on the loaded
+      // spectrum, mints fresh ids, and wipes the overrides/offsets/selection being restored.
+      //
+      // The selection's frequency cache is derived from the selected loaded peaks (the full set is
+      // saved, so all are present).
       analyzer.loadMeasurement({
         magnitudes: live.captured.magnitudesDb,
         frequencies: live.captured.frequencies,
         taps: (m.tapEntries ?? []).map((e) => ({ magnitudesDb: e.snapshot.magnitudes, frequencies: e.snapshot.frequencies })),
+        loadedPeaks: live.loadedPeaks,
+        overrides: live.overridesById,
+        annotationOffsets: live.annotationOffsetsById,
+        selection: {
+          ids: live.selectedIndices,
+          frequencies: live.loadedPeaks.filter((p) => live.selectedIndices.has(p.id)).map((p) => p.frequency),
+          userModified: live.userModified,
+        },
       })
       setComparison(null)
       setView(live.view)
-      // Restore overrides + dragged offsets + selection onto the analyzer (all id-keyed, RA/RB/RC). The
-      // loaded peaks keep stable ids, so these need no capture-reset guard. The selection's frequency
-      // cache is derived from the selected loaded peaks (the full set is saved, so all are present).
-      analyzer.restoreOverrides(live.overridesById)
-      analyzer.restoreOffsets(live.annotationOffsetsById)
-      {
-        const selFreqs = live.loadedPeaks.filter((p) => live.selectedIndices.has(p.id)).map((p) => p.frequency)
-        analyzer.restoreSelection(live.selectedIndices, selFreqs, live.userModified)
-      }
       // Load-time provenance check (mic / calibration / sample rate) — closes the web
       // side of the sample-rate epic. Cleared on New Tap / fresh capture.
       // The CURRENT calibration must be passed, or every calibrated measurement warns on load:

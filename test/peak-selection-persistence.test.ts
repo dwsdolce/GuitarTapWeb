@@ -24,7 +24,6 @@ const base: Omit<BuildMeasurementArgs, 'userModified'> = {
   numberOfTaps: 1,
   sampleRate: 48000,
   deviceLabel: 'X',
-  isLoadedMeasurement: true, // skip the full-set findPeaks pass; irrelevant to the flag
 }
 
 describe('userModifiedSelection persistence', () => {

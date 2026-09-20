@@ -49,7 +49,6 @@ const near = (peaks: Peak[], hz: number, tol = 20) => peaks.some((p) => Math.abs
 function recalc(a: TapToneAnalyzer, over: Partial<Parameters<TapToneAnalyzer['recalculatePeaks']>[0]> = {}) {
   a.recalculatePeaks({
     material: false,
-    loadedPeaks: null,
     liveSpectrum: null,
     guitarType: 'generic',
     minHz: 80,
