@@ -12,7 +12,7 @@
 // `applyFrozenPeakState`) is moving onto the analyzer in the selection-ownership restructure. RA (mode
 // overrides) and RB (annotation offsets) have landed and their remap tests are appended below; SELECTION
 // (RC) is the remaining piece and its carry-forward tests land with it.
-// B10 / B11 (the isLoadingMeasurement guard) ARE tested here now — see the B10/B11 describe block
+// PR10 / PR11 (the isLoadingMeasurement guard) ARE tested here now — see the PR10/PR11 describe block
 // at the end of this file.
 //
 // This comment used to say the opposite, and ended "Do not 'fix' it by adding an isLoading flag."
@@ -94,7 +94,7 @@ function frozen(a: TapToneAnalyzer, mags: number[], freqs: number[]) {
 }
 
 describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () => {
-  it('PR-A1: frozen-spectrum path detects a known peak', () => {
+  it('PR01: frozen-spectrum path detects a known peak', () => {
     const a = new TapToneAnalyzer()
     const { mags, freqs } = makeSpectrum(200, -20)
     frozen(a, mags, freqs)
@@ -103,7 +103,7 @@ describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () =
     expect(near(a.peaks, 200)).toBe(true)
   })
 
-  it('PR-A2: a weak peak is KEPT in the durable set (detection floors at -100); Peak Min only projects it', () => {
+  it('PR02: a weak peak is KEPT in the durable set (detection floors at -100); Peak Min only projects it', () => {
     const a = new TapToneAnalyzer()
     const { mags, freqs } = makeSpectrum(200, -50)
     frozen(a, mags, freqs)
@@ -114,10 +114,10 @@ describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () =
     expect(near(projected(a, -40), 200)).toBe(false)
   })
 
-  // B03. Already asserted both surfaces; renamed to say so. Swift's twin was called
+  // PR03. Already asserted both surfaces; renamed to say so. Swift's twin was called
   // "filtersAboveThresholdOnly" and checked only the projection, which is why this one read as a
   // contradiction rather than the other half of the same rule. All three now name the surface.
-  it('PR-A3: Peak Min projects the loaded set for display and never shrinks the durable set', () => {
+  it('PR03: Peak Min projects the loaded set for display and never shrinks the durable set', () => {
     const a = new TapToneAnalyzer()
     frozen(a, [100, 200, 400], [100, 200, 400]) // non-empty frozen (matches Swift guard); loaded path ignores it
     recalc(a, { loadedPeaks: [peak(200, -25), peak(400, -65)] })
@@ -128,7 +128,7 @@ describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () =
     expect(projected(a, -60).map((p) => p.frequency)).toEqual([200])
   })
 
-  it('PR-A4: loaded peaks below the current Peak Min are KEPT in the set (projected out only for display)', () => {
+  it('PR04: loaded peaks below the current Peak Min are KEPT in the set (projected out only for display)', () => {
     const a = new TapToneAnalyzer()
     frozen(a, [100, 200, 400], [100, 200, 400])
     recalc(a, { loadedPeaks: [peak(200, -70), peak(400, -65)] })
@@ -136,7 +136,7 @@ describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () =
     expect(projected(a, -60)).toHaveLength(0) // display projection hides both at Peak Min -60
   })
 
-  it('PR-A5: empty frozen magnitudes → no peaks (no crash)', () => {
+  it('PR05: empty frozen magnitudes → no peaks (no crash)', () => {
     const a = new TapToneAnalyzer()
     frozen(a, [], [])
     expect(() => recalc(a)).not.toThrow()
@@ -145,14 +145,14 @@ describe('frozen-peak-recalc — recalculatePeaks integration (PR-A1..A5)', () =
 })
 
 describe('frozen-peak-recalc — loaded peaks are authoritative (PR2c) + live/material paths', () => {
-  it('PR2c: the loaded path returns saved peaks, does NOT re-analyse the frozen spectrum', () => {
+  it('PR06: the loaded path returns saved peaks, does NOT re-analyse the frozen spectrum', () => {
     const a = new TapToneAnalyzer()
     frozen(a, new Array(512).fill(-100), Array.from({ length: 512 }, (_, i) => i * 47)) // flat → findPeaks would find nothing
     recalc(a, { loadedPeaks: [peak(300, -25)] })
     expect(near(a.peaks, 300, 1)).toBe(true) // survives — proves the saved peak is used, not the flat spectrum
   })
 
-  it('PR2 (two peaks): both frozen peaks are in the durable set; Peak Min projects the weaker', () => {
+  it('PR07: both frozen peaks are in the durable set; Peak Min projects the weaker', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -55))
     frozen(a, s.mags, s.freqs)
@@ -164,7 +164,7 @@ describe('frozen-peak-recalc — loaded peaks are authoritative (PR2c) + live/ma
     expect(near(projected(a, -40), 400)).toBe(false) // weak projected out at -40
   })
 
-  it('live-spectrum path: peaks track the live spectrum while not complete (Swift analyzeMagnitudes / P1b)', () => {
+  it('PR12: peaks track the live spectrum while not complete (Swift analyzeMagnitudes / P1b)', () => {
     const a = new TapToneAnalyzer() // not complete, no frozen data
     const { mags, freqs } = makeSpectrum(200, -20)
     const live: Spectrum = { magnitudesDb: mags, frequencies: freqs }
@@ -186,7 +186,7 @@ describe('frozen-peak-recalc — loaded peaks are authoritative (PR2c) + live/ma
 // move. Mirrors Swift PeakMinDurabilityTests / the "never assign the durable set a filtered view" trap.
 // ---------------------------------------------------------------------------
 describe('frozen-peak-recalc — Peak-Min durability (Phase 1)', () => {
-  it('the durable set holds a sub-Peak-Min peak (found at the -100 floor, not at Peak Min)', () => {
+  it('PR18: the durable set holds a sub-Peak-Min peak (found at the -100 floor, not at Peak Min)', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -80)) // -80 is below any normal Peak Min
     frozen(a, s.mags, s.freqs)
@@ -194,7 +194,7 @@ describe('frozen-peak-recalc — Peak-Min durability (Phase 1)', () => {
     expect(near(a.peaks, 400)).toBe(true) // kept — so lowering the slider can later reveal it
   })
 
-  it('a peak hidden then revealed via Peak Min returns the SAME object (id/identity intact)', () => {
+  it('PR13: a peak hidden then revealed via Peak Min returns the SAME object (id/identity intact)', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -50))
     frozen(a, s.mags, s.freqs)
@@ -205,7 +205,7 @@ describe('frozen-peak-recalc — Peak-Min durability (Phase 1)', () => {
     expect(revealed).toBe(before) // SAME object reference — identity/id preserved across the slider
   })
 
-  it('recalc does not shrink the durable set as a (former) Peak Min would rise', () => {
+  it('PR19: recalc does not shrink the durable set as a (former) Peak Min would rise', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -55))
     frozen(a, s.mags, s.freqs)
@@ -229,7 +229,7 @@ describe('frozen-peak-recalc — per-tap entries computed once (Phase 3)', () =>
     a.processMultipleTaps()
   }
 
-  it('processMultipleTaps finds each per-tap peak set once, at the -100 floor', () => {
+  it('PR16: processMultipleTaps finds each per-tap peak set once, at the -100 floor', () => {
     const a = new TapToneAnalyzer()
     twoTaps(a) // the 400 Hz per-tap peak is -80 dB — below any normal Peak Min
     expect(a.tapEntries).toHaveLength(2)
@@ -237,7 +237,7 @@ describe('frozen-peak-recalc — per-tap entries computed once (Phase 3)', () =>
     expect(a.tapEntries.every((e) => near(e.peaks, 200))).toBe(true)
   })
 
-  it('recalculatePeaks does NOT re-derive tapEntries — they are durable, not re-minted', () => {
+  it('PR15: recalculatePeaks does NOT re-derive tapEntries — they are durable, not re-minted', () => {
     const a = new TapToneAnalyzer()
     twoTaps(a, -55)
     const beforeEntries = a.tapEntries
@@ -247,7 +247,7 @@ describe('frozen-peak-recalc — per-tap entries computed once (Phase 3)', () =>
     expect(a.tapEntries[0]!.peaks).toBe(beforePeaks0) // same peaks array — not re-found
   })
 
-  it('loaded per-tap entries are found once from the saved spectra (deterministic, floored)', () => {
+  it('PR17: loaded per-tap entries are found once from the saved spectra (deterministic, floored)', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -70))
     a.loadMeasurement({ magnitudes: s.mags, frequencies: s.freqs, taps: [{ magnitudesDb: s.mags, frequencies: s.freqs }] })
@@ -277,7 +277,7 @@ describe('frozen-peak-recalc — per-tap entries computed once (Phase 3)', () =>
 //
 // Mirrors Swift FrozenPeakRecalculation_CanReanalyzeTests / Python TestPR8CanReanalyze.
 describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
-  it('PR8a: a live (never-loaded) frozen capture can be re-analyzed', () => {
+  it('PR33: a live (never-loaded) frozen capture can be re-analyzed', () => {
     const a = new TapToneAnalyzer()
     const { mags, freqs } = makeSpectrum(200, -20)
     frozen(a, mags, freqs)
@@ -285,7 +285,7 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
     expect(a.canReanalyze).toBe(true)
   })
 
-  it('PR8b: a loaded measurement can be re-analyzed', () => {
+  it('PR34: a loaded measurement can be re-analyzed', () => {
     const a = new TapToneAnalyzer()
     const { mags, freqs } = makeSpectrum(200, -20)
     frozen(a, mags, freqs)
@@ -293,7 +293,7 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
     expect(a.canReanalyze).toBe(true)
   })
 
-  it('PR8c: it is not a one-shot — still available after the loaded peaks are dropped', () => {
+  it('PR35: it is not a one-shot — still available after the loaded peaks are dropped', () => {
     const a = new TapToneAnalyzer()
     const { mags, freqs } = makeSpectrum(200, -20)
     frozen(a, mags, freqs)
@@ -304,7 +304,7 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
     expect(a.canReanalyze).toBe(true)
   })
 
-  it('PR8d: material can never be re-analyzed', () => {
+  it('PR36: material can never be re-analyzed', () => {
     for (const mt of ['plate', 'brace'] as const) {
       const a = new TapToneAnalyzer()
       a.measurementType = mt
@@ -315,7 +315,7 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
     }
   })
 
-  it('PR8e: nothing to re-analyze without a completed measurement and a frozen spectrum', () => {
+  it('PR37: nothing to re-analyze without a completed measurement and a frozen spectrum', () => {
     const noSpectrum = new TapToneAnalyzer()
     noSpectrum.isMeasurementComplete = true
     expect(noSpectrum.canReanalyze).toBe(false)
@@ -337,7 +337,7 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
 // ---------------------------------------------------------------------------
 describe('frozen-peak-recalc — overrides on the analyzer (RA)', () => {
 
-  it('an override SURVIVES a re-mint that SHIFTS the id, remapped by ±5 Hz proximity', () => {
+  it('PR23: an override SURVIVES a re-mint that SHIFTS the id, remapped by ±5 Hz proximity', () => {
     // findPeaks assigns ids positionally (0,1,… ascending frequency), so an id only churns when the
     // detected SET changes. Re-freeze with an extra peak (300 Hz) BELOW the target so the 400 Hz peak's
     // index shifts (1 → 2) while its frequency is unchanged — the exact case the proximity remap exists for.
@@ -357,7 +357,7 @@ describe('frozen-peak-recalc — overrides on the analyzer (RA)', () => {
     expect(a.overrides.has(before.id)).toBe(false) // the old id is gone from the map
   })
 
-  it('an override is ORPHANED when no re-minted peak falls within the ±5 Hz window', () => {
+  it('PR25: an override is ORPHANED when no re-minted peak falls within the ±5 Hz window', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
     frozen(a, s.mags, s.freqs)
@@ -372,7 +372,7 @@ describe('frozen-peak-recalc — overrides on the analyzer (RA)', () => {
 
 
 
-  it('the loaded branch keeps stable ids, so overrides restored against them are NOT remapped away', () => {
+  it('PR31: the loaded branch keeps stable ids, so overrides restored against them are NOT remapped away', () => {
     const a = new TapToneAnalyzer()
     frozen(a, [100, 200, 400], [100, 200, 400]) // non-empty frozen (guard); loaded path ignores it
     a.restoreOverrides(new Map<number, string>([[0, 'Air'], [1, 'Top']])) // keyed to loaded indices
@@ -389,7 +389,7 @@ describe('frozen-peak-recalc — overrides on the analyzer (RA)', () => {
 // ---------------------------------------------------------------------------
 describe('frozen-peak-recalc — annotation offsets on the analyzer (RB)', () => {
 
-  it('an offset SURVIVES a re-mint that SHIFTS the id, remapped by ±5 Hz proximity', () => {
+  it('PR20: an offset SURVIVES a re-mint that SHIFTS the id, remapped by ±5 Hz proximity', () => {
     const a = new TapToneAnalyzer()
     const two = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
     frozen(a, two.mags, two.freqs)
@@ -407,7 +407,7 @@ describe('frozen-peak-recalc — annotation offsets on the analyzer (RB)', () =>
 
 
 
-  it('a captured MATERIAL peak gets a stored id, and its offset lives in the same store (brace)', () => {
+  it('PR32: a captured MATERIAL peak gets a stored id, and its offset lives in the same store (brace)', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'brace'
     a.numberOfTaps = 1
@@ -433,7 +433,7 @@ describe('frozen-peak-recalc — annotation offsets on the analyzer (RB)', () =>
 // cache via restoreSelection — the realistic loaded-manual path where the carry actually matters.
 // ---------------------------------------------------------------------------
 describe('frozen-peak-recalc — selection on the analyzer (RC)', () => {
-  it('an UNMODIFIED selection re-runs auto over the durable set on each re-mint', () => {
+  it('PR28: an UNMODIFIED selection re-runs auto over the durable set on each re-mint', () => {
     // Top (200) + Dipole (400) — both above the scan floor (~140 Hz for minHz 80); auto picks each.
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -25))
@@ -449,7 +449,7 @@ describe('frozen-peak-recalc — selection on the analyzer (RC)', () => {
   })
 
 
-  it('a MANUAL selection (synced cache) carries across a re-mint that shifts the id, by ±5 Hz', () => {
+  it('PR26: a MANUAL selection (synced cache) carries across a re-mint that shifts the id, by ±5 Hz', () => {
     const a = new TapToneAnalyzer()
     const two = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
     frozen(a, two.mags, two.freqs)
@@ -464,7 +464,7 @@ describe('frozen-peak-recalc — selection on the analyzer (RC)', () => {
     expect([...a.selectedPeakIds]).toEqual([after.id]) // carried to the new id, nothing spurious
   })
 
-  it('a selected peak that vanishes is kept in the frequency cache and RE-SELECTS when it returns', () => {
+  it('PR27: a selected peak that vanishes is kept in the frequency cache and RE-SELECTS when it returns', () => {
     const a = new TapToneAnalyzer()
     const two = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
     frozen(a, two.mags, two.freqs)
@@ -487,7 +487,7 @@ describe('frozen-peak-recalc — selection on the analyzer (RC)', () => {
 // ---------------------------------------------------------------------------
 // Behaviours the web could not express until Peak Min moved onto the analyzer.
 //
-// B08 / B09 / B14 were recorded as web-only absences on the grounds that "Peak Min is a display
+// PR08 / PR09 / PR14 were recorded as web-only absences on the grounds that "Peak Min is a display
 // selector in App, so there is no analyzer state a test could construct". That was true, and it was
 // the architecture problem rather than a reason: the rule "Peak Min is guitar-only; material is
 // never filtered" is a fact about the measurement, and it was living in a view useMemo (and in a
@@ -495,8 +495,8 @@ describe('frozen-peak-recalc — selection on the analyzer (RC)', () => {
 // `refreshDisplayedPeaks()` on the analyzer — mirroring Swift and Python — they are ordinary twins.
 // See docs/FROZEN-RECALC-TEST-PARITY.md (hub) for the behaviour list.
 // ---------------------------------------------------------------------------
-describe('frozen-peak-recalc — Peak Min is analyzer state (B08/B09/B14)', () => {
-  it('B08: all peaks below Peak Min empties the DISPLAY, keeping the durable set and classification', () => {
+describe('frozen-peak-recalc — Peak Min is analyzer state (PR08/PR09/PR14)', () => {
+  it('PR08: all peaks below Peak Min empties the DISPLAY, keeping the durable set and classification', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -60), makeSpectrum(400, -70))
     frozen(a, s.mags, s.freqs)
@@ -512,7 +512,7 @@ describe('frozen-peak-recalc — Peak Min is analyzer state (B08/B09/B14)', () =
     expect(a.modeByPeak.size).toBe(classified) // classification describes the measurement, not the screen
   })
 
-  it('B09: a MATERIAL measurement is never filtered by Peak Min — its peaks ARE the result', () => {
+  it('PR09: a MATERIAL measurement is never filtered by Peak Min — its peaks ARE the result', () => {
     for (const type of ['plate', 'brace'] as const) {
       const a = new TapToneAnalyzer()
       a.measurementType = type
@@ -527,7 +527,7 @@ describe('frozen-peak-recalc — Peak Min is analyzer state (B08/B09/B14)', () =
     }
   })
 
-  it('B13/B21a: a Peak Min sweep preserves identity, selection, override AND dragged offset', () => {
+  it('PR13/PR21/PR24: a Peak Min sweep preserves identity, selection, override AND dragged offset', () => {
     // Swift and Python assert all four across the sweep; the web asserted identity alone, because
     // Peak Min was not analyzer state and the rest could not be reached. THE point of the
     // peak-lifecycle work: Peak Min re-projects and does nothing else.
@@ -554,7 +554,7 @@ describe('frozen-peak-recalc — Peak Min is analyzer state (B08/B09/B14)', () =
     expect(a.annotationOffsets.get(quiet.id)).toEqual([12, 34])
   })
 
-  it('B14: a DESELECTED peak does not re-select on a Peak Min sweep', () => {
+  it('PR14: a DESELECTED peak does not re-select on a Peak Min sweep', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -25))
     frozen(a, s.mags, s.freqs)
@@ -575,10 +575,10 @@ describe('frozen-peak-recalc — Peak Min is analyzer state (B08/B09/B14)', () =
 })
 
 // ---------------------------------------------------------------------------
-// Carry-forward edge cases (B21b / B27 / B28) — the negative halves of RA/RB/RC.
+// Carry-forward edge cases (PR22 / PR29 / PR30) — the negative halves of RA/RB/RC.
 // ---------------------------------------------------------------------------
-describe('frozen-peak-recalc — carry-forward edge cases (B21b/B27/B28)', () => {
-  it('B21b: an offset is DROPPED when no re-minted peak falls within ±5 Hz', () => {
+describe('frozen-peak-recalc — carry-forward edge cases (PR22/PR29/PR30)', () => {
+  it('PR22: an offset is DROPPED when no re-minted peak falls within ±5 Hz', () => {
     const a = new TapToneAnalyzer()
     const start = makeSpectrum(200, -20)
     frozen(a, start.mags, start.freqs)
@@ -596,7 +596,7 @@ describe('frozen-peak-recalc — carry-forward edge cases (B21b/B27/B28)', () =>
     expect([...a.annotationOffsets.values()]).toEqual([])
   })
 
-  it('B27: an empty detection PRESERVES the selection, so lowering the threshold restores it', () => {
+  it('PR29: an empty detection PRESERVES the selection, so lowering the threshold restores it', () => {
     const a = new TapToneAnalyzer()
     const s = makeSpectrum(200, -20)
     frozen(a, s.mags, s.freqs)
@@ -613,7 +613,7 @@ describe('frozen-peak-recalc — carry-forward edge cases (B21b/B27/B28)', () =>
     expect(a.selectedPeakIds).toEqual(before) // the selection is not the detector's to erase
   })
 
-  it('B28: remapping with no prior overrides yields no overrides', () => {
+  it('PR30: remapping with no prior overrides yields no overrides', () => {
     const a = new TapToneAnalyzer()
     const two = combine(makeSpectrum(200, -20), makeSpectrum(400, -30))
     frozen(a, two.mags, two.freqs)
@@ -629,15 +629,15 @@ describe('frozen-peak-recalc — carry-forward edge cases (B21b/B27/B28)', () =>
 })
 
 // ---------------------------------------------------------------------------
-// B10 / B11 — the loading guard. Previously recorded as web "n/a — the view drives the load, so
+// PR10 / PR11 — the loading guard. Previously recorded as web "n/a — the view drives the load, so
 // there is no state to construct". The reason was accurate and the conclusion was wrong: the
 // restore WAS five analyzer calls sequenced by App.tsx, with the peaks in React state and the
 // spectrum on the analyzer, so the two stayed in step only because React batched the handler.
 // `loadMeasurement` now applies the whole measurement as one step under `isLoadingMeasurement`,
 // and these are ordinary twins of Swift's and Python's.
 // ---------------------------------------------------------------------------
-describe('frozen-peak-recalc — the loading guard (B10/B11)', () => {
-  it('B10: while isLoadingMeasurement is set, recalculatePeaks is a no-op', () => {
+describe('frozen-peak-recalc — the loading guard (PR10/PR11)', () => {
+  it('PR10: while isLoadingMeasurement is set, recalculatePeaks is a no-op', () => {
     const a = new TapToneAnalyzer()
     const s = makeSpectrum(200, -20)
     frozen(a, s.mags, s.freqs)
@@ -650,7 +650,7 @@ describe('frozen-peak-recalc — the loading guard (B10/B11)', () => {
     expect(a.peaks).toEqual([]) // must not adopt the loaded peaks, or re-detect the spectrum
   })
 
-  it('B11: clearing it lets the next recalculation through — the guard suppresses, never disables', () => {
+  it('PR11: clearing it lets the next recalculation through — the guard suppresses, never disables', () => {
     const a = new TapToneAnalyzer()
     const s = makeSpectrum(200, -20)
     frozen(a, s.mags, s.freqs)
@@ -668,7 +668,7 @@ describe('frozen-peak-recalc — the loading guard (B10/B11)', () => {
     expect(a.peaks.map((p) => p.frequency)).toEqual([300]) // the saved peaks are adopted
   })
 
-  it('B10/B11: loadMeasurement is ATOMIC — a recalc mid-load cannot clobber the restored state', () => {
+  it('PR10/PR11: loadMeasurement is ATOMIC — a recalc mid-load cannot clobber the restored state', () => {
     // The failure the guard exists for, driven end to end. The loaded spectrum has a real peak at
     // 200 Hz, so if a recalc runs while the measurement is half-applied it takes the live branch,
     // re-detects, mints fresh ids, and applyFrozenPeakState drops the override/offset/selection
