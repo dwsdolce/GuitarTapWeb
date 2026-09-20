@@ -278,3 +278,44 @@ describe('annotation-state — Phase 7 triggers', () => {
     expect(a.annotationOffsets.size).toBe(0)
   })
 })
+// ---------------------------------------------------------------------------
+// A peak the analyzer has no classification for has NO mode — it is not guessed at.
+//
+// Swift and Python used to fall back to classifying the peak ALONE
+// (`GuitarMode.classifyAll([peak])`). One peak cannot compete for a band, and the Generic Top
+// (140-260 Hz) and Back (180-300 Hz) ranges overlap, so that fallback returned `top` for anything
+// between 180 and 260 Hz — including a plate/brace peak, which has no guitar mode at all. A real
+// brace fL at 220 Hz reported Top. The web never guessed; both native editions now match it.
+// Removed 2026-09-20. See docs/FROZEN-RECALC-TEST-PARITY.md in the hub.
+// ---------------------------------------------------------------------------
+describe('annotation-state — an unclassified peak has no mode', () => {
+  it('a peak absent from modeByPeak resolves to unknown, even inside the Top/Back overlap', () => {
+    const a = new TapToneAnalyzer()
+    // 220 Hz is in BOTH the Generic Top and Back ranges — the band where classifying a lone peak
+    // cannot arbitrate, and where the old native fallback always answered "top".
+    expect(a.effectiveMode(4242)).toBe('unknown')
+  })
+
+  it('a completed MATERIAL capture leaves its peak unclassified', () => {
+    // The real case the native fallback mis-answered: material peaks have no guitar mode.
+    // Twin of Swift completedMaterialCapture_leavesItsPeakUnclassified / Python D7c.
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'brace'
+    a.numberOfTaps = 1
+    a.startMaterial(false) // no device needed — arm/session calls are optional-chained
+    const binWidth = 48000 / 2 / (2048 - 1)
+    const mags: number[] = []
+    const freqs: number[] = []
+    for (let i = 0; i < 2048; i++) {
+      const f = i * binWidth
+      freqs.push(f)
+      const d = f - 220 // inside the Generic Top/Back overlap, where the old fallback said "top"
+      mags.push(Math.max(-100, -30 + (-d * d) / (2 * (5 / 2.355) ** 2)))
+    }
+    a.recordMaterialTap({ magnitudesDb: mags, frequencies: freqs })
+
+    const fL = a.matPeaks.longitudinal
+    expect(fL).not.toBeNull()
+    expect(a.effectiveMode(fL!.id)).toBe('unknown') // never a guitar mode
+  })
+})
