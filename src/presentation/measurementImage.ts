@@ -45,6 +45,9 @@ import {
   braceYoungsLongPa,
   speedOfSound,
   specificModulus,
+  radiationRatio,
+  crossLongRatio,
+  longCrossRatio,
   goreShearPa,
   goreTargetThicknessMm,
   woodQuality,
@@ -365,7 +368,7 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     const eL = fL != null ? braceYoungsLongGPa(dims, fL) : 0
     const smL = specificModulus(eL, rhoGcm3)
     const cL = fL != null ? speedOfSound(braceYoungsLongPa(dims, fL), rho) : 0
-    const rL = cL / rho
+    const rL = radiationRatio(cL, rho)
     const qL = woodQuality(smL, 'longitudinal')
     analysis = {
       title: 'Brace Properties',
@@ -388,8 +391,8 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     const smC = specificModulus(eC, rhoGcm3)
     const cL = fL != null ? speedOfSound(plateYoungsLongPa(dims, fL), rho) : 0
     const cC = fC != null ? speedOfSound(plateYoungsCrossPa(dims, fC), rho) : 0
-    const rL = cL / rho
-    const rC = cC / rho
+    const rL = radiationRatio(cL, rho)
+    const rC = radiationRatio(cC, rho)
     const qL = woodQuality(smL, 'longitudinal')
     const qC = woodQuality(smC, 'cross')
     const overall = overallQuality(smL, smC)
@@ -398,8 +401,8 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
       fL != null && fC != null
         ? goreTargetThicknessMm(dims, fL, fC, fLC, mi.bodyLengthMm, mi.bodyWidthMm, fvs)
         : null
-    const crossLong = eL > 0 ? eC / eL : 0
-    const longCross = eC > 0 ? eL / eC : 0
+    const crossLong = crossLongRatio(eL, eC)
+    const longCross = longCrossRatio(eL, eC)
     const presetName = STIFFNESS_RAW_NAME[mi.stiffnessPreset]
     const fvsLine = mi.stiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
 

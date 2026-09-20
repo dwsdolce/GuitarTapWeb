@@ -104,6 +104,38 @@ export function speedOfSound(youngsPa: number, rho: number): number {
 export const specificModulus = (youngsGPa: number, densGcm3: number): number =>
   densGcm3 > 0 ? youngsGPa / densGcm3 : 0
 
+/**
+ * Sound radiation coefficient `R = c/ρ`, in m⁴/(kg·s) — how efficiently the sample
+ * converts vibration into radiated sound for its weight. Typical guitar-top spruce: 10–15.
+ *
+ * Zero density returns 0 rather than dividing: a sample with no thickness or no mass has
+ * `c = 0` too, so the unguarded quotient is `0/0`.
+ * @param cMs Speed of sound in the measured direction, in m/s.
+ * @param rho Density, in kg/m³.
+ * @returns Radiation ratio in m⁴/(kg·s).
+ */
+export const radiationRatio = (cMs: number, rho: number): number => (rho > 0 ? cMs / rho : 0)
+
+/**
+ * Cross-to-long Young's modulus ratio `E_C / E_L` — the anisotropy figure. Lower means more
+ * directional stiffness. Typical spruce: 0.04–0.08. Both moduli must be in the same unit.
+ * @param eLong Along-grain Young's modulus.
+ * @param eCross Cross-grain Young's modulus, in the same unit as `eLong`.
+ * @returns E_C / E_L, or 0 when E_L is non-positive.
+ */
+export const crossLongRatio = (eLong: number, eCross: number): number =>
+  eLong > 0 ? eCross / eLong : 0
+
+/**
+ * Long-to-cross Young's modulus ratio `E_L / E_C`, the reciprocal of {@link crossLongRatio}.
+ * Higher means more anisotropic. Typical spruce: 12–25.
+ * @param eLong Along-grain Young's modulus.
+ * @param eCross Cross-grain Young's modulus, in the same unit as `eLong`.
+ * @returns E_L / E_C, or 0 when E_C is non-positive.
+ */
+export const longCrossRatio = (eLong: number, eCross: number): number =>
+  eCross > 0 ? eLong / eCross : 0
+
 // Gore plate moduli (Poisson-coupled).
 const GORE_COEF1 = (1 / ((PI / 2) ** 2 * 1.5 ** 4)) * 12 * (1 - V_LC_V_CL)
 const GORE_COEF2 = PI * Math.sqrt((12 * (1 - V_LC_V_CL)) / 126)

@@ -10,6 +10,9 @@ import {
   braceYoungsLongPa,
   speedOfSound,
   specificModulus,
+  radiationRatio,
+  crossLongRatio,
+  longCrossRatio,
   goreShearPa,
   goreTargetThicknessMm,
   woodQuality,
@@ -228,7 +231,7 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
     const eL = braceYoungsLongGPa(dims, fL)
     const smL = specificModulus(eL, rhoGcm3)
     const cL = speedOfSound(braceYoungsLongPa(dims, fL), rho)
-    const rL = cL / rho
+    const rL = radiationRatio(cL, rho)
     const qL = woodQuality(smL, 'longitudinal')
     return (
       <div className="material-results">
@@ -269,15 +272,15 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
   const smC = specificModulus(eC, rhoGcm3)
   const cL = speedOfSound(plateYoungsLongPa(dims, fL), rho)
   const cC = speedOfSound(plateYoungsCrossPa(dims, fC), rho)
-  const rL = cL / rho
-  const rC = cC / rho
+  const rL = radiationRatio(cL, rho)
+  const rC = radiationRatio(cC, rho)
   const qL = woodQuality(smL, 'longitudinal')
   const qC = woodQuality(smC, 'cross')
   const overall = overallQuality(smL, smC)
   const shearPa = goreShearPa(dims, fLC)
   const target = goreTargetThicknessMm(dims, fL, fC, fLC, matInputs.bodyLengthMm, matInputs.bodyWidthMm, materialStiffness(matInputs))
-  const crossLong = eL > 0 ? eC / eL : 0
-  const longCross = eC > 0 ? eL / eC : 0
+  const crossLong = crossLongRatio(eL, eC)
+  const longCross = longCrossRatio(eL, eC)
 
   return (
     <div className="material-results">
