@@ -12,6 +12,21 @@
 // `applyFrozenPeakState`) is moving onto the analyzer in the selection-ownership restructure. RA (mode
 // overrides) and RB (annotation offsets) have landed and their remap tests are appended below; SELECTION
 // (RC) is the remaining piece and its carry-forward tests land with it.
+// NOT TESTED HERE, DELIBERATELY — B10 / B11 (the isLoadingMeasurement guard).
+//
+// Swift and Python guard recalculation while a measurement is loading: both trigger it from
+// property observers that can fire part-way through a load, so without the guard a half-applied
+// measurement would be re-analysed and clobber what is being loaded.
+//
+// The web has no such state to guard. recalculatePeaks is called from ONE useLayoutEffect in
+// App.tsx, keyed on `loadedPeaks` itself, so it runs only once the loaded data is in place. There
+// is no window in which a partial load could be re-analysed, and no way for a test to construct
+// one. The invariant that guard protects — loading must not clobber the loaded peaks — is covered
+// here by PR2c (the loaded path returns saved peaks, does NOT re-analyse).
+//
+// Recorded in docs/FROZEN-RECALC-TEST-PARITY.md as n/a with this reason, so the absence is a
+// documented decision rather than an oversight. Do not "fix" it by adding an isLoading flag.
+
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { Peak } from '../src/dsp/peaks'
