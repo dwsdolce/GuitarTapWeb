@@ -20,6 +20,28 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
  *
  * @see https://www.johndcook.com/blog/2016/02/10/musical-pitch-notation/
  */
+/**
+ * Format a number to zero decimals the way C's `%.0f` and Python's `:.0f` do — **ties to even**.
+ *
+ * This exists because `Number.prototype.toFixed` rounds ties AWAY FROM ZERO, so a naive port of
+ * `formattedNote` would disagree with Swift and Python at every exact half-cent: `0.5` renders as
+ * `1` here and `0` there, `2.5` as `3` and `2`, `-0.5` as `-1` and `-0`. Sub-cent, but it is a
+ * cross-edition string difference in a user-visible label, which is the class of divergence the
+ * #17 sweep exists to remove. The sign is applied separately so `-0.4` renders `-0`, as it does
+ * in both natives.
+ */
+export function roundTiesToEven(value: number): string {
+  const a = Math.abs(value)
+  const floor = Math.floor(a)
+  const frac = a - floor
+  let rounded: number
+  if (frac > 0.5) rounded = floor + 1
+  else if (frac < 0.5) rounded = floor
+  else rounded = floor % 2 === 0 ? floor : floor + 1
+  const sign = value < 0 || Object.is(value, -0) ? '-' : ''
+  return `${sign}${rounded}`
+}
+
 export class Pitch {
   /** Reference frequency of A4, in Hz (concert pitch 440; e.g. 432 / 415 for alternate tunings). */
   readonly a4: number
@@ -83,5 +105,52 @@ export class Pitch {
   cents(frequency: number): number {
     const { note, octave } = this.pitch(frequency)
     return 1200 * Math.log2(frequency / this.freq(note, octave))
+  }
+
+  /**
+   * The semitones bracketing `frequency`.
+   *
+   * Which side the nearest note falls on depends on the sign of the cents offset: a frequency
+   * *above* its nearest note is bracketed by that note and the semitone above, and one *below*
+   * it by the semitone below and that note.
+   *
+   * No octave special-casing is needed. {@link freq} is `c0 · 2^(note/12) · 2^octave` with no
+   * bounds check, so note 12 already *means* C of the next octave and note −1 already means B of
+   * the previous one — the exponent carries it. The natives had two `note === 0 / === 11`
+   * branches here until the #17 sweep, claiming to "handle octave boundaries"; they did nothing.
+   * @param frequency Frequency to analyse, in Hz.
+   * @returns `{ upper, lower }`, one semitone apart, bracketing `frequency`.
+   */
+  pitchRange(frequency: number): { upper: number; lower: number } {
+    const { note, octave } = this.pitch(frequency)
+    if (this.cents(frequency) >= 0) {
+      // Sharp of (or exactly on) the nearest note: that note is the LOWER bound.
+      return { upper: this.freq(note + 1, octave), lower: this.freq(note, octave) }
+    }
+    // Flat of the nearest note: that note is the UPPER bound.
+    return { upper: this.freq(note, octave), lower: this.freq(note - 1, octave) }
+  }
+
+  /**
+   * Nearest note and its cents offset as one string, e.g. `"A4 (+23 cents)"` or
+   * `"C#3 (-5 cents)"`. Mirrors Swift `formattedNote` / Python `formatted_note`.
+   * @param frequency Frequency to format, in Hz.
+   * @returns A human-readable pitch-and-deviation string.
+   */
+  formattedNote(frequency: number): string {
+    const c = this.cents(frequency)
+    const sign = c >= 0 && !Object.is(c, -0) ? '+' : ''
+    return `${this.note(frequency)} (${sign}${roundTiesToEven(c)} cents)`
+  }
+
+  /**
+   * Whether `frequency` is within `threshold` cents of a pure equal-temperament pitch.
+   * Mirrors Swift `isInTune(frequency:threshold:)` / Python `is_in_tune`.
+   * @param frequency Frequency to check, in Hz.
+   * @param threshold Maximum absolute cents deviation counted as in tune. Defaults to 10.
+   * @returns `true` when `|cents| <= threshold`.
+   */
+  isInTune(frequency: number, threshold = 10): boolean {
+    return Math.abs(this.cents(frequency)) <= threshold
   }
 }
