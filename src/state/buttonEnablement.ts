@@ -4,7 +4,7 @@
 // If this rule changes, update the B1–B10 truth table on all three platforms.
 //
 // @parity state/button-enablement  tests=test/button-enablement
-import type { MaterialTapPhase } from './tapToneAnalyzer'
+import type { DisplayMode, MaterialTapPhase } from './tapToneAnalyzer'
 import { isGuitarType, type MeasurementType } from '../settings'
 
 /** Input state for the button rule — mirrors the fields the view reads. */
@@ -14,7 +14,11 @@ export interface ButtonState {
   isMeasurementComplete: boolean
   isReadyForDetection?: boolean
   fftIsRunning?: boolean
-  displayModeIsComparison?: boolean
+  /** What the spectrum is showing. REQUIRED, and the mode itself rather than a boolean: the rule
+   *  reads `tap.displayMode` in Swift and `display_mode` in Python, so it cannot be omitted there.
+   *  It was an optional boolean here until #17 F24 — and omitting it meant New Tap came out
+   *  DISABLED during a comparison, trapping the user in it with no way back to live. */
+  displayMode: DisplayMode
   measurementType?: MeasurementType
   materialTapPhase?: MaterialTapPhase
   currentTapCount?: number
@@ -56,7 +60,7 @@ export function buttonRule(s: ButtonState): ButtonOutput {
   const pauseEnabled = isInReviewPhase ? true : s.isDetecting || s.isDetectionPaused
 
   let newTapDisabled: boolean
-  if (s.displayModeIsComparison) newTapDisabled = false
+  if (s.displayMode === 'comparison') newTapDisabled = false
   else if (!(fftIsRunning && isReadyForDetection)) newTapDisabled = true
   else newTapDisabled = sequenceActive
 

@@ -302,7 +302,7 @@ describe('annotation-state — an unclassified peak has no mode', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'brace'
     a.numberOfTaps = 1
-    a.startMaterial(false) // no device needed — arm/session calls are optional-chained
+    a.startTapSequence({ arm: false }) // no device needed — arm/session calls are optional-chained
     const binWidth = 48000 / 2 / (2048 - 1)
     const mags: number[] = []
     const freqs: number[] = []

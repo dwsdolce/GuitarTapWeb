@@ -60,7 +60,7 @@ import {
   measurementToLiveMaterial,
   measurementWarning,
 } from './measurement/fromLive'
-import { materialInputsFromSettings, type MaterialMeasurementInputs } from './measurement/materialMeasurementInputs'
+import { materialInputsFromSettings } from './measurement/materialMeasurementInputs'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
@@ -187,7 +187,12 @@ export default function App() {
   const tapEntries = snapshot.tapEntries
   const [showMultiTap, setShowMultiTap] = useState(false)
   // Active comparison overlay (created from a selection or loaded). Non-null = comparison mode.
-  const [comparison, setComparison] = useState<ComparisonEntryModel[] | null>(null)
+  // Derived from the analyzer, which owns the display mode and the overlay data together (#17
+  // F24). Kept as `comparison` so the render paths below read unchanged; null when not comparing.
+  const comparison =
+    snapshot.displayMode === 'comparison' && snapshot.comparisonEntries.length > 0
+      ? snapshot.comparisonEntries
+      : null
 
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [showSettings, setShowSettings] = useState(false)
@@ -229,11 +234,6 @@ export default function App() {
   // Cleared wherever loadedName is (New Tap / capture / play / compare / type change), so the sheet never
   // offers a prior measurement's notes under a blanked name.
   const [loadedNotes, setLoadedNotes] = useState<string | null>(null)
-  // Store B — the current material measurement's OWN dimensions. `null` for guitar and before a
-  // material measurement completes. Seeded from Settings at completion, restored from the snapshot on
-  // load, and the sole source for MaterialResults' calc + Save (never the live Settings). Mirrors
-  // Swift analyzer.materialInputs. See Development/MEASUREMENT-DIMENSIONS-SPEC.md §10.
-  const [matInputs, setMatInputs] = useState<MaterialMeasurementInputs | null>(null)
   const annotationMode = settings.annotationVisibilityMode
   const guitarType: GuitarTypeName = isGuitarType(settings.measurementType) ? settings.measurementType : 'generic'
   const material = isMaterialType(settings.measurementType)
@@ -267,17 +267,13 @@ export default function App() {
   const matPhase = snapshot.materialTapPhase
   const matPeaks = snapshot.matPeaks
   const matSpectra = snapshot.matSpectra
-
-  // Seed Store B from the Settings defaults when a material measurement COMPLETES — the single seed
-  // hook (nothing on New Tap / type-change; New Tap nulls it via clearLoadedMeasurement, load sets it
-  // from the snapshot). The `matInputs == null` guard makes it fire once per capture and never
-  // overwrite a load's snapshot values (load sets matInputs before the phase reads 'complete').
-  // Mirrors Swift isMeasurementComplete.didSet seeding materialInputs from TapDisplaySettings.
-  useEffect(() => {
-    if (material && matPhase === 'complete' && matInputs == null) {
-      setMatInputs(materialInputsFromSettings(brace ? 'brace' : 'plate', settings))
-    }
-  }, [material, matPhase, matInputs, brace, settings])
+  // Store B — the current material measurement's OWN dimensions. Owned by the ANALYZER, like Swift
+  // `analyzer.materialInputs` and Python `analyzer.material_inputs`: seeded from Settings by the
+  // completion setter (the didSet), restored from the file by restoreMaterial, edited through
+  // setMaterialInputs. `null` for guitar and before a material measurement completes. The sole source
+  // for MaterialResults' calc + Save, never the live Settings (#17 F26).
+  // See Development/MEASUREMENT-DIMENSIONS-SPEC.md §10.
+  const matInputs = snapshot.materialInputs
 
   // Mirror the settings the analyzer needs onto it: Swift/Python read these from the TapDisplaySettings
   // singleton, but the web has no analyzer-visible global. `measurementType` drives the material search
@@ -287,7 +283,9 @@ export default function App() {
   useLayoutEffect(() => {
     analyzer.setMeasurementTypeAndNotify(settings.measurementType)
     analyzer.setMeasureFlc(settings.measureFlc)
-  }, [analyzer, settings.measurementType, settings.measureFlc])
+    // The whole settings object, for the completion setter's Store B seed (#17 F26).
+    analyzer.setSettings(settings)
+  }, [analyzer, settings])
 
   // Browser tab title carries the version+build, like the Swift/Python window titles
   // ("Guitar Tap 1.0.1 (NNN)"). Set once at mount.
@@ -300,7 +298,6 @@ export default function App() {
   const skipNextTypeResetRef = useRef(false)
   // While a comparison is frozen, a tap-capture already in flight (started before Compare)
   // must not clobber it — onGuitarCapture checks this ref. Kept in sync with `comparison` below.
-  const comparisonRef = useRef(false)
   // Peaks from a loaded measurement are authoritative: while set, Peak Min only FILTERS
   // them by magnitude — findPeaks is never re-run on the loaded spectrum (matches Swift
   // recalculateFrozenPeaksIfNeeded / Python recalculate_frozen_peaks_if_needed). Cleared
@@ -337,9 +334,6 @@ export default function App() {
   useEffect(() => {
     void navigator.storage?.persist?.()
   }, [])
-  useEffect(() => {
-    comparisonRef.current = comparison != null
-  }, [comparison])
   // The web's startTapSequence()-equivalent: arm a fresh sequence for the CURRENT measurement
   // type. Guitar arms the always-on detector; plate/brace start the phase machine straight into
   // capturingLongitudinal + armed. There is no not-yet-started gate. One branch, and the single
@@ -347,10 +341,8 @@ export default function App() {
   // switch — mirrors Swift/Python start() → startTapSequence() and onApply(measurementChanged)
   // → startTapSequence(). Reads measRef so it always sees the live type (fires outside render).
   const armForCurrentType = useCallback(() => {
-    const e = engineRef.current
-    if (!e?.running) return
-    if (isMaterialType(measRef.current)) analyzer.startMaterial()
-    else e.arm()
+    if (!engineRef.current?.running) return
+    analyzer.startTapSequence() // one path, guitar or material — the analyzer arms the device
   }, [analyzer])
   // Tracks the previous measurement type so a type change can distinguish a guitar-SUBTYPE change (both
   // types guitar) from a paradigm change (crossing guitar↔material, or plate↔brace).
@@ -385,8 +377,6 @@ export default function App() {
     setLoadedView(null) // a new measurement context drops the loaded measurement's transient range
     setShowLoadedSettings(false)
     setShowMultiTap(false)
-    setComparison(null)
-    comparisonRef.current = false
     analyzer.resetMaterial()
     armForCurrentType()
   }, [analyzer, settings.measurementType, guitarType, armForCurrentType, setLoadedPeaks])
@@ -396,7 +386,10 @@ export default function App() {
   // builds the per-tap comparison spectra + marks complete), superseding any loaded measurement. A
   // frozen comparison absorbs an in-flight capture (guard) so processMultipleTaps doesn't run.
   const onGuitarCapture = useCallback(() => {
-    if (comparisonRef.current) return
+    // A frozen comparison absorbs an in-flight capture. Read straight off the analyzer: this runs
+    // from the audio path, outside React's render, which is exactly why this used to need a ref
+    // mirroring React state (#17 F24).
+    if (analyzer.displayMode === 'comparison') return
     setLoadedPeaks(null)
     setLoadWarning(null)
     setLoadedName(null)
@@ -404,7 +397,6 @@ export default function App() {
     setLoadedView(null) // a live capture supersedes the loaded measurement's transient range
     setShowLoadedSettings(false)
     setShowMultiTap(false)
-    setComparison(null)
     analyzer.processMultipleTaps() // average capturedTaps → frozen + per-tap (notifies the snapshot)
   }, [analyzer, setLoadedPeaks])
   // Continuous session WAV (one per measurement) — the engine already gated it on the dump setting.
@@ -463,12 +455,9 @@ export default function App() {
       setShowLoadedSettings(false)
       analyzer.clearResult()
       setShowMultiTap(false)
-      setComparison(null)
-      comparisonRef.current = false
       if (isMaterialType(measRef.current)) {
         // Material: fresh phase machine (no arm — the engine owns the L→C→(FLC) auto-advance session).
-        // startMaterial clears any dragged labels itself (RB), so no explicit reset here.
-        analyzer.startMaterial(false)
+        analyzer.startTapSequence({ arm: false })
         await engineRef.current.playFile(samples, fileRate, {
           material: { brace: measRef.current === 'brace', measureFlc: measureFlcRef.current, calibration: cal },
         })
@@ -500,17 +489,16 @@ export default function App() {
     setLoadedName(null)
     setLoadedNotes(null)
     setLoadedView(null) // drop the loaded measurement's transient axis range
-    setMatInputs(null)  // drop Store B — a fresh material capture re-seeds it from Settings at complete
+    // Store B is NOT nulled here: Swift never clears materialInputs on New Tap, and it does not need
+    // to — the completion setter re-seeds on the next transition. Nulling it was only required while
+    // the seed was a view effect guarded on `matInputs == null` (#17 F26).
     setShowLoadedSettings(false)
   }, [setLoadedPeaks])
 
   const newTap = useCallback(() => {
     clearLoadedMeasurement()
-    analyzer.clearResult()
+    analyzer.startTapSequence() // clears, returns to live, and arms — guitar or material
     setShowMultiTap(false)
-    setComparison(null)
-    comparisonRef.current = false // re-arm cleanly: don't absorb the next tap
-    engineRef.current?.arm()
   }, [analyzer, clearLoadedMeasurement])
 
   const changeTaps = useCallback((n: number) => {
@@ -520,20 +508,12 @@ export default function App() {
     setShowLoadedSettings(false) // user changed Taps → the loaded-settings banner no longer applies
   }, [analyzer])
 
-  // New Tap in material mode: clear any dragged labels (Swift resets offsets on start), then start
-  // the analyzer's phase machine.
-  const onMaterialNewTap = useCallback(() => {
-    clearLoadedMeasurement()
-    analyzer.startMaterial() // clears any dragged labels itself (RB)
-  }, [analyzer, clearLoadedMeasurement])
-
   // Cancel is a restart (mirror Swift cancelTapSequence → startTapSequence): re-arm a fresh
   // sequence exactly like New Tap. Only offered while a multi-step sequence is active; during a
   // material review phase the Cancel button acts as Redo instead (see its onClick).
   const cancelTap = useCallback(() => {
-    if (isMaterialType(measRef.current)) onMaterialNewTap()
-    else newTap()
-  }, [newTap, onMaterialNewTap])
+    newTap() // one restart path for both types, like Swift cancelTapSequence -> startTapSequence
+  }, [newTap])
 
   // Lock the stepper once a tap has been captured mid-sequence, so the per-phase tap total can't
   // change — the exact canonical single expression, guitar AND material (Swift `.disabled(currentTapCount
@@ -966,19 +946,17 @@ export default function App() {
     (m: TapToneMeasurementModel) => {
       // Comparison record: restore the overlay spectra directly from the saved entries.
       if (m.comparisonEntries) {
-        comparisonRef.current = true
         const range = comparisonAxisRange(m.comparisonEntries)
         if (range) setView(range)
-        setComparison(m.comparisonEntries)
         setShowLoadedSettings(false) // comparison isn't a settings-load (Swift gates on !isSavedComparison)
         setLoadedPeaks(null)
-        analyzer.clearResult()
+        analyzer.clearResult() // returns to live and drops any overlay...
+        analyzer.loadComparisonRecord(m.comparisonEntries) // ...then enters comparison
         setShowMultiTap(false)
         setLoadWarning(null)
         setLoadedName(m.measurementName ?? null)
         setLoadedNotes(m.notes ?? null)
         setShowMeasurements(false)
-        engineRef.current?.disarm() // freeze the comparison (see onCompare)
         return
       }
       // Material (plate/brace): has per-phase snapshots, no guitar spectrumSnapshot.
@@ -986,12 +964,12 @@ export default function App() {
         const mat = measurementToLiveMaterial(m)
         if (mat.measurementType !== settings.measurementType) skipNextTypeResetRef.current = true
         updateSettings(mat.settingsPatch)          // only the type (+ measureFlc); NOT the dims (see below)
-        setMatInputs(mat.materialInputs)           // Store B ← the measurement's own dims (no Settings clobber)
         setLoadedView(mat.view) // transient loaded axis range (Swift loadedAxisRange)
         setLoadedPeaks(null)
         analyzer.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
-        setComparison(null)
-        analyzer.restoreMaterial({ matSpectra: mat.matSpectra, matPeaks: mat.matPeaks })
+        // Store B ← the measurement's own dims; restoreMaterial holds isLoadingMeasurement across the
+        // completion assignment so the didSet seed cannot clobber them with Settings.
+        analyzer.restoreMaterial({ matSpectra: mat.matSpectra, matPeaks: mat.matPeaks, materialInputs: mat.materialInputs })
         analyzer.restoreOffsets(mat.annotationOffsetsById) // dragged L/C/FLC labels (id-keyed shared store, RB)
         setLoadWarning(
           measurementWarning(m, { microphoneName: deviceLabel, sampleRate, calibrationName: calibrationRef.current?.name }),
@@ -1006,11 +984,6 @@ export default function App() {
         }
         setShowMultiTap(false)
         setShowMeasurements(false)
-        // Freeze the loaded measurement. The engine arms into 'listening' at startup, so without
-        // this it keeps listening over a frozen result and a stray tap can capture into it.
-        // Mirrors Swift `loadMeasurement` (documented: "Tap detection is disabled",
-        // isDetecting = false) and Python `load_measurement` (is_detecting = False). New Tap re-arms.
-        engineRef.current?.disarm()
         return
       }
       let live
@@ -1051,7 +1024,6 @@ export default function App() {
           userModified: live.userModified,
         },
       })
-      setComparison(null)
       setView(live.view)
       // Load-time provenance check (mic / calibration / sample rate) — closes the web
       // side of the sample-rate epic. Cleared on New Tap / fresh capture.
@@ -1072,13 +1044,7 @@ export default function App() {
         setShowLoadedSettings(true)
       }
       setShowMultiTap(false)
-      setComparison(null)
       setShowMeasurements(false)
-      // Freeze the loaded measurement — see the material branch above. Without this, isDetecting
-      // stays true alongside isMeasurementComplete (invariant I1), which both disables New Tap on a
-      // measurement whose own status bar says to press it AND lets ambient noise complete a capture
-      // that silently replaces the loaded result (onGuitarCapture clears loadedPeaks/Name/View).
-      engineRef.current?.disarm()
     },
     [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, setView, setLoadedPeaks],
   )
@@ -1087,12 +1053,13 @@ export default function App() {
   const onCompare = useCallback((measurements: TapToneMeasurementModel[]) => {
     const entries = buildComparisonEntries(measurements)
     if (entries.length < 2) return
-    comparisonRef.current = true // guard immediately (before the sync effect) against in-flight captures
     const range = comparisonAxisRange(entries)
     if (range) setView(range)
-    setComparison(entries)
     setLoadedPeaks(null)
-    analyzer.clearResult()
+    analyzer.clearResult() // returns to live and drops any overlay...
+    analyzer.loadComparison(entries) // ...then enters comparison. Order matters: clearResult
+    // would otherwise wipe what we just set. The analyzer is readable synchronously, so the
+    // in-flight-capture guard in onGuitarCapture sees this immediately — no ref to keep in sync.
     setShowMultiTap(false)
     setLoadWarning(null)
     setLoadedName(null)
@@ -1100,7 +1067,6 @@ export default function App() {
     setShowMeasurements(false)
     // Freeze the comparison: stop the always-on listener so a stray tap can't clobber it
     // (mirrors Swift displayMode == .comparison). New Tap re-arms.
-    engineRef.current?.disarm()
   }, [analyzer, setView, setLoadedPeaks])
 
   // Comparison chart overlays + results rows (derived from the active comparison entries).
@@ -1377,7 +1343,7 @@ export default function App() {
             isDetectionPaused: paused,
             isMeasurementComplete: material ? matPhase === 'complete' : snapshot.isMeasurementComplete,
             fftIsRunning: running,
-            displayModeIsComparison: comparison != null,
+            displayMode: snapshot.displayMode,
             measurementType: material ? (brace ? 'brace' : 'plate') : 'classical',
             materialTapPhase: matPhase,
             currentTapCount: currentTapCount,
@@ -1390,7 +1356,7 @@ export default function App() {
             <div className="tap-actions">
               <button
                 className="btn btn-primary tap-action"
-                onClick={material ? onMaterialNewTap : newTap}
+                onClick={newTap}
                 disabled={newTapDisabled}
                 title={HINTS.newTap}
               >
@@ -1552,7 +1518,7 @@ export default function App() {
           {comparison ? (
             <ComparisonResultsView rows={comparisonRows} />
           ) : material ? (
-            <MaterialResults type={brace ? 'brace' : 'plate'} matInputs={matInputs} onInputsChange={(next) => setMatInputs(next)} measureFlc={settings.measureFlc} peaks={matPeaks} complete={matPhase === 'complete'} />
+            <MaterialResults type={brace ? 'brace' : 'plate'} matInputs={matInputs} onInputsChange={(next) => analyzer.setMaterialInputs(next)} measureFlc={settings.measureFlc} peaks={matPeaks} complete={matPhase === 'complete'} />
           ) : showMultiTap && multiTapAvailable ? (
             <MultiTapComparisonResultsView taps={tapRows} avg={avgModes} />
           ) : (

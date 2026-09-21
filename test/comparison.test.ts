@@ -8,6 +8,7 @@ import {
 } from '../src/measurement/fromLive'
 import { serializeGuitarTapFile, parseGuitarTapFile, isComparison, type ComparisonEntryModel } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { Peak } from '../src/dsp/peaks'
 import type { ResolvedMode } from '../src/dsp/classify'
 
@@ -136,5 +137,130 @@ describe('comparison modePeakIDs — self-describing definitive modes', () => {
     const back = parseGuitarTapFile(JSON.stringify(json))[0]!
     expect(back.comparisonEntries![0]!.modePeakIDs).toBeDefined() // filled positionally
     expect((back as { wasHealed?: boolean }).wasHealed).toBe(true)
+  })
+})
+// ── Display-mode transitions ──────────────────────────────────────────────────────────────────
+//
+// These are the cases this edition COULD NOT WRITE until #17 F24. The display mode lived in
+// App.tsx as `comparison != null`, so every Swift/Python transition test — ten of them — had no
+// web counterpart, and the 20/32/7 count spread was the measurement of that rather than of
+// anything being under-tested.
+//
+// Mirrors Swift ComparisonModeTests (initialDisplayMode_isLive, loadComparison_setsDisplayModeTo…,
+// clearComparison_…, loadMeasurement_duringComparison_…) and the Python equivalents.
+describe('display mode — transitions', () => {
+  const entries = (n: number): ComparisonEntryModel[] =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `e${i}`,
+      label: `M${i}`,
+      colorComponents: [0, 0, 0, 1],
+      snapshot: { frequencies: [100, 200], magnitudes: [-30, -20], minFreq: 80, maxFreq: 300, minDB: -90, maxDB: 0 },
+      peaks: [],
+    })) as unknown as ComparisonEntryModel[]
+
+  const sut = () => new TapToneAnalyzer()
+
+  it('starts live', () => {
+    expect(sut().displayMode).toBe('live')
+  })
+
+  it('loadComparison enters comparison', () => {
+    const a = sut()
+    a.loadComparison(entries(2))
+    expect(a.displayMode).toBe('comparison')
+    expect(a.comparisonEntries).toHaveLength(2)
+  })
+
+  it('an EMPTY comparison stays live — the mode follows the data', () => {
+    // Swift: displayMode = comparisonSpectra.isEmpty ? .live : .comparison
+    const a = sut()
+    a.loadComparison([])
+    expect(a.displayMode).toBe('live')
+  })
+
+  it('clearComparison returns to live and drops the entries', () => {
+    const a = sut()
+    a.loadComparison(entries(2))
+    a.clearComparison()
+    expect(a.displayMode).toBe('live')
+    expect(a.comparisonEntries).toHaveLength(0)
+  })
+
+  it('loading a measurement DURING a comparison exits it and freezes', () => {
+    // The transition the view maintained by hand at eight call sites, pinned by nothing.
+    const a = sut()
+    a.loadComparison(entries(2))
+    a.loadMeasurement({ magnitudes: [-30, -20], frequencies: [100, 200] })
+    expect(a.displayMode).toBe('frozen')
+    expect(a.comparisonEntries).toHaveLength(0)
+  })
+
+  it('clearResult (New Tap) returns to live from a comparison', () => {
+    const a = sut()
+    a.loadComparison(entries(2))
+    a.clearResult()
+    expect(a.displayMode).toBe('live')
+    expect(a.comparisonEntries).toHaveLength(0)
+  })
+
+  // The defect the owner's F26 run-review found: load a plate measurement, compare two guitar
+  // measurements, press New Tap — the overlay stayed up with a fresh capture arming underneath it.
+  // New Tap took the material path (`startMaterial`), which never returned to live; the transition
+  // had been wired into `clearResult` only. Neither native can have this: both route every New Tap,
+  // guitar and material alike, through one `startTapSequence`. Web now does too.
+  it('New Tap returns to live from a comparison — MATERIAL type', () => {
+    const a = sut()
+    a.measurementType = 'plate'
+    a.loadComparison(entries(2))
+    expect(a.displayMode).toBe('comparison')
+    a.startTapSequence({ arm: false })
+    expect(a.displayMode).toBe('live')
+    expect(a.comparisonEntries).toHaveLength(0)
+    expect(a.materialTapPhase).toBe('capturingL') // and the phase machine did re-arm
+  })
+
+  it('New Tap returns to live from a comparison — GUITAR type', () => {
+    const a = sut()
+    a.measurementType = 'classical'
+    a.loadComparison(entries(2))
+    a.startTapSequence({ arm: false })
+    expect(a.displayMode).toBe('live')
+    expect(a.comparisonEntries).toHaveLength(0)
+  })
+
+  it('the multi-tap overlay enters comparison, and leaving it returns to frozen', () => {
+    const a = sut()
+    a.setMultiTapComparison(true)
+    expect(a.displayMode).toBe('comparison')
+    a.setMultiTapComparison(false)
+    expect(a.displayMode).toBe('frozen')
+  })
+
+  it('isSavedMeasurementComparison separates the two kinds of comparison', () => {
+    // Both set displayMode to 'comparison'; only the saved-measurement overlay is "the"
+    // comparison for save/export/annotation routing. Swift isSavedMeasurementComparison.
+    const a = sut()
+    a.loadComparison(entries(2))
+    expect(a.isSavedMeasurementComparison).toBe(true)
+    a.setMultiTapComparison(true)
+    expect(a.displayMode).toBe('comparison')
+    expect(a.isSavedMeasurementComparison).toBe(false)
+  })
+
+  it('loading a saved comparison record drops the per-tap overlay first', () => {
+    const a = sut()
+    a.setMultiTapComparison(true)
+    a.loadComparisonRecord(entries(3))
+    expect(a.displayMode).toBe('comparison')
+    expect(a.showingMultiTapComparison).toBe(false)
+    expect(a.isSavedMeasurementComparison).toBe(true)
+  })
+
+  it('frozen and comparison are mutually exclusive — the state that used to be representable', () => {
+    const a = sut()
+    a.loadMeasurement({ magnitudes: [-30, -20], frequencies: [100, 200] })
+    expect(a.displayMode).toBe('frozen')
+    a.loadComparison(entries(2))
+    expect(a.displayMode).toBe('comparison') // one value, so it cannot be both
   })
 })

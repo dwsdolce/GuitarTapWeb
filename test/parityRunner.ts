@@ -112,7 +112,7 @@ export async function playMaterial(
   )
   engine.initForTesting()
   analyzer.setDevice(engine)
-  analyzer.startMaterial(false) // arm the analyzer's phase machine (playFile arms the device for playback)
+  analyzer.startTapSequence({ arm: false }) // arm the analyzer's phase machine (playFile arms the device for playback)
   await engine.playFile(wav.samples, wav.sampleRate, {
     material: { brace, measureFlc: reg.settings.measureFlc ?? false, calibration: loadCal(reg.calibration) },
   })

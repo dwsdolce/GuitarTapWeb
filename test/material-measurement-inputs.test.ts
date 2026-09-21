@@ -6,16 +6,16 @@
 // crucially — loading NEVER writes the Settings defaults (the origin bug this design fixes). See
 // Development/MEASUREMENT-DIMENSIONS-SPEC.md.
 //
-// WEB DIVERGENCE (why this file doesn't mirror the canonical 1:1): on Swift/Python, Store B and
-// loadedNotes are analyzer state and the seed fires in `isMeasurementComplete.didSet`, so the canonical
-// tests drive the analyzer directly. On the web, Store B (`matInputs`) and `loadedNotes` live in App.tsx
-// state, the seed is a guarded `useEffect`, and there is no component-test harness. So the canonical
-// SEED-GATING cases (materialInputs nil until complete / no seed for guitar / no seed while loading —
-// Swift `doesNotSeedStoreB*`) and the loadedNotes STATE cases (`loadRestoresNotesForReSave` /
-// `loadTreatsBlankNotesAsNil`) are React behaviour, covered by the V-A / V-C run-review. What IS
-// unit-testable is the SOURCING at the pure `fromLive`/helper layer — the seed's data mapping, load →
-// Store B, "Settings untouched" (= settingsPatch carries no dimensions), and save reading Store B — which
-// is what the origin bug was actually about. Those are here.
+// The SEED-GATING cases below drive the analyzer directly, exactly as Swift and Python do. They could
+// not be written until #17 F26 moved Store B onto the analyzer and the seed into
+// `isMeasurementComplete`'s setter: while the seed was a guarded `useEffect` in App.tsx, this file's
+// header recorded the three canonical cases as untestable "React behaviour, covered by run-review".
+// That is METHOD rule 4 — an n/a resting on the view driving the model is a finding, not a difference.
+//
+// The loadedNotes STATE cases (`loadRestoresNotesForReSave` / `loadTreatsBlankNotesAsNil`) remain
+// App.tsx state and are still run-review territory. The SOURCING cases at the pure `fromLive`/helper
+// layer — the seed's data mapping, load → Store B, "Settings untouched" (= settingsPatch carries no
+// dimensions), and save reading Store B — are here too.
 
 import { describe, it, expect } from 'vitest'
 import { DEFAULT_SETTINGS, type Settings } from '../src/settings'
@@ -24,6 +24,7 @@ import {
   type MaterialMeasurementInputs,
 } from '../src/measurement/materialMeasurementInputs'
 import { measurementToLiveMaterial, buildMaterialMeasurement } from '../src/measurement/fromLive'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 
 /** A minimal loadable plate measurement whose snapshot carries its own dimensions (mirrors the
@@ -115,6 +116,78 @@ describe('seed at complete — materialInputsFromSettings maps the Settings temp
 // ── Load sets Store B without clobbering Settings — the origin bug ────────────────────────────────────
 // (Swift loadSetsStoreBFromSnapshotAndLeavesSettingsUntouched.) On the web, load applies
 // `settingsPatch` to Settings; "Settings untouched" therefore means the patch carries NO dimensions.
+
+// ── Seed gating — the didSet rules, mirroring Swift doesNotSeedStoreB* / Python's equivalents ──
+// Store B is seeded from Settings at the material completion TRANSITION and at no other moment.
+
+/** An analyzer with the plate dimensions of the Swift fixture pushed in, as App's layout effect does. */
+function seedSUT(type: 'plate' | 'brace' | 'classical'): TapToneAnalyzer {
+  const s = new TapToneAnalyzer()
+  s.measurementType = type
+  s.setSettings({
+    ...DEFAULT_SETTINGS,
+    measurementType: type,
+    plateLength: 501, plateWidth: 201, plateThickness: 4.5, plateMass: 210,
+    plateStiffnessPreset: 'classicalTop',
+  })
+  return s
+}
+
+describe('seed gating — Store B is seeded at the completion transition and nowhere else', () => {
+  // Mirrors Swift seedsStoreBFromSettingsWhenPlateCompletes / Python
+  // test_seeds_store_b_from_settings_when_plate_completes.
+  it('plate completion seeds Store B from Settings', () => {
+    const s = seedSUT('plate')
+    expect(s.materialInputs).toBeNull() // null until the measurement completes
+    s.isMeasurementComplete = true
+    expect(s.materialInputs).not.toBeNull()
+    expect(s.materialInputs!.lengthMm).toBe(501)
+    expect(s.materialInputs!.widthMm).toBe(201)
+    expect(s.materialInputs!.thicknessMm).toBe(4.5)
+    expect(s.materialInputs!.massG).toBe(210)
+  })
+
+  // Mirrors Swift doesNotSeedStoreBForGuitar / Python test_does_not_seed_store_b_for_guitar.
+  it('guitar completion does not seed Store B', () => {
+    const s = seedSUT('classical')
+    s.isMeasurementComplete = true
+    expect(s.materialInputs).toBeNull() // guitar has no material dimensions
+  })
+
+  // Mirrors Swift doesNotSeedStoreBWhileLoading / Python test_does_not_seed_store_b_while_loading.
+  it('completion while loading does not seed Store B', () => {
+    const s = seedSUT('plate')
+    s.isLoadingMeasurement = true
+    s.isMeasurementComplete = true // the load path sets complete; the seed must be suppressed
+    expect(s.materialInputs).toBeNull() // load sets Store B from the snapshot instead
+    s.isLoadingMeasurement = false
+  })
+
+  // The guard is the TRANSITION, not "Store B is empty". This is the case the old useEffect got
+  // wrong: guarded on `matInputs == null`, it re-seeded from Settings whenever Store B was cleared
+  // while still complete. Swift and Python, having spent their one transition, do not (#17 F26).
+  it('re-asserting completion does not re-seed a cleared Store B', () => {
+    const s = seedSUT('plate')
+    s.isMeasurementComplete = true
+    expect(s.materialInputs).not.toBeNull()
+    s.materialInputs = null           // something clears Store B while still complete
+    s.isMeasurementComplete = true    // no transition — must not re-seed
+    expect(s.materialInputs).toBeNull()
+  })
+
+  // restoreMaterial holds isLoadingMeasurement across the completion assignment, so a load shows the
+  // file's own dimensions. Mirrors Swift loadMeasurement holding the flag across the whole restore.
+  it('restoreMaterial keeps the file dimensions instead of re-seeding', () => {
+    const s = seedSUT('plate')
+    const loaded: MaterialMeasurementInputs = materialInputsFromSettings('plate', {
+      ...DEFAULT_SETTINGS, plateLength: 111, plateWidth: 222, plateThickness: 3.33, plateMass: 44,
+    })
+    s.restoreMaterial({ matSpectra: s.matSpectra, matPeaks: s.matPeaks, materialInputs: loaded })
+    expect(s.isMeasurementComplete).toBe(true)
+    expect(s.materialInputs!.lengthMm).toBe(111) // the file's dims, not the 501 Settings template
+    expect(s.isLoadingMeasurement).toBe(false)   // the window is closed again
+  })
+})
 
 describe('load sets Store B from the snapshot and never clobbers the Settings template', () => {
   const r = measurementToLiveMaterial(plateMeasurement())

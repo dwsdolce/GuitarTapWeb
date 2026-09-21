@@ -411,7 +411,7 @@ describe('frozen-peak-recalc — annotation offsets on the analyzer (RB)', () =>
     const a = new TapToneAnalyzer()
     a.measurementType = 'brace'
     a.numberOfTaps = 1
-    a.startMaterial(false) // no device needed — arm/session calls are optional-chained
+    a.startTapSequence({ arm: false }) // no device needed — arm/session calls are optional-chained
     const s = makeSpectrum(300, -30) // brace search band is 100–1200 Hz
     a.recordMaterialTap({ magnitudesDb: s.mags, frequencies: s.freqs })
     const lp = a.matPeaks.longitudinal

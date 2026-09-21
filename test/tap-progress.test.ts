@@ -11,7 +11,7 @@
 //   tapProgress    = min(1, currentTapCount / (guitar ? numberOfTaps : totalPlateTaps))
 //   currentTapCount (material) is CUMULATIVE, and rebases to the prior phases' taps on Accept/Redo
 //                                                                        [Swift Control:465-487]
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import type { Spectrum } from '../src/dsp/guitarFFT'
@@ -33,6 +33,8 @@ function fakeDevice(playingFile = false): RealtimeFFTAnalyzer {
     playingFile,
     activeCalibration: null,
     armMaterial() {},
+    arm() {},
+    disarm() {},
     checkpointSession() {},
     redoSession() {},
     startSessionRecording() {},
@@ -48,7 +50,7 @@ function material(type: 'plate' | 'brace', taps: number, flc = false): TapToneAn
   a.measureFlc = flc
   a.setNumberOfTaps(taps)
   a.setDevice(fakeDevice())
-  a.startMaterial(false)
+  a.startTapSequence({ arm: false })
   return a
 }
 
@@ -235,5 +237,42 @@ describe('loadMeasurement tears down an interrupted capture', () => {
     expect(a.isDetecting).toBe(false)
     expect(a.currentTapCount).toBe(0)
     expect(a.materialTapPhase).toBe('complete')
+  })
+})
+
+// ── FLC cooldown cancellation ───────────────────────────────────────────────
+// Accepting fC schedules a cooldown, after which detection re-arms for the FLC tap. If the user
+// restarts (Cancel / New Tap) before it elapses, that timer must not drag the fresh sequence into
+// the FLC phase. Swift shipped without any protection until #17 — its asyncAfter cannot be
+// cancelled — so the re-arm fired into whatever was running 0.5 s later. Pinned in all three now.
+//
+// The web is protected TWICE: startTapSequence cancels the pending timer, and the callback also
+// guards on the phase. Swift and Python have only the guard, their scheduled work being
+// uncancellable. So a single-mutation check survives here and fails there; removing BOTH web
+// mechanisms fails this case, which is what makes it load-bearing.
+describe('the FLC cooldown does not re-arm a restarted sequence', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('a restart during the cooldown leaves the fresh sequence alone', () => {
+    vi.useFakeTimers()
+    const a = material('plate', 1, true)
+    a.recordMaterialTap(L_TAP())
+    a.acceptMaterial() // reviewingL -> capturingC
+    a.recordMaterialTap(C_TAP())
+    expect(a.materialTapPhase).toBe('reviewingC')
+
+    a.acceptMaterial() // -> waitingForFlcTap, schedules the re-arm
+    expect(a.materialTapPhase).toBe('waitingForFlcTap')
+
+    a.startTapSequence({ arm: false }) // the user restarts before the cooldown elapses
+    const phaseAfterRestart = a.materialTapPhase
+    expect(phaseAfterRestart).not.toBe('waitingForFlcTap')
+
+    vi.advanceTimersByTime(2000) // let the cooldown fire against the restarted sequence
+
+    expect(a.materialTapPhase).toBe(phaseAfterRestart)
+    expect(a.materialTapPhase).not.toBe('capturingFlc')
   })
 })

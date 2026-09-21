@@ -213,6 +213,24 @@ export class RealtimeFFTAnalyzer {
   // real audio at exit. Measured on the audio clock, never the wall clock: the warm-up must cover the
   // first 0.5 s of AUDIO however long setup took. `null` = not armed / warm-up skipped.
   private warmupStartAudioTime: number | null = null
+
+  // A re-arm requested while a capture is in flight. Arming is a REQUEST on the web — the engine owns
+  // the detector — where Swift and Python just assign `isDetecting = true`, which cannot be refused.
+  // A dropped request left the app permanently deaf with no retry and no signal: the plate FLC phase
+  // showed its prompt, the spectrum and level meter kept running, and no tap ever registered until a
+  // restart. So a refusal is now remembered and applied when the capture completes, and every refusal
+  // is logged with the state that caused it.
+  private pendingArm: { kind: 'guitar' } | { kind: 'material'; search: MaterialSearch } | null = null
+
+  /** Apply an arm that was deferred because a capture was in flight. */
+  private applyPendingArm(): void {
+    const p = this.pendingArm
+    if (p === null || this.state !== 'idle') return
+    this.pendingArm = null
+    console.warn(`[engine] deferred ${p.kind} arm applied after the capture completed`)
+    if (p.kind === 'guitar') this.arm()
+    else this.armMaterial(p.search)
+  }
   private justExitedWarmup = false
 
   // Ring-out (decay) tracking — guitar only; fed the broadband level per chunk on an audio clock.
@@ -380,7 +398,15 @@ export class RealtimeFFTAnalyzer {
 
   /** Arm guitar tap detection (New Tap). Starts a fresh tap sequence. */
   arm(): void {
-    if (!this.running || this.state === 'capturing') return
+    if (!this.running) {
+      console.warn('[engine] guitar arm refused: engine not running')
+      return
+    }
+    if (this.state === 'capturing') {
+      this.pendingArm = { kind: 'guitar' }
+      console.warn('[engine] guitar arm deferred: a capture is in flight')
+      return
+    }
     this.captureKind = 'guitar'
     this.capture = this.guitarCapture
     this.guitarTapCount = 0
@@ -403,7 +429,15 @@ export class RealtimeFFTAnalyzer {
    *  file-playback auto-advance; the analyzer owns the tap count + progress, so this only resets the
    *  level-crossing warm-up and re-arms. Called after finishCapture has disarmed (state 'idle'). */
   armMaterial(search: MaterialSearch): void {
-    if (!this.running || this.state === 'capturing') return
+    if (!this.running) {
+      console.warn('[engine] material arm refused: engine not running')
+      return
+    }
+    if (this.state === 'capturing') {
+      this.pendingArm = { kind: 'material', search }
+      console.warn('[engine] material arm deferred: a capture is in flight')
+      return
+    }
     this.captureKind = 'material'
     this.materialSearch = search
     this.capture = this.materialCapture
@@ -419,6 +453,7 @@ export class RealtimeFFTAnalyzer {
 
   /** Cancel an armed/listening sequence (no effect mid-capture). */
   disarm(): void {
+    this.pendingArm = null // a deferred arm must not resurrect detection over a frozen result
     if (this.state === 'listening') this.setState('idle')
   }
 
@@ -1163,6 +1198,9 @@ export class RealtimeFFTAnalyzer {
       this.captureIdx = 0
       this.setState('idle')
       this.callbacks.onMaterialTap?.({ magnitudesDb, frequencies })
+      // After the callback: it arms the next phase synchronously during file playback, and that
+      // arm wins. Only a request that was refused WHILE capturing is applied here.
+      this.applyPendingArm()
       return
     }
 
@@ -1192,6 +1230,7 @@ export class RealtimeFFTAnalyzer {
       this.prevAbove = true
       this.consecutive = 0
       this.callbacks.onProgress?.(this.guitarTapCount, total)
+      this.pendingArm = null // the sequence re-armed itself; a deferred request is stale
       this.setState('listening')
       return
     }
@@ -1201,6 +1240,7 @@ export class RealtimeFFTAnalyzer {
     this.finishSessionRecording(`Guitar_${total}tap`) // write the continuous session WAV (dump-gated)
     this.setState('idle')
     this.callbacks.onGuitarComplete?.() // sequence done — the analyzer averages the accumulated taps
+    this.applyPendingArm()
   }
 
   async stop(): Promise<void> {

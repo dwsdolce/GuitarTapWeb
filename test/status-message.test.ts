@@ -34,6 +34,8 @@ function fakeDevice(playingFile = false): RealtimeFFTAnalyzer {
     playingFile,
     activeCalibration: null,
     armMaterial() {},
+    arm() {},
+    disarm() {},
     checkpointSession() {},
     redoSession() {},
     startSessionRecording() {},
@@ -142,12 +144,12 @@ describe('statusMessage — material phase strings', () => {
   it('plate + brace capturingL both arm at "Ready for fL tap" (mirrors Swift)', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
-    a.startMaterial(false)
+    a.startTapSequence({ arm: false })
     expect(a.statusMessage).toBe('Ready for fL tap')
 
     const b = new TapToneAnalyzer()
     b.measurementType = 'brace'
-    b.startMaterial(false)
+    b.startTapSequence({ arm: false })
     expect(b.statusMessage).toBe('Ready for fL tap')
   })
 
@@ -201,7 +203,7 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     a.measurementType = 'plate'
     a.setNumberOfTaps(3)
     a.setDevice(fakeDevice())
-    a.startMaterial(false)
+    a.startTapSequence({ arm: false })
     a.recordMaterialTap(spectrum(60)) // fL bump in 20–100 Hz
     expect(a.statusMessage).toBe('fL tap 1/3 captured. Tap again...')
     a.recordMaterialTap(spectrum(60))
@@ -216,7 +218,7 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     a.measurementType = 'plate'
     a.setNumberOfTaps(1)
     a.setDevice(fakeDevice())
-    a.startMaterial(false)
+    a.startTapSequence({ arm: false })
     a.recordMaterialTap(spectrum(null)) // flat → no dominant peak
     expect(a.statusMessage).toBe('No resonance detected — tap again')
     expect(a.materialTapPhase).toBe('capturingL') // did NOT advance
@@ -228,7 +230,7 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     a.measurementType = 'plate'
     a.setNumberOfTaps(1)
     a.setDevice(fakeDevice(true)) // playingFile = true
-    a.startMaterial(false)
+    a.startTapSequence({ arm: false })
     a.recordMaterialTap(spectrum(60)) // 1/1 → phase complete → auto-advance (playing)
     expect(a.materialTapPhase).toBe('capturingC')
     expect(a.statusMessage).toBe('File: fL complete, capturing fC...')
@@ -247,7 +249,7 @@ describe('statusMessage — removed web-only inventions are never produced', () 
     b.measurementType = 'brace'
     b.setDevice(fakeDevice())
     b.setNumberOfTaps(1)
-    b.startMaterial(false)
+    b.startTapSequence({ arm: false })
     seen.push(b.statusMessage)
     b.recordMaterialTap(spectrum(150)) // brace L range 100–1200 → complete
     seen.push(b.statusMessage)
