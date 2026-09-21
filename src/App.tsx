@@ -389,7 +389,7 @@ export default function App() {
     comparisonRef.current = false
     analyzer.resetMaterial()
     armForCurrentType()
-  }, [analyzer, settings.measurementType, guitarType, armForCurrentType])
+  }, [analyzer, settings.measurementType, guitarType, armForCurrentType, setLoadedPeaks])
 
   // Stable capture-result callback the engine's once-registered handler delegates to. The guitar tap
   // sequence finished: average the analyzer's accumulated taps into the frozen result (which also
@@ -406,7 +406,7 @@ export default function App() {
     setShowMultiTap(false)
     setComparison(null)
     analyzer.processMultipleTaps() // average capturedTaps → frozen + per-tap (notifies the snapshot)
-  }, [analyzer])
+  }, [analyzer, setLoadedPeaks])
   // Continuous session WAV (one per measurement) — the engine already gated it on the dump setting.
   const onSessionAudio = useCallback((samples: Float32Array, sr: number, label: string) => {
     dumpCaptureWav(samples, sr, `session_${label}`)
@@ -478,7 +478,7 @@ export default function App() {
     } catch (e) {
       setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
     }
-  }, [analyzer, setError])
+  }, [analyzer, setError, setLoadedPeaks])
 
   // Re-enumerate inputs whenever the Settings dialog opens, so a freshly-plugged
   // microphone shows up in the device picker without a reload.
@@ -502,7 +502,7 @@ export default function App() {
     setLoadedView(null) // drop the loaded measurement's transient axis range
     setMatInputs(null)  // drop Store B — a fresh material capture re-seeds it from Settings at complete
     setShowLoadedSettings(false)
-  }, [])
+  }, [setLoadedPeaks])
 
   const newTap = useCallback(() => {
     clearLoadedMeasurement()
@@ -650,7 +650,7 @@ export default function App() {
     if (!captured) return
     setLoadedPeaks(null)
     resetSelection()
-  }, [captured, resetSelection])
+  }, [captured, resetSelection, setLoadedPeaks])
 
   const labelFor = (p: Peak, mode: ResolvedMode) => overrides.get(p.id) ?? MODE_DISPLAY_NAME[mode]
 
@@ -905,7 +905,7 @@ export default function App() {
         userModified,
       })
     },
-    [comparison, material, matSpectra, matPeaks, matInputs, brace, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, loadedDecayTime, loadedPeaks, userModified, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId],
+    [comparison, material, matSpectra, matPeaks, matInputs, brace, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, loadedDecayTime, userModified, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId],
   )
 
   const onSaveMeasurement = useCallback(
@@ -1080,7 +1080,7 @@ export default function App() {
       // that silently replaces the loaded result (onGuitarCapture clears loadedPeaks/Name/View).
       engineRef.current?.disarm()
     },
-    [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, setView],
+    [analyzer, settings.measurementType, updateSettings, deviceLabel, sampleRate, setView, setLoadedPeaks],
   )
 
   // Create a comparison from ≥2 selected library measurements (mirrors Swift loadComparison).
@@ -1101,7 +1101,7 @@ export default function App() {
     // Freeze the comparison: stop the always-on listener so a stray tap can't clobber it
     // (mirrors Swift displayMode == .comparison). New Tap re-arms.
     engineRef.current?.disarm()
-  }, [analyzer, setView])
+  }, [analyzer, setView, setLoadedPeaks])
 
   // Comparison chart overlays + results rows (derived from the active comparison entries).
   const comparisonOverlays = useMemo<SpectrumOverlay[]>(
