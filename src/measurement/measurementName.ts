@@ -18,3 +18,14 @@ export function normalizedMeasurementName(name: string): string | undefined {
   const trimmed = name.trim()
   return trimmed.length > 0 ? trimmed : undefined
 }
+
+/** The notes to store: trimmed, or undefined if blank.
+ *
+ *  The two user-entered text fields normalize the same way, so "has this been edited" means the
+ *  same thing for both. This edition already trimmed notes; Swift stored them verbatim and Python
+ *  trimmed in the edit dialog but not on the save path, so the three disagreed on whether retyping
+ *  whitespace counted as an edit. All three now share this rule. See SLUG-SWEEP.md F21. */
+export function normalizedMeasurementNotes(notes: string): string | undefined {
+  const trimmed = notes.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}

@@ -10,6 +10,7 @@ import type { MaterialPeak } from '../dsp/gatedCapture'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { exportStem } from './exportFilename'
+import { normalizedMeasurementNotes } from './measurementName'
 import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME, effectiveMode } from '../presentation/modeColors'
 import { effectiveSelectedPeakIDs, isMaterialMeasurement } from './types'
@@ -178,7 +179,7 @@ export function buildGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurem
     peaks: peakModels,
     decayTime: a.decayTime ?? undefined,
     measurementName: a.name.trim() || undefined,
-    notes: a.notes.trim() || undefined,
+    notes: normalizedMeasurementNotes(a.notes),
     spectrumSnapshot: snapshot,
     selectedPeakIDs: selected.map((p) => idForNumeric.get(p.id)!),
     userModifiedSelection: a.userModified ?? false,
@@ -687,7 +688,7 @@ export function buildMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasureme
     timestamp,
     peaks,
     measurementName: a.name.trim() || undefined,
-    notes: a.notes.trim() || undefined,
+    notes: normalizedMeasurementNotes(a.notes),
     longitudinalSnapshot: a.spectra.longitudinal ? makeSnap(a.spectra.longitudinal) : undefined,
     crossSnapshot: a.spectra.cross ? makeSnap(a.spectra.cross) : undefined,
     flcSnapshot: a.spectra.flc ? makeSnap(a.spectra.flc) : undefined,
@@ -849,7 +850,7 @@ export function buildComparisonMeasurement(a: { name: string; notes: string; ent
     timestamp: isoNow(),
     peaks: [],
     measurementName: a.name.trim() || undefined,
-    notes: a.notes.trim() || undefined,
+    notes: normalizedMeasurementNotes(a.notes),
     comparisonEntries: a.entries,
   }
 }

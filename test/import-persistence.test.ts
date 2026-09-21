@@ -3,23 +3,33 @@
 // Port of ImportPersistenceTests.swift / test_import_persistence.py (IP1–IP3): importing a measurement
 // persists it to the library and successive imports APPEND rather than overwrite. The web's library is the
 // IndexedDB `measurement` store (store.ts) — the browser equivalent of the native `saved_measurements.json`
-// file — so `fake-indexeddb/auto` provides IndexedDB in the node test env. The import path mirrors
-// MeasurementsPanel.onImportFile: parseGuitarTapFile → re-id each measurement (so a re-import appends,
-// matching Swift `importMeasurements`) → saveMeasurement.
+// file — so `fake-indexeddb/auto` provides IndexedDB in the node test env.
+//
+// The extra cases below the IP set pin this edition's DATASET-IDENTITY rules, which the natives get for
+// free from an ordered array and this one has to arrange deliberately (SLUG-SWEEP.md F19a):
+//
+//   `id`     — the measurement's dataset identity. Travels in the file, survives import unchanged, is
+//              re-minted whenever the data changes (including a name or notes edit). Duplicate imports
+//              SHARE it, exactly as they do in Swift and Python.
+//   `rowKey` — library-local row handle, minted per insert, never written to a file. Rows are addressed
+//              by this, which is why an edit that changes `id` still replaces its row instead of adding one.
+//
+// Until the #17 sweep import overwrote `id` with a fresh value, which is what made a re-import append. That
+// destroyed the dataset identity of every file imported here — and, because export writes `id`, of every
+// file exported from here too.
 import 'fake-indexeddb/auto'
 import { describe, it, expect, beforeEach } from 'vitest'
-import { saveMeasurement, listMeasurements, clearMeasurements } from '../src/measurement/store'
+import {
+  saveMeasurement,
+  listMeasurements,
+  clearMeasurements,
+  importMeasurements,
+} from '../src/measurement/store'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 import { newMeasurementId } from '../src/measurement/fromLive'
 
 function minimal(name = 'Test'): TapToneMeasurementModel {
   return { id: newMeasurementId(), timestamp: '2026-01-01T00:00:00.000Z', peaks: [], measurementName: name }
-}
-
-/** The web's "import a .guitartap file into the library" — parse, RE-ID (append, not overwrite by id,
- *  mirroring Swift `importMeasurements`), and save each. Mirrors MeasurementsPanel.onImportFile. */
-async function importFile(text: string): Promise<void> {
-  for (const m of parseGuitarTapFile(text)) await saveMeasurement({ ...m, id: newMeasurementId() })
 }
 
 beforeEach(async () => {
@@ -28,7 +38,7 @@ beforeEach(async () => {
 
 describe('import-persistence — IndexedDB library (IP1–IP3)', () => {
   it('IP1: importing a measurement adds it to the library', async () => {
-    await importFile(serializeGuitarTapFile([minimal()]))
+    await importMeasurements(serializeGuitarTapFile([minimal()]))
     const list = await listMeasurements()
     expect(list).toHaveLength(1)
     expect(list[0]!.measurementName).toBe('Test')
@@ -42,13 +52,80 @@ describe('import-persistence — IndexedDB library (IP1–IP3)', () => {
     expect(list.map((m) => m.measurementName)).toContain('Persisted')
   })
 
-  it('IP3: a second import of the same file APPENDS (re-ided), not overwrite', async () => {
+  it('IP3: a second import of the same file APPENDS, not overwrite', async () => {
     const text = serializeGuitarTapFile([minimal()])
-    await importFile(text)
+    await importMeasurements(text)
     const afterFirst = (await listMeasurements()).length
-    await importFile(text)
+    await importMeasurements(text)
     const afterSecond = (await listMeasurements()).length
     expect(afterSecond).toBe(afterFirst + 1)
+  })
+})
+
+describe('import-persistence — dataset identity vs row handle', () => {
+  it('import preserves the file’s dataset id', async () => {
+    const original = minimal('Kept')
+    await importMeasurements(serializeGuitarTapFile([original]))
+    const [loaded] = await listMeasurements()
+    expect(loaded!.id).toBe(original.id)
+  })
+
+  it('a duplicate import gives two rows that SHARE the id and differ by rowKey', async () => {
+    const original = minimal('Twin')
+    const text = serializeGuitarTapFile([original])
+    await importMeasurements(text)
+    await importMeasurements(text)
+    const list = await listMeasurements()
+    expect(list).toHaveLength(2)
+    // Same dataset, imported twice — exactly what Swift and Python produce by appending.
+    expect(list[0]!.id).toBe(original.id)
+    expect(list[1]!.id).toBe(original.id)
+    // ...but two independent rows, which is why `id` cannot address one.
+    expect(list[0]!.rowKey).not.toBe(list[1]!.rowKey)
+  })
+
+  it('an edit mints a NEW dataset id and still replaces its row', async () => {
+    const original = minimal('Before')
+    await importMeasurements(serializeGuitarTapFile([original]))
+    const stored = (await listMeasurements())[0]!
+    // Mirrors MeasurementsPanel.commitEdit: new `id` (amended data is a different dataset),
+    // same `rowKey` (it is still that row).
+    await saveMeasurement({ ...stored, id: newMeasurementId(), measurementName: 'After' })
+    const list = await listMeasurements()
+    expect(list).toHaveLength(1)
+    expect(list[0]!.measurementName).toBe('After')
+    expect(list[0]!.rowKey).toBe(stored.rowKey)
+    expect(list[0]!.id).not.toBe(original.id)
+  })
+
+  it('editing one of two duplicates leaves the other alone and ends the shared id', async () => {
+    const original = minimal('Twin')
+    const text = serializeGuitarTapFile([original])
+    await importMeasurements(text)
+    await importMeasurements(text)
+    const [first, second] = await listMeasurements()
+    await saveMeasurement({ ...second!, id: newMeasurementId(), measurementName: 'Edited' })
+    const list = await listMeasurements()
+    expect(list.map((m) => m.measurementName)).toEqual(['Twin', 'Edited'])
+    expect(list[0]!.id).toBe(first!.id)
+    expect(list[0]!.id).not.toBe(list[1]!.id)
+  })
+
+  it('rowKey is library-local and never reaches the exported file', async () => {
+    await saveMeasurement(minimal('Exported'))
+    const stored = (await listMeasurements())[0]!
+    expect(stored.rowKey).toBeTypeOf('string')
+    const text = serializeGuitarTapFile([stored])
+    expect(text).not.toContain('rowKey')
+    expect(JSON.parse(text)[0].rowKey).toBeUndefined()
+  })
+
+  it('export after import round-trips the dataset id unchanged', async () => {
+    const original = minimal('Round Trip')
+    await importMeasurements(serializeGuitarTapFile([original]))
+    const stored = (await listMeasurements())[0]!
+    const reparsed = parseGuitarTapFile(serializeGuitarTapFile([stored]))
+    expect(reparsed[0]!.id).toBe(original.id)
   })
 })
 
@@ -60,12 +137,12 @@ describe('import-persistence — library save semantics', () => {
     expect((await listMeasurements()).map((m) => m.measurementName)).toEqual(['A', 'B', 'C'])
   })
 
-  it('re-saving the same id REPLACES (an edit), does not duplicate or jump to the end', async () => {
+  it('re-saving the same rowKey REPLACES (an edit), does not duplicate or jump to the end', async () => {
     await saveMeasurement(minimal('A'))
     await saveMeasurement(minimal('B'))
-    // Edit A the way the app does — load it back (carries its insertion stamp) then re-save.
+    // Edit A the way the app does — load it back (carries its rowKey and insertion stamp) then re-save.
     const loadedA = (await listMeasurements()).find((m) => m.measurementName === 'A')!
-    await saveMeasurement({ ...loadedA, measurementName: 'A-edited' })
+    await saveMeasurement({ ...loadedA, id: newMeasurementId(), measurementName: 'A-edited' })
     const list = await listMeasurements()
     expect(list).toHaveLength(2)
     // A stays in its original position (edit keeps its insertion stamp), with the new name.
@@ -74,7 +151,7 @@ describe('import-persistence — library save semantics', () => {
 
   it('a round-tripped import preserves the measurement fields', async () => {
     const original = minimal('Round Trip')
-    await importFile(serializeGuitarTapFile([original]))
+    await importMeasurements(serializeGuitarTapFile([original]))
     const [loaded] = await listMeasurements()
     expect(loaded!.measurementName).toBe('Round Trip')
     expect(loaded!.timestamp).toBe(original.timestamp)

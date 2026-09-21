@@ -1,11 +1,19 @@
 // @parity view/measurements-list
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { listMeasurements, deleteMeasurement, saveMeasurement, clearMeasurements } from '../measurement/store'
-import { measurementTapToneRatio, guitarTapFilename, newMeasurementId } from '../measurement/fromLive'
+import {
+  listMeasurements,
+  deleteMeasurement,
+  saveMeasurement,
+  clearMeasurements,
+  importMeasurements,
+} from '../measurement/store'
+import { measurementTapToneRatio, guitarTapFilename } from '../measurement/fromLive'
+import { isAmended, amendMeasurement } from '../measurement/amend'
+import { normalizedMeasurementName, normalizedMeasurementNotes } from '../measurement/measurementName'
 import { exportStem } from '../measurement/exportFilename'
 import { formatDisplayDate } from '../format/date'
-import { parseGuitarTapFile, serializeGuitarTapFile, type TapToneMeasurementModel } from '../measurement'
+import { serializeGuitarTapFile, type TapToneMeasurementModel } from '../measurement'
 import { MeasurementDetail } from './MeasurementDetail'
 import { menuPlacement } from './menuPlacement'
 import { exportSpectrumPng } from '../presentation/spectrumExport'
@@ -64,6 +72,16 @@ const isComparable = (m: TapToneMeasurementModel): boolean => m.spectrumSnapshot
 const isInstalled = (): boolean =>
   window.matchMedia?.('(display-mode: standalone)').matches ||
   (window.navigator as unknown as { standalone?: boolean }).standalone === true
+
+/**
+ * The library-local handle for a stored row. Every measurement that came out of the store carries
+ * one, so the assertion is safe here; `rowKey` is optional on the model only because a freshly
+ * captured or just-parsed measurement has not been stored yet.
+ *
+ * Rows are addressed by this and never by `id`: `id` is the DATASET identity, which duplicate
+ * imports share and which an edit re-mints. See SLUG-SWEEP.md F19a.
+ */
+const keyOf = (m: TapToneMeasurementModel): string => m.rowKey as string
 
 export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPanelProps) {
   const [items, setItems] = useState<TapToneMeasurementModel[] | null>(null)
@@ -125,33 +143,43 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
     if (e.button !== 0) return // primary button / touch only
     const now = e.timeStamp
     const prev = lastTap.current
-    if (prev && prev.id === m.id && now - prev.t < 350) {
+    if (prev && prev.id === keyOf(m) && now - prev.t < 350) {
       lastTap.current = null
       onLoad(m)
     } else {
-      lastTap.current = { id: m.id, t: now }
+      lastTap.current = { id: keyOf(m), t: now }
     }
   }
 
   const beginEdit = (m: TapToneMeasurementModel) => {
     setMenuId(null)
-    setEditingId(m.id)
+    setEditingId(keyOf(m))
     setDraftName(m.measurementName ?? '')
     setDraftNotes(m.notes ?? '')
   }
+  /** The values Save would write, normalized by the model's own rules — the same ones the save
+   *  path uses — so the change test compares against what would actually be stored. */
+  const draftValues = (): [string | undefined, string | undefined] => [
+    normalizedMeasurementName(draftName),
+    normalizedMeasurementNotes(draftNotes),
+  ]
+
+  /** Whether Save would change anything — the gate on the Save button. The rule lives in
+   *  measurement/amend so all three platforms and their tests share one definition. */
+  const editHasChanges = (m: TapToneMeasurementModel): boolean => isAmended(m, ...draftValues())
+
   const commitEdit = async (m: TapToneMeasurementModel) => {
-    await saveMeasurement({
-      ...m,
-      measurementName: draftName.trim() || undefined,
-      notes: draftNotes.trim() || undefined,
-    })
+    // amendMeasurement mints a new dataset `id` — name and notes are part of a measurement's data,
+    // so an amended measurement is a different dataset. The row is held in place by `rowKey`, so
+    // this replaces the row rather than adding one.
+    await saveMeasurement(amendMeasurement(m, ...draftValues()))
     setEditingId(null)
     await refresh()
   }
   const remove = async (m: TapToneMeasurementModel) => {
     setMenuId(null)
     if (!window.confirm(`Delete "${m.measurementName ?? 'this measurement'}"? This cannot be undone.`)) return
-    await deleteMeasurement(m.id)
+    await deleteMeasurement(keyOf(m))
     await refresh()
   }
   const removeAll = async () => {
@@ -175,13 +203,13 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
     if (!isComparable(m)) return
     setSelected((s) => {
       const n = new Set(s)
-      if (n.has(m.id)) n.delete(m.id)
-      else n.add(m.id)
+      if (n.has(keyOf(m))) n.delete(keyOf(m))
+      else n.add(keyOf(m))
       return n
     })
   }
   const openComparison = () => {
-    const sel = (items ?? []).filter((m) => selected.has(m.id) && isComparable(m))
+    const sel = (items ?? []).filter((m) => selected.has(keyOf(m)) && isComparable(m))
     if (sel.length < 2) return
     onCompare(sel) // App builds the comparison, closes the panel
   }
@@ -246,12 +274,12 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
     e.target.value = '' // allow re-picking the same file
     if (!file) return
     try {
-      const parsed = parseGuitarTapFile(await file.text())
-      if (parsed.length === 0) throw new Error('No measurements found in the file.')
-      // Fresh id per import so re-importing the same file adds NEW library entries
-      // rather than overwriting by id — mirrors Swift `importMeasurements` (append).
-      const imported = parsed.map((m) => ({ ...m, id: newMeasurementId() }))
-      for (const m of imported) await saveMeasurement(m)
+      // The whole storage side of the import lives in store.importMeasurements, so what runs here
+      // is what the tests exercise. It keeps each measurement's `id` — the DATASET identity, which
+      // must survive the round trip as it does in Swift and Python — and mints the `rowKey` that
+      // makes a re-import append rather than overwrite. See SLUG-SWEEP.md F19a.
+      const imported = await importMeasurements(await file.text())
+      if (imported.length === 0) throw new Error('No measurements found in the file.')
       await refresh()
       if (imported.length === 1) onLoad(imported[0]!) // auto-load + close
     } catch (err) {
@@ -341,8 +369,8 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
               </p>
               <ul className="meas-list">
                 {items.map((m) =>
-                  editingId === m.id ? (
-                    <li key={m.id} className="meas-row editing">
+                  editingId === keyOf(m) ? (
+                    <li key={keyOf(m)} className="meas-row editing">
                       <input
                         type="text"
                         value={draftName}
@@ -360,27 +388,31 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                         <button className="btn mini" onClick={() => setEditingId(null)}>
                           Cancel
                         </button>
-                        <button className="btn mini btn-primary" onClick={() => void commitEdit(m)}>
+                        <button
+                          className="btn mini btn-primary"
+                          disabled={!editHasChanges(m)}
+                          onClick={() => void commitEdit(m)}
+                        >
                           Save
                         </button>
                       </div>
                     </li>
                   ) : (
                     <li
-                      key={m.id}
-                      className={`meas-row${comparing && selected.has(m.id) ? ' selected' : ''}${
+                      key={keyOf(m)}
+                      className={`meas-row${comparing && selected.has(keyOf(m)) ? ' selected' : ''}${
                         comparing && !isComparable(m) ? ' disabled' : ''
                       }`}
                       style={{ touchAction: 'manipulation' }}
                       onContextMenu={(e) => {
                         if (comparing) return
                         e.preventDefault()
-                        setMenuId(m.id)
+                        setMenuId(keyOf(m))
                       }}
                     >
                       {comparing && (
                         <span className="meas-check" aria-hidden="true">
-                          {!isComparable(m) ? '' : selected.has(m.id) ? '☑' : '☐'}
+                          {!isComparable(m) ? '' : selected.has(keyOf(m)) ? '☑' : '☐'}
                         </span>
                       )}
                       <div
@@ -414,11 +446,11 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                             title="Actions"
                             aria-haspopup="menu"
                             onClick={(e) => {
-                              if (menuId === m.id) {
+                              if (menuId === keyOf(m)) {
                                 setMenuId(null)
                               } else {
                                 setMenuRect(e.currentTarget.getBoundingClientRect())
-                                setMenuId(m.id)
+                                setMenuId(keyOf(m))
                               }
                             }}
                           >
@@ -440,7 +472,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
       {menuId &&
         menuRect &&
         (() => {
-          const m = items?.find((x) => x.id === menuId)
+          const m = items?.find((x) => keyOf(x) === menuId)
           if (!m) return null
           const style: CSSProperties = {
             position: 'fixed',
@@ -459,7 +491,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                 <Icon paths={ICON_LOAD} />
                 Load into View
               </button>
-              <button role="menuitem" onClick={() => { setMenuId(null); setDetailId(m.id) }}>
+              <button role="menuitem" onClick={() => { setMenuId(null); setDetailId(keyOf(m)) }}>
                 <Icon paths={ICON_DETAILS} />
                 View Details
               </button>
@@ -493,7 +525,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
       {/* Read-only detail inspector (⋯ → View Details). */}
       {detailId &&
         (() => {
-          const m = items?.find((x) => x.id === detailId)
+          const m = items?.find((x) => keyOf(x) === detailId)
           return m ? <MeasurementDetail measurement={m} onClose={() => setDetailId(null)} /> : null
         })()}
     </div>

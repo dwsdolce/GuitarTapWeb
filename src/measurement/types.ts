@@ -93,7 +93,29 @@ export interface TapToneMeasurementModel {
   // snapshot. Do NOT add a top-level `measurementType` and read it for logic (TypeScript already makes
   // such a read a compile error). The write-only top-level copy in the `.guitartap` FILE (encode.ts,
   // resolved from the snapshot at encode time) is a separate, fine thing — for external readers. See §12.
+  /**
+   * The measurement's DATASET identity, mirroring Swift `TapToneMeasurement.id`. It travels in
+   * the `.guitartap` file, survives import unchanged, and is re-minted whenever the data changes
+   * — including a name or notes edit, since those are part of the data. So two entries share an
+   * `id` exactly when they hold identical content, which is the state a duplicate import
+   * produces and which editing either one ends.
+   *
+   * It is deliberately NOT how the library addresses a row: duplicate imports share it. Rows are
+   * addressed by `rowKey`. Until the #17 sweep this field was doing both jobs, and import
+   * overwrote it — which destroyed the dataset identity of every file brought into this edition,
+   * and of every file exported from it. See SLUG-SWEEP.md F19a.
+   */
   id: string
+  /**
+   * Library-local row handle: unique per stored row, minted on insert, never written to a
+   * `.guitartap` file. It is this edition's equivalent of the natives' array position — they can
+   * address a row positionally because their library is an ordered array, where this one is a
+   * keyed object store and needs an explicit handle.
+   *
+   * Absent on a measurement that has not been stored yet (one built from live capture or just
+   * parsed from a file); `saveMeasurement` assigns it, exactly as it assigns `savedAt`.
+   */
+  rowKey?: string
   timestamp: string
   peaks: ResonantPeakModel[]
   decayTime?: number
