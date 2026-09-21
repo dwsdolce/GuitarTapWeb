@@ -8,6 +8,7 @@ import {
   MODE_BY_DISPLAY_NAME,
   USER_MODE_COLOR,
   QUICK_PICK_MODES,
+  ADDITIONAL_MODE_LABELS,
   magnitudeColor,
 } from '../presentation/modeColors'
 import {
@@ -104,9 +105,14 @@ export function PeakCard({
   const color = effMode ? MODE_COLOR[effMode] : USER_MODE_COLOR
   const ModeIcon = effMode ? MODE_ICON[effMode] : TagIcon
 
-  // Build the option list, ensuring the current value is present.
+  // Build the option list, ensuring the current value is present. Two groups, as in Swift's
+  // CombinedPeakModeRowView menu and Python's peak_card_widget: the standard tap-tone modes,
+  // then the extended T(m,n) labels for users who prefer the academic designations. The web had
+  // no extended group at all until the #17 sweep (SLUG-SWEEP.md F11).
   const options = [...QUICK_PICK_MODES]
-  if (!options.includes(effectiveLabel)) options.unshift(effectiveLabel)
+  const extended = [...ADDITIONAL_MODE_LABELS]
+  const isKnownOption = options.includes(effectiveLabel) || extended.includes(effectiveLabel)
+  if (!isKnownOption) options.unshift(effectiveLabel)
 
   const onPick = (val: string) => {
     if (val === RESET) return onResetLabel()
@@ -171,6 +177,14 @@ export function PeakCard({
                 {isManualOverride && l === effectiveLabel ? ' *' : ''}
               </option>
             ))}
+            <optgroup label="Extended modes">
+              {extended.map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                  {isManualOverride && l === effectiveLabel ? ' *' : ''}
+                </option>
+              ))}
+            </optgroup>
             <option value={CUSTOM}>Custom…</option>
           </select>
           <span className="freq">{peak.frequency.toFixed(1)} Hz</span>
