@@ -1,8 +1,16 @@
 // @parity tooling/mint-baseline
 // Mint this configuration's self-baseline — the zero-tolerance regression reference.
 //
-// Gated: it does nothing unless MINT_BASELINE=1, so a normal `vitest run` never writes.
-// Drive it through tooling/mint-baseline.sh rather than by hand.
+// NOT part of the suite. It lives in tooling/, outside the `test/**/*.test.ts` glob, so a normal
+// `vitest run` never loads it — the surest form of "this does not write during a test run". It was
+// in test/ behind a MINT_BASELINE=1 env gate until #17; that worked, but it left a permanently
+// skipped test in every run, and a standing skip teaches people to scroll past skips. The oracle
+// staleness check had been skipping loudly on every machine for months before anyone noticed
+// (SLUG-SWEEP.md F3), so the habit is not hypothetical.
+//
+// Drive it through tooling/mint-baseline.sh, which points vitest at tooling/vitest.mint.config.ts.
+// This mirrors Python's Tooling/mint-baseline.py, which pytest likewise never sees: running the
+// tool IS the explicit act, rather than a flag that un-skips something already loaded.
 //
 // Minting is deliberately separate from checking. A suite that minted its own expectations
 // could never fail — delete the file, run the tests, and whatever the machine produces today
@@ -23,10 +31,8 @@ import { describe, it } from 'vitest'
 import { writeFileSync } from 'node:fs'
 import { arch, env, platform, versions } from 'node:process'
 import { cpus } from 'node:os'
-import { computeAll, oracle } from './parityRunner'
-import { baselinePath, configuration, configKey, flatten, load } from './selfBaseline'
-
-const enabled = env.MINT_BASELINE === '1'
+import { computeAll, oracle } from '../test/parityRunner'
+import { baselinePath, configuration, configKey, flatten, load } from '../test/selfBaseline'
 
 // Which tolerance governs a value, by the leaf its path ends in.
 const TOLERANCE_KEYS: Record<string, string> = {
@@ -100,7 +106,7 @@ function provenance(): Record<string, string> {
   }
 }
 
-describe.skipIf(!enabled)('mint the self-baseline', () => {
+describe('mint the self-baseline', () => {
   it('computes every oracle case and writes this configuration\'s baseline', async () => {
     const path = baselinePath()
     console.log(`Configuration: ${configKey()}`)

@@ -1,4 +1,6 @@
-// @parity model/mode-colors tests=test/mode-colors
+// @parity model/mode-colors tests=test/mode-colors,test/classify — the colour table is pinned by
+// test/mode-colors; MODE_LABEL, MODE_DISPLAY_NAME and the override-label resolution are pinned by
+// test/classify, where Swift and Python file them (#17 F10).
 import type { ResolvedMode } from '../dsp/classify'
 
 /**

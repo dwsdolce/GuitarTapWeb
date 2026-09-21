@@ -13,9 +13,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-export MINT_BASELINE=1
 if [[ "${1:-}" == "--yes" ]]; then
   export MINT_BASELINE_YES=1
 fi
 
-npx vitest run test/mint-baseline.test.ts
+# The minter lives outside the suite's include glob, so it needs its own config to run at all.
+# That is the point: a normal `vitest run` cannot load it, rather than loading it and skipping.
+npx vitest run --config tooling/vitest.mint.config.ts

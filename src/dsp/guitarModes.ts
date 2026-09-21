@@ -4,7 +4,7 @@
  * especially); the context-aware claimer in
  * `findPeaks` / `classifyAll` resolves the overlaps.
  */
-// @parity dsp/guitar-modes
+// @parity dsp/guitar-modes tests=test/classify
 
 /** Guitar type selecting a set of mode bands. Mirrors Swift `GuitarType`. */
 export type GuitarTypeName = 'generic' | 'classical' | 'flamenco' | 'acoustic'
