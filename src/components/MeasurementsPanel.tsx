@@ -9,8 +9,8 @@ import {
   importMeasurements,
 } from '../measurement/store'
 import { measurementTapToneRatio, guitarTapFilename } from '../measurement/fromLive'
-import { isAmended, amendMeasurement } from '../measurement/amend'
-import { normalizedMeasurementName, normalizedMeasurementNotes } from '../measurement/measurementName'
+import { amendMeasurement } from '../measurement/amend'
+import { EditMeasurementSheet } from './EditMeasurementSheet'
 import { exportStem } from '../measurement/exportFilename'
 import { formatDisplayDate } from '../format/date'
 import { serializeGuitarTapFile, type TapToneMeasurementModel } from '../measurement'
@@ -105,8 +105,6 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
   }, [menuId])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [draftName, setDraftName] = useState('')
-  const [draftNotes, setDraftNotes] = useState('')
   const [importError, setImportError] = useState<string | null>(null)
   // Double-press detection works for mouse AND touch via pointer events (single tap is a
   // deliberate no-op, so double-press fires immediately — see the guidelines).
@@ -154,25 +152,16 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
   const beginEdit = (m: TapToneMeasurementModel) => {
     setMenuId(null)
     setEditingId(keyOf(m))
-    setDraftName(m.measurementName ?? '')
-    setDraftNotes(m.notes ?? '')
   }
-  /** The values Save would write, normalized by the model's own rules — the same ones the save
-   *  path uses — so the change test compares against what would actually be stored. */
-  const draftValues = (): [string | undefined, string | undefined] => [
-    normalizedMeasurementName(draftName),
-    normalizedMeasurementNotes(draftNotes),
-  ]
-
-  /** Whether Save would change anything — the gate on the Save button. The rule lives in
-   *  measurement/amend so all three platforms and their tests share one definition. */
-  const editHasChanges = (m: TapToneMeasurementModel): boolean => isAmended(m, ...draftValues())
-
-  const commitEdit = async (m: TapToneMeasurementModel) => {
-    // amendMeasurement mints a new dataset `id` — name and notes are part of a measurement's data,
-    // so an amended measurement is a different dataset. The row is held in place by `rowKey`, so
-    // this replaces the row rather than adding one.
-    await saveMeasurement(amendMeasurement(m, ...draftValues()))
+  /** Commit an amend from the edit sheet. amendMeasurement mints a new dataset `id` — name and
+   *  notes are part of a measurement's data, so an amended measurement is a different dataset. The
+   *  row is held in place by `rowKey`, so this replaces the row rather than adding one. */
+  const commitEdit = async (
+    m: TapToneMeasurementModel,
+    measurementName: string | undefined,
+    notes: string | undefined,
+  ) => {
+    await saveMeasurement(amendMeasurement(m, measurementName, notes))
     setEditingId(null)
     await refresh()
   }
@@ -368,37 +357,8 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
                 Total: {items.length} measurement{items.length === 1 ? '' : 's'}
               </p>
               <ul className="meas-list">
-                {items.map((m) =>
-                  editingId === keyOf(m) ? (
-                    <li key={keyOf(m)} className="meas-row editing">
-                      <input
-                        type="text"
-                        value={draftName}
-                        placeholder="Name"
-                        autoFocus
-                        onChange={(e) => setDraftName(e.target.value)}
-                      />
-                      <textarea
-                        rows={2}
-                        value={draftNotes}
-                        placeholder="Notes"
-                        onChange={(e) => setDraftNotes(e.target.value)}
-                      />
-                      <div className="meas-actions">
-                        <button className="btn mini" onClick={() => setEditingId(null)}>
-                          Cancel
-                        </button>
-                        <button
-                          className="btn mini btn-primary"
-                          disabled={!editHasChanges(m)}
-                          onClick={() => void commitEdit(m)}
-                        >
-                          Save
-                        </button>
-                      </div>
-                    </li>
-                  ) : (
-                    <li
+                {items.map((m) => (
+                  <li
                       key={keyOf(m)}
                       className={`meas-row${comparing && selected.has(keyOf(m)) ? ' selected' : ''}${
                         comparing && !isComparable(m) ? ' disabled' : ''
@@ -527,6 +487,19 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
         (() => {
           const m = items?.find((x) => keyOf(x) === detailId)
           return m ? <MeasurementDetail measurement={m} onClose={() => setDetailId(null)} /> : null
+        })()}
+
+      {/* Edit Name & Notes — a window, like the toolbar's Save and like both natives. */}
+      {editingId &&
+        (() => {
+          const m = items?.find((x) => keyOf(x) === editingId)
+          return m ? (
+            <EditMeasurementSheet
+              measurement={m}
+              onSave={(name, notes) => void commitEdit(m, name, notes)}
+              onClose={() => setEditingId(null)}
+            />
+          ) : null
         })()}
     </div>
   )

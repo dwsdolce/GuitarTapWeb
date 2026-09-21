@@ -35,14 +35,6 @@ export function SaveSheet({ defaultName = '', defaultNotes = '', onSave, onClose
       <div className="settings-modal save-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-modal-head">
           <h2>Save Measurement</h2>
-          <div className="set-head-buttons">
-            <button className="btn" onClick={onClose}>
-              Cancel
-            </button>
-            <button className="btn btn-primary" onClick={save} disabled={!canSave}>
-              Save
-            </button>
-          </div>
         </div>
         <div className="settings-body">
           <label className="set-field">
@@ -65,6 +57,18 @@ export function SaveSheet({ defaultName = '', defaultNotes = '', onSave, onClose
               onChange={(e) => setNotes(e.target.value)}
             />
           </label>
+        </div>
+        {/* Cancel / Save sit BELOW the fields, bottom-right — where Swift puts them on macOS
+            (a sheet's .cancellationAction/.confirmationAction render in a bottom bar) and where
+            Python's trailing button row is. They are a form's confirm/cancel pair, not the
+            list-level toolbar actions WEB-UI-GUIDELINES item 6 describes. */}
+        <div className="settings-modal-foot">
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={save} disabled={!canSave}>
+            Save
+          </button>
         </div>
       </div>
     </div>
