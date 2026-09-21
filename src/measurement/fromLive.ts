@@ -11,6 +11,7 @@ import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classi
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { exportStem } from './exportFilename'
 import { normalizedMeasurementNotes } from './measurementName'
+import { newId } from './newId'
 import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME, effectiveMode } from '../presentation/modeColors'
 import { effectiveSelectedPeakIDs, isMaterialMeasurement } from './types'
@@ -41,7 +42,7 @@ const GUITAR_TYPE_NAME_FROM_RAW: Record<string, GuitarTypeName> = {
   Flamenco: 'flamenco',
 }
 
-const uuid = (): string => crypto.randomUUID().toUpperCase()
+const uuid = newId
 
 /** A fresh measurement id (uppercase UUID, matching Swift). Used on import so a
  *  re-imported file becomes a NEW library entry rather than overwriting by id —

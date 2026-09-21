@@ -6,6 +6,7 @@
 
 import type { TapToneMeasurementModel } from './types'
 import { healMeasurement, parseGuitarTapFile } from './decode'
+import { newId } from './newId'
 
 const DB_NAME = 'guitartap'
 const STORE = 'measurements'
@@ -30,7 +31,7 @@ function nextSeq(): number {
 const orderOf = (m: StoredMeasurement): number => m.savedAt ?? (Date.parse(m.timestamp) || 0)
 
 /** A fresh library-local row handle. Never written to a `.guitartap` file — see types.ts. */
-const newRowKey = (): string => crypto.randomUUID()
+const newRowKey = newId
 
 /**
  * v1 -> v2: the store was keyed by `id`, which conflated the measurement's DATASET identity with

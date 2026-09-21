@@ -85,7 +85,9 @@ describe('amendMeasurement — the amend itself', () => {
       ...make('Bridge'),
       rowKey: 'row-1',
       decayTime: 0.5,
-      peaks: [{ id: 'p1', frequency: 195, magnitude: -20, quality: 10, bandwidth: 19.5 }],
+      peaks: [
+        { id: 'p1', frequency: 195, magnitude: -20, quality: 10, bandwidth: 19.5, timestamp: '2026-01-01T00:00:00.000Z' },
+      ],
     }
     const updated = amendMeasurement(original, 'Neck', undefined)
     expect(updated.peaks).toEqual(original.peaks)

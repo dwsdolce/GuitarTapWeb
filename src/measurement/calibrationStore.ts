@@ -10,6 +10,7 @@
 // input device is known yet (pre-start). Browser-local (localStorage), per-origin.
 
 import type { Calibration } from '../dsp/calibration'
+import { newId } from './newId'
 
 export interface StoredCalibration extends Calibration {
   /** Stable id (also used as the device-map value and the saved-measurement calibrationName key). */
@@ -46,7 +47,7 @@ export function listCalibrations(): StoredCalibration[] {
 
 /** Persist a freshly-parsed calibration as a new profile and return the stored record. */
 export function saveCalibration(cal: Calibration): StoredCalibration {
-  const stored: StoredCalibration = { ...cal, id: crypto.randomUUID(), importDate: Date.now() }
+  const stored: StoredCalibration = { ...cal, id: newId(), importDate: Date.now() }
   writeJSON(K_LIST, [...listCalibrations(), stored])
   return stored
 }
