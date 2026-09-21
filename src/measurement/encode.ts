@@ -42,8 +42,19 @@ const guitarTypeName = (raw?: string): GuitarTypeName =>
 const isGuitarMeasurement = (mt?: string): boolean => mt == null || mt.endsWith('Guitar')
 
 /** Resolve each top-level peak's `modeLabel` exactly as the Swift writer does:
- *  user override > carried-through label (preserves an imported file) > context-aware
- *  classification (guitar) or L/C/FLC role (plate/brace). */
+ *  user override > context-aware classification (guitar) or L/C/FLC role (plate/brace).
+ *
+ *  TWO rungs, not three. A `carried-through label (preserves an imported file)` rung used to sit
+ *  between them, which made this disagree with both natives on the same input: given two classical
+ *  peaks in the Top/Back overlap where the stronger carried a stale `"Back"`, Swift and Python
+ *  wrote `Top` and this wrote `Back`. Worse, it was self-perpetuating — the label was read on
+ *  decode and preferred on encode, so a stale value survived every later save.
+ *
+ *  `modeLabel` is not stored state to preserve. Swift has no such field on `ResonantPeak` at all;
+ *  it is injected at serialisation time as a convenience for external readers, and is derived
+ *  afresh every write by design. Preferring a decoded copy inverts that. Same principle this
+ *  codebase states for `measurementType` in measurement/types.ts: derive, don't duplicate, since a
+ *  stored copy can fall out of sync. See SLUG-SWEEP.md F15. */
 function buildModeLabels(m: TapToneMeasurementModel): Map<string, string> {
   const out = new Map<string, string>()
   const mt = m.spectrumSnapshot?.measurementType ?? m.longitudinalSnapshot?.measurementType
@@ -59,7 +70,7 @@ function buildModeLabels(m: TapToneMeasurementModel): Map<string, string> {
     const modeMap = classifyAll(adapter, gt)
     m.peaks.forEach((p, i) => {
       const override = m.peakModeOverrides?.[p.id]
-      out.set(p.id, override ?? p.modeLabel ?? MODE_DISPLAY_NAME[modeMap.get(i) ?? 'unknown'])
+      out.set(p.id, override ?? MODE_DISPLAY_NAME[modeMap.get(i) ?? 'unknown'])
     })
   } else {
     for (const p of m.peaks) {

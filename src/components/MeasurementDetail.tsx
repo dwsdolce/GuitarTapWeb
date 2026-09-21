@@ -1,5 +1,10 @@
 // @parity view/measurement-detail
-import { measurementTypeName, comparisonEntryModeFreqs, colorComponentsToCss } from '../measurement/fromLive'
+import {
+  measurementTypeName,
+  comparisonEntryModeFreqs,
+  colorComponentsToCss,
+  measurementPeakModeLabels,
+} from '../measurement/fromLive'
 import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type TapToneMeasurementModel, type ResonantPeakModel } from '../measurement'
 import { MODE_COLOR, MODE_DISPLAY_NAME, magnitudeColor } from '../presentation/modeColors'
 import type { ResolvedMode } from '../dsp/classify'
@@ -55,8 +60,16 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
   const selectedIds = effectiveSelectedPeakIDs(m)
   const shownPeaks = m.peaks.filter((p) => selectedIds.has(p.id)).sort((a, b) => a.frequency - b.frequency)
 
-  // Material peaks are labeled by their selected role ID (full words), not a stored modeLabel.
+  // Material peaks are labeled by their selected role ID (full words); guitar peaks are RESOLVED
+  // (override > classification), never read from the peak's stored `modeLabel`.
+  //
+  // This read `p.modeLabel ?? 'Peak'` until the #17 sweep, which meant a loaded file's stale label
+  // was shown as-is — and a file with no label at all showed "Peak" where Swift classifies and
+  // shows "Top". `modeLabel` is an export-only convenience injected at serialisation time, not
+  // stored state; Swift's MeasurementDetailView derives at display time for exactly this reason.
+  // See SLUG-SWEEP.md F15.
   const isMaterial = isMaterialMeasurement(m)
+  const modeLabels = isMaterial ? null : measurementPeakModeLabels(m)
   const peakLabel = (p: ResonantPeakModel): string => {
     if (isMaterial) {
       if (p.id === m.selectedLongitudinalPeakID) return 'Longitudinal'
@@ -64,7 +77,7 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
       if (p.id === m.selectedFlcPeakID) return 'Diagonal'
       return 'Peak'
     }
-    return p.modeLabel ?? 'Peak'
+    return modeLabels?.get(p.id) ?? 'Peak'
   }
 
   const comparisonRows: ComparisonRow[] = comparison

@@ -67,3 +67,54 @@ describe('measurementTypeName — resolves from the snapshot (Swift parity)', ()
     expect(measurementTypeName(meas({ spectrumSnapshot: snap(undefined) }))).toBe('—')
   })
 })
+
+// ── Cases levelled across the editions (#17 F16) ───────────────────────────────────────────
+//
+// The six cases above were shared by all three editions; each had then grown extras the others
+// never received. These are the ones this edition lacked.
+
+describe('measurementTypeName — every type resolves to its short name', () => {
+  // Mirrors Swift everyTypeResolvesToItsShortName. Only Swift pinned the 6-type table, so a
+  // short name that drifted in one edition would have gone unnoticed. The tables agree today:
+  // Generic, Acoustic, Classical, Flamenco, Plate, Brace.
+  const cases: [string, string][] = [
+    ['Generic Guitar', 'Generic'],
+    ['Acoustic Guitar', 'Acoustic'],
+    ['Classical Guitar', 'Classical'],
+    ['Flamenco Guitar', 'Flamenco'],
+    ['Material (Plate)', 'Plate'],
+    ['Material (Brace)', 'Brace'],
+  ]
+  for (const [raw, short] of cases) {
+    it(`${raw} → ${short}`, () => {
+      expect(measurementTypeName(meas({ spectrumSnapshot: snap(raw) }))).toBe(short)
+    })
+  }
+})
+
+describe('measurementTypeName — fallbacks', () => {
+  it('an unrecognised snapshot type falls back to an em-dash', () => {
+    // Mirrors Python test_unrecognised_snapshot_type_falls_back_to_em_dash.
+    expect(measurementTypeName(meas({ spectrumSnapshot: snap('Sousaphone') }))).toBe('—')
+  })
+
+  it('an undefined snapshot type falls back to an em-dash', () => {
+    // Mirrors Swift nilSnapshotTypeFallsBackToEmDash / Python's None case.
+    expect(measurementTypeName(meas({ spectrumSnapshot: snap(undefined) }))).toBe('—')
+  })
+
+  it('a LOADED measurement still resolves — the regression Python guards', () => {
+    // The type is deliberately NOT written to a top-level field when a measurement is created;
+    // the writer resolves it from the snapshot at save time. A resolver that read the top-level
+    // field showed "—" for everything saved in the current session and only came right after a
+    // restart re-read the file — session-scoped, which is why no test caught it. Python added
+    // this case after that bug; this edition had no equivalent. See SLUG-SWEEP.md F16.
+    const loaded = meas({
+      spectrumSnapshot: snap('Classical Guitar'),
+      measurementType: 'Classical Guitar',
+    } as Partial<TapToneMeasurementModel>)
+    expect(measurementTypeName(loaded)).toBe('Classical')
+    // And with the top-level field absent, as an in-session save has it:
+    expect(measurementTypeName(meas({ spectrumSnapshot: snap('Classical Guitar') }))).toBe('Classical')
+  })
+})

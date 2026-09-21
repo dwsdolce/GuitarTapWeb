@@ -207,7 +207,17 @@ export function measurementTypeName(m: TapToneMeasurementModel): string {
   if (m.comparisonEntries != null) return 'Comparison'
   const raw = (m.spectrumSnapshot ?? m.longitudinalSnapshot)?.measurementType
   const t = raw != null ? MEASUREMENT_TYPE_FROM_RAW[raw] : undefined
-  return t != null ? MEASUREMENT_SHORT_NAME[t] : (raw ?? '—')
+  // An UNRECOGNISED type is an em-dash, not the raw string. Swift's contract, stated on
+  // TapToneMeasurement.measurementTypeShortName: "Acoustic / Classical / Flamenco / Generic /
+  // Plate / Brace / Comparison — or '—' when no snapshot carries a type." Six names, Comparison,
+  // or an em-dash; nothing else. Python raises out of MeasurementType(...) to the same place.
+  //
+  // This returned `raw` until the #17 sweep, so a file whose snapshot carried a type none of the
+  // six match — a foreign writer, a corrupted field, a future type opened by an older build —
+  // printed that string into the Details pane here and an em-dash in both natives. Arguably more
+  // informative, but a silently different displayed label is the thing being removed.
+  // See SLUG-SWEEP.md F17.
+  return t != null ? MEASUREMENT_SHORT_NAME[t] : '—'
 }
 
 /** The current capture setup, for the load-time provenance check. */
@@ -300,6 +310,43 @@ export function measurementDefinitivePeak(m: TapToneMeasurementModel, mode: Reso
     if (eff === mode && (best === null || p.magnitude > best.magnitude)) best = p
   })
   return best
+}
+
+/**
+ * The mode label to DISPLAY for each guitar peak of a saved measurement, keyed by peak id.
+ *
+ * `override > classification`, which is the same two-rung rule the writer uses
+ * (`encode.ts` buildModeLabels) and that Swift applies in both its writer and its
+ * MeasurementDetailView. Display and file therefore cannot disagree.
+ *
+ * Deliberately does NOT consult the peak's stored `modeLabel`. That field is an export-only
+ * convenience injected at serialisation time — Swift has no such property on `ResonantPeak` —
+ * and reading it back made a loaded file's stale label outlive the reclassification that should
+ * have replaced it. Same principle this codebase states for `measurementType` in
+ * measurement/types.ts: derive, don't duplicate. See SLUG-SWEEP.md F15.
+ *
+ * Material measurements have no guitar modes; their peaks are labelled by selected role at the
+ * call site, as Swift does.
+ */
+export function measurementPeakModeLabels(m: TapToneMeasurementModel): Map<string, string> {
+  const out = new Map<string, string>()
+  const snap = m.spectrumSnapshot
+  if (!snap) return out
+  const gt = GUITAR_TYPE_NAME_FROM_RAW[snap.guitarType ?? ''] ?? 'generic'
+  // classifyAll needs numeric-id peaks; the array index maps 1:1 to m.peaks.
+  const adapter: Peak[] = m.peaks.map((p, i) => ({
+    id: i,
+    frequency: p.frequency,
+    magnitude: p.magnitude,
+    quality: p.quality,
+    bandwidth: p.bandwidth,
+  }))
+  const autoMap = classifyAll(adapter, gt)
+  m.peaks.forEach((p, i) => {
+    const eff = effectiveMode(m.peakModeOverrides?.[p.id], autoMap.get(i) ?? 'unknown')
+    out.set(p.id, m.peakModeOverrides?.[p.id] ?? MODE_DISPLAY_NAME[eff])
+  })
+  return out
 }
 
 /** Top-to-Air frequency ratio for a saved guitar measurement, mirroring Swift `TapToneMeasurement.

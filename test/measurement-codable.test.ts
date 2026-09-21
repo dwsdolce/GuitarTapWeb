@@ -10,7 +10,12 @@ import {
   type ResonantPeakModel,
   type TapToneMeasurementModel,
 } from '../src/measurement'
-import { measurementDefinitivePeak, measurementTapToneRatio, healSelection } from '../src/measurement/fromLive'
+import {
+  measurementDefinitivePeak,
+  measurementTapToneRatio,
+  healSelection,
+  measurementPeakModeLabels,
+} from '../src/measurement/fromLive'
 import { classifyAll } from '../src/dsp/classify'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 
@@ -236,5 +241,65 @@ describe('measurement-codable — legacy selection heal on decode', () => {
     delete (m as { spectrumSnapshot?: unknown }).spectrumSnapshot
     ;(m as { longitudinalSnapshot?: unknown }).longitudinalSnapshot = { frequencies: [], magnitudes: [], minFreq: 0, maxFreq: 500, minDB: -100, maxDB: 0, isLogarithmic: false }
     expect(healSelection(m)).toBe(false)
+  })
+})
+
+// ── modeLabel is derived, never carried through ────────────────────────────────────────────
+//
+// Added in the #17 sweep. Swift pinned this rule in MeasurementExportModeLabel; neither port
+// did, and both had drifted — this edition preferred a decoded label over reclassifying, and
+// Python's detail view did the same for display. See SLUG-SWEEP.md F15.
+
+describe('measurement-codable — modeLabel is derived, not carried through', () => {
+  const overlapMeasurement = (staleLabelOnStronger?: string): TapToneMeasurementModel =>
+    ({
+      id: 'x',
+      timestamp: '2026-01-01T00:00:00Z',
+      peaks: [
+        { id: 'a', frequency: 210, magnitude: -18, quality: 1, bandwidth: 1, modeLabel: staleLabelOnStronger },
+        { id: 'b', frequency: 220, magnitude: -26, quality: 1, bandwidth: 1 },
+      ],
+      spectrumSnapshot: {
+        frequencies: new Float32Array(),
+        magnitudes: new Float32Array(),
+        minFreq: 50,
+        maxFreq: 500,
+        minDB: -100,
+        maxDB: 0,
+        isLogarithmic: false,
+        guitarType: 'Classical',
+        measurementType: 'Classical Guitar',
+      },
+    }) as unknown as TapToneMeasurementModel
+
+  const labelsOf = (m: TapToneMeasurementModel): string[] =>
+    ((encodeMeasurement(m) as Record<string, unknown>).peaks as Record<string, unknown>[]).map(
+      (p) => p.modeLabel as string,
+    )
+
+  it('two overlap-zone peaks get distinct labels from classifyAll', () => {
+    // Classical Top 170-230 and Back 190-280 overlap; the stronger peak claims Top.
+    expect(labelsOf(overlapMeasurement())).toEqual(['Top', 'Back'])
+  })
+
+  it('a STALE carried-through label does not win — the peak is reclassified', () => {
+    // The exact case that diverged: the stronger overlap peak carries "Back" from an older save.
+    // Swift and Python write Top; this wrote Back, and kept writing it on every later save
+    // because the label was read on decode and preferred on encode.
+    expect(labelsOf(overlapMeasurement('Back'))).toEqual(['Top', 'Back'])
+  })
+
+  it('a user override DOES win over classification', () => {
+    const m = overlapMeasurement()
+    m.peakModeOverrides = { a: 'Dipole' }
+    expect(labelsOf(m)).toEqual(['Dipole', 'Back'])
+  })
+
+  it('the displayed label matches the written one', () => {
+    // Display and file resolve through the same rule, so they cannot disagree. Before the fix
+    // the detail pane read the stored label while the writer reclassified.
+    const m = overlapMeasurement('Back')
+    const shown = measurementPeakModeLabels(m)
+    expect([shown.get('a'), shown.get('b')]).toEqual(labelsOf(m))
   })
 })
