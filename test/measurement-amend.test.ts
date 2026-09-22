@@ -76,8 +76,12 @@ describe('amendMeasurement — the amend itself', () => {
     expect(amendMeasurement(original, undefined, 'new notes').notes).toBe('new notes')
   })
 
-  it('clears the name when given undefined', () => {
-    expect(amendMeasurement(make('Bridge'), undefined, undefined).measurementName).toBeUndefined()
+  it('clears the name when given undefined, and that mints too', () => {
+    const original = make('Bridge')
+    const updated = amendMeasurement(original, undefined, undefined)
+    expect(updated.measurementName).toBeUndefined()
+    // Clearing the fields is a data change too, so it mints a new id.
+    expect(updated.id).not.toBe(original.id)
   })
 
   it('preserves the captured data, the capture time and the row handle', () => {
