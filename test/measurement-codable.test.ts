@@ -32,6 +32,28 @@ const raw = JSON.parse(rawText)[0]
 const measurements = parseGuitarTapFile(rawText)
 const m = measurements[0]!
 
+// Mode overrides, read from files the APPS actually wrote — one saved by Swift, one by Python.
+//
+// Until #17 F28 no file in the corpus carried peakModeOverrides at all: 119 measurements, 116 with
+// selection, 91 with annotation offsets, ZERO with an override. Every override test used a
+// hand-built fixture, so the reader had never met a real one. The owner captured these two.
+describe.each([
+  ['annotation-override-1790037028.guitartap', 'Fred'],          // written by Swift
+  ['annotation-override-python-1790037332.guitartap', 'Fred2'],  // written by Python
+])('real override fixture — %s', (file, expectedLabel) => {
+  it('decodes its label, keyed to a peak the file still contains', () => {
+    const text = readFileSync(new URL(`./fixtures/${file}`, import.meta.url), 'utf8')
+    const one = parseGuitarTapFile(text)[0]!
+    const overrides = one.peakModeOverrides
+    expect(overrides).toBeDefined()
+    const entries = Object.entries(overrides!)
+    expect(entries).toHaveLength(1)
+    const [peakId, label] = entries[0]!
+    expect(label).toBe(expectedLabel)
+    expect(one.peaks.some((p) => p.id === peakId)).toBe(true)
+  })
+})
+
 describe('decode — canonical fields + legacy compromises', () => {
   it('reads the array-wrapped document into one measurement', () => {
     expect(measurements).toHaveLength(1)
