@@ -9,6 +9,15 @@ export function useTapToneAnalyzer(): { analyzer: TapToneAnalyzer; snapshot: Tap
   const ref = useRef<TapToneAnalyzer | null>(null)
   if (ref.current === null) ref.current = new TapToneAnalyzer()
   const analyzer = ref.current
+  // Debug handle — the live analyzer on `window`, for inspecting the model from the browser
+  // console:
+  //   gt.detectionState · gt.isMeasurementComplete · gt.displayMode · gt.isSettling
+  //   gt.getSnapshot()
+  // Swift and Python are inspectable in a debugger; web had no equivalent, and the alternative is
+  // walking React's fiber tree by hand from a DOM node — which is what it took on 2026-09-22 to
+  // find that a service worker was serving a bundle whose analyzer had no `detectionState` field
+  // at all. Read-only in practice: nothing in the app reads `window.gt`.
+  ;(window as unknown as Record<string, unknown>).gt = analyzer
   const snapshot = useSyncExternalStore(analyzer.subscribe, analyzer.getSnapshot)
   return { analyzer, snapshot }
 }

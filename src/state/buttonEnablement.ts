@@ -1,16 +1,19 @@
 // The Pause / New Tap / Cancel enablement rule — a pure function of the
 // analyzer state, shared by App.tsx (the view) and the button-enablement test.
 // Mirrors Swift `buttonRule` (TapToneAnalysisView) and Python `button_rule`.
-// If this rule changes, update the B1–B10 truth table on all three platforms.
+// If this rule changes, update the B1–B13 truth table on all three platforms.
 //
 // @parity state/button-enablement  tests=test/button-enablement
-import type { DisplayMode, MaterialTapPhase } from './tapToneAnalyzer'
+import type { DetectionState, DisplayMode, MaterialTapPhase } from './tapToneAnalyzer'
 import { isGuitarType, type MeasurementType } from '../settings'
 
 /** Input state for the button rule — mirrors the fields the view reads. */
 export interface ButtonState {
-  isDetecting: boolean
-  isDetectionPaused: boolean
+  /** Whether the detector is listening, paused mid-sequence, or neither.
+   *  One value rather than a detecting/paused boolean pair: the pair could express "detecting AND
+   *  paused", which the analyzer can no longer represent, so a fixture built from two booleans
+   *  would encode a contract the app no longer has (#17 F30). */
+  detectionState: DetectionState
   isMeasurementComplete: boolean
   isReadyForDetection?: boolean
   fftIsRunning?: boolean
@@ -21,7 +24,6 @@ export interface ButtonState {
   displayMode: DisplayMode
   measurementType?: MeasurementType
   materialTapPhase?: MaterialTapPhase
-  currentTapCount?: number
   numberOfTaps?: number
 }
 
@@ -38,6 +40,8 @@ export function buttonRule(s: ButtonState): ButtonOutput {
   const fftIsRunning = s.fftIsRunning ?? true
   const isReadyForDetection = s.isReadyForDetection ?? true
   const numberOfTaps = s.numberOfTaps ?? 1
+  const isDetecting = s.detectionState === 'listening'
+  const isDetectionPaused = s.detectionState === 'paused'
 
   const isInReviewPhase =
     !isGuitar && (phase === 'reviewingL' || phase === 'reviewingC' || phase === 'reviewingFlc')
@@ -52,12 +56,12 @@ export function buttonRule(s: ButtonState): ButtonOutput {
   // offered during a review phase (as "Redo") or an active multi-step sequence (multi-tap
   // or multi-phase = plate; brace is single-phase). Pause/Resume: review, detecting, or paused.
   const sequenceActive = isGuitar
-    ? s.isDetecting || s.isDetectionPaused
+    ? isDetecting || isDetectionPaused
     : phase !== 'notStarted' && !s.isMeasurementComplete
   const multiStep = numberOfTaps > 1 || type === 'plate'
   const inActiveMultiStep = sequenceActive && multiStep
 
-  const pauseEnabled = isInReviewPhase ? true : s.isDetecting || s.isDetectionPaused
+  const pauseEnabled = isInReviewPhase ? true : isDetecting || isDetectionPaused
 
   let newTapDisabled: boolean
   if (s.displayMode === 'comparison') newTapDisabled = false

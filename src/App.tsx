@@ -177,15 +177,17 @@ export default function App() {
   const currentTapCount = snapshot.currentTapCount
   // Detection state + clipping are analyzer facts (no duplicate React state in useAudioEngine) — the
   // status-bar className and the threshold-slider red zone read the snapshot (3c-C5). Derived from the
-  // analyzer's own isDetecting / isDetectionPaused / gatedCaptureActive now that it owns detection
-  // rather than mirroring a device state machine (#17 F30).
-  const engineState = snapshot.isDetectionPaused
-    ? 'paused'
-    : snapshot.gatedCaptureActive
-      ? 'capturing'
-      : snapshot.isDetecting
-        ? 'listening'
-        : 'idle'
+  // analyzer's own detectionState / gatedCaptureActive now that it owns detection rather than
+  // mirroring a device state machine (#17 F30). 'capturing' is a status-bar label, not a detection
+  // state: a capture runs WHILE the detector listens, so it is layered on here and not in the enum.
+  const engineState =
+    snapshot.detectionState === 'paused'
+      ? 'paused'
+      : snapshot.gatedCaptureActive
+        ? 'capturing'
+        : snapshot.detectionState === 'listening'
+          ? 'listening'
+          : 'idle'
   const clipping = snapshot.isClipping
   // The frozen guitar result + per-tap comparison spectra now live on the analyzer (mirrors Swift
   // frozenMagnitudes/Frequencies + tapEntries), exposed via the snapshot. App reads them through
@@ -1321,26 +1323,23 @@ export default function App() {
             shown/hidden. During a material (plate/brace) review phase the Pause and Cancel
             slots relabel to Accept / Redo, exactly as the native apps' same buttons do. */}
         {(() => {
-          // Mirrors the REAL Swift/Python runtime logic (verified against
-          // tap_tone_analysis_view.py button-update + Swift computed props, not comments):
-          //   isDetecting is FALSE while paused, so Cancel is disabled (greyed) while paused —
-          //   but every button stays VISIBLE; both apps enable/disable, never hide.
+          // Every button stays VISIBLE; all three apps enable/disable, never hide. `paused` drives
+          // only the Pause→Resume relabel below — enablement comes from the shared rule, which
+          // treats a paused sequence as still in flight (B6 pins Cancel ENABLED while paused).
           const reviewing = material && isReviewing(matPhase)
           const paused = snapshot.isDetectionPaused
-          const detecting = snapshot.isDetecting
           // Enablement via the shared canonical rule (mirrors Swift `buttonRule` / Python
           // `button_rule`; pinned by test/button-enablement). The measurement is "complete"
           // when a guitar tap was captured, or the material phase machine reached `complete`.
           // (Cancel now re-arms rather than completing, so there's no cancelled→complete term.)
           const { newTapDisabled, pauseEnabled, cancelEnabled } = buttonRule({
-            isDetecting: detecting,
-            isDetectionPaused: paused,
+            detectionState: snapshot.detectionState,
             isMeasurementComplete: material ? matPhase === 'complete' : snapshot.isMeasurementComplete,
             fftIsRunning: running,
+            isReadyForDetection: snapshot.isReadyForDetection,
             displayMode: snapshot.displayMode,
             measurementType: material ? (brace ? 'brace' : 'plate') : 'classical',
             materialTapPhase: matPhase,
-            currentTapCount: currentTapCount,
             numberOfTaps,
           })
           return (
@@ -1389,7 +1388,11 @@ export default function App() {
               // (the per-phase spectra are matOverlays), so material paints the LIVE spectrum while capturing
               // (EG-2 fix — was `null`) and no base once complete. Comparison/multi-tap suppress the base.
               spectrum={
-                comparison || showMultiTap
+                // A device change is settling: show nothing rather than the new device's
+                // not-yet-valid audio, matching Swift/Python (#17 F35).
+                snapshot.isSettling
+                  ? null
+                  : comparison || showMultiTap
                   ? null
                   : material
                     ? snapshot.isMeasurementComplete

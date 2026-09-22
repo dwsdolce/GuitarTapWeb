@@ -28,7 +28,7 @@ describe('StartTapSequenceRace', () => {
     const s = makeSUT(1)
     s.startTapSequence()
     expect(s.isDetecting).toBe(true)
-    s.isDetecting = false // handleTapDetection gates the capture window
+    s.detectionState = 'idle' // handleTapDetection gates the capture window
     expect(s.isDetecting).toBe(false)
   })
 
@@ -36,7 +36,7 @@ describe('StartTapSequenceRace', () => {
   it('R2 — spurious tap settles to complete, not detecting', () => {
     const s = makeSUT(1)
     s.startTapSequence()
-    s.isDetecting = false
+    s.detectionState = 'idle'
     s.capturedTaps = [fakeTap()]
     s.processMultipleTaps()
     expect(s.isMeasurementComplete).toBe(true)
@@ -50,7 +50,7 @@ describe('StartTapSequenceRace', () => {
     s.startTapSequence()
     s.capturedTaps = [fakeTap(), fakeTap(), fakeTap()]
     s.currentTapCount = 3
-    s.isDetecting = false
+    s.detectionState = 'idle'
     s.processMultipleTaps()
     expect(s.isMeasurementComplete).toBe(true)
     expect(s.isDetecting).toBe(false)
@@ -66,10 +66,29 @@ describe('StartTapSequenceRace', () => {
     expect(s.isDetecting).toBe(true) // armed
     const t = fakeTap()
     s.recordGuitarTap({ magnitudesDb: t.magnitudes, frequencies: t.frequencies }) // device delivered a per-tap spectrum
-    s.isDetecting = false // the device's idle transition clears detection
+    s.detectionState = 'idle' // the device's idle transition clears detection
     s.processMultipleTaps()
     expect(s.isMeasurementComplete).toBe(true)
     expect(s.isDetecting).toBe(false)
     expect(s.isDetectionPaused).toBe(false)
+  })
+
+  // R5: a restart from PAUSED must end listening, not paused. startTapSequence used to clear the
+  // pause flag up front; with one detection state it simply moves to 'listening' at the arming
+  // step, and nothing in between may leave 'paused' standing. Cancel is the reachable route: the
+  // button rule DISABLES New Tap while paused (a paused sequence is still in flight, B6) and
+  // ENABLES Cancel, which delegates to startTapSequence in all three editions.
+  it('R5 — restart from paused ends listening', () => {
+    const s = makeSUT(3)
+    s.startTapSequence()
+    s.currentTapCount = 1
+    s.pauseTapDetection()
+    expect(s.isDetectionPaused).toBe(true) // precondition
+
+    s.cancelTapSequence()
+
+    expect(s.detectionState).toBe('listening')
+    expect(s.isDetectionPaused).toBe(false)
+    expect(s.currentTapCount).toBe(0)
   })
 })

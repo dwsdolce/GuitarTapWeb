@@ -229,7 +229,7 @@ describe('loadMeasurement tears down an interrupted capture', () => {
   it('load clears an actively-detecting capture', () => {
     const a = material('plate', 2, true) // capturingL, detecting
     a.recordMaterialTap(L_TAP())
-    a.isDetecting = true // worst case: load arrives mid-detection
+    a.detectionState = 'listening' // worst case: load arrives mid-detection
     expect(a.currentTapCount).toBe(1)
 
     a.loadMeasurement(FROZEN())
@@ -274,5 +274,22 @@ describe('the FLC cooldown does not re-arm a restarted sequence', () => {
 
     expect(a.materialTapPhase).toBe(phaseAfterRestart)
     expect(a.materialTapPhase).not.toBe('capturingFlc')
+  })
+})
+
+// F34: a completed measurement's progress bar records what was MEASURED. Raising the tap count
+// afterwards configures the NEXT measurement and must not rewrite the finished one — tapProgress is
+// stored at each count change, as Swift and Python store it, not derived at render time.
+describe('TapProgress — a later count change does not rewrite a finished measurement', () => {
+  it('a complete 1-tap measurement keeps a full bar when Taps is raised to 3', () => {
+    const a = new TapToneAnalyzer()
+    a.numberOfTaps = 1
+    a.startTapSequence()
+    a.currentTapCount = 1
+    expect(a.tapProgress).toBe(1)
+
+    a.setNumberOfTaps(3) // configures the next measurement
+
+    expect(a.tapProgress).toBe(1)
   })
 })

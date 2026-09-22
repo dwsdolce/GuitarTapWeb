@@ -178,6 +178,28 @@ describe('display mode — transitions', () => {
     expect(a.displayMode).toBe('live')
   })
 
+  // CP-U9: building a comparison from an ARMED sequence stands the detector down. An overlay is
+  // frozen, like a loaded measurement; left armed, the live analysis keeps overwriting the
+  // overlay's peaks and a tap completes a measurement the user never sees (#17 F31 — found by a
+  // run-review of F30 in Swift, which had the defect; web already disarmed).
+  it('loadComparison disarms an armed detector', () => {
+    const a = sut()
+    a.detectionState = 'listening'
+    a.loadComparison(entries(2))
+    expect(a.displayMode).toBe('comparison')
+    expect(a.detectionState).toBe('idle')
+  })
+
+  // CP-U10: an empty comparison stays live, so there is nothing to freeze — the detector is left
+  // exactly as it was. The mode follows the data, and so does the disarm.
+  it('an EMPTY comparison leaves the detector alone', () => {
+    const a = sut()
+    a.detectionState = 'listening'
+    a.loadComparison([])
+    expect(a.displayMode).toBe('live')
+    expect(a.detectionState).toBe('listening')
+  })
+
   it('clearComparison returns to live and drops the entries', () => {
     const a = sut()
     a.loadComparison(entries(2))
@@ -191,7 +213,7 @@ describe('display mode — transitions', () => {
     const a = sut()
     a.loadComparison(entries(2))
     a.loadMeasurement({ magnitudes: [-30, -20], frequencies: [100, 200] })
-    expect(a.displayMode).toBe('frozen')
+    expect(a.displayMode).toBe('live')
     expect(a.comparisonEntries).toHaveLength(0)
   })
 
@@ -233,7 +255,7 @@ describe('display mode — transitions', () => {
     a.setMultiTapComparison(true)
     expect(a.displayMode).toBe('comparison')
     a.setMultiTapComparison(false)
-    expect(a.displayMode).toBe('frozen')
+    expect(a.displayMode).toBe('live')
   })
 
   it('isSavedMeasurementComparison separates the two kinds of comparison', () => {
@@ -259,7 +281,7 @@ describe('display mode — transitions', () => {
   it('frozen and comparison are mutually exclusive — the state that used to be representable', () => {
     const a = sut()
     a.loadMeasurement({ magnitudes: [-30, -20], frequencies: [100, 200] })
-    expect(a.displayMode).toBe('frozen')
+    expect(a.displayMode).toBe('live')
     a.loadComparison(entries(2))
     expect(a.displayMode).toBe('comparison') // one value, so it cannot be both
   })

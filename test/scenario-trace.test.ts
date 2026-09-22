@@ -57,7 +57,7 @@ describe('ScenarioStateTrace', () => {
     trace.push(snap('init', s))
     s.startTapSequence()
     trace.push(snap('postStart', s))
-    s.isDetecting = false // handleTapDetection
+    s.detectionState = 'idle' // handleTapDetection
     s.capturedTaps = [fakeTap()]
     s.currentTapCount = 1
     trace.push(snap('postCapture', s))
@@ -78,7 +78,7 @@ describe('ScenarioStateTrace', () => {
     const trace: StateSnapshot[] = []
     trace.push(snap('init', s))
     s.startTapSequence()
-    s.isDetecting = false // spurious tap fires before housekeeping
+    s.detectionState = 'idle' // spurious tap fires before housekeeping
     trace.push(snap('postStart', s))
     s.capturedTaps = [fakeTap()]
     s.currentTapCount = 1
@@ -103,7 +103,7 @@ describe('ScenarioStateTrace', () => {
     trace.push(snap('postStart', s))
     s.capturedTaps = [fakeTap()]
     s.currentTapCount = 1
-    s.isDetecting = true // re-armed
+    s.detectionState = 'listening' // re-armed
     trace.push(snap('postTap1', s))
     s.pauseTapDetection()
     trace.push(snap('postPause', s))
@@ -111,7 +111,7 @@ describe('ScenarioStateTrace', () => {
     trace.push(snap('postResume', s))
     s.capturedTaps = [fakeTap(), fakeTap(), fakeTap()]
     s.currentTapCount = 3
-    s.isDetecting = false
+    s.detectionState = 'idle'
     s.processMultipleTaps()
     trace.push(snap('postProcess', s))
 
@@ -135,7 +135,7 @@ describe('ScenarioStateTrace', () => {
     trace.push(snap('postStart', s))
     s.capturedTaps = [fakeTap()]
     s.currentTapCount = 1
-    s.isDetecting = true
+    s.detectionState = 'listening'
     trace.push(snap('postTap1', s))
     s.cancelTapSequence()
     trace.push(snap('postCancel', s))

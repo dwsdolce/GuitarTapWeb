@@ -2,10 +2,10 @@
 //
 // Truth-table tests for the Pause / New Tap / Cancel button enablement rules.
 // Mirrors GuitarTapTests/ButtonEnablementTests.swift and Python
-// tests/test_button_enablement.py: the rule is duplicated here on purpose as a
-// pure function of the analyzer state, and asserted across the state
-// combinations that actually occur. If App.tsx's inline button logic drifts
-// from this table, one side has to give — update all three together.
+// tests/test_button_enablement.py. `buttonRule` is the PRODUCTION rule, the same
+// function App.tsx calls — App has no inline button logic to drift from it. The
+// natives retyped the rule in their test files until #17 folded that in; all three
+// now assert against one implementation. Update the table on all three together.
 import { describe, it, expect } from 'vitest'
 import { buttonRule } from '../src/state/buttonEnablement'
 
@@ -15,7 +15,7 @@ describe('ButtonEnablement', () => {
   // the Dump Capture Audio folder guard can produce, §4b; the web can't reach it, but the
   // rule is identical for parity.)
   it('B1 — guitar disarmed-idle: new tap enabled', () => {
-    expect(buttonRule({ displayMode: 'live', isDetecting: false, isDetectionPaused: false, isMeasurementComplete: false })).toEqual({
+    expect(buttonRule({ displayMode: 'live', detectionState: 'idle', isMeasurementComplete: false })).toEqual({
       pauseEnabled: false,
       newTapDisabled: false, // idle (no sequence in flight) → New Tap enabled to re-arm
       cancelEnabled: false,
@@ -25,14 +25,14 @@ describe('ButtonEnablement', () => {
   // B2: Guitar mid single-tap — detecting, not complete, numberOfTaps == 1.
   it('B2 — guitar mid single-tap: pause only', () => {
     expect(
-      buttonRule({ displayMode: 'live', isDetecting: true, isDetectionPaused: false, isMeasurementComplete: false, numberOfTaps: 1 }),
+      buttonRule({ displayMode: 'live', detectionState: 'listening', isMeasurementComplete: false, numberOfTaps: 1 }),
     ).toEqual({ pauseEnabled: true, newTapDisabled: true, cancelEnabled: false })
   })
 
   // B3: Guitar single-tap complete — New Tap enabled, others off.
   it('B3 — guitar single-tap complete: new tap only', () => {
     expect(
-      buttonRule({ displayMode: 'live', isDetecting: false, isDetectionPaused: false, isMeasurementComplete: true, numberOfTaps: 1 }),
+      buttonRule({ displayMode: 'live', detectionState: 'idle', isMeasurementComplete: true, numberOfTaps: 1 }),
     ).toEqual({ pauseEnabled: false, newTapDisabled: false, cancelEnabled: false })
   })
 
@@ -40,7 +40,7 @@ describe('ButtonEnablement', () => {
   // keys off "sequence in flight" (detecting||paused) rather than complete, so this
   // contradictory state disables New Tap (detecting) while Pause is on — no longer both.
   it('B4 — guitar impossible detecting+complete: new tap disabled, pause on', () => {
-    const out = buttonRule({ displayMode: 'live', isDetecting: true, isDetectionPaused: false, isMeasurementComplete: true })
+    const out = buttonRule({ displayMode: 'live', detectionState: 'listening', isMeasurementComplete: true })
     expect(out.newTapDisabled).toBe(true) // in flight (detecting) → New Tap disabled
     expect(out.pauseEnabled).toBe(true) // detecting → Pause enabled
   })
@@ -50,10 +50,8 @@ describe('ButtonEnablement', () => {
     expect(
       buttonRule({
         displayMode: 'live',
-        isDetecting: true,
-        isDetectionPaused: false,
+        detectionState: 'listening',
         isMeasurementComplete: false,
-        currentTapCount: 1,
         numberOfTaps: 3,
       }),
     ).toEqual({ pauseEnabled: true, newTapDisabled: true, cancelEnabled: true })
@@ -65,10 +63,8 @@ describe('ButtonEnablement', () => {
     expect(
       buttonRule({
         displayMode: 'live',
-        isDetecting: false,
-        isDetectionPaused: true,
+        detectionState: 'paused',
         isMeasurementComplete: false,
-        currentTapCount: 1,
         numberOfTaps: 3,
       }),
     ).toEqual({ pauseEnabled: true, newTapDisabled: true, cancelEnabled: true })
@@ -79,8 +75,7 @@ describe('ButtonEnablement', () => {
     expect(
       buttonRule({
         displayMode: 'live',
-        isDetecting: false,
-        isDetectionPaused: false,
+        detectionState: 'idle',
         isMeasurementComplete: false,
         measurementType: 'plate',
         materialTapPhase: 'reviewingL',
@@ -93,8 +88,7 @@ describe('ButtonEnablement', () => {
     expect(
       buttonRule({
         displayMode: 'live',
-        isDetecting: true,
-        isDetectionPaused: false,
+        detectionState: 'listening',
         isMeasurementComplete: false,
         measurementType: 'plate',
         materialTapPhase: 'capturingL',
@@ -105,7 +99,7 @@ describe('ButtonEnablement', () => {
   // B9: FFT not running — New Tap disabled regardless of other state.
   it('B9 — fft not running: new tap always disabled', () => {
     expect(
-      buttonRule({ displayMode: 'live', isDetecting: false, isDetectionPaused: false, isMeasurementComplete: true, fftIsRunning: false })
+      buttonRule({ displayMode: 'live', detectionState: 'idle', isMeasurementComplete: true, fftIsRunning: false })
         .newTapDisabled,
     ).toBe(true)
   })
@@ -115,8 +109,7 @@ describe('ButtonEnablement', () => {
     expect(
       buttonRule({
         displayMode: 'comparison',
-        isDetecting: false,
-        isDetectionPaused: false,
+        detectionState: 'idle',
         isMeasurementComplete: false,
       }).newTapDisabled,
     ).toBe(false)
@@ -128,8 +121,7 @@ describe('ButtonEnablement', () => {
     expect(
       buttonRule({
         displayMode: 'live',
-        isDetecting: true,
-        isDetectionPaused: false,
+        detectionState: 'listening',
         isMeasurementComplete: false,
         measurementType: 'brace',
         materialTapPhase: 'capturingL',
@@ -144,8 +136,7 @@ describe('ButtonEnablement', () => {
     expect(
       buttonRule({
         displayMode: 'live',
-        isDetecting: true,
-        isDetectionPaused: false,
+        detectionState: 'listening',
         isMeasurementComplete: false,
         measurementType: 'brace',
         materialTapPhase: 'capturingL',
@@ -160,8 +151,7 @@ describe('ButtonEnablement', () => {
     expect(
       buttonRule({
         displayMode: 'live',
-        isDetecting: false,
-        isDetectionPaused: false,
+        detectionState: 'idle',
         isMeasurementComplete: false,
         measurementType: 'plate',
         materialTapPhase: 'notStarted',

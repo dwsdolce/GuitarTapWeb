@@ -36,7 +36,7 @@ describe('StateInvariants', () => {
   it('V3 — after single-tap complete holds invariants', () => {
     const s = makeSUT(1)
     s.startTapSequence()
-    s.isDetecting = false
+    s.detectionState = 'idle'
     s.capturedTaps = [fakeTap()]
     s.currentTapCount = 1
     s.processMultipleTaps()
@@ -49,7 +49,7 @@ describe('StateInvariants', () => {
     s.startTapSequence()
     s.capturedTaps = [fakeTap()]
     s.currentTapCount = 1
-    s.isDetecting = true // re-armed for next tap
+    s.detectionState = 'listening' // re-armed for next tap
     expect(stateInvariantViolation(s)).toBeNull()
   })
 
@@ -72,7 +72,7 @@ describe('StateInvariants', () => {
   // V7: the impossible (detecting && complete) state must be flagged
   it('V7 — impossible detecting+complete is flagged', () => {
     const s = makeSUT(1)
-    s.isDetecting = true
+    s.detectionState = 'listening'
     s.isMeasurementComplete = true
     expect(stateInvariantViolation(s)).not.toBeNull()
   })

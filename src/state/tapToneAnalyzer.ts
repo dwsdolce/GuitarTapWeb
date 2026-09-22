@@ -29,6 +29,21 @@ import { isGuitarType, DEFAULT_SETTINGS, type MeasurementType, type Settings } f
 import { materialInputsFromSettings, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { dumpCaptureWav } from '../measurement/dumpWav'
 
+/** The tap detector's state. Mirrors Swift `DetectionState` (DetectionState.swift) and Python
+ *  `DetectionState` (models/detection_state.py).
+ *
+ *      idle ──────▶ listening ──────▶ idle
+ *                      │   ▲            (tap captured, sequence cancelled,
+ *                      ▼   │             measurement loaded, stop)
+ *                   paused ┘
+ *             (pause/resume, mid-sequence)
+ *
+ *  This replaced an `isDetecting` / `isDetectionPaused` boolean pair. Two booleans can express
+ *  "detecting AND paused" — a state no code path intends, which every site touching either flag
+ *  had to avoid by hand, and which the invariant suite existed partly to catch after the fact.
+ *  One value makes it unrepresentable. Both booleans survive as derived reads (#17 F30). */
+export type DetectionState = 'idle' | 'listening' | 'paused'
+
 /** Material capture phase. Mirrors Swift `MaterialTapPhase` (web spelling). */
 export type MaterialTapPhase =
   | 'notStarted'
@@ -68,10 +83,21 @@ const fHz = (p: { frequency: number } | null): string => (p ? p.frequency.toFixe
  * Three states in one value make "frozen AND comparison" unrepresentable, which is the property
  * both natives rely on and the view could only approximate by clearing at every call site.
  */
-export type DisplayMode = 'live' | 'frozen' | 'comparison'
+/** The main spectrum is shown ('live' — live input, or the measurement's own frozen result once
+ *  `isMeasurementComplete` is set), or saved measurements are overlaid ('comparison').
+ *
+ *  Those first two are NOT distinguished: there used to be a 'frozen' value, but nothing in any
+ *  edition ever branched on it, because whether a result is displayed is what
+ *  `isMeasurementComplete` says. Keeping both meant two fields describing one fact — and in the
+ *  natives no completion path set it, so the device-settle guard wiped finished measurements
+ *  (#17 F35). */
+export type DisplayMode = 'live' | 'comparison'
 
 /** Loaded-measurement (frozen) status — curly quotes around New Tap match Swift/Python. */
 const LOADED_STATUS = 'Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.'
+/** Shown while a sequence is PAUSED. One literal, used by pauseTapDetection() and by
+ *  statusAfterSettle(), so a device change cannot silently reword a paused sequence. */
+const PAUSED_STATUS = 'Detection paused – tap freely, then resume'
 /** Short phase label for the "L/C/FLC tap X/N captured" progress strings. */
 const matPhaseLabel = (ph: MaterialPhaseName): string => (ph === 'cross' ? 'fC' : ph === 'flc' ? 'fLC' : 'fL')
 
@@ -120,10 +146,29 @@ export interface DefinitiveModeInfo {
 
 export class TapToneAnalyzer {
   // ── Published-equivalent state (settable; the audio layer / tests mutate these directly) ──
-  isDetecting = false
-  isDetectionPaused = false
+  /** Whether the detector is listening, paused mid-sequence, or neither. One value rather than
+   *  the `isDetecting` / `isDetectionPaused` pair it replaced; both derive from it below. */
+  detectionState: DetectionState = 'idle'
+  /** `true` when tap detection is actively listening for taps. Mirrors Swift `isDetecting`. */
+  get isDetecting(): boolean { return this.detectionState === 'listening' }
+  /** `true` when the sequence is paused (spectrum stays live, detection is off). Distinct from
+   *  `'idle'`, which discards the in-progress sequence. Mirrors Swift `isDetectionPaused`. */
+  get isDetectionPaused(): boolean { return this.detectionState === 'paused' }
   isReadyForDetection = true
-  currentTapCount = 0
+  /** True while a device change settles and the chart should show nothing, rather than the new
+   *  device's not-yet-valid audio. Swift and Python blanked here and web did not — a behaviour
+   *  divergence rather than a deliberate difference (#17 F35). */
+  isSettling = false
+  private _currentTapCount = 0
+  /** Taps captured so far. Guitar: 0…numberOfTaps. Material: CUMULATIVE across phases.
+   *
+   *  An accessor rather than a plain field so that `tapProgress` is snapshotted on EVERY write,
+   *  including from App and from tests — the explicit-call-site version missed external writers. */
+  get currentTapCount(): number { return this._currentTapCount }
+  set currentTapCount(n: number) {
+    this._currentTapCount = n
+    this.syncTapProgress()
+  }
   numberOfTaps = 1
   capturedTaps: CapturedTap[] = []
   frozenMagnitudes: number[] = []
@@ -304,9 +349,23 @@ export class TapToneAnalyzer {
    *  Guitar divides by `numberOfTaps`; material divides by `totalPlateTaps`, because the material
    *  `currentTapCount` is CUMULATIVE across phases — so the bar fills once across L→C→FLC rather than
    *  refilling each phase. Mirrors Swift `tapProgress` (SpectrumCapture:698 guitar / :953 material). */
-  get tapProgress(): number {
+  tapProgress = 0
+  /** The status from before a device-change settle began, restored when the settle has nothing of
+   *  its own to say. `null` when no settle is in flight. */
+  private statusBeforeSettle: string | null = null
+
+  /** Snapshot the progress from the CURRENT count. Called wherever `currentTapCount` changes, and
+   *  nowhere else.
+   *
+   *  This was a computed getter, which re-derived on every render — so raising the tap count after
+   *  a finished measurement retroactively shrank its progress bar (complete a 1-tap measurement,
+   *  set Taps to 3, and the full bar dropped to a third). Swift and Python both STORE it, writing
+   *  at each capture site and pinning 1.0 at completion, so a completed measurement's bar records
+   *  what was actually measured and a later count change — which only configures the NEXT
+   *  measurement — cannot rewrite it (#17 F34). */
+  private syncTapProgress(): void {
     const total = this.isGuitar ? this.numberOfTaps : this.totalPlateTaps
-    return total > 0 ? Math.min(1, this.currentTapCount / total) : 0
+    this.tapProgress = total > 0 ? Math.min(1, this._currentTapCount / total) : 0
   }
 
   /** Cumulative taps completed in the phases BEFORE `phase` — the base the material `currentTapCount`
@@ -334,16 +393,16 @@ export class TapToneAnalyzer {
    *  `arm: false` is for file playback, where the engine owns the L→C→FLC auto-advance and must not be
    *  re-armed underneath it, and for tests that run without a device.
    *
-   *  `isDetecting` is still driven by the engine's state events (`setEngineState`) rather than owned
-   *  here, because the web's tap detector genuinely lives in the engine. The guitar branch sets it
-   *  directly as well, covering the direct/test path where no device reports back. */
+   *  `detectionState` is owned here, as it is in Swift and Python: the arming paths below set it
+   *  directly, and the `arm: false` branch covers the direct/test path where no device reports back. */
   startTapSequence(opts: { initialPhase?: MaterialTapPhase; arm?: boolean; skipWarmup?: boolean } = {}): void {
     const { initialPhase, arm = true, skipWarmup = false } = opts
     this.clearFlcCooldown()
     // The shared reset — result data, per-peak state, completion flag, and the return to live.
     this.clearResult()
     this.currentTapCount = 0
-    this.isDetectionPaused = false
+    // No pause-clear here: the arming below moves straight to 'listening', which leaves 'paused'
+    // on its own. Mirrors Swift/Python startTapSequence.
 
     if (this.isGuitar) {
       if (arm) {
@@ -353,8 +412,7 @@ export class TapToneAnalyzer {
         this.armGuitarDetection(skipWarmup)
         this.startSessionRecording() // begin the continuous session WAV (dump-gated)
       } else {
-        this.isDetecting = true
-        this.isDetectionPaused = false
+        this.detectionState = 'listening'
       }
       // Guitar resting prompt (canonical post-warm-up steady state). In the app the device's arm →
       // setEngineState('listening') also sets this; here it covers the direct/test path.
@@ -370,6 +428,12 @@ export class TapToneAnalyzer {
         // checkpoint is needed here.
         this.startSessionRecording()
         this.armMaterialDetection(this.matSearch('longitudinal'))
+      } else {
+        // Same as the guitar branch above: leaving `arm` out must not leave the detection state
+        // untouched, or a sequence started from `paused` would stay paused. Swift and Python have
+        // no `arm` parameter at all — they always end startTapSequence listening — so this keeps
+        // the unarmed path saying the same thing they do (#17 F30).
+        this.detectionState = 'listening'
       }
       // capturingL arm prompt = "Ready for L tap" (mirrors Swift startTapSequence; the silent
       // warm-up on Swift/Python now shows this too — was "Tap the guitar…", a divergence).
@@ -470,7 +534,7 @@ export class TapToneAnalyzer {
     // this, an interrupted material capture leaves currentTapCount/isDetecting/materialTapPhase stale, so
     // the status bar's progress bar (gated on currentTapCount > 0) and Analyzing indicator (isDetecting)
     // linger over the loaded "frozen" measurement.
-    this.isDetecting = false
+    this.detectionState = 'idle'
     this.currentTapCount = 0
     this.materialTapPhase = 'complete'
     this.isMeasurementComplete = true
@@ -1390,7 +1454,12 @@ export class TapToneAnalyzer {
     this.maintainSessionRecording(samples)
     this.feedPreroll(samples)
     if (this.gatedCaptureActive) this.feedCapture(samples)
-    else if (this.isDetecting && !this.isDetectionPaused) this.detectTap(levelDb, audioTime)
+    // Detection keeps running THROUGH a capture, as it does in Swift: `onRmsLevelChanged` gates only
+    // on isDetecting / !isDetectionPaused / !isMeasurementComplete and never on gatedCaptureActive.
+    // That matters because the hysteresis latch and the noise-floor EMA go on tracking across the
+    // capture window, so the NEXT tap is judged from state that saw it. Re-entry is blocked in
+    // beginCapture rather than here — Swift blocks it too, by capture id (#17 F30).
+    if (this.isDetecting && !this.isDetectionPaused) this.detectTap(levelDb, audioTime)
   }
 
   /** Flush a partial in-flight GUITAR capture so a tap near the end of a played file still yields a
@@ -1425,8 +1494,7 @@ export class TapToneAnalyzer {
     this.consecutive = 0
     this.armWarmup(skipWarmup)
     this.gatedCaptureActive = false
-    this.isDetecting = true
-    this.isDetectionPaused = false
+    this.detectionState = 'listening'
   }
 
   /** Arm (or re-arm) a gated material phase with its search range. Swift's per-phase re-arm. */
@@ -1442,35 +1510,31 @@ export class TapToneAnalyzer {
     // detector, and the warm-up is what establishes the floor.
     this.armWarmup(false)
     this.gatedCaptureActive = false
-    this.isDetecting = true
-    this.isDetectionPaused = false
+    this.detectionState = 'listening'
   }
 
   /** Stop detecting without discarding the result (a load, or entering comparison). */
   private disarmDetection(): void {
-    this.isDetecting = false
-    this.isDetectionPaused = false
+    this.detectionState = 'idle'
     this.gatedCaptureActive = false
   }
 
   /** Pause detection while the live spectrum keeps flowing. Swift `pauseTapDetection()`. */
   pauseTapDetection(): void {
-    if (!this.isDetecting || this.isDetectionPaused) return
-    this.isDetecting = false
-    this.isDetectionPaused = true
+    if (this.detectionState !== 'listening') return
+    this.detectionState = 'paused'
     this.suspendSessionRecording()
-    this.setStatusMessage('Detection paused – tap freely, then resume')
+    this.setStatusMessage(PAUSED_STATUS)
     this.notify()
   }
 
   /** Resume after a pause, continuing from the current tap count. Swift `resumeTapDetection()`. */
   resumeTapDetection(): void {
-    if (!this.isDetectionPaused) return
-    this.isDetectionPaused = false
+    if (this.detectionState !== 'paused') return
     this.prevAbove = true
     this.consecutive = 0
     this.armWarmup((this.device?.playingFile ?? false) && this.captureKind === 'guitar')
-    this.isDetecting = true
+    this.detectionState = 'listening'
     this.resumeSessionRecording()
     this.setStatusMessage(this.restingPrompt())
     this.notify()
@@ -1577,6 +1641,9 @@ export class TapToneAnalyzer {
   }
 
   private beginCapture(): void {
+    // A capture already filling absorbs the tap — Swift guards the same re-entry, comparing capture
+    // ids because its window can start on the audio queue and finish before the main thread runs.
+    if (this.gatedCaptureActive) return
     // Seed the capture window with the pre-roll (in chronological order).
     const out = this.capture
     out.fill(0)
@@ -1609,7 +1676,7 @@ export class TapToneAnalyzer {
       const { magnitudesDb, frequencies } = gatedCaptureResult(this.capture, this.captureSampleRate, this.materialSearch!)
       this.captureIdx = 0
       this.gatedCaptureActive = false
-      this.isDetecting = false
+      this.detectionState = 'idle'
       this.recordMaterialTap({ magnitudesDb, frequencies })
       return
     }
@@ -1638,7 +1705,7 @@ export class TapToneAnalyzer {
       this.consecutive = 0
       this.currentTapCount = this.guitarTapCount
       this.gatedCaptureActive = false
-      this.isDetecting = true
+      this.detectionState = 'listening'
       this.setStatusMessage(this.guitarLoopStatus(false)) // Swift SpectrumCapture:742
       this.notify()
       return
@@ -1648,7 +1715,7 @@ export class TapToneAnalyzer {
     this.currentTapCount = total
     this.finishSessionRecording(`Guitar_${total}tap`) // write the continuous session WAV (dump-gated)
     this.gatedCaptureActive = false
-    this.isDetecting = false
+    this.detectionState = 'idle'
     this.processMultipleTaps() // sequence done — average the accumulated taps
   }
 
@@ -1686,8 +1753,11 @@ export class TapToneAnalyzer {
   getSnapshot = (): TapToneSnapshot => {
     if (this.cachedSnapshot === null) {
       this.cachedSnapshot = Object.freeze({
+        detectionState: this.detectionState,
+        isSettling: this.isSettling,
         isDetecting: this.isDetecting,
         isDetectionPaused: this.isDetectionPaused,
+        isReadyForDetection: this.isReadyForDetection,
         isMeasurementComplete: this.isMeasurementComplete,
         currentTapCount: this.currentTapCount,
         numberOfTaps: this.numberOfTaps,
@@ -1761,11 +1831,11 @@ export class TapToneAnalyzer {
   }
 
   /** The per-tap overlay of the CURRENT measurement. Enabling enters 'comparison'; disabling
-   *  returns to 'frozen', because the measurement itself is still displayed. */
+   *  returns to 'live' — the measurement itself still displays, because it is complete. */
   setMultiTapComparison(enabled: boolean): void {
     this.showingMultiTapComparison = enabled
     if (!enabled) this.comparisonEntries = []
-    this.displayMode = enabled ? 'comparison' : 'frozen'
+    this.displayMode = enabled ? 'comparison' : 'live'
     this.notify()
   }
 
@@ -1773,7 +1843,8 @@ export class TapToneAnalyzer {
   enterFrozen(): void {
     this.comparisonEntries = []
     this.showingMultiTapComparison = false
-    this.displayMode = 'frozen'
+    // The loaded measurement displays because it is complete, not because of the mode.
+    this.displayMode = 'live'
     // A frozen result must not keep listening: the engine arms into 'listening' at startup, so
     // without this a stray tap captures over the loaded measurement, and isDetecting stays true
     // alongside isMeasurementComplete (invariant I1). Mirrors Swift loadMeasurement ("Tap detection
@@ -1838,6 +1909,32 @@ export class TapToneAnalyzer {
       return `Ready for fL tap (×${this.numberOfTaps} each for ${phases})`
     }
     return 'Ready for fL tap'
+  }
+
+  /** The status to restore when a device-change settle ends, or `null` to leave it alone.
+   *
+   *  The settle used to CHOOSE between two strings, which is wrong in both directions: mid-sequence
+   *  it said "Tap the guitar 3 times…" when a tap was already captured, and on a finished
+   *  measurement it said "Tap 1/1 captured. Tap again..." — instructing the user to tap again on a
+   *  sequence that was done, quoting an N that went stale the moment the tap count changed. The
+   *  status is a function of state, so derive it rather than guessing — and say nothing where the
+   *  status is a RESULT announcement rather than a live prompt, because a completed or loaded
+   *  measurement's status ("Analysis complete! N peaks…", "Loaded measurement (frozen)") is not
+   *  re-derivable and must not be thrown away. Mirrors Swift statusAfterSettle() and Python
+   *  _status_after_settle() (#17 F33). */
+  /** The status to show when a settle ends, given what it said before the settle began. The whole
+   *  decision in one pure function, so every edition can pin it. Mirrors Swift
+   *  restoredStatus(before:) and Python _restored_status() (#17 F33). */
+  restoredStatus(before: string): string {
+    return this.statusAfterSettle() ?? before
+  }
+
+  statusAfterSettle(): string | null {
+    if (this.isMeasurementComplete) return null   // "Analysis complete…" / "Loaded measurement…"
+    if (this.displayMode === 'comparison') return null  // an overlay is not a tap prompt
+    if (this.isDetectionPaused) return PAUSED_STATUS
+    if (this.isDetecting) return this.restingPrompt()
+    return 'Ready'
   }
 
   /** The resting "waiting for a tap" prompt for the current mode/phase (used on resume + tap-count change). */
@@ -1915,15 +2012,40 @@ export class TapToneAnalyzer {
   /** A hardware input change: show "Audio device changed - reinitializing…" while settling, then restore
    *  the resting prompt (Swift route-change status). The device layer drives both edges. */
   handleDeviceChange(settling: boolean): void {
-    this.setStatusMessage(settling ? 'Audio device changed - reinitializing...' : this.restingPrompt())
+    // Readiness follows the settle, as it does in Swift (`isReadyForDetection`, false for
+    // fftSettleTime) and Python. New Tap is disabled while the input is reinitialising; the field
+    // was declared here and never written until #17 F32, so web showed no disable at all.
+    this.isReadyForDetection = !settling
+    if (settling) {
+      // Remember what the status said BEFORE the transient replaces it. statusAfterSettle() returns
+      // null for the states whose status is a result announcement rather than a prompt, and "leave
+      // it alone" has to mean restoring THIS — not leaving the transient up forever, which is what
+      // it meant on the first pass (#17 F33). Guarded so a repeated settling edge cannot capture
+      // the transient itself.
+      if (this.statusBeforeSettle === null) this.statusBeforeSettle = this.statusMessage
+      // Blank the chart only if a LIVE spectrum is on screen — a completed or loaded measurement
+      // keeps its result, exactly as in Swift/Python (#17 F35).
+      if (!this.isMeasurementComplete && this.displayMode !== 'comparison') this.isSettling = true
+      this.setStatusMessage('Audio device changed - reinitializing...')
+    } else {
+      this.isSettling = false
+      this.setStatusMessage(this.restoredStatus(this.statusBeforeSettle ?? 'Ready'))
+      this.statusBeforeSettle = null
+    }
     this.notify()
   }
 }
 
 /** Immutable view of the lifecycle facts App reads via useSyncExternalStore. */
 export interface TapToneSnapshot {
+  detectionState: DetectionState
+  /** True while a device change settles — the chart shows nothing. */
+  isSettling: boolean
+  /** Derived from `detectionState`, as on the analyzer — Swift's views read the same two. */
   isDetecting: boolean
   isDetectionPaused: boolean
+  /** False while the input is reinitialising after a device change — disables New Tap. */
+  isReadyForDetection: boolean
   isMeasurementComplete: boolean
   /** Taps captured so far. Guitar: 0…numberOfTaps. Material: CUMULATIVE across phases, 0…totalPlateTaps. */
   currentTapCount: number

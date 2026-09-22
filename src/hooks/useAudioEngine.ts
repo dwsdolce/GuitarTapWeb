@@ -212,7 +212,10 @@ export function useAudioEngine({
           // (mirrors Swift route change). The analyzer owns the status field now (6-TEST 3c-C4).
           analyzer.handleDeviceChange(true)
           if (deviceChangeTimer.current) clearTimeout(deviceChangeTimer.current)
-          deviceChangeTimer.current = setTimeout(() => analyzer.handleDeviceChange(false), 1500)
+          // 3000 ms matches Swift's fftSettleTime and Python's mirror of it. It was 1500 here with
+          // no recorded reason; the settle is how long New Tap stays disabled after a device change,
+          // so a different number is a different user-visible behaviour (#17 F32).
+          deviceChangeTimer.current = setTimeout(() => analyzer.handleDeviceChange(false), 3000)
         },
         onDecay: setDecayTime,
       },
