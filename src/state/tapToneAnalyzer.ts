@@ -1214,6 +1214,7 @@ export class TapToneAnalyzer {
   }
 
   // ── Tap detection + gated capture ───────────────────────────────────────────────────────────
+  // @parity state/tap-detection  tests=test/tap-decisions,test/status-message
   // Swift keeps all of this on the analyzer: TapToneAnalyzer+TapDetection (the detector) and
   // +SpectrumCapture (the pre-roll ring, the capture window, the completion paths). The engine is
   // the microphone, the FFT primitive and the watchdogs — nothing more. Web had put the detector
