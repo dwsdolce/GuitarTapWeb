@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { measureDecayTime, DecayTracker, DECAY_THRESHOLD_DB, type DecaySample } from '../src/dsp/decay'
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { decodeWav } from '../src/dsp/wav'
 
 // Ring-out (decay) time — pinned to the Swift DecayTrackingTests / Python test_decay_tracking
@@ -100,8 +101,18 @@ describe('G4d — REG-G ring-out (file playback)', () => {
       new Uint8Array(readFileSync(new URL('./fixtures/Recording 5.wav', import.meta.url))),
       { downmix: true },
     )
-    const engine = new RealtimeFFTAnalyzer({}, { tapDetectionThreshold: -40, numberOfTaps: 1 })
+    // The ring-out is seeded when a tap is CONFIRMED, and detection lives on the analyzer now
+    // (#17 F30) — so the analyzer has to be driving the pipeline for a decay to be measured at all.
+    const analyzer = new TapToneAnalyzer()
+    analyzer.setNumberOfTaps(1)
+    analyzer.tapDetectionThreshold = -40
+    const engine = new RealtimeFFTAnalyzer(
+      { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
+      { tapDetectionThreshold: -40, numberOfTaps: 1 },
+    )
     engine.initForTesting()
+    analyzer.setDevice(engine)
+    analyzer.startTapSequence({ skipWarmup: true })
     await engine.playFile(wav.samples, wav.sampleRate, { pace: false })
     expect(engine.decayTime, 'no ring-out measured').not.toBeNull()
     expect(Math.abs(engine.decayTime! - RING_OUT_GOLDEN_SEC)).toBeLessThan(RING_OUT_TOL_SEC)

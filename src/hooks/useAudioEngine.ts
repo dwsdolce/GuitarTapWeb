@@ -38,9 +38,7 @@ interface UseAudioEngineArgs {
   dumpCaptureRef: MutableRefObject<boolean>
   /** The guitar tap sequence finished — App averages the analyzer's accumulated taps into the frozen
    *  result (unless a comparison is frozen) and clears the loaded-measurement state. STABLE. */
-  onGuitarCapture: () => void
   /** Continuous session WAV for the Dump-Capture-Audio diagnostic (one per measurement). STABLE. */
-  onSessionAudio: (samples: Float32Array, sampleRate: number, label: string) => void
   /** Engine came up — App arms a fresh sequence for the current measurement type (the web's
    *  start() → startTapSequence() branch: guitar arms, plate/brace start the phase machine). STABLE. */
   onStarted: () => void
@@ -87,8 +85,6 @@ export function useAudioEngine({
   engineRef,
   calibrationRef,
   tapThresholdRef,
-  onGuitarCapture,
-  onSessionAudio,
   onStarted,
   analyzer,
   dumpCaptureRef,
@@ -193,34 +189,16 @@ export function useAudioEngine({
       {
         onLevel: setLevel,
         onSpectrum: setLiveSpectrum,
-        // Guitar capture is split (6-TEST 3c-C2a/C2b): the device delivers each per-tap spectrum RAW
-        // into the analyzer's accumulation (recordGuitarTap); on completion App averages them into the
-        // analyzer's frozen result (processMultipleTaps) — gated by App's comparison guard, so an
-        // in-flight capture doesn't clobber a frozen comparison. Frozen + per-tap live on the analyzer
-        // snapshot now; there is no spectrum payload to hand back.
-        onGuitarTap: (spectrum) => analyzer.recordGuitarTap(spectrum),
-        onGuitarComplete: () => onGuitarCapture(),
-        // The analyzer owns isDetecting/isDetectionPaused, the guitar status strings, AND the engineState
-        // fact (idle/listening/capturing/paused) that App reads off the snapshot — no duplicate React state
-        // (3c-C5). The device owns the guitar detection loop; the analyzer mirrors its transitions.
-        onState: (s) => analyzer.setEngineState(s),
+        // The device is the microphone, the FFT and the watchdogs — it hands every chunk up and the
+        // TapToneAnalyzer does the rest: pre-roll, detection, gated capture, the tap count, the
+        // status strings and the L→C→FLC phase machine. That is Swift's split, restored here by
+        // #17 F30; before it, detection and capture lived on the device and reported results back
+        // through five separate callbacks.
+        onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime),
         // Edge-triggered clipping → the analyzer's status override/restore AND the snapshot's isClipping
         // (which drives the threshold-slider red zone). One source now (3c-C5). Swift `$isClipping` sink.
         onClipping: (c) => analyzer.setClipping(c),
-        // The device reports per-sequence/per-phase tap progress; the analyzer owns currentTapCount
-        // (numberOfTaps is set separately via changeTaps → analyzer.setNumberOfTaps). 6-TEST 3c-A.
-        // collected === 0 marks a fresh sequence / material phase armed at 0 taps → clear the
-        // analyzer's per-tap accumulation so the next recordGuitarTap starts clean (6-TEST 3c-C2a).
-        onProgress: (collected) => {
-          if (collected === 0) analyzer.beginGuitarAccumulation()
-          analyzer.setCurrentTapCount(collected)
-        },
         onMetrics: setEngineMetrics,
-        // The analyzer owns the whole material capture flow (6-TEST 3c-C4 Option C): each raw gated tap
-        // → recordMaterialTap runs the per-tap validity gate, counts, re-arms (armMaterial), and advances
-        // the L→C→FLC phases (review live / auto-advance when playing). The device just emits + disarms.
-        onMaterialTap: (spectrum) => analyzer.recordMaterialTap(spectrum),
-        onSessionAudio,
         // A mic was attached (auto-selected) or the active one was unplugged (fell back): re-sync the
         // device + RELOAD that device's calibration (None if it has none). Mirrors Swift's didSet.
         onInputChanged: (deviceId) => {
@@ -269,7 +247,7 @@ export function useAudioEngine({
       setErrorKind(denied ? 'permission' : 'engine')
       engineRef.current = null
     }
-  }, [analyzer, engineRef, tapThresholdRef, dumpCaptureRef, onGuitarCapture, onSessionAudio, onStarted, applyCalibrationForDevice, refreshDevices])
+  }, [analyzer, engineRef, tapThresholdRef, dumpCaptureRef, onStarted, applyCalibrationForDevice, refreshDevices])
 
   // Start listening automatically — GuitarTap has no Start button; the only
   // browser-mandated gate is the mic permission prompt itself.
@@ -282,8 +260,8 @@ export function useAudioEngine({
     }
   }, [start, engineRef])
 
-  const pauseTap = useCallback(() => engineRef.current?.pause(), [engineRef])
-  const resumeTap = useCallback(() => engineRef.current?.resume(), [engineRef])
+  const pauseTap = useCallback(() => analyzer.pauseTapDetection(), [analyzer])
+  const resumeTap = useCallback(() => analyzer.resumeTapDetection(), [analyzer])
 
   return {
     running,

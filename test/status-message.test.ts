@@ -51,13 +51,12 @@ describe('statusMessage — initial + clipping override/restore', () => {
 
   it('clipping overrides the display and restores the latest real status when it clears', () => {
     const a = new TapToneAnalyzer()
-    a.setEngineState('listening') // → "Tap the guitar..."
+    a.startTapSequence({ arm: false }) // armed + waiting → "Tap the guitar..."
     expect(a.statusMessage).toBe('Tap the guitar...')
     a.setClipping(true)
     expect(a.statusMessage).toBe(CLIP)
     // A real write while clipping stays PINNED to the warning, but is stashed for restore.
-    a.setNumberOfTaps(3)
-    a.setEngineState('listening') // real write "Tap the guitar 3 times..."
+    a.setNumberOfTaps(3) // real write "Tap the guitar 3 times..."
     expect(a.statusMessage).toBe(CLIP)
     a.setClipping(false)
     expect(a.statusMessage).toBe('Tap the guitar 3 times...')
@@ -67,7 +66,7 @@ describe('statusMessage — initial + clipping override/restore', () => {
 describe('statusMessage — device change (route change transient)', () => {
   it('shows reinitializing, then restores the resting prompt', () => {
     const a = new TapToneAnalyzer()
-    a.setEngineState('listening')
+    a.startTapSequence({ arm: false })
     a.handleDeviceChange(true)
     expect(a.statusMessage).toBe('Audio device changed - reinitializing...')
     a.handleDeviceChange(false)
@@ -78,32 +77,31 @@ describe('statusMessage — device change (route change transient)', () => {
 describe('statusMessage — guitar detection-loop strings', () => {
   it('single- and multi-tap resting prompt', () => {
     const a = new TapToneAnalyzer()
-    a.setEngineState('listening')
+    a.startTapSequence({ arm: false })
     expect(a.statusMessage).toBe('Tap the guitar...')
     a.setNumberOfTaps(3) // armed + waiting → prompt refreshes to the count
     expect(a.statusMessage).toBe('Tap the guitar 3 times...')
   })
 
   it('capturing (provisional) and between-taps strings', () => {
+    // The analyzer owns these now, so assert the string function the capture transitions call —
+    // Swift's `guitarLoopStatus(capturing:)`, same shape (#17 F30).
     const a = new TapToneAnalyzer()
     a.setNumberOfTaps(3)
     a.setCurrentTapCount(0)
-    a.setEngineState('capturing')
-    expect(a.statusMessage).toBe('Tap 1/3 capturing...')
+    expect(a.guitarLoopStatus(true)).toBe('Tap 1/3 capturing...')
     a.setCurrentTapCount(1)
-    a.setEngineState('listening')
-    expect(a.statusMessage).toBe('Tap 1/3 captured. Tap again...')
+    expect(a.guitarLoopStatus(false)).toBe('Tap 1/3 captured. Tap again...')
     a.setCurrentTapCount(2)
-    a.setEngineState('capturing') // last tap → provisional says processing
-    expect(a.statusMessage).toBe('All taps captured. Processing...')
+    expect(a.guitarLoopStatus(true)).toBe('All taps captured. Processing...') // last tap → processing
   })
 
   it('paused, then resume restores the resting prompt', () => {
     const a = new TapToneAnalyzer()
-    a.setEngineState('listening')
-    a.setEngineState('paused')
+    a.startTapSequence({ arm: false })
+    a.pauseTapDetection()
     expect(a.statusMessage).toBe('Detection paused – tap freely, then resume')
-    a.setEngineState('listening') // resume
+    a.resumeTapDetection()
     expect(a.statusMessage).toBe('Tap the guitar...')
   })
 
@@ -241,7 +239,7 @@ describe('statusMessage — removed web-only inventions are never produced', () 
   it('none of the sweep states yield a removed string', () => {
     const seen: string[] = []
     const a = new TapToneAnalyzer()
-    a.setEngineState('listening')
+    a.startTapSequence({ arm: false })
     seen.push(a.statusMessage)
     a.loadMeasurement({ magnitudes: [1, 2], frequencies: [1, 2] })
     seen.push(a.statusMessage)

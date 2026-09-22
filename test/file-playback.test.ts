@@ -1,6 +1,17 @@
 // @parity test/file-playback
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+// The analyzer writes the session WAV itself (Swift's shape); in Node there is no download, so the
+// writer is mocked and the calls collected.
+const dumped: { samples: Float32Array; rate: number; label: string }[] = []
+vi.mock('../src/measurement/dumpWav', () => ({
+  dumpCaptureWav: (samples: Float32Array, rate: number, label: string) => {
+    dumped.push({ samples, rate, label })
+  },
+}))
 import { RealtimeFFTAnalyzer, type MaterialCaptureResult } from '../src/audio/realtimeFFTAnalyzer'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import { DEFAULT_SETTINGS } from '../src/settings'
 import { modePeaksFromSpectrum } from '../src/dsp/guitarFFT'
 import {
   loadCal,
@@ -184,17 +195,28 @@ async function playGuitarSession(
   dumpCaptureAudio: boolean,
 ): Promise<{ wav: { samples: Float32Array; sampleRate: number }; sessions: { samples: Float32Array; rate: number; label: string }[] }> {
   const wav = loadWav(reg.fixture)
-  const sessions: { samples: Float32Array; rate: number; label: string }[] = []
+  dumped.length = 0
+  const analyzer = new TapToneAnalyzer()
+  analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1)
+  analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
+  // The analyzer owns the session WAV now and writes it itself, as Swift's analyzer does — so the
+  // switch is a SETTING on the analyzer, not engine config, and the write is captured by the mock.
+  analyzer.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio })
   const engine = new RealtimeFFTAnalyzer(
-    { onSessionAudio: (samples, rate, label) => sessions.push({ samples, rate, label }) },
+    { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
     {
       tapDetectionThreshold: reg.settings.tapDetectionThreshold,
       numberOfTaps: reg.settings.numberOfTaps ?? 1,
-      dumpCaptureAudio,
     },
   )
   engine.initForTesting()
+  engine.setCalibration(loadCal(reg.calibration))
+  analyzer.setDevice(engine)
+  // The analyzer owns detection and therefore the session's start and finish (#17 F30).
+  analyzer.startTapSequence({ skipWarmup: true })
   await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration) })
+  analyzer.flushPartialGuitarCapture()
+  const sessions = dumped.map((d) => ({ samples: d.samples, rate: d.rate, label: d.label.replace(/^session_/, '') }))
   return { wav, sessions }
 }
 

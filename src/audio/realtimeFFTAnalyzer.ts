@@ -6,10 +6,8 @@ import { DecayTracker } from '../dsp/decay'
 import {
   alignCaptureToOnset,
   gatedCaptureResult,
-  GATED_CAPTURE_DURATION,
   PLATE_PHASES,
   BRACE_PHASE,
-  PRE_ONSET_DURATION,
   type DetectedMaterialPeak,
 } from '../dsp/gatedCapture'
 
@@ -43,28 +41,16 @@ export type EngineState = 'idle' | 'listening' | 'capturing' | 'paused'
 export interface RealtimeFFTAnalyzerCallbacks {
   onSpectrum?: (spectrum: Spectrum) => void
   onLevel?: (db: number) => void
-  /** One captured guitar tap's spectrum, delivered RAW as soon as its window fills. The device no
-   *  longer averages (6-TEST 3c-C2a); the TapToneAnalyzer accumulates these + averages them into the
-   *  frozen result. Fires once per tap, in order, for both single- and multi-tap sequences. */
-  onGuitarTap?: (spectrum: Spectrum) => void
-  /** The guitar tap sequence finished (the requested tap count was reached). The analyzer averages
-   *  the accumulated taps and freezes the result. Pairs with onGuitarTap. */
-  onGuitarComplete?: () => void
-  onState?: (state: EngineState) => void
-  /** Multi-tap progress: taps collected so far / total requested. */
-  onProgress?: (collected: number, total: number) => void
+  /** Every pipeline chunk, with its level and audio-clock value. The TapToneAnalyzer owns the
+   *  pre-roll, the detector and the capture window (Swift's split), so this is the whole seam
+   *  between the device and the model (#17 F30). */
+  onAudioFrame?: (samples: Float32Array, levelDb: number, audioTime: number) => void
   /** Edge-triggered input clipping (peak ≥ 0.99 or RMS ≥ 0 dBFS, 1.5 s hold). */
   onClipping?: (clipping: boolean) => void
-  /** One raw gated material tap's spectrum (3c-C4 Option C). The device is now purely a gated-FFT
-   *  emitter for material: it computes the per-tap gated spectrum, delivers it here, and DISARMS — the
-   *  TapToneAnalyzer owns the per-tap validity gate, the tap count, the re-arm (via armMaterial), and
-   *  the L→C→FLC phase advance (mirroring Swift `finishGatedFFTCapture` + `handle*GatedProgress`). */
-  onMaterialTap?: (spectrum: Spectrum) => void
   /** Continuous session recording for the "Dump Capture Audio" diagnostic — fired ONCE at the end of a
    *  measurement with every chunk that flowed through the pipeline while recording (minus paused
    *  segments and redone phases), so replaying it reproduces the session. `label` identifies the
    *  measurement ("Guitar_8tap" / "Plate_LC" / "Plate_LCF" / "Brace"). Mirrors Swift finishSessionRecording. */
-  onSessionAudio?: (samples: Float32Array, sampleRate: number, label: string) => void
   /** Live-FFT performance, emitted once per continuous spectrum (FFTAnalysisMetricsView). */
   onMetrics?: (m: EngineMetrics) => void
   /** The active input device changed on its own (a mic was attached → auto-selected, or the active
@@ -112,27 +98,6 @@ const CLIP_HOLD_SECONDS = 1.5
 // was stale (never updated after the value changed during testing).
 const PEAK_HOLD_SECONDS = 2.0
 
-const CONFIRM_CHUNKS = 2
-
-// ── OUT-4 detection constants — canonical values from Swift/Python ────────────────────────────────
-// Falling threshold = rising − HYSTERESIS_MARGIN, so the ring-out decay cannot re-trigger a tap on
-// its way down. Swift `hysteresisMargin` / Python `hysteresis_margin`, both 3.0. It was once
-// user-settable (the `.guitartap` format still has the fossil) and is now a constant.
-const HYSTERESIS_MARGIN = 3.0
-
-// Noise-floor EMA (material only). Swift `noiseFloorAlpha` / Python `noise_floor_alpha`.
-const NOISE_FLOOR_ALPHA = 0.05
-const NOISE_FLOOR_INITIAL_DB = -60
-
-// Minimum headroom over the noise floor for a material tap. The 10 dB floor rejects small ambient
-// spikes (typically 1–4 dB above the floor) while still catching real taps (12–30 dB above it).
-const NOISE_FLOOR_MIN_HEADROOM_DB = 10
-// The falling threshold keeps at least this much headroom over the floor.
-const NOISE_FLOOR_MIN_FALLING_HEADROOM_DB = 4
-
-// Detection warm-up, in seconds of AUDIO. Swift `warmupPeriod` / Python `warmup_period`.
-const WARMUP_SECONDS = 0.5
-
 interface ChunkMessage {
   samples: Float32Array
   rms: number
@@ -160,7 +125,6 @@ export class RealtimeFFTAnalyzer {
   private config: RealtimeFFTAnalyzerConfig
 
   sampleRate = 48000
-  state: EngineState = 'idle'
   /** True while a file is playing through the pipeline (mic chunks are ignored meanwhile). */
   playingFile = false
   /** Test seam: when true, the pure pipeline (playFile/arm/capture) runs without a browser
@@ -185,56 +149,43 @@ export class RealtimeFFTAnalyzer {
   private readonly accum = new Float32Array(GUITAR_FFT_SIZE)
   private accumIdx = 0
 
-  // Tap detection state.
-  private prevAbove = true
-  private consecutive = 0
-
-  // ── Hysteresis (OUT-4) — mirrors Swift/Python `isAboveThreshold` ────────────────────────────────
-  // NOT the same thing as `prevAbove`. `prevAbove` is edge-detection state (was the LAST chunk above
-  // the rising threshold?). `isAboveThreshold` is a LATCH: it goes true at the rising threshold and
-  // only clears at the lower FALLING threshold, so the ring-out decay envelope cannot re-trigger a
-  // tap on its way down. The web had no hysteresis at all — in guitar mode either. Swift and Python
-  // have carried `hysteresisMargin = 3.0` all along.
-  private isAboveThreshold = false
-
-  // ── Noise-floor EMA (OUT-4) — mirrors Swift/Python `noiseFloorEstimate` ─────────────────────────
-  // Material (plate/brace) detects RELATIVE to the tracked ambient floor, not against a fixed dBFS
-  // level. The rule reduces to `rising = max(threshold, noiseFloor + 10 dB)` — i.e. it is the absolute
-  // threshold with a FLOOR under it, so it only differs once the room gets loud. That is what keeps
-  // detection working when ambient noise is elevated; a fixed threshold simply saturates (the level
-  // never drops below it, so no rising edge can ever be confirmed) and the app goes deaf.
-  // Guitar stays absolute. See Development/OUT-4-DETECTION-SPEC.md.
-  private noiseFloorEstimate = NOISE_FLOOR_INITIAL_DB
-
-  // ── Detection warm-up (OUT-4) — mirrors Swift/Python `warmupStartAudioTime` ─────────────────────
-  // Value of the AUDIO clock when the sequence armed; detection is suppressed for WARMUP_SECONDS of
-  // AUDIO after it. SILENT — it never writes a status message (that was OUT-1). Its real job is to
-  // let the noise-floor EMA converge before the first tap is judged, and to re-anchor the floor to
-  // real audio at exit. Measured on the audio clock, never the wall clock: the warm-up must cover the
-  // first 0.5 s of AUDIO however long setup took. `null` = not armed / warm-up skipped.
-  private warmupStartAudioTime: number | null = null
-
-  // A re-arm requested while a capture is in flight. Arming is a REQUEST on the web — the engine owns
-  // the detector — where Swift and Python just assign `isDetecting = true`, which cannot be refused.
-  // A dropped request left the app permanently deaf with no retry and no signal: the plate FLC phase
-  // showed its prompt, the spectrum and level meter kept running, and no tap ever registered until a
-  // restart. So a refusal is now remembered and applied when the capture completes, and every refusal
-  // is logged with the state that caused it.
-  private pendingArm: { kind: 'guitar' } | { kind: 'material'; search: MaterialSearch } | null = null
-
-  /** Apply an arm that was deferred because a capture was in flight. */
-  private applyPendingArm(): void {
-    const p = this.pendingArm
-    if (p === null || this.state !== 'idle') return
-    this.pendingArm = null
-    console.warn(`[engine] deferred ${p.kind} arm applied after the capture completed`)
-    if (p.kind === 'guitar') this.arm()
-    else this.armMaterial(p.search)
-  }
-  private justExitedWarmup = false
-
   // Ring-out (decay) tracking — guitar only; fed the broadband level per chunk on an audio clock.
   private decay = new DecayTracker()
+
+  // ── Services the TapToneAnalyzer calls while IT owns detection + gated capture ─────────────
+  // Swift's split: the analyzer holds the pre-roll, the capture window and the detector, and calls
+  // RealtimeFFTAnalyzer for the raw transform and the calibration corrections — applying them
+  // itself. The FFT primitive stays here in both editions; only the work around it is the
+  // analyzer's (#17 F30).
+
+  /** This chunk's audio-clock value — the detector's warm-up anchor (Swift `fftAnalyzer.audioElapsed`). */
+  get audioTime(): number {
+    return this.audioElapsed
+  }
+
+  /** Peak-held input level, the ring-out decay seed (Swift `recentPeakLevelDB`). */
+  get recentPeakLevelDb(): number {
+    return this.recentPeakDb
+  }
+
+  /** Per-bin calibration corrections for the current input, or null. The analyzer APPLIES these,
+   *  mirroring Swift reading `fftAnalyzer.calibrationCorrections` in finishGuitarGatedCapture. */
+  get calibrationCorrections(): number[] | null {
+    return this.guitarCorr
+  }
+
+  /** The analysis window size, so the analyzer can align and pad to it (Swift `fftAnalyzer.fftSize`). */
+  get fftSize(): number {
+    return GUITAR_FFT_SIZE
+  }
+
+
+
+
+  /** Seed the ring-out decay from the peak-held level (guitar only; Swift `decay.start`). */
+  startDecayFromPeak(): void {
+    this.decay.start(this.audioElapsed, this.recentPeakDb)
+  }
   private audioElapsed = 0 // accumulated audio time (s) — the decay tracker's clock
   private lastDecay: number | null = null // last value emitted via onDecay (de-dupe)
   // Peak-held broadband level for the decay SEED — mirrors Swift `recentPeakLevelDB`
@@ -251,34 +202,15 @@ export class RealtimeFFTAnalyzer {
   // start so a redone material phase can be truncated away. Only runs when the dump-capture setting
   // is on. (number[], not Float32Array, so it grows cheaply and truncates like the native lists;
   // flattened to a Float32Array at finishSessionRecording.)
-  private sessionSamples: number[] = []
-  private sessionCheckpoints: number[] = []
-  private sessionRecording = false
-  private sessionActive = false
-  private sessionRate = 48000
   // Bounded pre-roll for the session WAV (FILE-PATHS-AND-NAMES-SPEC §6). True from
   // startSessionRecording until the first capture begins, then false for the rest of the session:
   // while true, only the last SESSION_PRE_ROLL_SECONDS of audio is kept; after the first tap the
   // buffer grows straight through. Mirrors Swift sessionPreRollActive.
-  private sessionPreRollActive = false
 
   /** Latest measured ring-out time (s), read into the measurement at save (Swift currentDecayTime). */
   get decayTime(): number | null {
     return this.decay.decayTime
   }
-
-  // Tap capture state (pre-roll ring buffer → capture window). Guitar uses a fixed
-  // 65536 window (non-gated); material uses a ~500 ms window (gated FFT).
-  private prerollSamples = 0
-  private preroll = new Float32Array(0)
-  private prerollIdx = 0
-  private prerollFilled = 0
-  private readonly guitarCapture = new Float32Array(GUITAR_FFT_SIZE)
-  private materialCapture = new Float32Array(0)
-  private capture: Float32Array = this.guitarCapture
-  private captureIdx = 0
-  private captureKind: 'guitar' | 'material' = 'guitar'
-  private materialSearch: MaterialSearch | null = null
 
   // Guitar tap counter. The device no longer accumulates per-tap spectra (6-TEST 3c-C2a — the
   // TapToneAnalyzer owns accumulation + averaging); it keeps only this lightweight count to know
@@ -357,13 +289,6 @@ export class RealtimeFFTAnalyzer {
     // Skipped mid-capture and when idle: the stepper is locked once a tap is captured, and on load
     // the result is frozen (setConfig(loadedTaps) runs while idle). Guitar only — material progress +
     // its "Tap N times…" prompt are owned by the analyzer now (3c-C4 Option C: analyzer.setNumberOfTaps).
-    if (
-      this.config.numberOfTaps !== prevTaps &&
-      this.captureKind === 'guitar' &&
-      (this.state === 'listening' || this.state === 'paused')
-    ) {
-      this.callbacks.onProgress?.(this.guitarTapCount, this.config.numberOfTaps)
-    }
   }
 
   /** Set (or clear) the active mic calibration for the continuous + guitar-capture paths.
@@ -396,185 +321,20 @@ export class RealtimeFFTAnalyzer {
     return { magnitudesDb: applyCalibration(spec.magnitudesDb, corr), frequencies: spec.frequencies }
   }
 
-  /** Arm guitar tap detection (New Tap). Starts a fresh tap sequence. */
-  arm(): void {
-    if (!this.running) {
-      console.warn('[engine] guitar arm refused: engine not running')
-      return
-    }
-    if (this.state === 'capturing') {
-      this.pendingArm = { kind: 'guitar' }
-      console.warn('[engine] guitar arm deferred: a capture is in flight')
-      return
-    }
-    this.captureKind = 'guitar'
-    this.capture = this.guitarCapture
-    this.guitarTapCount = 0
-    this.prevAbove = true
-    this.consecutive = 0
-    // Guitar SKIPS the warm-up during file playback: an externally recorded guitar file may put the
-    // tap inside the first 0.5 s, and guitar detects against the absolute threshold so it never reads
-    // the noise floor. Live, it runs the warm-up like everything else.
-    this.armWarmup(this.playingFile)
-    this.decay.reset() // New Tap → drop any prior ring-out (the next tap re-seeds it)
-    this.lastDecay = null
-    this.callbacks.onDecay?.(null)
-    this.callbacks.onProgress?.(0, this.config.numberOfTaps)
-    this.startSessionRecording() // begin the continuous session WAV for this guitar sequence (dump-gated)
-    this.setState('listening')
-  }
 
-  /** Arm (or re-arm) a gated material phase with its search range — the analyzer's re-arm-on-command
-   *  (3c-C4 Option C). Used for a fresh phase, the next tap of a multi-tap phase, a redo, and the
-   *  file-playback auto-advance; the analyzer owns the tap count + progress, so this only resets the
-   *  level-crossing warm-up and re-arms. Called after finishCapture has disarmed (state 'idle'). */
-  armMaterial(search: MaterialSearch): void {
-    if (!this.running) {
-      console.warn('[engine] material arm refused: engine not running')
-      return
-    }
-    if (this.state === 'capturing') {
-      this.pendingArm = { kind: 'material', search }
-      console.warn('[engine] material arm deferred: a capture is in flight')
-      return
-    }
-    this.captureKind = 'material'
-    this.materialSearch = search
-    this.capture = this.materialCapture
-    this.prevAbove = true
-    this.consecutive = 0
-    // Material ALWAYS runs the warm-up — live and playback alike. It is the only mode that uses the
-    // relative noise-floor detector, and the warm-up is what establishes that floor (it feeds the EMA
-    // and re-anchors it to real audio at exit). Also re-armed between taps/phases, which additionally
-    // stops the previous tap's ring-out from re-triggering while the plate is repositioned.
-    this.armWarmup(false)
-    this.setState('listening')
-  }
 
-  /** Cancel an armed/listening sequence (no effect mid-capture). */
-  disarm(): void {
-    this.pendingArm = null // a deferred arm must not resurrect detection over a frozen result
-    if (this.state === 'listening') this.setState('idle')
-  }
 
-  /** Pause an active tap sequence: stop detecting while the live spectrum keeps flowing and
-   *  the collected taps are preserved. Mirrors Swift `pauseTapDetection()`. Only acts while
-   *  listening — the capture window is sub-second and finishes on its own. */
-  pause(): void {
-    if (this.state === 'listening') {
-      this.sessionRecording = false // exclude the paused segment from the session WAV (Swift)
-      this.setState('paused')
-    }
-  }
 
-  /** Resume after a pause, continuing the sequence from the current tap count. Resets the
-   *  level-crossing warm-up (so the first chunk after resume can't false-trigger), exactly
-   *  like Swift `resumeTapDetection()`. No-op unless paused. */
-  resume(): void {
-    if (this.state !== 'paused') return
-    this.prevAbove = true
-    this.consecutive = 0
-    // Resuming re-arms detection, so it re-runs the warm-up (mirrors Swift resumeTapDetection).
-    this.armWarmup(this.playingFile && this.captureKind === 'guitar')
-    if (this.sessionActive) this.sessionRecording = true // resume accumulating into the session WAV
-    this.setState('listening')
-  }
 
-  /** Abort the current sequence (guitar multi-tap or material), discarding any partial
-   *  captures, and return to idle so New Tap re-arms. Mirrors Swift `cancelTapSequence()`. */
-  cancel(): void {
-    this.guitarTapCount = 0
-    this.materialSearch = null
-    this.captureKind = 'guitar'
-    this.capture = this.guitarCapture
-    this.captureIdx = 0
-    this.prevAbove = true
-    this.consecutive = 0
-    this.cancelSessionRecording() // discard the partial session WAV
-    this.setState('idle')
-  }
 
-  // ── Continuous session recording (Swift TapToneAnalyzer session WAV) ────────
-  /** Begin accumulating every pipeline chunk for the session WAV (no-op unless the dump setting is on).
-   *  Guitar calls this from `arm()`; live material drives it from useMaterialSession. */
-  startSessionRecording(): void {
-    if (!this.config.dumpCaptureAudio) return
-    this.sessionSamples = []
-    this.sessionCheckpoints = [0] // first-phase truncation anchor (Swift/Python seed [0] at start)
-    this.sessionRate = this.sampleRate
-    this.sessionActive = true
-    this.sessionRecording = true
-    this.sessionPreRollActive = true // bound the pre-first-tap audio to ~2 s (§6)
-  }
 
-  /** Mark a phase boundary (SAMPLE count) so a later redo can truncate the rejected phase's audio
-   *  (Swift/Python sessionCheckpoints). */
-  checkpointSession(): void {
-    if (this.sessionActive) this.sessionCheckpoints.push(this.sessionSamples.length)
-  }
 
-  /** Redo the current phase: drop everything recorded since the last checkpoint (Swift redo truncation). */
-  redoSession(): void {
-    if (!this.sessionActive) return
-    const cp = this.sessionCheckpoints[this.sessionCheckpoints.length - 1] ?? 0
-    if (cp < this.sessionSamples.length) {
-      this.sessionSamples.length = cp
-      // Redoing the FIRST phase empties the buffer back to the pre-first-tap state, so re-arm the
-      // bounded pre-roll (§6). Later phases keep the latch frozen. Mirrors Swift redoCurrentPhase.
-      if (cp === 0) this.sessionPreRollActive = true
-    }
-  }
 
   /** Seconds of audio retained before the first tap (>= the 0.5 s warm-up, with margin). */
-  static readonly SESSION_PRE_ROLL_SECONDS = 2.0
 
-  /** ``SESSION_PRE_ROLL_SECONDS`` in samples at the current session rate (Swift sessionPreRollSamples). */
-  private get sessionPreRollSamples(): number {
-    return Math.round(this.sessionRate * RealtimeFFTAnalyzer.SESSION_PRE_ROLL_SECONDS)
-  }
 
-  /** Append one chunk to the session WAV buffer and maintain the bounded pre-roll (§6).
-   *
-   *  Before the first tap (sessionPreRollActive): keep only the last ~2 s — the tap is always in
-   *  the tail, so trimming the head never eats it; this just discards accumulated idle. The first
-   *  capture (state === 'capturing') freezes the latch. Everything after — subsequent taps, plate
-   *  phases, and the gaps between them — is completely live. Mirrors Swift maintainSessionRecording. */
-  private maintainSessionRecording(s: Float32Array): void {
-    if (!this.sessionRecording) return
-    for (let i = 0; i < s.length; i++) this.sessionSamples.push(s[i]!)
-    if (!this.sessionPreRollActive) return // frozen after the first tap → fully live
-    if (this.state === 'capturing') {
-      this.sessionPreRollActive = false // first tap started — freeze the pre-roll
-      return
-    }
-    const excess = this.sessionSamples.length - this.sessionPreRollSamples
-    if (excess > 0) this.sessionSamples.splice(0, excess)
-  }
 
-  /** Finish the session: emit the accumulated audio (if any) as one WAV via onSessionAudio, then clear. */
-  finishSessionRecording(label: string): void {
-    this.sessionRecording = false
-    this.sessionActive = false
-    const samples = this.sessionSamples
-    const rate = this.sessionRate
-    this.sessionSamples = []
-    this.sessionCheckpoints = []
-    if (samples.length === 0) return
-    this.callbacks.onSessionAudio?.(new Float32Array(samples), rate, label)
-  }
 
-  /** Abandon the session without writing (cancel / measurement-type change / New Tap of a fresh kind). */
-  cancelSessionRecording(): void {
-    this.sessionRecording = false
-    this.sessionActive = false
-    this.sessionSamples = []
-    this.sessionCheckpoints = []
-  }
-
-  private setState(state: EngineState): void {
-    this.state = state
-    this.callbacks.onState?.(state)
-  }
 
   private removeGestureResume: (() => void) | null = null
 
@@ -718,9 +478,8 @@ export class RealtimeFFTAnalyzer {
     const ctx = new AudioContext()
     this.context = ctx
     this.sampleRate = ctx.sampleRate
-    this.prerollSamples = Math.round(this.sampleRate * 0.2)
-    this.preroll = new Float32Array(this.prerollSamples)
-    this.materialCapture = new Float32Array(Math.round(this.sampleRate * GATED_CAPTURE_DURATION))
+    // The pre-roll ring and capture windows are the analyzer's, sized from this rate when it sees
+    // the first frame (#17 F30).
     await ctx.audioWorklet.addModule(`${import.meta.env.BASE_URL}spectrum-processor.js`)
     await ctx.resume()
     // Browsers may bring the context up suspended without a user gesture (e.g. on
@@ -910,14 +669,10 @@ export class RealtimeFFTAnalyzer {
       this.callbacks.onDecay?.(this.lastDecay)
     }
 
-    // Continuous session recording with the bounded pre-roll (§6): keep every chunk while active,
-    // trimming only the pre-first-tap idle. Paused segments are excluded (pause() clears the flag).
-    this.maintainSessionRecording(s)
-
     this.feedContinuous(s)
-    this.feedPreroll(s)
-    if (this.state === 'capturing') this.feedCapture(s)
-    else if (this.state === 'listening') this.detectTap(db, this.audioElapsed)
+    // Detection and gated capture belong to the TapToneAnalyzer, as they do in Swift — this layer is
+    // the microphone, the FFT and the watchdogs. Hand the chunk up (#17 F30).
+    this.callbacks.onAudioFrame?.(s, db, this.audioElapsed)
   }
 
   /** Play decoded mono samples through the live pipeline (no mic) — the web equivalent of Swift
@@ -938,45 +693,15 @@ export class RealtimeFFTAnalyzer {
     if ((!this.context && !this.headless) || this.playingFile) return
     this.playingFile = true
     // Swap to the file's rate + rate-dependent buffers (Swift prepareForFilePlayback).
-    const saved = {
-      rate: this.sampleRate,
-      preroll: this.preroll,
-      prerollSamples: this.prerollSamples,
-      material: this.materialCapture,
-      cal: this.calibration,
-    }
+    const saved = { rate: this.sampleRate, cal: this.calibration }
     this.sampleRate = fileSampleRate
-    this.prerollSamples = Math.round(fileSampleRate * 0.2)
-    this.preroll = new Float32Array(this.prerollSamples)
-    this.materialCapture = new Float32Array(Math.round(fileSampleRate * GATED_CAPTURE_DURATION))
     if (opts && 'calibration' in opts) this.setCalibration(opts.calibration ?? null)
-    // Fresh tap sequence (mirrors startTapSequence before startFromFile).
     this.accumIdx = 0
-    this.prerollIdx = 0
-    this.prerollFilled = 0
-    this.captureIdx = 0
-    this.guitarTapCount = 0
-    this.prevAbove = true
-    this.consecutive = 0
-    if (opts?.material) {
-      // Material (3c-C4 Option C): arm phase L; the TapToneAnalyzer auto-advances L→C→FLC as each tap
-      // arrives (its recordMaterialTap sees playingFile → arms the next phase via armMaterial). Set the
-      // device calibration to the file's material calibration so the analyzer's matSearch (which reads
-      // `activeCalibration`) gates every phase with the right corrections; restored after the loop.
-      const cal = opts.material.calibration ?? null
-      this.setCalibration(cal)
-      const lSearch = opts.material.brace ? { ...BRACE_PHASE, calibration: cal } : { ...PLATE_PHASES[0], calibration: cal }
-      this.captureKind = 'material'
-      this.materialSearch = lSearch
-      this.capture = this.materialCapture
-      this.setState('listening')
-    } else {
-      this.captureKind = 'guitar'
-      this.capture = this.guitarCapture
-      this.startSessionRecording() // continuous session WAV for the played guitar sequence (dump-gated)
-      this.setState('listening')
-      this.callbacks.onProgress?.(0, this.config.numberOfTaps)
-    }
+    // Material: set the device calibration to the file's, so the analyzer's per-phase search — which
+    // reads `activeCalibration` — gates every phase with the right corrections. Restored after the
+    // loop. The PHASE MACHINE is the analyzer's: the caller arms before playback and recordMaterialTap
+    // auto-advances L→C→FLC, exactly as Swift's analyzer does (#17 F30).
+    if (opts?.material) this.setCalibration(opts.material.calibration ?? null)
 
     const pace = opts?.pace ?? true
     const CHUNK = 1024
@@ -988,17 +713,8 @@ export class RealtimeFFTAnalyzer {
       this.processChunk(chunk, Math.sqrt(sumSq / Math.max(1, chunk.length)))
       if (pace) await new Promise((r) => setTimeout(r, chunkMs))
     }
-    // Flush a partial in-flight GUITAR capture so a tap near the end still emits a result.
-    // (Material gated capture needs a full window; a partial final phase is dropped.)
-    if (this.playingFile && this.captureKind === 'guitar' && this.state === 'capturing' && this.captureIdx > 0) {
-      this.capture.fill(0, this.captureIdx)
-      this.finishCapture()
-    }
     // Restore live state; the mic worklet kept running, so clearing the flag resumes it.
     this.sampleRate = saved.rate
-    this.preroll = saved.preroll
-    this.prerollSamples = saved.prerollSamples
-    this.materialCapture = saved.material
     this.setCalibration(saved.cal)
     this.playingFile = false
   }
@@ -1050,198 +766,11 @@ export class RealtimeFFTAnalyzer {
     }
   }
 
-  // ── Pre-roll ring buffer (recent samples before a crossing) ───────────────
-  private feedPreroll(s: Float32Array): void {
-    for (let i = 0; i < s.length; i++) {
-      this.preroll[this.prerollIdx] = s[i]!
-      this.prerollIdx = (this.prerollIdx + 1) % this.prerollSamples
-      if (this.prerollFilled < this.prerollSamples) this.prerollFilled++
-    }
-  }
 
-  // ── Tap detection (2-chunk rising-edge level crossing) ────────────────────
-  /** Rising-edge tap detector. Mirrors Swift `detectTap(level:audioTime:…)` / Python `detect_tap`.
-   *
-   *  `audioTime` is THIS chunk's audio-clock value, passed in rather than read from `this.audioElapsed`,
-   *  so the warm-up is anchored to the chunk being judged. (On the web the pipeline is synchronous so
-   *  the two coincide, but Swift delivers this across a thread hop where they do NOT — reading the clock
-   *  at the consumer there silently skipped the warm-up entirely. Same signature everywhere.)
-   *
-   *  Three things happen here, in the canonical order:
-   *    1. noise-floor EMA (material only, and only while NOT latched above — tap energy must not
-   *       inflate the floor). Runs during the warm-up too: that is the most valuable time, since no
-   *       taps have happened yet.
-   *    2. effective thresholds — absolute for guitar, noise-floor-relative for material.
-   *    3. warm-up gate, then hysteresis + N-chunk confirmation.
-   */
-  private detectTap(levelDb: number, audioTime: number): void {
-    const useRelative = this.captureKind === 'material'
-    const threshold = this.config.tapDetectionThreshold
 
-    // 1. Noise-floor EMA — only while below threshold, so a tap cannot inflate the floor.
-    if (useRelative && !this.isAboveThreshold) {
-      this.noiseFloorEstimate =
-        NOISE_FLOOR_ALPHA * levelDb + (1 - NOISE_FLOOR_ALPHA) * this.noiseFloorEstimate
-    }
 
-    // 2. Effective thresholds.
-    //    Guitar   — absolute (unchanged behaviour), now WITH a falling threshold it never had.
-    //    Material — relative to the tracked floor. Note this reduces to
-    //                   rising = max(threshold, noiseFloor + 10)
-    //               so it IS the absolute rule until the room gets loud enough to lift the floor.
-    let rising: number
-    let falling: number
-    if (useRelative) {
-      const headroom = Math.max(threshold - this.noiseFloorEstimate, NOISE_FLOOR_MIN_HEADROOM_DB)
-      rising = this.noiseFloorEstimate + headroom
-      falling =
-        this.noiseFloorEstimate +
-        Math.max(headroom - HYSTERESIS_MARGIN, NOISE_FLOOR_MIN_FALLING_HEADROOM_DB)
-    } else {
-      rising = threshold
-      falling = threshold - HYSTERESIS_MARGIN
-    }
 
-    // 3a. Warm-up — SILENT (it never writes a status message; that was OUT-1). Suppresses detection
-    //     while the EMA converges, measured on the AUDIO clock against this chunk's timestamp.
-    if (this.warmupStartAudioTime !== null && audioTime - this.warmupStartAudioTime < WARMUP_SECONDS) {
-      this.justExitedWarmup = true // the NEXT frame is the first after warm-up
-      return
-    }
 
-    // 3b. First frame after the warm-up: re-anchor the floor to real audio. The EMA may have been
-    //     seeded before any audio arrived, and without this it can latch at a garbage value and the
-    //     relative rule silently degrades to the absolute one.
-    if (this.justExitedWarmup) {
-      this.justExitedWarmup = false
-      if (useRelative) {
-        this.noiseFloorEstimate = levelDb
-        const h = Math.max(threshold - this.noiseFloorEstimate, NOISE_FLOOR_MIN_HEADROOM_DB)
-        this.isAboveThreshold = levelDb > this.noiseFloorEstimate + h
-      } else {
-        this.isAboveThreshold = levelDb > rising
-      }
-      return // sync state only; do not detect on this frame
-    }
-
-    // 3c. Hysteresis + confirmation. `isAboveThreshold` latches at `rising` and only clears at the
-    //     lower `falling`, so the ring-out decay cannot re-trigger. A tap additionally requires
-    //     CONFIRM_CHUNKS consecutive above-rising chunks, which rejects brief noise bumps.
-    const above = levelDb > rising
-    if (this.isAboveThreshold) {
-      if (levelDb <= falling) this.isAboveThreshold = false
-    } else if (above) {
-      this.isAboveThreshold = true
-    }
-
-    if (above) {
-      if (this.consecutive > 0) this.consecutive++
-      else if (!this.prevAbove) this.consecutive = 1
-      if (this.consecutive >= CONFIRM_CHUNKS) {
-        this.consecutive = 0
-        // Seed the ring-out from the PEAK-HELD level (Swift tapPeakLevel = recentPeakLevelDB), not the
-        // instantaneous level: tap confirmation lags the strike by ~2 chunks, so the true peak would
-        // otherwise be missed and the −15 dB reference under-stated. Guitar only.
-        if (this.captureKind === 'guitar') this.decay.start(this.audioElapsed, this.recentPeakDb)
-        this.beginCapture()
-      }
-    } else {
-      this.consecutive = 0
-    }
-    this.prevAbove = above
-  }
-
-  /** Arm the detection warm-up on the AUDIO clock, and reset the noise floor for a fresh sequence.
-   *
-   *  `skip` backdates the window so it has already elapsed — used for GUITAR file playback only:
-   *  an externally recorded guitar file may put the tap inside the first 0.5 s, and guitar detects
-   *  against the absolute threshold, so it never reads the noise floor and loses nothing.
-   *  MATERIAL always runs the warm-up (live and playback): it is the only mode that uses the floor,
-   *  and the warm-up is what establishes it. See Development/OUT-4-DETECTION-SPEC.md.
-   */
-  private armWarmup(skip: boolean): void {
-    this.warmupStartAudioTime = skip ? this.audioElapsed - (WARMUP_SECONDS + 0.1) : this.audioElapsed
-    this.justExitedWarmup = false
-    this.isAboveThreshold = false
-    this.noiseFloorEstimate = NOISE_FLOOR_INITIAL_DB
-  }
-
-  private beginCapture(): void {
-    // Seed the capture window with the pre-roll (in chronological order).
-    const out = this.capture
-    out.fill(0)
-    const count = this.prerollFilled
-    const startRing = (this.prerollIdx - count + this.prerollSamples) % this.prerollSamples
-    for (let k = 0; k < count; k++) {
-      out[k] = this.preroll[(startRing + k) % this.prerollSamples]!
-    }
-    this.captureIdx = count
-    this.setState('capturing')
-  }
-
-  private feedCapture(s: Float32Array): void {
-    const n = Math.min(s.length, this.capture.length - this.captureIdx)
-    this.capture.set(s.subarray(0, n), this.captureIdx)
-    this.captureIdx += n
-    if (this.captureIdx >= this.capture.length) this.finishCapture()
-  }
-
-  private finishCapture(): void {
-    if (this.captureKind === 'material') {
-      // Material (3c-C4 Option C): the device computes this tap's gated spectrum (gatedCaptureResult —
-      // gated FFT + calibration, unchanged), DISARMS, and hands the raw spectrum up. The TapToneAnalyzer
-      // owns the per-tap validity gate, the tap count, the re-arm (armMaterial → back to 'listening'),
-      // and the L→C→FLC phase advance — so the device no longer counts, re-arms, or auto-advances.
-      // Disarm BEFORE the callback so the analyzer's re-arm (armMaterial, guarded on state!=='capturing')
-      // isn't blocked; during file playback the analyzer arms the next phase synchronously from here.
-      const { magnitudesDb, frequencies } = gatedCaptureResult(this.capture, this.sampleRate, this.materialSearch!)
-      this.captureIdx = 0
-      this.setState('idle')
-      this.callbacks.onMaterialTap?.({ magnitudesDb, frequencies })
-      // After the callback: it arms the next phase synchronously during file playback, and that
-      // arm wins. Only a request that was refused WHILE capturing is applied here.
-      this.applyPendingArm()
-      return
-    }
-
-    // Guitar: the device computes each per-tap spectrum (its FFT + calibration, unchanged) and
-    // delivers it RAW; the TapToneAnalyzer accumulates the taps and averages them into the frozen
-    // result (processMultipleTaps). The device keeps only a lightweight tap counter — it no longer
-    // owns averaging (6-TEST 3c-C2a).
-    // Align the capture window to the sample-level tap onset so that chunk-boundary
-    // differences (live vs file playback) don't shift the FFT input. The material path has
-    // always done this inside gatedCaptureResult; the guitar path fed this.capture straight
-    // to the FFT, so the same recording analysed live and on replay could land on a different
-    // sample range — and Swift, which does align here, was handed a different window than the
-    // web for the same audio. Mirrors Swift finishGuitarGatedCapture.
-    const aligned = alignCaptureToOnset(
-      this.capture,
-      GUITAR_FFT_SIZE,
-      Math.round(this.sampleRate * PRE_ONSET_DURATION),
-    )
-    const spectrum = this.applyCal(dftAnalRect(aligned, this.sampleRate, GUITAR_FFT_SIZE))
-    this.captureIdx = 0
-    this.guitarTapCount += 1
-    this.callbacks.onGuitarTap?.(spectrum)
-
-    const total = this.config.numberOfTaps
-    if (this.guitarTapCount < total) {
-      // Need more taps — re-arm for the next.
-      this.prevAbove = true
-      this.consecutive = 0
-      this.callbacks.onProgress?.(this.guitarTapCount, total)
-      this.pendingArm = null // the sequence re-armed itself; a deferred request is stale
-      this.setState('listening')
-      return
-    }
-
-    this.guitarTapCount = 0
-    this.callbacks.onProgress?.(total, total)
-    this.finishSessionRecording(`Guitar_${total}tap`) // write the continuous session WAV (dump-gated)
-    this.setState('idle')
-    this.callbacks.onGuitarComplete?.() // sequence done — the analyzer averages the accumulated taps
-    this.applyPendingArm()
-  }
 
   async stop(): Promise<void> {
     this.stopBufferWatchdog()
@@ -1257,12 +786,8 @@ export class RealtimeFFTAnalyzer {
     const ctx = this.context
     this.context = null
     this.accumIdx = 0
-    this.captureIdx = 0
-    this.guitarTapCount = 0
-    this.cancelSessionRecording()
     this.lastClipTime = null
     this.clipState = false
-    this.setState('idle')
     await ctx?.close()
   }
 }

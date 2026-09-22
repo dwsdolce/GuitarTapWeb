@@ -175,9 +175,17 @@ export default function App() {
   const { analyzer, snapshot } = useTapToneAnalyzer()
   const numberOfTaps = snapshot.numberOfTaps
   const currentTapCount = snapshot.currentTapCount
-  // Engine state + clipping are analyzer facts now (no duplicate React state in useAudioEngine) — the
-  // status-bar className / capturing distinction and the threshold-slider red zone read the snapshot (3c-C5).
-  const engineState = snapshot.engineState
+  // Detection state + clipping are analyzer facts (no duplicate React state in useAudioEngine) — the
+  // status-bar className and the threshold-slider red zone read the snapshot (3c-C5). Derived from the
+  // analyzer's own isDetecting / isDetectionPaused / gatedCaptureActive now that it owns detection
+  // rather than mirroring a device state machine (#17 F30).
+  const engineState = snapshot.isDetectionPaused
+    ? 'paused'
+    : snapshot.gatedCaptureActive
+      ? 'capturing'
+      : snapshot.isDetecting
+        ? 'listening'
+        : 'idle'
   const clipping = snapshot.isClipping
   // The frozen guitar result + per-tap comparison spectra now live on the analyzer (mirrors Swift
   // frozenMagnitudes/Frequencies + tapEntries), exposed via the snapshot. App reads them through
@@ -385,24 +393,6 @@ export default function App() {
   // sequence finished: average the analyzer's accumulated taps into the frozen result (which also
   // builds the per-tap comparison spectra + marks complete), superseding any loaded measurement. A
   // frozen comparison absorbs an in-flight capture (guard) so processMultipleTaps doesn't run.
-  const onGuitarCapture = useCallback(() => {
-    // A frozen comparison absorbs an in-flight capture. Read straight off the analyzer: this runs
-    // from the audio path, outside React's render, which is exactly why this used to need a ref
-    // mirroring React state (#17 F24).
-    if (analyzer.displayMode === 'comparison') return
-    setLoadedPeaks(null)
-    setLoadWarning(null)
-    setLoadedName(null)
-    setLoadedNotes(null)
-    setLoadedView(null) // a live capture supersedes the loaded measurement's transient range
-    setShowLoadedSettings(false)
-    setShowMultiTap(false)
-    analyzer.processMultipleTaps() // average capturedTaps → frozen + per-tap (notifies the snapshot)
-  }, [analyzer, setLoadedPeaks])
-  // Continuous session WAV (one per measurement) — the engine already gated it on the dump setting.
-  const onSessionAudio = useCallback((samples: Float32Array, sr: number, label: string) => {
-    dumpCaptureWav(samples, sr, `session_${label}`)
-  }, [])
 
   // Audio engine: lifecycle + telemetry + audio-input/calibration — see hooks/useAudioEngine.
   const {
@@ -429,7 +419,7 @@ export default function App() {
     onSelectCalibration,
     onDeleteCalibration,
     retry,
-  } = useAudioEngine({ engineRef, calibrationRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onGuitarCapture, onSessionAudio, onStarted: armForCurrentType, analyzer })
+  } = useAudioEngine({ engineRef, calibrationRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onStarted: armForCurrentType, analyzer })
 
   // Play a recorded WAV through the live pipeline (Swift openAudioFile/startFromFile). Resets the
   // view like New Tap, applies an optional calibration for the playback, then pumps. Guitar arms a
@@ -455,15 +445,19 @@ export default function App() {
       setShowLoadedSettings(false)
       analyzer.clearResult()
       setShowMultiTap(false)
-      if (isMaterialType(measRef.current)) {
-        // Material: fresh phase machine (no arm — the engine owns the L→C→(FLC) auto-advance session).
-        analyzer.startTapSequence({ arm: false })
+      // Arm the analyzer, THEN start playback — Swift's order (TapToneAnalysisView+Actions arms the
+      // analyzer and then calls fft.startFromFile). Material always runs the warm-up, because it is
+      // the only mode using the relative noise-floor detector; guitar skips it on playback.
+      const material = isMaterialType(measRef.current)
+      analyzer.startTapSequence({ skipWarmup: !material })
+      if (material) {
         await engineRef.current.playFile(samples, fileRate, {
           material: { brace: measRef.current === 'brace', measureFlc: measureFlcRef.current, calibration: cal },
         })
       } else {
         await engineRef.current.playFile(samples, fileRate, { calibration: cal })
       }
+      analyzer.flushPartialGuitarCapture() // a tap near the end of the file still yields a result
     } catch (e) {
       setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
     }

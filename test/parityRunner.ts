@@ -68,23 +68,19 @@ export async function playGuitar(
 ): Promise<{ spectrum: Spectrum; taps?: Spectrum[] } | null> {
   const wav = loadWav(reg.fixture)
   const analyzer = new TapToneAnalyzer()
-  let complete = false
+  analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1)
+  analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
   const engine = new RealtimeFFTAnalyzer(
-    {
-      onProgress: (collected) => {
-        if (collected === 0) analyzer.beginGuitarAccumulation()
-      },
-      onGuitarTap: (spectrum) => analyzer.recordGuitarTap(spectrum),
-      onGuitarComplete: () => {
-        analyzer.processMultipleTaps()
-        complete = true
-      },
-    },
+    { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
   engine.initForTesting()
+  analyzer.setDevice(engine)
+  // Arm, then play — Swift's order. Guitar playback skips the warm-up (absolute threshold).
+  analyzer.startTapSequence({ skipWarmup: true })
   await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration) })
-  if (!complete) return null
+  analyzer.flushPartialGuitarCapture()
+  if (!analyzer.isMeasurementComplete) return null
   const spectrum: Spectrum = { magnitudesDb: analyzer.frozenMagnitudes, frequencies: analyzer.frozenFrequencies }
   const taps =
     analyzer.capturedTaps.length > 1
@@ -106,13 +102,18 @@ export async function playMaterial(
   analyzer.measurementType = brace ? 'brace' : 'plate'
   analyzer.measureFlc = reg.settings.measureFlc ?? false
   analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1) // analyzer owns the material tap count now
+  analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
   const engine = new RealtimeFFTAnalyzer(
-    { onMaterialTap: (spectrum) => analyzer.recordMaterialTap(spectrum) },
+    { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
   engine.initForTesting()
+  // The analyzer's per-phase search reads the DEVICE's active calibration, as it does in the app
+  // (App applies it per input) — so set it here rather than passing it through playFile.
+  engine.setCalibration(loadCal(reg.calibration))
   analyzer.setDevice(engine)
-  analyzer.startTapSequence({ arm: false }) // arm the analyzer's phase machine (playFile arms the device for playback)
+  // Arm, then play — Swift's order. Material always runs the warm-up (relative noise-floor detector).
+  analyzer.startTapSequence()
   await engine.playFile(wav.samples, wav.sampleRate, {
     material: { brace, measureFlc: reg.settings.measureFlc ?? false, calibration: loadCal(reg.calibration) },
   })
@@ -149,11 +150,16 @@ function record(
 /** Ring-out for REG-G1, computed the way decay-tracking.test.ts computes it. */
 async function ringOutSec(reg: RegCase): Promise<number> {
   const wav = loadWav(reg.fixture)
+  const analyzer = new TapToneAnalyzer()
+  analyzer.setNumberOfTaps(1)
+  analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
   const engine = new RealtimeFFTAnalyzer(
-    {},
+    { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: 1 },
   )
   engine.initForTesting()
+  analyzer.setDevice(engine)
+  analyzer.startTapSequence({ skipWarmup: true })
   await engine.playFile(wav.samples, wav.sampleRate, { pace: false })
   if (engine.decayTime === null) throw new Error('REG-G1: no ring-out was measured')
   return engine.decayTime
