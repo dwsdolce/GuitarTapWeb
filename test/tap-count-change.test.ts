@@ -17,8 +17,10 @@ import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 // The canonical, cross-platform layer: the MODEL (TapToneAnalyzer.setNumberOfTaps) refreshes the
 // status prompt when the count changes while armed-and-waiting for the first tap — mirroring Swift
 // numberOfTaps.didSet. Pinned identically in Swift TapCountChangeTests + Python test_tap_count_change.
-// (The reduce-count-≤-captured branch is NOT pinned 3-way: it diverges — Swift defers with "All taps
-// captured. Processing…", Python's set_tap_num processes synchronously. Tracked in 6-TEST 4c.)
+// (The reduce-count-≤-captured branch WAS described here as an un-pinned divergence "tracked in
+// 6-TEST 4c". It is not: OUT-5 removed it from every edition, and the suite at the bottom of this
+// file pins that removal — two claims in one file, contradicting each other, the later one correct.
+// #17 F40.)
 describe('tap-count change refreshes the status prompt (model — mirrors Swift numberOfTaps.didSet)', () => {
   it('raising Taps while armed-and-waiting refreshes the prompt to the new count', () => {
     const a = new TapToneAnalyzer()
@@ -43,6 +45,70 @@ describe('tap-count change refreshes the status prompt (model — mirrors Swift 
     expect(a.statusMessage).toBe('Tap the guitar to begin')
   })
 })
+// The same hook, on a MATERIAL measurement — the case whose absence hid #17 F36. Every case above
+// is guitar, in all three editions, and the hook is shared by plate and brace. At the start of a
+// material sequence no tap has been captured, so the Taps stepper is still unlocked
+// (`currentTapCount > 0 && !isMeasurementComplete` is false) and detection is listening: the count
+// CAN change here, and it is the one phase whose prompt names the count.
+describe('tap-count change on a material measurement', () => {
+  it('raising Taps at the start of a plate sequence refreshes the fL arm prompt', () => {
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'plate'
+    a.setMeasureFlc(false)
+    a.startTapSequence({ arm: false })
+
+    a.setNumberOfTaps(3)
+
+    expect(a.statusMessage).toBe('Ready for fL tap (×3 each for L, C)')
+  })
+
+  it('the FLC setting is reflected in the refreshed prompt', () => {
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'plate'
+    a.setMeasureFlc(true)
+    a.startTapSequence({ arm: false })
+
+    a.setNumberOfTaps(2)
+
+    expect(a.statusMessage).toBe('Ready for fL tap (×2 each for L, C, FLC)')
+  })
+
+  it('a brace sequence gets the brace variant, which names no phases', () => {
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'brace'
+    a.startTapSequence({ arm: false })
+
+    a.setNumberOfTaps(4)
+
+    expect(a.statusMessage).toBe('Ready for fL tap (×4)')
+  })
+
+  // The guard, not the prompt. `currentTapCount` is CUMULATIVE across L → C → FLC while the phase
+  // buffer is cleared at every phase completion, so a guard written against the buffer reads
+  // "nothing captured yet" at the start of every phase — which is what Python's did (#17 F36).
+  it('mid-sequence, at a later phase, the hook stays silent', () => {
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'plate'
+    a.setMeasureFlc(false)
+    a.setNumberOfTaps(3)
+    a.startTapSequence({ arm: false })
+    // Reach the state through the production path: a redo of phase C rebases the cumulative count
+    // to L's taps and leaves "Ready for fC tap — tap again" up — deliberately NOT what the hook
+    // would derive for this phase, so "stayed silent" and "fired" are distinguishable.
+    a.materialTapPhase = 'reviewingC'
+    a.redoMaterial()
+    a.detectionState = 'listening' // no device in a unit test, so arming is a no-op; arm the model
+    // A real L phase leaves its taps counted; the redo rebases to 0 here only because no L spectrum
+    // was captured (the natives' `lCount = longitudinal != nil ? n : 0` does the same).
+    a.currentTapCount = 3
+    expect(a.statusMessage).toBe('Ready for fC tap — tap again')
+
+    a.setNumberOfTaps(5)
+
+    expect(a.statusMessage).toBe('Ready for fC tap — tap again')
+  })
+})
+
 // OUT-5: there is deliberately NO "reduce the count mid-sequence → finalise with the taps already
 // captured" branch on any platform. The Taps stepper is disabled from the first captured tap
 // (`currentTapCount > 0 && !isMeasurementComplete`), so the count cannot change mid-sequence — you

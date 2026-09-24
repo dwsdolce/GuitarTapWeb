@@ -117,4 +117,87 @@ describe('StateNotification', () => {
     a.handleDeviceChange(false)
     expect(a.isSettling).toBe(false)
   })
+
+  // N9: a MATERIAL phase prompt is an instruction about something that already happened
+  // ("Rotate 90°…"), not a description of the state, so the settle must put it back rather than
+  // re-derive it. Two strings are equally correct for one phase — the advance's instruction and a
+  // redo's "…— tap again" — which is the proof it is not a function of the state (#17 F37).
+  it('N9 — the settle preserves a material phase instruction', () => {
+    const a = sut()
+    a.measurementType = 'plate'
+    a.materialTapPhase = 'capturingC'
+    a.startTapSequence({ arm: false })
+    a.materialTapPhase = 'capturingC' // startTapSequence resets the phase; this is mid-sequence
+    const afterRedo = 'Ready for fC tap — tap again'
+
+    expect(a.statusAfterSettle()).toBeNull()
+    expect(a.restoredStatus(afterRedo)).toBe(afterRedo)
+  })
+
+  // N10: the override precedence, in one place. Dead input outranks clipping, and an ordinary
+  // status write while a condition holds must not drop the warning. Web had no dead-input status at
+  // all: the engine detected it, warned to the console, retried — and told the user nothing, where
+  // both natives showed the warning (#17 F37).
+  it('N10 — dead input outranks clipping and survives a status write', () => {
+    const a = sut()
+    a.startTapSequence({ arm: false })
+    a.setNumberOfTaps(1)
+    expect(a.statusMessage).toBe('Tap the guitar...')
+
+    a.setClipping(true)
+    expect(a.statusMessage).toMatch(/clipping/)
+
+    a.setInputAppearsDead(true)
+    expect(a.statusMessage).toMatch(/No audio input/)
+
+    a.setNumberOfTaps(3) // an ordinary status write must not drop the warning
+    expect(a.statusMessage).toMatch(/No audio input/)
+
+    a.setInputAppearsDead(false)
+    expect(a.statusMessage).toMatch(/clipping/)
+    a.setClipping(false)
+    expect(a.statusMessage).toBe('Tap the guitar 3 times...')
+  })
+
+  // N11: what the settle PRESERVES is the analyzer's real status, not the override-resolved string.
+  // The natives assert the captured value (their restore is behind a 3 s timer); web can also reach
+  // the consequence synchronously, which is the bug as the user meets it: the warning gets stored AS
+  // the real status, so clearing the condition restores the warning forever (#17 F37).
+  it('N11 — the settle captures the real status, not an override warning', () => {
+    const a = sut()
+    a.startTapSequence({ arm: false })
+    a.setNumberOfTaps(3)
+    a.setClipping(true)
+    expect(a.statusMessage).toMatch(/clipping/)
+
+    a.handleDeviceChange(true)
+    expect((a as unknown as { statusBeforeSettle: string | null }).statusBeforeSettle)
+      .toBe('Tap the guitar 3 times...')
+
+    a.handleDeviceChange(false)
+    a.setClipping(false)
+    expect(a.statusMessage).toBe('Tap the guitar 3 times...')
+  })
+
+  // N12: the phase ADVANCE and the armed DERIVATION must produce the same string, because they are
+  // the same string. They used to be two sets of literals — the advance set 'Rotate 90° and tap for
+  // fC' and the derivation repeated it in a second switch — so a drift in either reworded the
+  // instruction on every resume, settle and tap-count change (#17 F37). Pinned from both ends: the
+  // advance's output, and a pause/resume round trip that re-derives it.
+  it('N12 — the material phase advance and the armed derivation agree', () => {
+    const a = sut()
+    a.measurementType = 'plate'
+    a.setMeasureFlc(false)
+    a.materialTapPhase = 'reviewingL'
+
+    a.acceptMaterial()
+
+    expect(a.materialTapPhase).toBe('capturingC') // precondition: the accept advanced the phase
+    expect(a.statusMessage).toBe('Rotate 90° and tap for fC')
+
+    a.detectionState = 'listening' // no device in a unit test, so arming is a no-op
+    a.pauseTapDetection()
+    a.resumeTapDetection()
+    expect(a.statusMessage).toBe('Rotate 90° and tap for fC')
+  })
 })

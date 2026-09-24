@@ -6,6 +6,8 @@
  * engine + spectrum; this component only formats them.
  */
 
+import { FieldPrecision } from '../precision'
+
 /** The metric values displayed by {@link MetricsPanel} (nullable outside guitar/live mode). */
 export interface Metrics {
   /** Hz per FFT bin (sampleRate / FFT size). */
@@ -127,7 +129,7 @@ export function MetricsPanel({ metrics: m, onClose }: MetricsPanelProps) {
             <MetricRow label="Peak Frequency" value={freq(m.peakFrequency)} subtitle="Dominant frequency" />
             <MetricRow
               label="Peak Magnitude"
-              value={m.peakMagnitude != null ? `${m.peakMagnitude.toFixed(1)} dB` : DASH}
+              value={m.peakMagnitude != null ? `${FieldPrecision.string(m.peakMagnitude, FieldPrecision.peakMagnitudeDB)} dB` : DASH}
               subtitle="Signal strength"
             />
           </section>

@@ -747,6 +747,14 @@
 .field label {
   white-space: nowrap;
 }
+/* A field whose control is unavailable dims as a UNIT — label and value with it. 0.45 is the same
+   figure `.btn:disabled` uses and the same one Swift's `disabledDimmed` applies, so a disabled
+   field looks identical across the three editions. The buttons keep their own :disabled rule
+   rather than inheriting this one, so the opacities don't compound. */
+.field.is-disabled label,
+.field.is-disabled .step-val {
+  opacity: 0.45;
+}
 .field input[type='range'] {
   width: 130px;
   accent-color: var(--accent);
@@ -798,6 +806,7 @@
 }
 .alert-message {
   margin: 0 0 1.1rem;
+  white-space: pre-line; /* keep a message's blank lines (the import message folds a warning below one) */
   color: var(--muted);
   line-height: 1.5;
   font-size: 0.92rem;

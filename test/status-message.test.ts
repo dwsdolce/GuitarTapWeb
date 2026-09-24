@@ -129,7 +129,7 @@ describe('statusMessage — guitar detection-loop strings', () => {
     // Simulate a prior completed fresh capture leaving capturedTaps populated + announced.
     a.capturedTaps = [{ magnitudes: [], frequencies: [], captureTime: 0 }]
     a.isMeasurementComplete = true
-    a.loadMeasurement({ magnitudes: [1, 2], frequencies: [1, 2] })
+    a.restoreSnapshot({ magnitudes: [1, 2], frequencies: [1, 2] })
     expect(a.statusMessage).toBe('Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.')
     // A recalc on the loaded measurement must NOT flip it to "Analysis complete" (capturedTaps cleared).
     a.loadedPeaks = []
@@ -241,7 +241,7 @@ describe('statusMessage — removed web-only inventions are never produced', () 
     const a = new TapToneAnalyzer()
     a.startTapSequence({ arm: false })
     seen.push(a.statusMessage)
-    a.loadMeasurement({ magnitudes: [1, 2], frequencies: [1, 2] })
+    a.restoreSnapshot({ magnitudes: [1, 2], frequencies: [1, 2] })
     seen.push(a.statusMessage)
     const b = new TapToneAnalyzer()
     b.measurementType = 'brace'

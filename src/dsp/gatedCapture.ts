@@ -52,72 +52,13 @@ function chunkLevelDb(samples: Samples, start: number, end: number): number {
   return 20 * Math.log10(Math.max(rms, 1e-10))
 }
 
-/**
- * Sample index just past the chunk that confirms a level crossing, or null.
- * Fires only after LEVEL_CROSSING_CONFIRMATION_CHUNKS (2) consecutive
- * above-threshold 1024-sample chunks following a fall — matching the Swift/Python
- * live detectors, which reject single-chunk bumps. The exact fire point is later
- * erased by alignCaptureToOnset, so downstream FFT input is robust to it.
- * @param samples Mono PCM to scan.
- * @param thresholdDb Per-chunk RMS level (dBFS) that must be exceeded.
- * @returns Sample index just past the confirming chunk, or null if never confirmed.
- */
-export function findLevelCrossing(samples: Samples, thresholdDb: number): number | null {
-  let prevAbove = false
-  let consecutive = 0
-  for (let c = 0; c * CHUNK < samples.length; c++) {
-    const start = c * CHUNK
-    const end = Math.min(start + CHUNK, samples.length)
-    if (end <= start) break
-    const above = chunkLevelDb(samples, start, end) > thresholdDb
-    if (above) {
-      if (consecutive > 0) consecutive++
-      else if (!prevAbove) consecutive = 1
-      if (consecutive >= LEVEL_CROSSING_CONFIRMATION_CHUNKS) return end
-    } else {
-      consecutive = 0
-    }
-    prevAbove = above
-  }
-  return null
-}
-
-/**
- * All level-crossing fire points in order (multi-tap sessions, e.g. plate L→C→FLC).
- * After each fire we skip the 500 ms capture window and require a fresh fall→rise
- * before the next, so a single tap's ring-out can't double-trigger — mirroring the
- * app's disarm-during-capture / re-arm-after behaviour.
- */
-export function findAllLevelCrossings(samples: Samples, thresholdDb: number, skipSamples: number): number[] {
-  const captureSamples = skipSamples
-  const crossings: number[] = []
-  let prevAbove = false
-  let consecutive = 0
-  let c = 0
-  while (c * CHUNK < samples.length) {
-    const start = c * CHUNK
-    const end = Math.min(start + CHUNK, samples.length)
-    if (end <= start) break
-    const above = chunkLevelDb(samples, start, end) > thresholdDb
-    if (above) {
-      if (consecutive > 0) consecutive++
-      else if (!prevAbove) consecutive = 1
-      if (consecutive >= LEVEL_CROSSING_CONFIRMATION_CHUNKS) {
-        crossings.push(end)
-        // Skip the captured window; require a fall→rise before the next fire.
-        c = Math.ceil((end + captureSamples) / CHUNK)
-        consecutive = 0
-        prevAbove = true
-        continue
-      }
-    } else {
-      consecutive = 0
-    }
-    prevAbove = above
-    c++
-  }
-  return crossings
-}
+/* `findLevelCrossing` / `findAllLevelCrossings` lived here: offline scanners that swept a whole
+ * buffer for tap onsets. Their production callers went on 2026-07-11 (`d29c654`, "remove
+ * wrong-altitude guitar-fft/gated-capture suites") because they took a shortcut Swift and Python
+ * deliberately do not — calling DSP directly on raw WAV samples instead of driving the engine. The
+ * functions outlived their callers by two months because the test suite kept exercising them; the
+ * same regressions are covered end-to-end by REG-B1/REG-P1 in file-playback, on the same fixtures
+ * (#17 F43). The live detector is TapToneAnalyzer.detectTap. */
 
 /**
  * Re-anchor a captured buffer so the tap onset sits at a fixed index, making the

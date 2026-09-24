@@ -212,7 +212,7 @@ describe('display mode — transitions', () => {
     // The transition the view maintained by hand at eight call sites, pinned by nothing.
     const a = sut()
     a.loadComparison(entries(2))
-    a.loadMeasurement({ magnitudes: [-30, -20], frequencies: [100, 200] })
+    a.restoreSnapshot({ magnitudes: [-30, -20], frequencies: [100, 200] })
     expect(a.displayMode).toBe('live')
     expect(a.comparisonEntries).toHaveLength(0)
   })
@@ -280,7 +280,7 @@ describe('display mode — transitions', () => {
 
   it('frozen and comparison are mutually exclusive — the state that used to be representable', () => {
     const a = sut()
-    a.loadMeasurement({ magnitudes: [-30, -20], frequencies: [100, 200] })
+    a.restoreSnapshot({ magnitudes: [-30, -20], frequencies: [100, 200] })
     expect(a.displayMode).toBe('live')
     a.loadComparison(entries(2))
     expect(a.displayMode).toBe('comparison') // one value, so it cannot be both

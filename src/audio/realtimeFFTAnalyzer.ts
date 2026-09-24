@@ -1,6 +1,6 @@
 // @parity audio/realtime-analyzer
 import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, watchdogDecision } from './deadInput'
-import { dftAnalRect, GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
+import { dftAnalRect, GUITAR_FFT_SIZE, spectrumPeak, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { DecayTracker } from '../dsp/decay'
 import {
@@ -71,9 +71,14 @@ export interface EngineMetrics {
   /** Continuous FFT calculations per second (sampleRate / FFT size; 0% overlap). */
   frameRate: number
   /** Input level (dBFS) sampled at the FFT-frame rate — the status-bar / Metrics readout updates at the
-   *  same cadence as the spectrum + Peak, mirroring Swift `displayLevelDB` (inputLevelDB gated by the
-   *  graph publish rate), NOT the fast per-chunk `onLevel` (which drives the responsive threshold meter). */
+   *  same cadence as the spectrum + Peak, mirroring Swift `displayLevelDB` (readoutLevelDB gated by the
+   *  graph publish rate), NOT the fast per-chunk `onLevel` (which drives the responsive threshold meter).
+   *  True digital silence is -Infinity here; every other consumer of the level gets Swift's -100. */
   displayLevelDB: number
+  /** The live spectrum's loudest bin — Swift `peakFrequency` / `peakMagnitude`, owned by the FFT
+   *  analyzer and computed on the same frame. A silent input is -Infinity dB @ 0 Hz. */
+  peakFrequency: number
+  peakMagnitude: number
 }
 
 /** Tunable engine settings the caller can change while running (threshold, tap count, diagnostics). */
@@ -221,7 +226,7 @@ export class RealtimeFFTAnalyzer {
   private lastClipTime: number | null = null
   private clipState = false
   // Latest per-chunk input level (dBFS), sampled into the FFT-frame metrics as displayLevelDB.
-  private lastLevelDb = -100
+  private readoutLevelDb = -100
 
   // Buffer-delivery watchdog (mirrors Swift RealtimeFFTAnalyzer+Watchdog / Python).
   // Recovers from a silently-starved mic stream: the worklet stops posting chunks with
@@ -605,7 +610,13 @@ export class RealtimeFFTAnalyzer {
       // source to the existing worklet node — the context/worklet survive.
       await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId)
       this.lastChunkTime = performance.now() // give the fresh stream a grace window
-      this.lastSignalTime = performance.now()
+      // NOT lastSignalTime: it means "signal was last OBSERVED", and re-acquiring a stream observes
+      // nothing. Stamping it here made the next tick read 'healthy', which cleared the warning and
+      // reset the attempt streak — so 'deadInputExhausted' was unreachable and the input was
+      // re-acquired every 15 s forever, strobing the warning. Found on a BlackHole 2ch virtual
+      // input during the #17 run-review; any permanently silent input does it. Only a chunk that
+      // carries signal moves this stamp (see the onAudioFrame path). Mirrors Swift
+      // start(isWatchdogRecovery:) and Python start_buffer_watchdog(is_watchdog_recovery=True).
       this.engineStartTime = performance.now()
       console.warn('[engine] buffer watchdog: input re-acquired')
       this.isRecovering = false
@@ -650,8 +661,14 @@ export class RealtimeFFTAnalyzer {
   // The shared per-chunk core, fed by BOTH the live mic (onChunk) and file playback (playFile),
   // so a played file runs the exact same level-crossing + FFT + capture path as the mic.
   private processChunk(s: Float32Array, rms: number): void {
-    const db = 20 * Math.log10(Math.max(rms, 1e-10))
-    this.lastLevelDb = db // sampled into the FFT-frame metrics (displayLevelDB) at the graph rate
+    // Silence is -100, exactly as Swift (`rms > 0 ? 20*log10(rms) : -100`). This was
+    // `max(rms, 1e-10)`, i.e. -200 — copied from Python, not Swift — so detection saw a different
+    // level on true digital silence than Swift's did.
+    const db = rms > 0 ? 20 * Math.log10(rms) : -100
+    // The READOUT's level — Swift readoutLevelDB: the same value, except true silence is -Infinity,
+    // because -100 dB is a real level a quiet UMIK-1 reaches. Sampled into the FFT-frame metrics
+    // (displayLevelDB) at the graph rate. Detection, the meter and decay keep `db`.
+    this.readoutLevelDb = rms > 0 ? db : -Infinity
     this.callbacks.onLevel?.(db)
     this.detectClipping(s, db)
 
@@ -755,11 +772,14 @@ export class RealtimeFFTAnalyzer {
         const spectrum = this.applyCal(dftAnalRect(this.accum, this.sampleRate, GUITAR_FFT_SIZE))
         this.recordProcessing(performance.now() - t0)
         this.callbacks.onSpectrum?.(spectrum)
+        const peak = spectrumPeak(spectrum)
         this.callbacks.onMetrics?.({
           processingMs: this.processingMs,
           avgProcessingMs: this.avgProcessingMs,
           frameRate: this.sampleRate / GUITAR_FFT_SIZE,
-          displayLevelDB: this.lastLevelDb,
+          displayLevelDB: this.readoutLevelDb,
+          peakFrequency: peak?.frequency ?? 0,
+          peakMagnitude: peak?.magnitude ?? -100,
         })
         this.accumIdx = 0
       }

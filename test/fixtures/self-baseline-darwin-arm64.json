@@ -6,8 +6,8 @@
     "arch": "arm64"
   },
   "provenance": {
-    "mintedAt": "2026-09-19T22:31:11Z",
-    "oracleVersion": "5bacce4-dirty",
+    "mintedAt": "2026-09-24T06:00:05Z",
+    "oracleVersion": "068f814",
     "node": "26.8.1",
     "v8": "14.6.202.34-node.28",
     "platform": "darwin-arm64",
@@ -317,7 +317,7 @@
         "deltaDb": 20.19256016509857
       },
       "GFFT4": {
-        "maxDb": -313.07119549054045
+        "maxDb": "-Infinity"
       },
       "GFFT5": {
         "expected": [

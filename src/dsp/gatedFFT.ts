@@ -3,7 +3,6 @@ import { fftInPlace } from './fft'
 
 // IEEE-754 binary64 epsilon — matches numpy.finfo(float).eps. Used as the
 // magnitude floor before the dB conversion, exactly as the reference does.
-const EPS = 2.220446049250313e-16
 
 /** Output of {@link computeGatedFFT}: a one-sided dBFS magnitude spectrum + its bin frequencies. */
 export interface GatedFFTResult {
@@ -22,7 +21,7 @@ export interface GatedFFTResult {
  *   - apply a symmetric Hann window (numpy.hanning: 0.5−0.5·cos(2πi/(N−1)));
  *   - forward FFT; take the lower half;
  *   - magnitude = |X| / fftSize, with bins ≥1 doubled (one-sided spectrum);
- *   - floor at EPS, then 20·log10 → dBFS.
+ *   - 20·log10 → dBFS (no floor: an empty bin is -Infinity, as Swift gives).
  *
  * Calibration (added in the dB domain) is applied by the caller, not here.
  */
@@ -57,7 +56,9 @@ export function computeGatedFFT(
   for (let i = 0; i < halfN; i++) {
     let mag = Math.hypot(re[i]!, im[i]!) / fftSize
     if (i >= 1) mag *= 2
-    if (mag < EPS) mag = EPS
+    // No epsilon clamp — a bin with no energy is -Infinity, as Swift's vDSP_vdbcon gives. The
+    // gated path carried the same clamp as the live one (guitarFFT); both are gone, so "nothing at
+    // all" stays distinguishable from -100 dB, a real level a quiet UMIK-1 reaches (#17).
     magnitudesDb[i] = 20 * Math.log10(mag)
     frequencies[i] = (i * sampleRate) / fftSize
   }

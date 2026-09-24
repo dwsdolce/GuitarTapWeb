@@ -24,9 +24,11 @@ import { parseCalibration, type Calibration } from '../src/dsp/calibration'
 import { modePeaksFromSpectrum, type Spectrum } from '../src/dsp/guitarFFT'
 import { computeGatedFFT, magnitudeAtFrequency } from '../src/dsp/gatedFFT'
 import { makeToneSignal, makeSilence, type Tone } from '../src/dsp/signal'
+import { reviveNonFinite } from './selfBaseline'
 
 export const oracle = JSON.parse(
   readFileSync(new URL('./fixtures/parity-oracle.json', import.meta.url), 'utf8'),
+  reviveNonFinite, // GFFT4's "-Infinity" → -Infinity
 )
 
 export interface RegSettings {
@@ -221,7 +223,7 @@ export function computeGatedFft(): Record<string, unknown> {
       tones?: Tone[]
       expected?: { hz: number; db: number }[]
       deltaDb?: number
-      maxDbBelow?: number
+      maxDb?: number
       signal?: string
     }
     const signal = spec.signal === 'silence' ? makeSilence(SR) : makeToneSignal(spec.tones!, SR)
@@ -235,7 +237,7 @@ export function computeGatedFft(): Record<string, unknown> {
       computed.expected = got
       if (spec.deltaDb !== undefined) computed.deltaDb = got[got.length - 1]!.db - got[0]!.db
     }
-    if (spec.maxDbBelow !== undefined) {
+    if (spec.maxDb !== undefined) {
       let max = -Infinity
       for (const v of magnitudesDb) if (v > max) max = v
       computed.maxDb = max

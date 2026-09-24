@@ -250,7 +250,7 @@ describe('frozen-peak-recalc — per-tap entries computed once (Phase 3)', () =>
   it('PR17: loaded per-tap entries are found once from the saved spectra (deterministic, floored)', () => {
     const a = new TapToneAnalyzer()
     const s = combine(makeSpectrum(200, -20), makeSpectrum(400, -70))
-    a.loadMeasurement({ magnitudes: s.mags, frequencies: s.freqs, taps: [{ magnitudesDb: s.mags, frequencies: s.freqs }] })
+    a.restoreSnapshot({ magnitudes: s.mags, frequencies: s.freqs, taps: [{ magnitudesDb: s.mags, frequencies: s.freqs }] })
     expect(a.tapEntries).toHaveLength(1)
     expect(near(a.tapEntries[0]!.peaks, 400)).toBe(true) // -70 peak kept — not gated at Peak Min
     const before = a.tapEntries[0]!.peaks
@@ -676,7 +676,7 @@ describe('frozen-peak-recalc — the loading guard (PR10/PR11)', () => {
     const a = new TapToneAnalyzer()
     const s = makeSpectrum(200, -20)
     const saved = peak(777, -30) // a frequency absent from the spectrum: only a restore can produce it
-    a.loadMeasurement({
+    a.restoreSnapshot({
       magnitudes: s.mags,
       frequencies: s.freqs,
       loadedPeaks: [saved],

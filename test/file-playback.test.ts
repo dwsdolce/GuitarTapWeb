@@ -164,9 +164,9 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
   // fixture sits at -64..-69 dBFS, far below that — which is why no test has ever separated them.
   //
   // This fixture is the clean plate session with its noise floor raised to -52 dBFS (above the -53.34
-  // threshold). At that floor the ABSOLUTE detector SATURATES: `above` is permanently true, so
-  // `prevAbove` never falls, `consecutive` never seeds, and NO tap is ever confirmed — it captures
-  // nothing. The RELATIVE detector floats its threshold to floor+10 = -42 and still catches every tap
+  // threshold). At that floor the ABSOLUTE detector SATURATES: the level never falls below the
+  // FALLING threshold, so the hysteresis latch never clears, nothing ever counts, and NO tap is
+  // confirmed — it captures nothing. The RELATIVE detector floats its threshold to floor+10 = -42 and still catches every tap
   // (they peak at -24..-27 dBFS chunk-RMS). That is exactly the failure the relative model exists to
   // prevent: "keeps detection working when ambient noise is elevated".
   //

@@ -67,7 +67,6 @@ export interface AudioEngineModel {
   activeCalId: string | null
   engineMetrics: EngineMetrics | null
   /** Live ring-out (decay) time in seconds, or null — for the Analysis Results panel. */
-  decayTime: number | null
   /** Re-attempt engine start after a mic error ("Retry microphone"). */
   retry: () => void
   pauseTap: () => void
@@ -105,7 +104,6 @@ export function useAudioEngine({
   // - reinitializing…" then restores the prompt after this fires (6-TEST 3c-C4 — status is analyzer-owned).
   const deviceChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
-  const [decayTime, setDecayTime] = useState<number | null>(null)
 
   // Resolve the calibration for a device (device-specific → global → none) and apply it to the
   // engine + UI + the refs read by matSearch/save. Mirrors RealtimeFFTAnalyzer's auto-apply.
@@ -217,11 +215,19 @@ export function useAudioEngine({
           // so a different number is a different user-visible behaviour (#17 F32).
           deviceChangeTimer.current = setTimeout(() => analyzer.handleDeviceChange(false), 3000)
         },
-        onDecay: setDecayTime,
+        // The ring-out VALUE lives on the analyzer (Swift `currentDecayTime`), so one field serves
+        // both a live capture and a loaded measurement. The engine keeps the TRACKER.
+        onDecay: (d) => analyzer.setDecayTime(d),
       },
       { tapDetectionThreshold: tapThresholdRef.current, dumpCaptureAudio: dumpCaptureRef.current },
     )
     engineRef.current = engine
+    // The dead-input watchdog's user-visible half. The engine has detected, warned to the console and
+    // retried a silent input since the watchdog landed, and exposed this seam for "the owner to surface
+    // 'no audio input' in the status line" — but nothing ever set it, so web alone showed the user
+    // nothing where both natives show the warning (#17 F37). Swift `$inputAppearsDead` sink / Python
+    // `inputAppearsDeadChanged` → `_set_input_appears_dead`.
+    engine.onInputAppearsDeadChange = (dead) => analyzer.setInputAppearsDead(dead)
     analyzer.setDevice(engine) // the analyzer holds the device to orchestrate material (6-TEST 3c-C3)
     try {
       await engine.start(getSavedInputDeviceId())
@@ -282,7 +288,6 @@ export function useAudioEngine({
     calibrations,
     activeCalId,
     engineMetrics,
-    decayTime,
     retry: start,
     pauseTap,
     resumeTap,

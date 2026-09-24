@@ -61,11 +61,28 @@ export interface Baseline {
   values: Record<string, unknown>
 }
 
+// JSON has no infinity — `JSON.stringify(-Infinity)` silently writes `null`. A silent input's peak is
+// -Infinity and has to be stored and compared exactly, so every oracle and baseline file (all three
+// editions and the hub) writes a non-finite number as the STRING "-Infinity" / "Infinity" / "NaN"
+// and turns it back into a number on load (#17 F44).
+const NONFINITE: Record<string, number> = { '-Infinity': -Infinity, Infinity: Infinity, NaN: NaN }
+
+/** `JSON.parse` reviver: "-Infinity" / "Infinity" / "NaN" strings → numbers. */
+export function reviveNonFinite(_key: string, value: unknown): unknown {
+  return typeof value === 'string' && value in NONFINITE ? NONFINITE[value] : value
+}
+
+/** `JSON.stringify` replacer: non-finite numbers → their strings (the inverse of reviveNonFinite). */
+export function replaceNonFinite(_key: string, value: unknown): unknown {
+  if (typeof value !== 'number' || Number.isFinite(value)) return value
+  return Number.isNaN(value) ? 'NaN' : value > 0 ? 'Infinity' : '-Infinity'
+}
+
 /** The committed baseline for this configuration, or null if none has been minted. */
 export function load(): Baseline | null {
   const path = baselinePath()
   if (!existsSync(path)) return null
-  return JSON.parse(readFileSync(path, 'utf8')) as Baseline
+  return JSON.parse(readFileSync(path, 'utf8'), reviveNonFinite) as Baseline
 }
 
 /** Nested case values → one flat {path: number} map, for value-by-value comparison.

@@ -1,4 +1,5 @@
 // @parity view/measurements-list
+import { AlertModal } from './AlertModal'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -25,6 +26,9 @@ export interface MeasurementsPanelProps {
   onClose: () => void
   onLoad: (m: TapToneMeasurementModel) => void
   onCompare: (measurements: TapToneMeasurementModel[]) => void
+  /** Import a `.guitartap` file's text; returns the message to show. The MODEL stores,
+   *  auto-loads a single measurement, and words it (Swift/Python importAndLoadMeasurements). */
+  onImport: (text: string) => Promise<string>
 }
 
 // "Saved Measurements" library, following WEB-UI-GUIDELINES.md: double-press a row = Load,
@@ -83,7 +87,7 @@ const isInstalled = (): boolean =>
  */
 const keyOf = (m: TapToneMeasurementModel): string => m.rowKey as string
 
-export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPanelProps) {
+export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: MeasurementsPanelProps) {
   const [items, setItems] = useState<TapToneMeasurementModel[] | null>(null)
   const [comparing, setComparing] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -106,6 +110,8 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
   const [editingId, setEditingId] = useState<string | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  // The import's success message (Swift `importSuccess`, Python's Import Successful box).
+  const [importMessage, setImportMessage] = useState<string | null>(null)
   // Double-press detection works for mouse AND touch via pointer events (single tap is a
   // deliberate no-op, so double-press fires immediately — see the guidelines).
   const lastTap = useRef<{ id: string; t: number } | null>(null)
@@ -259,6 +265,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
   // and auto-load only when the file holds exactly one.
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setImportError(null)
+    setImportMessage(null)
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-picking the same file
     if (!file) return
@@ -267,10 +274,12 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
       // is what the tests exercise. It keeps each measurement's `id` — the DATASET identity, which
       // must survive the round trip as it does in Swift and Python — and mints the `rowKey` that
       // makes a re-import append rather than overwrite. See SLUG-SWEEP.md F19a.
-      const imported = await importMeasurements(await file.text())
-      if (imported.length === 0) throw new Error('No measurements found in the file.')
+      // The MODEL imports: it stores every measurement, auto-loads the file that holds exactly one,
+      // and words the message — so the message is the same one Swift and Python show, and a load
+      // performed by an import is the same load performed from this list (#17 F41).
+      const message = await onImport(await file.text())
       await refresh()
-      if (imported.length === 1) onLoad(imported[0]!) // auto-load + close
+      setImportMessage(message)
     } catch (err) {
       setImportError(`Couldn't import "${file.name}": ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -340,6 +349,18 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare }: MeasurementsPa
 
         <div className="settings-body">
           {importError && <p className="error">⚠ {importError}</p>}
+          {/* The import's one message, as the natives show it: an "Import Successful" alert over
+              the list, dismissed with OK (Swift MeasurementsListView `.alert("Import Successful")`,
+              Python's Import Successful box). Rendered inside the panel so dismissing it leaves the
+              list open underneath, as both natives do. */}
+          {importMessage && (
+            <AlertModal
+              title="Import Successful"
+              message={importMessage}
+              buttons={[{ label: 'OK', primary: true, onClick: () => setImportMessage(null) }]}
+              onDismiss={() => setImportMessage(null)}
+            />
+          )}
           {!isInstalled() && items != null && items.length > 0 && (
             <p className="meas-hint">
               ⓘ Your library is stored in this browser and can be cleared by the browser — Safari

@@ -16,6 +16,9 @@
 // are tested here directly, as the natives do.
 import { describe, it, expect } from 'vitest'
 import { parabolicInterpolate, calculateQ } from '../src/dsp/peaks'
+import { dftAnalRect, GUITAR_FFT_SIZE, spectrumPeak } from '../src/dsp/guitarFFT'
+import { RealtimeFFTAnalyzer, type EngineMetrics } from '../src/audio/realtimeFFTAnalyzer'
+import { computeGatedFFT } from '../src/dsp/gatedFFT'
 
 /**
  * A Gaussian peak on a noise floor — the same synthetic spectrum the natives build, with the
@@ -144,5 +147,101 @@ describe('Q factor and −3 dB bandwidth (F7–F9)', () => {
     // but defined; what must not happen is NaN or a negative width.
     expect(Number.isNaN(quality)).toBe(false)
     expect(bandwidth).toBeGreaterThanOrEqual(0)
+  })
+})
+
+// A silent buffer must read as -Infinity, not a finite floor.
+//
+// All three editions convert magnitude to dB with 20·log10, and a bin with no energy is therefore
+// -inf. Swift's vDSP_vdbcon returns exactly that. Python and web had each clamped the magnitude up
+// to float64 epsilon first — the SAME literal, 2.220446049250313e-16, Python's since 2026-05-09 and
+// web's transcribed from it at the initial commit — which put "-313.0 dB" on screen for the absence
+// of a signal.
+//
+// It matters because -100 dB is a REAL reading: a live UMIK-1 in a quiet room sits near there, and
+// the dead-input watchdog's own threshold is -100 dBFS. A finite floor makes "no microphone at all"
+// look like "a very quiet microphone", which is the one distinction the Peak readout has to keep.
+// Owner's call during the #17 run-review, having seen -inf on Swift and -313 on Python.
+//
+// Paired with Swift DSPTests and Python tests/test_dsp.py.
+describe('a silent buffer yields -Infinity, not a finite floor', () => {
+  it('every bin of an all-zero buffer is -Infinity', () => {
+    const spec = dftAnalRect(new Float64Array(1024), 48000, 1024)
+    expect(spec.magnitudesDb.every((d) => d === -Infinity)).toBe(true)
+  })
+
+  it('the floor is not a finite epsilon (the -313 dB regression)', () => {
+    const spec = dftAnalRect(new Float64Array(1024), 48000, 1024)
+    const peak = Math.max(...spec.magnitudesDb)
+    expect(Number.isFinite(peak)).toBe(false)
+    expect(peak).toBeLessThan(-300) // and emphatically not -313.0 from a float64-epsilon clamp
+  })
+
+  // The GATED capture path carried the identical clamp and is fixed with the live one. Removing
+  // only one would have looked like a fix and changed nothing on screen: the Peak readout reads the
+  // live path, so the gated clamp was invisible there — and the live clamp was invisible to any
+  // test driving only the gated path. Swift pins this path too (its live path cannot be called
+  // without starting the engine); Python pins both, as here.
+  it('the gated path is also unclamped', () => {
+    const { magnitudesDb } = computeGatedFFT(new Float64Array(4096), 48000)
+    expect(magnitudesDb.length).toBeGreaterThan(0)
+    expect(magnitudesDb.every((d) => d === -Infinity)).toBe(true)
+  })
+
+  // The live Peak readout of silence. Swift (`max(by:)`) and Python (`argmax`) take the FIRST maximum
+  // on a tie, so an all -Infinity spectrum reports bin 0: "-∞ dB @ 0.0 Hz". The web seeded its search
+  // at -Infinity and required a strictly greater bin, found none, and left the readout on "Starting...".
+  it('the live peak of silence is -Infinity at 0 Hz', () => {
+    const peak = spectrumPeak(dftAnalRect(new Float64Array(1024), 48000, 1024))
+    expect(peak).toEqual({ frequency: 0, magnitude: -Infinity })
+  })
+
+  it("a tone's live peak lands within one bin", () => {
+    const n = 1024
+    const sig = new Float64Array(n)
+    for (let i = 0; i < n; i++) sig[i] = 0.5 * Math.sin((2 * Math.PI * 1000 * i) / 48000)
+    const peak = spectrumPeak(dftAnalRect(sig, 48000, n))!
+    expect(Math.abs(peak.frequency - 1000)).toBeLessThan(48000 / n)
+    expect(Number.isFinite(peak.magnitude)).toBe(true)
+  })
+
+  // True digital silence: the READOUT (displayLevelDB) is -Infinity; the level every other consumer
+  // gets — detection included — is Swift's -100. The web used max(rms, 1e-10), i.e. -200, copied from
+  // Python rather than Swift. Paired with Swift SilentBufferTests / Python test_dsp.
+  async function playThrough(samples: Float32Array) {
+    const levels: number[] = []
+    let metrics: EngineMetrics | null = null
+    const engine = new RealtimeFFTAnalyzer({
+      onAudioFrame: (_s, levelDb) => levels.push(levelDb),
+      onMetrics: (m) => (metrics = m),
+    })
+    engine.initForTesting()
+    await engine.playFile(samples, 48000, { pace: false })
+    return { levels, metrics: metrics as EngineMetrics | null }
+  }
+
+  it('a silent input reads -∞ on the readout; detection still sees -100', async () => {
+    const { levels, metrics } = await playThrough(new Float32Array(GUITAR_FFT_SIZE))
+    expect(levels.length).toBeGreaterThan(0)
+    expect(levels.every((l) => l === -100)).toBe(true)
+    expect(metrics?.displayLevelDB).toBe(-Infinity)
+  })
+
+  it('a real input reads the same level on the readout and for detection', async () => {
+    const sig = new Float32Array(GUITAR_FFT_SIZE)
+    for (let i = 0; i < sig.length; i++) sig[i] = 0.01 * Math.sin((2 * Math.PI * 1000 * i) / 48000)
+    const { levels, metrics } = await playThrough(sig)
+    expect(Number.isFinite(metrics!.displayLevelDB)).toBe(true)
+    expect(metrics!.displayLevelDB).toBe(levels[levels.length - 1])
+  })
+
+  it('a real signal is unaffected — the clamp never applied to it', () => {
+    const n = 1024
+    const sig = new Float64Array(n)
+    for (let i = 0; i < n; i++) sig[i] = 0.5 * Math.sin((2 * Math.PI * 1000 * i) / 48000)
+    const spec = dftAnalRect(sig, 48000, n)
+    const peak = Math.max(...spec.magnitudesDb)
+    expect(Number.isFinite(peak)).toBe(true)
+    expect(peak).toBeGreaterThan(-60)
   })
 })

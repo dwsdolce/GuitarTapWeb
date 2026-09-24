@@ -1,6 +1,7 @@
 // @parity test/decay-tracking
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { reviveNonFinite } from './selfBaseline'
 import { measureDecayTime, DecayTracker, DECAY_THRESHOLD_DB, type DecaySample } from '../src/dsp/decay'
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
@@ -87,6 +88,7 @@ describe('DecayTracker — streaming', () => {
 
 const oracle = JSON.parse(
   readFileSync(new URL('./fixtures/parity-oracle.json', import.meta.url), 'utf8'),
+  reviveNonFinite, // "-Infinity" → -Infinity, as every oracle reader does
 )
 /** Shared cross-platform ring-out golden for Recording 5.wav (REG-G1 fixture, −40 dB, 1 tap).
  *  From the oracle, not a literal: Swift and Python assert the same number, and it drifted into

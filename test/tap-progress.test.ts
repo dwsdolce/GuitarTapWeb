@@ -217,7 +217,7 @@ describe('loadMeasurement tears down an interrupted capture', () => {
     expect(a.currentTapCount).toBe(4)
     expect(a.materialTapPhase).toBe('waitingForFlcTap')
 
-    a.loadMeasurement(FROZEN())
+    a.restoreSnapshot(FROZEN())
 
     expect(a.currentTapCount).toBe(0)
     expect(a.tapProgress).toBe(0)
@@ -232,7 +232,7 @@ describe('loadMeasurement tears down an interrupted capture', () => {
     a.detectionState = 'listening' // worst case: load arrives mid-detection
     expect(a.currentTapCount).toBe(1)
 
-    a.loadMeasurement(FROZEN())
+    a.restoreSnapshot(FROZEN())
 
     expect(a.isDetecting).toBe(false)
     expect(a.currentTapCount).toBe(0)

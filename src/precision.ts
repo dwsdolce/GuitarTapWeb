@@ -37,8 +37,11 @@ export const FieldPrecision = {
   densityGPerCm3: 3,
   decayRatio: 2,
 
-  /** Format a value for display at the given precision. */
+  /** Format a value for display at the given precision. Infinity reads as "-∞" / "∞" — what Swift's
+   * status bar shows — not "-Infinity": a silent input's peak is -∞ dB, and it must not look
+   * different from one screen to the next. */
   string(value: number, decimals: number): string {
+    if (value === Infinity || value === -Infinity) return value < 0 ? '-∞' : '∞'
     return value.toFixed(decimals)
   },
 

@@ -18,7 +18,9 @@ import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classi
 // import (precedent: MaterialPeaks from components) — the resolver lives with the mode↔label map it needs.
 import { effectiveMode as resolveEffectiveMode } from '../presentation/modeColors'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import type { ComparisonEntryModel } from '../measurement/types'
+import type { ComparisonEntryModel, TapToneMeasurementModel } from '../measurement/types'
+import { comparisonAxisRange, measurementToLive, measurementToLiveMaterial, measurementWarning } from '../measurement/fromLive'
+import type { ChartView } from '../presentation/chartTypes'
 import { PLATE_PHASES, BRACE_PHASE, findDominantPeak, gatedCaptureResult, alignCaptureToOnset, PRE_ONSET_DURATION, type MaterialPeak, type DetectedMaterialPeak } from '../dsp/gatedCapture'
 import { dftAnalRect, GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
 import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialPhaseName, EngineState } from '../audio/realtimeFFTAnalyzer'
@@ -69,6 +71,9 @@ const EMPTY_MAT_PEAKS: MaterialPeaks = { longitudinal: null, cross: null, flc: n
 /** The clipping-override warning (Swift `TapToneAnalyzer.clippingWarningStatus` / Python
  *  `_set_clipping`). Displayed while the input clips, then the real status is restored. */
 const CLIPPING_WARNING = '⚠ Input clipping — reduce mic gain'
+/** Shown while the input delivers buffers that carry no signal. Outranks the clipping warning.
+ *  Mirrors Swift `TapToneAnalyzer.deadInputStatus` / Python `DEAD_INPUT_STATUS`. */
+const DEAD_INPUT_WARNING = '⚠ No audio input — check the microphone connection'
 
 /** A material phase peak's frequency, 1 dp, or '?' when none — for the status-bar review/complete strings. */
 const fHz = (p: { frequency: number } | null): string => (p ? p.frequency.toFixed(1) : '?')
@@ -277,7 +282,38 @@ export class TapToneAnalyzer {
   // _tds.measure_flc(); the web has no analyzer-visible global, so App mirrors it via setMeasureFlc.
   measureFlc = false
   measurementType: MeasurementType = 'classical'
+  /** A measurement was just loaded and its Threshold/Taps are in force — the banner's state.
+   *  MODEL state, as in Swift (`@Published var showLoadedSettingsWarning`) and Python. It used to be
+   *  declared here, set false once, and read by nobody, while the real flag lived in an `App.tsx`
+   *  useState with its clears spread across five view call sites — a stub that made the analyzer
+   *  look like it owned something it did not (#17 F40, the shape of F24). */
   showLoadedSettingsWarning = false
+
+  // ── What a loaded measurement leaves on the model ─────────────────────────────────────────────
+  // Swift's `loaded*` published properties: the model records what was loaded and the view reacts,
+  // rather than the view sequencing a load and remembering the pieces itself. Cleared together by
+  // startTapSequence (Swift Control.swift:135) — a new sequence is no longer "the loaded one".
+  /** The loaded measurement's name / notes (Swift `loadedMeasurementName` / `loadedNotes`). */
+  loadedMeasurementName: string | null = null
+  loadedNotes: string | null = null
+  /** The loaded measurement's saved axis range — a TRANSIENT override of the persisted display
+   *  range, which is left untouched (Swift `loadedAxisRange`). */
+  loadedAxisRange: ChartView | null = null
+  /** The display settings the loaded measurement carries (type, measureFlc, thresholds, annotation
+   *  mode). Swift publishes one `loaded*` property per setting and its view writes each into the
+   *  TapDisplaySettings singleton; the web's settings are a single object, so they travel as one
+   *  patch for App to apply — same direction, one field instead of nine. */
+  loadedSettings: Partial<Settings> | null = null
+  /** The loaded measurement's microphone is not connected, or its calibration / sample rate differs
+   *  (Swift `@Published var microphoneWarning`). An IMPORT never sets this — only a load, which is
+   *  what puts the user in front of the data. The view shows it and clears it on acknowledgement. */
+  microphoneWarning: string | null = null
+  /** Ring-out (decay) time in seconds of what is on screen: the file's when a measurement is loaded,
+   *  the live tracker's during a capture (the device pushes it through `setDecayTime`). ONE value, as
+   *  Swift `currentDecayTime` and Python `current_decay_time` — the view used to hold two and choose
+   *  between them. Cleared by startTapSequence, as in Swift. */
+  currentDecayTime: number | null = null
+
   // The settings the model needs to seed Store B at a material completion. Swift and Python read the
   // TapDisplaySettings singleton from inside the model; the web has no analyzer-visible global, so App
   // mirrors the whole object in via setSettings from the same layout effect that pushes
@@ -299,6 +335,8 @@ export class TapToneAnalyzer {
   statusMessage = 'Tap the guitar to begin'
   private latestRealStatus = 'Tap the guitar to begin'
   private isClipping = false
+  /** Input delivering chunks that carry no signal — outranks clipping in the status override. */
+  private inputAppearsDead = false
   // The device owns the guitar detection loop, so the guitar status strings derive from these transitions
   // (the web equivalent of Swift's TapToneAnalyzer+TapDetection setting statusMessage in the loop).
   // The "Analysis complete! N peaks…" string is set ONCE at completion (Swift/Python set it in the guitar
@@ -401,6 +439,19 @@ export class TapToneAnalyzer {
     // The shared reset — result data, per-peak state, completion flag, and the return to live.
     this.clearResult()
     this.currentTapCount = 0
+    // The user is explicitly starting a new sequence, so the loaded measurement's Threshold/Taps are
+    // now theirs. Mirrors Swift startTapSequence (Control.swift:149) and Python start_tap_sequence;
+    // covers the measurement-type change, file playback and New Tap/Cancel paths, each of which the
+    // view used to clear by hand (#17 F40).
+    this.showLoadedSettingsWarning = false
+    // …and with it everything else the loaded measurement left behind: this sequence is no longer
+    // "the loaded one". Mirrors Swift startTapSequence (Control.swift:135-136, :163).
+    this.loadedMeasurementName = null
+    this.loadedNotes = null
+    this.loadedAxisRange = null
+    this.loadedSettings = null
+    this.currentDecayTime = null
+    this.showingMultiTapComparison = false
     // No pause-clear here: the arming below moves straight to 'listening', which leaves 'paused'
     // on its own. Mirrors Swift/Python startTapSequence.
 
@@ -494,10 +545,117 @@ export class TapToneAnalyzer {
     this.startTapSequence()
   }
 
-  /** Load a saved measurement: freeze its spectrum, restore its per-tap display spectra (for the
-   *  multi-tap comparison view), and mark complete. Mirrors Swift loadMeasurement restoring both
-   *  frozenMagnitudes/Frequencies and tapEntries (the raw capturedTaps are NOT restored). */
-  /** Apply a saved measurement to the analyzer as ONE step.
+  /** Load a saved measurement — guitar, material or comparison record. THE load entry point.
+   *
+   *  Mirrors Swift `loadMeasurement(_:)` and Python `load_measurement()`: hand it the saved
+   *  measurement and the model works out what kind it is, converts it, restores itself, and records
+   *  what it loaded (name, notes, axis range, settings, microphone warning, ring-out) for the view
+   *  to react to. It used to be ~110 lines in `App.tsx` that converted the file, wrote five pieces of
+   *  React state, told the engine, and handed the analyzer the already-converted parts — so "load a
+   *  measurement" existed only as a sequence in the view, and no other caller (an import, a test)
+   *  could perform one (#17 F41).
+   *
+   *  The view still does what only it can: apply `loadedSettings` to the settings store and the
+   *  axis range to the chart, exactly as Swift's `.onReceive(tap.$loaded…)` handlers do. */
+  loadMeasurement(m: TapToneMeasurementModel): void {
+    // A comparison record restores its overlay spectra directly and is not a single measurement.
+    if (m.comparisonEntries) {
+      this.loadedPeaks = null
+      this.clearResult() // returns to live and drops any overlay...
+      this.loadComparisonRecord(m.comparisonEntries) // ...then enters comparison (clears loaded state)
+      this.loadedMeasurementName = m.measurementName ?? null // ...but a SAVED record has a name
+      this.loadedNotes = m.notes ?? null
+      this.notify()
+      return
+    }
+
+    if (m.longitudinalSnapshot) {
+      // Material (plate/brace): per-phase snapshots, no guitar spectrum.
+      const mat = measurementToLiveMaterial(m)
+      this.loadedSettings = mat.settingsPatch // only the type (+ measureFlc); NOT the dims
+      this.loadedAxisRange = mat.view
+      this.loadedPeaks = null
+      this.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
+      this.restoreMaterial({
+        matSpectra: mat.matSpectra,
+        matPeaks: mat.matPeaks,
+        materialInputs: mat.materialInputs,
+        numberOfTaps: m.numberOfTaps ?? 1,
+      })
+      this.restoreOffsets(mat.annotationOffsetsById) // dragged L/C/FLC labels (id-keyed shared store)
+    } else {
+      if (!m.spectrumSnapshot) return // neither guitar nor material: nothing to show
+      const live = measurementToLive(m)
+      this.loadedSettings = live.settingsPatch
+      this.loadedAxisRange = live.view
+      this.restoreSnapshot({
+        magnitudes: live.captured.magnitudesDb,
+        frequencies: live.captured.frequencies,
+        numberOfTaps: m.numberOfTaps ?? 1,
+        taps: (m.tapEntries ?? []).map((e) => ({
+          magnitudesDb: e.snapshot.magnitudes,
+          frequencies: e.snapshot.frequencies,
+        })),
+        loadedPeaks: live.loadedPeaks,
+        overrides: live.overridesById,
+        annotationOffsets: live.annotationOffsetsById,
+        selection: {
+          ids: live.selectedIndices,
+          frequencies: live.loadedPeaks
+            .filter((p) => live.selectedIndices.has(p.id))
+            .map((p) => p.frequency),
+          userModified: live.userModified,
+        },
+      })
+    }
+
+    this.showingMultiTapComparison = false
+    this.loadedMeasurementName = m.measurementName ?? null
+    this.loadedNotes = m.notes ?? null
+    // The FILE's stored ring-out, not whatever the live tracker last reported.
+    this.currentDecayTime = m.decayTime ?? null
+    // Load-time provenance: the microphone, calibration and sample rate this was recorded with,
+    // against what is connected now. The device carries all three, so the model can ask it — the
+    // check used to sit in App because only App could see them.
+    this.microphoneWarning = measurementWarning(m, {
+      microphoneName: this.device?.deviceLabel,
+      sampleRate: this.device?.sampleRate ?? null,
+      calibrationName: this.device?.activeCalibration?.name,
+    })
+    this.notify()
+  }
+
+  /** Import a `.guitartap` file and return the one message the user sees for it.
+   *
+   *  Mirrors Swift `importAndLoadMeasurements(from:)` and Python `import_and_load_measurements`.
+   *  A single measurement is also loaded — so, and only then, the message carries the LOAD's
+   *  microphone warning, folded in so one dialog appears rather than two, and consumed. A library
+   *  import (Export All) only adds to the library and says nothing about microphones: nothing is on
+   *  screen yet, so there is nothing for a microphone difference to affect.
+   *
+   *  The warning is cleared first, so the message can only ever describe THIS import.
+   *
+   *  @param save Persists each decoded measurement and returns what was stored (the store's
+   *              `importMeasurements`), injected so the model does not reach into storage itself. */
+  async importAndLoadMeasurements(
+    text: string,
+    save: (text: string) => Promise<TapToneMeasurementModel[]>,
+  ): Promise<string> {
+    this.microphoneWarning = null
+    const imported = await save(text)
+    if (imported.length !== 1) return `Successfully imported ${imported.length} measurements`
+    this.loadMeasurement(imported[0]!)
+    let message = 'Successfully imported and loaded 1 measurement'
+    if (this.microphoneWarning) {
+      message += '\n\n⚠️ ' + this.microphoneWarning
+      this.microphoneWarning = null
+      this.notify()
+    }
+    return message
+  }
+
+  /** The guitar restore STEP of {@link loadMeasurement} — the frozen spectrum and everything keyed
+   *  to it, applied as one.
    *
    *  Everything the file carries — the frozen spectrum, the per-tap entries, the authoritative
    *  peaks, and the per-peak state keyed to them (overrides, dragged offsets, selection) — is
@@ -506,9 +664,15 @@ export class TapToneAnalyzer {
    *
    *  The per-peak arguments are optional: the material load path restores only offsets, and the
    *  unit tests that just need a frozen spectrum pass none. */
-  loadMeasurement(snapshot: {
+  restoreSnapshot(snapshot: {
     magnitudes: number[]
     frequencies: number[]
+    /** The file's tap count. Restored HERE, not by the caller: Swift writes `numberOfTaps` inside
+     *  loadMeasurement (MeasMgmt:784) between the completion assignment and the settings-warning
+     *  raise. App used to call `setNumberOfTaps` AFTER this method, so the tap-count hook's own
+     *  clear wiped the banner this method had just raised — the view sequencing what the model
+     *  owns, which is the F24/F26 shape all over again (#17 F40). */
+    numberOfTaps?: number
     taps?: Spectrum[]
     /** The saved peaks — authoritative, never re-derived. Omit to leave `loadedPeaks` unchanged. */
     loadedPeaks?: Peak[] | null
@@ -538,6 +702,12 @@ export class TapToneAnalyzer {
     this.currentTapCount = 0
     this.materialTapPhase = 'complete'
     this.isMeasurementComplete = true
+    // The file's tap count, BEFORE the raise — its hook clears the warning, so restoring it
+    // afterwards (as App used to) wipes the banner the load is about to raise.
+    if (snapshot.numberOfTaps != null) this.setNumberOfTaps(snapshot.numberOfTaps)
+    // AFTER the completion assignment and the tap-count restore, both of whose hooks clear this
+    // flag — the ordering Swift has between MeasMgmt:709, :784 and :834 (#17 F40).
+    this.showLoadedSettingsWarning = true
     // A single measurement is now displayed — and any overlay it interrupted is gone. Swift
     // MeasMgmt:562, Python :476. Set here, not by the caller: the view used to clear the
     // comparison at each load site by hand, twice over on the guitar path (#17 F24).
@@ -1059,7 +1229,7 @@ export class TapToneAnalyzer {
       this.materialBuffer = []
       this.checkpointSession() // C phase start (so a redo can drop it)
       this.armMaterialDetection(this.matSearch('cross'))
-      this.setStatusMessage('Rotate 90° and tap for fC')
+      this.setStatusMessage(this.materialArmPrompt()) // phase is capturingC — one source (#17 F37)
       this.notify()
     } else if (phase === 'reviewingC') {
       if (this.measureFlc) {
@@ -1070,14 +1240,14 @@ export class TapToneAnalyzer {
         this.currentTapCount = this.materialPhaseBase('waitingForFlcTap') // cumulative: L+C stay counted
         this.materialBuffer = []
         this.checkpointSession() // FLC phase start (so a redo can drop it)
-        this.setStatusMessage('Set up for fLC tap, then tap')
+        this.setStatusMessage(this.materialArmPrompt()) // phase is waitingForFlcTap (#17 F37)
         this.notify()
         this.flcCooldownTimer = setTimeout(() => {
           this.flcCooldownTimer = null
           if (this.materialTapPhase !== 'waitingForFlcTap') return // canceled (reset / type change)
           this.materialTapPhase = 'capturingFlc'
           this.armMaterialDetection(this.matSearch('flc'))
-          this.setStatusMessage('Set up for fLC tap, then tap') // capturingFlc resting = same prompt
+          this.setStatusMessage(this.materialArmPrompt()) // phase is capturingFlc (#17 F37)
           this.notify()
         }, FLC_COOLDOWN_MS)
       } else {
@@ -1249,7 +1419,7 @@ export class TapToneAnalyzer {
    *  seed: a load must show the measurement's OWN dimensions, not the current Settings defaults.
    *  Swift gets this from loadMeasurement holding the flag across the whole restore; the web load is
    *  orchestrated from App, so the window is held here, around the assignment that triggers didSet. */
-  restoreMaterial(m: { matSpectra: MatSpectra; matPeaks: MaterialPeaks; materialInputs: MaterialMeasurementInputs | null }): void {
+  restoreMaterial(m: { matSpectra: MatSpectra; matPeaks: MaterialPeaks; materialInputs: MaterialMeasurementInputs | null; numberOfTaps?: number }): void {
     this.isLoadingMeasurement = true
     try {
       this.matSpectra = m.matSpectra
@@ -1257,6 +1427,9 @@ export class TapToneAnalyzer {
       this.materialInputs = m.materialInputs // Store B ← the file's own dims, never Settings
       this.materialTapPhase = 'complete'
       this.isMeasurementComplete = true // a loaded material measurement is complete (Swift loadMeasurement)
+      // The file's tap count BEFORE the raise — its hook clears the warning (#17 F40).
+      if (m.numberOfTaps != null) this.setNumberOfTaps(m.numberOfTaps)
+      this.showLoadedSettingsWarning = true // after both clearing hooks have run
       this.disarmDetection() // a loaded result is frozen — see enterFrozen
     } finally {
       this.isLoadingMeasurement = false
@@ -1268,6 +1441,17 @@ export class TapToneAnalyzer {
   /** Mirror the settings store onto the analyzer (App drives it; see the `settings` field). */
   setSettings(s: Settings): void {
     this.settings = s
+    // The tap threshold is ANALYZER state, as in Swift (`@Published var tapDetectionThreshold`) and
+    // Python (the `tap_detection_threshold` property) — `detectTap` reads it. The natives get it
+    // from TapDisplaySettings inside the model; the web has no analyzer-visible global, so App
+    // mirrors it in here, the same way measurementType and measureFlc arrive.
+    //
+    // Without this line the detector read a field nothing ever wrote. #17 F30 moved detection from
+    // the engine onto the analyzer; the engine had been reading `config.tapDetectionThreshold`,
+    // which App pushed on every slider move, and the move left the threshold behind. The slider
+    // kept writing settings and the engine config, both now unread by the detector, which sat at
+    // its -40 dB default for guitar AND as the base for material's relative rule.
+    this.tapDetectionThreshold = s.tapDetectionThreshold
   }
 
   /** Replace Store B — the Results-panel dimension editor. Mirrors Swift's
@@ -1299,17 +1483,24 @@ export class TapToneAnalyzer {
   private readonly noiseFloorMinFallingHeadroomDb = 4
 
   /** Absolute detection threshold (dBFS). Owned here, as Swift owns it; App pushes the setting. */
+  /** The tap-detection threshold in dBFS, mirrored in from settings by `setSettings`. Read by
+   *  `detectTap` — absolute for guitar, the base of the relative rule for material. Swift and
+   *  Python hold the same value on the analyzer (#17 F30/F40). */
   tapDetectionThreshold = -40
 
   /** A gated capture window is filling. Swift `gatedCaptureActive`. */
   gatedCaptureActive = false
 
   // ── Hysteresis (OUT-4) — mirrors Swift/Python `isAboveThreshold` ────────────────────────────────
-  // NOT the same thing as `prevAbove`. `prevAbove` is edge-detection state (was the LAST chunk above
-  // the rising threshold?). `isAboveThreshold` is a LATCH: it goes true at the rising threshold and
-  // only clears at the lower FALLING threshold, so the ring-out decay envelope cannot re-trigger a
-  // tap on its way down. The web had no hysteresis at all — in guitar mode either. Swift and Python
-  // have carried `hysteresisMargin = 3.0` all along.
+  // A LATCH, and the gate on counting: it goes true when a tap is CONFIRMED and clears only at the
+  // lower FALLING threshold, so the ring-out decay envelope cannot re-trigger a tap on its way down.
+  // While it is up nothing counts, which is what makes the hysteresis real rather than advisory.
+  //
+  // It used to share that job with a separate `prevAbove` edge flag — the latch raised on the first
+  // above-rising chunk, the firing gated on the edge — and because the edge cleared at RISING while
+  // the latch cleared at FALLING, a ring-out in the 3 dB between them re-armed the detector. One
+  // flag now, as in Swift and Python (#17). The web had no hysteresis at all before OUT-4; Swift and
+  // Python have carried `hysteresisMargin = 3.0` all along.
 
   // ── Noise-floor EMA (OUT-4) — mirrors Swift/Python `noiseFloorEstimate` ─────────────────────────
   // Material (plate/brace) detects RELATIVE to the tracked ambient floor, not against a fixed dBFS
@@ -1328,7 +1519,6 @@ export class TapToneAnalyzer {
 
   // Detector state (Swift TapToneAnalyzer+TapDetection).
   private isAboveThreshold = false
-  private prevAbove = true
   private consecutive = 0
   private noiseFloorEstimate = -60
   private justExitedWarmup = false
@@ -1490,7 +1680,6 @@ export class TapToneAnalyzer {
     this.captureKind = 'guitar'
     this.capture = this.guitarCaptureBuf
     this.guitarTapCount = 0
-    this.prevAbove = true
     this.consecutive = 0
     this.armWarmup(skipWarmup)
     this.gatedCaptureActive = false
@@ -1504,7 +1693,6 @@ export class TapToneAnalyzer {
     this.materialSearch = search
     this.capture = this.materialCapture
     this.captureIdx = 0
-    this.prevAbove = true
     this.consecutive = 0
     // Material ALWAYS runs the warm-up — it is the only mode using the relative noise-floor
     // detector, and the warm-up is what establishes the floor.
@@ -1531,7 +1719,6 @@ export class TapToneAnalyzer {
   /** Resume after a pause, continuing from the current tap count. Swift `resumeTapDetection()`. */
   resumeTapDetection(): void {
     if (this.detectionState !== 'paused') return
-    this.prevAbove = true
     this.consecutive = 0
     this.armWarmup((this.device?.playingFile ?? false) && this.captureKind === 'guitar')
     this.detectionState = 'listening'
@@ -1609,17 +1796,25 @@ export class TapToneAnalyzer {
     // 3c. Hysteresis + confirmation. `isAboveThreshold` latches at `rising` and only clears at the
     //     lower `falling`, so the ring-out decay cannot re-trigger. A tap additionally requires
     //     this.confirmChunks consecutive above-rising chunks, which rejects brief noise bumps.
-    const above = levelDb > rising
+    // `isAboveThreshold` is BOTH the hysteresis latch and the gate on counting, exactly as in Swift
+    // and Python: while it is up, nothing counts and nothing can fire, so the signal must fall below
+    // `falling` before another tap is possible.
+    //
+    // This used to raise the latch on the FIRST above-`rising` frame and gate firing on a separate
+    // `prevAbove` edge, which cleared as soon as the level dipped below `rising`. Between taps of a
+    // multi-tap sequence — capture finished, signal not yet settled — a ring-out that decayed past
+    // `rising` but never reached `falling` therefore re-armed the detector, and its next swing up
+    // was taken as the following tap: the sequence finished early with a decay averaged in place of
+    // a strike. Three dB of margin is a narrow window, which is why no run-review ever hit it (#17).
     if (this.isAboveThreshold) {
-      if (levelDb <= falling) this.isAboveThreshold = false
-    } else if (above) {
-      this.isAboveThreshold = true
-    }
-
-    if (above) {
-      if (this.consecutive > 0) this.consecutive++
-      else if (!this.prevAbove) this.consecutive = 1
+      if (levelDb <= falling) {
+        this.isAboveThreshold = false
+        this.consecutive = 0
+      }
+    } else if (levelDb > rising) {
+      this.consecutive++
       if (this.consecutive >= this.confirmChunks) {
+        this.isAboveThreshold = true
         this.consecutive = 0
         // Seed the ring-out from the PEAK-HELD level (Swift tapPeakLevel = recentPeakLevelDB), not the
         // instantaneous level: tap confirmation lags the strike by ~2 chunks, so the true peak would
@@ -1630,13 +1825,16 @@ export class TapToneAnalyzer {
     } else {
       this.consecutive = 0
     }
-    this.prevAbove = above
   }
 
   private armWarmup(skip: boolean): void {
     this.warmupStartAudioTime = skip ? (this.device?.audioTime ?? 0) - (this.warmupPeriod + 0.1) : (this.device?.audioTime ?? 0)
     this.justExitedWarmup = false
-    this.isAboveThreshold = false
+    // Mirrors Swift startTapSequence's `isAboveThreshold = skipWarmup`. With the warm-up running,
+    // the post-warm-up sync frame sets the latch from the first real level; when it is SKIPPED there
+    // is no such frame, so the detector starts latched and a tap needs a genuine fall first. This is
+    // what `prevAbove = true` used to do at each arm site.
+    this.isAboveThreshold = skip
     this.noiseFloorEstimate = this.noiseFloorInitialDb
   }
 
@@ -1700,8 +1898,9 @@ export class TapToneAnalyzer {
 
     const total = this.numberOfTaps
     if (this.guitarTapCount < total) {
-      // Need more taps — re-arm for the next.
-      this.prevAbove = true
+      // Need more taps — re-arm for the next. The LATCH is deliberately left alone: it is still up
+      // from the tap just captured, and hysteresis requires the signal to fall below `falling`
+      // before the next strike counts. Resetting it here is what let a ring-out become a tap.
       this.consecutive = 0
       this.currentTapCount = this.guitarTapCount
       this.gatedCaptureActive = false
@@ -1789,6 +1988,14 @@ export class TapToneAnalyzer {
         isSavedMeasurementComparison: this.isSavedMeasurementComparison,
         statusMessage: this.statusMessage,
         isClipping: this.isClipping,
+        inputAppearsDead: this.inputAppearsDead,
+        showLoadedSettingsWarning: this.showLoadedSettingsWarning,
+        loadedMeasurementName: this.loadedMeasurementName,
+        loadedNotes: this.loadedNotes,
+        loadedAxisRange: this.loadedAxisRange,
+        loadedSettings: this.loadedSettings,
+        microphoneWarning: this.microphoneWarning,
+        currentDecayTime: this.currentDecayTime,
       })
     }
     return this.cachedSnapshot
@@ -1809,6 +2016,15 @@ export class TapToneAnalyzer {
     this.comparisonEntries = entries
     this.showingMultiTapComparison = false
     this.displayMode = entries.length === 0 ? 'live' : 'comparison'
+    // An overlay is nobody's measurement: no name, notes, ring-out or recorded microphone. Its axis
+    // range is the union of the overlaid ones. Mirrors Swift loadComparison (MeasMgmt:983-984 + the
+    // setLoadedAxisRange below it). `loadMeasurement` re-applies the name when the overlay came from
+    // a SAVED comparison record, which is the one case that has one.
+    this.loadedMeasurementName = null
+    this.loadedNotes = null
+    this.microphoneWarning = null
+    this.currentDecayTime = null
+    this.loadedAxisRange = comparisonAxisRange(entries)
     // An overlay is frozen, like a loaded measurement — see enterFrozen. Empty entries mean we
     // stayed live, so there is nothing to freeze.
     if (entries.length > 0) this.disarmDetection()
@@ -1881,7 +2097,22 @@ export class TapToneAnalyzer {
   // does not) so multi-field transitions render once. 3c-C4 D3.
   private setStatusMessage(msg: string): void {
     this.latestRealStatus = msg
-    this.statusMessage = this.isClipping ? CLIPPING_WARNING : msg
+    this.applyStatusOverrides()
+  }
+
+  /** Resolves the displayed status against the active input-condition overrides.
+   *
+   *  One place decides precedence — dead input, then clipping, then whatever the analyzer last set
+   *  — so the two overrides cannot fight each other or leave a stale warning on screen after its
+   *  condition clears. Dead input outranks clipping: a dead input cannot also be clipping, and "no
+   *  audio" is the more actionable message. Mirrors Swift `applyStatusOverrides()` and Python
+   *  `_apply_status_overrides()`. */
+  private applyStatusOverrides(): void {
+    this.statusMessage = this.inputAppearsDead
+      ? DEAD_INPUT_WARNING
+      : this.isClipping
+        ? CLIPPING_WARNING
+        : this.latestRealStatus
   }
 
   /** The device forwards edge-triggered input clipping here (Swift `fftAnalyzer.$isClipping` sink /
@@ -1889,7 +2120,36 @@ export class TapToneAnalyzer {
   setClipping(clipping: boolean): void {
     if (clipping === this.isClipping) return
     this.isClipping = clipping
-    this.statusMessage = clipping ? CLIPPING_WARNING : this.latestRealStatus
+    this.applyStatusOverrides()
+    this.notify()
+  }
+
+  /** The device forwards its dead-input watchdog here (Swift `fftAnalyzer.$inputAppearsDead` sink /
+   *  Python `_set_input_appears_dead`). The engine has detected and retried a silent input since the
+   *  watchdog landed; until now nothing read the flag, so web alone told the user nothing while both
+   *  natives showed the warning (#17 F37). */
+  setInputAppearsDead(dead: boolean): void {
+    if (dead === this.inputAppearsDead) return
+    this.inputAppearsDead = dead
+    this.applyStatusOverrides()
+    this.notify()
+  }
+
+  /** The user acknowledged the microphone warning — it has been read, so it ends here. Mirrors
+   *  Swift, where the alert's OK button and its binding both clear `microphoneWarning`, and Python's
+   *  `_on_microphone_warning_changed` clearing after the modal (#17 F41). */
+  clearMicrophoneWarning(): void {
+    if (this.microphoneWarning === null) return
+    this.microphoneWarning = null
+    this.notify()
+  }
+
+  /** The live ring-out from the device's decay tracker (the engine owns the TRACKER; the analyzer
+   *  owns the VALUE, as Swift's `currentDecayTime` does — written here during a capture and by
+   *  `loadMeasurement` from the file). */
+  setDecayTime(decayTime: number | null): void {
+    if (decayTime === this.currentDecayTime) return
+    this.currentDecayTime = decayTime
     this.notify()
   }
 
@@ -1898,17 +2158,31 @@ export class TapToneAnalyzer {
     return this.numberOfTaps === 1 ? 'Tap the guitar...' : `Tap the guitar ${this.numberOfTaps} times...`
   }
 
-  /** The material arm prompt for the longitudinal (first) phase — mirrors Swift startTapSequence's
-   *  brace/plate branch, including the multi-tap "×N each for …" variant. */
+  /** The prompt a material (plate/brace) sequence shows while armed in its CURRENT phase — the
+   *  single source for these strings.
+   *
+   *  Three callers, which is the point: `startTapSequence` (which sets the phase before the status),
+   *  the phase advances in `acceptMaterial`, and `restingPrompt()`. They used to hold two sets of
+   *  literals, so a resume or a tap-count change could reword the instruction the user was
+   *  following. Mirrors Swift `materialArmPrompt()` and Python `_material_arm_prompt()` (#17 F37).
+   *
+   *  The fL branch is count-aware, because that is the phase whose prompt names the tap count and
+   *  the only phase where the Taps stepper is still unlocked. */
   private materialArmPrompt(): string {
-    if (this.measurementType === 'brace') {
-      return this.numberOfTaps > 1 ? `Ready for fL tap (×${this.numberOfTaps})` : 'Ready for fL tap'
+    switch (this.materialTapPhase) {
+      case 'capturingC':
+        return 'Rotate 90° and tap for fC'
+      case 'waitingForFlcTap':
+      case 'capturingFlc':
+        return 'Set up for fLC tap, then tap'
+      default: {
+        // capturingL / notStarted.
+        if (this.numberOfTaps <= 1) return 'Ready for fL tap'
+        if (this.measurementType === 'brace') return `Ready for fL tap (×${this.numberOfTaps})`
+        const phases = this.measureFlc ? 'L, C, FLC' : 'L, C'
+        return `Ready for fL tap (×${this.numberOfTaps} each for ${phases})`
+      }
     }
-    if (this.numberOfTaps > 1) {
-      const phases = this.measureFlc ? 'L, C, FLC' : 'L, C'
-      return `Ready for fL tap (×${this.numberOfTaps} each for ${phases})`
-    }
-    return 'Ready for fL tap'
   }
 
   /** The status to restore when a device-change settle ends, or `null` to leave it alone.
@@ -1933,7 +2207,15 @@ export class TapToneAnalyzer {
     if (this.isMeasurementComplete) return null   // "Analysis complete…" / "Loaded measurement…"
     if (this.displayMode === 'comparison') return null  // an overlay is not a tap prompt
     if (this.isDetectionPaused) return PAUSED_STATUS
-    if (this.isDetecting) return this.restingPrompt()
+    if (this.isDetecting) {
+      // A material phase prompt is an INSTRUCTION tied to a transition that already happened —
+      // "Rotate 90° and tap for fC" — not a description of the state the analyzer is in, so it is
+      // not re-derivable here: after a device swap the user has already rotated the plate. Preserve
+      // it, exactly as a completed measurement's announcement is preserved. Guitar's prompt IS a
+      // function of count and total, both of which the analyzer holds, so it is still derived.
+      if (!this.isGuitar) return null
+      return this.restingPrompt()
+    }
     return 'Ready'
   }
 
@@ -1944,15 +2226,7 @@ export class TapToneAnalyzer {
         ? this.tapPrompt()
         : `Tap ${this.currentTapCount}/${this.numberOfTaps} captured. Tap again...`
     }
-    switch (this.materialTapPhase) {
-      case 'capturingC':
-        return 'Rotate 90° and tap for fC'
-      case 'waitingForFlcTap':
-      case 'capturingFlc':
-        return 'Set up for fLC tap, then tap'
-      default:
-        return this.materialArmPrompt() // capturingL / notStarted → "Ready for fL tap" (mirrors Swift)
-    }
+    return this.materialArmPrompt()
   }
 
   /** Material completion string: plate without FLC shows fL + fC; otherwise a generic complete. */
@@ -1968,9 +2242,26 @@ export class TapToneAnalyzer {
     this.numberOfTaps = n
     // A tap-count change while armed and waiting for the first tap refreshes the prompt ("Tap the
     // guitar N times…"), mirroring Swift numberOfTaps.didSet. (No-op mid-capture / when complete.)
-    if (!this.isMeasurementComplete && this.isDetecting && this.currentTapCount === 0) {
+    // The `!isMeasurementComplete` term this used to carry was a third spelling of one predicate —
+    // completion sets detectionState to idle in all three editions, so isDetecting already covers
+    // it, and three spellings is how the guards came to differ in the first place (#17 F36).
+    if (this.isDetecting && this.currentTapCount === 0) {
       this.setStatusMessage(this.restingPrompt())
     }
+    // The user changed Taps, so the loaded measurement's settings no longer describe what is on
+    // screen. Mirrors Swift numberOfTaps.didSet and Python set_tap_num (#17 F40).
+    this.showLoadedSettingsWarning = false
+    this.notify()
+  }
+
+  /** The user changed a setting the loaded measurement also carries, so its banner no longer
+   *  applies. Swift and Python do this inside `tapDetectionThreshold`'s setter, which they can
+   *  because the threshold is analyzer state there; on the web it lives in `settings`, so the view
+   *  reports the change instead. That the web's threshold is not analyzer state is a SEPARATE
+   *  divergence, deliberately not folded in here (#17 F40). */
+  noteLoadedSettingsDeviation(): void {
+    if (!this.showLoadedSettingsWarning) return
+    this.showLoadedSettingsWarning = false
     this.notify()
   }
 
@@ -2022,7 +2313,11 @@ export class TapToneAnalyzer {
       // it alone" has to mean restoring THIS — not leaving the transient up forever, which is what
       // it meant on the first pass (#17 F33). Guarded so a repeated settling edge cannot capture
       // the transient itself.
-      if (this.statusBeforeSettle === null) this.statusBeforeSettle = this.statusMessage
+      // `latestRealStatus`, NOT `statusMessage`: the latter is the OVERRIDE-RESOLVED string, so a
+      // route change while the input was clipping or dead preserved the warning sentinel and fed it
+      // back through setStatusMessage() as the real status — after which clearing the condition
+      // restored the warning. The override layer re-resolves on its own (#17 F37).
+      if (this.statusBeforeSettle === null) this.statusBeforeSettle = this.latestRealStatus
       // Blank the chart only if a LIVE spectrum is on screen — a completed or loaded measurement
       // keeps its result, exactly as in Swift/Python (#17 F35).
       if (!this.isMeasurementComplete && this.displayMode !== 'comparison') this.isSettling = true
@@ -2111,6 +2406,20 @@ export interface TapToneSnapshot {
    *  source for the status-bar className + the capturing/waiting distinction (3c-C5). */
   /** Input clipping (drives the threshold-slider red zone; the status override reads the private field). */
   isClipping: boolean
+  /** Input delivering chunks with no signal — the dead-input watchdog's user-visible state. */
+  inputAppearsDead: boolean
+  /** A loaded measurement's Threshold/Taps are in force — drives the loaded-settings banner. */
+  showLoadedSettingsWarning: boolean
+  /** What the loaded measurement left on the model — Swift's `loaded*` published properties. Null
+   *  when nothing is loaded (a new sequence clears them all). */
+  loadedMeasurementName: string | null
+  loadedNotes: string | null
+  loadedAxisRange: ChartView | null
+  loadedSettings: Partial<Settings> | null
+  /** The loaded measurement's microphone is missing, or its calibration / sample rate differs. */
+  microphoneWarning: string | null
+  /** Ring-out of what is on screen — the file's when loaded, the live tracker's during a capture. */
+  currentDecayTime: number | null
 }
 
 /**

@@ -88,4 +88,9 @@ describe('FieldPrecision.string — display formatting', () => {
   it('rounds for display', () => {
     expect(FieldPrecision.string(2.678, 2)).toBe('2.68')
   })
+  // A silent input's peak is -∞ dB: it reads "-∞" (as Swift's status bar draws it), not "-Infinity".
+  it('infinity reads as a symbol', () => {
+    expect(FieldPrecision.string(-Infinity, 1)).toBe('-∞')
+    expect(FieldPrecision.string(Infinity, 1)).toBe('∞')
+  })
 })

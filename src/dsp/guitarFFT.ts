@@ -18,7 +18,6 @@ import type { GuitarTypeName } from './guitarModes'
  *       a captured/averaged spectrum; the analyzer calls it per frozen result).
  */
 
-const EPS = 2.220446049250313e-16
 
 /** A magnitude spectrum: parallel dBFS magnitudes and their bin centre frequencies (Hz). */
 export interface Spectrum {
@@ -58,11 +57,29 @@ export function dftAnalRect(
   for (let i = 0; i <= half; i++) {
     let mag = Math.hypot(re[i]!, im[i]!)
     if (i >= 1 && i < half) mag *= 2 // one-sided: interior doubled; DC & Nyquist not
-    if (mag < EPS) mag = EPS
+    // No epsilon clamp: a bin with no energy is -Infinity, which is what Swift's vDSP_vdbcon
+    // produces. It has to stay distinguishable from -100 dB, a REAL level a live UMIK-1 reaches in
+    // a quiet room — clamping to float64 epsilon put a precise-looking -313.0 dB on screen for the
+    // absence of a signal instead (#17, run-review; Python carried the identical clamp).
     magnitudesDb[i] = 20 * Math.log10(mag)
     frequencies[i] = (i * sampleRate) / fftSize
   }
   return { magnitudesDb, frequencies }
+}
+
+/**
+ * The spectrum's loudest bin — the live Peak readout. Mirrors Swift `RealtimeFFTAnalyzer`
+ * (`db.enumerated().max(by: <)`) and Python `perform_fft` (`np.argmax`): the FIRST maximum wins a
+ * tie, so an all -Infinity spectrum (a silent input) reports bin 0 — "-∞ dB @ 0.0 Hz" — rather than
+ * no peak at all. Seeding the search at -Infinity and requiring a strictly greater bin found nothing
+ * on silence and left the readout on "Starting..." (#17 run-review).
+ */
+export function spectrumPeak(spectrum: Spectrum): { frequency: number; magnitude: number } | null {
+  const mags = spectrum.magnitudesDb
+  if (mags.length === 0) return null
+  let best = 0
+  for (let i = 1; i < mags.length; i++) if (mags[i]! > mags[best]!) best = i
+  return { frequency: spectrum.frequencies[best]!, magnitude: mags[best]! }
 }
 
 /** FFT length for continuous/captured guitar spectra (2^16), matching Swift/Python. */

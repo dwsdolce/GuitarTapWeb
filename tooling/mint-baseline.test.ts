@@ -32,7 +32,7 @@ import { writeFileSync } from 'node:fs'
 import { arch, env, platform, versions } from 'node:process'
 import { cpus } from 'node:os'
 import { computeAll, oracle } from '../test/parityRunner'
-import { baselinePath, configuration, configKey, flatten, load } from '../test/selfBaseline'
+import { baselinePath, configuration, configKey, flatten, load, replaceNonFinite } from '../test/selfBaseline'
 
 // Which tolerance governs a value, by the leaf its path ends in.
 const TOLERANCE_KEYS: Record<string, string> = {
@@ -65,8 +65,9 @@ function checkAgainstOracle(computed: Record<string, number>): string[] {
   for (const path of Object.keys(computed).sort()) {
     const value = computed[path]!
     if (path.endsWith('/maxDb')) {
-      const ceiling = Number(oracle.gatedFft[path.split('/')[0]!].maxDbBelow)
-      if (!(value < ceiling)) failures.push(`  ${path}: ${value} is not below the ${ceiling} dB ceiling`)
+      // Silence: the oracle records Swift's exact value (-Infinity) — no tolerance applies to it.
+      const want = Number(oracle.gatedFft[path.split('/')[0]!].maxDb)
+      if (!(value === want)) failures.push(`  ${path}: ${value} is not the oracle's ${want}`)
       continue
     }
     const want = oracleFlat[path]
@@ -133,14 +134,25 @@ describe('mint the self-baseline', () => {
       console.log('✅ Every value is within the first-mint bar.')
     } else {
       const lines = diffAgainst(flatten(previous.values), computed)
-      if (lines.length === 0) {
+      const checkedAgainst = String(previous.provenance?.oracleVersion ?? 'unknown')
+      const current = String(oracle.oracleVersion ?? 'unknown')
+      if (lines.length === 0 && checkedAgainst === current) {
         console.log('\n✅ Identical to the committed baseline — nothing to do.')
         return
       }
-      console.log(`\n${lines.length} value(s) differ from the committed baseline:`)
-      console.log(lines.slice(0, 40).join('\n'))
-      if (lines.length > 40) console.log(`  ... and ${lines.length - 40} more`)
-      if (env.MINT_BASELINE_YES !== '1') {
+      if (lines.length === 0) {
+        // Same values, but the baseline names a different oracle than the one it was just checked
+        // against — e.g. a -dirty mint superseded by a clean one. Rewrite it so its provenance names
+        // an oracle anyone can check out; no value changes, so no confirmation is needed (#17 F44).
+        console.log(`\nEvery value is identical, but the baseline names oracle ${checkedAgainst}, not the`)
+        console.log(`current ${current}. Rewriting the provenance; no value changes.`)
+      }
+      if (lines.length > 0) {
+        console.log(`\n${lines.length} value(s) differ from the committed baseline:`)
+        console.log(lines.slice(0, 40).join('\n'))
+        if (lines.length > 40) console.log(`  ... and ${lines.length - 40} more`)
+      }
+      if (lines.length > 0 && env.MINT_BASELINE_YES !== '1') {
         throw new Error(
           'Baseline NOT overwritten. This diff is the review artifact: adopt it only if a\n' +
             'deliberate change explains every line, otherwise it is a regression and re-minting\n' +
@@ -157,7 +169,7 @@ describe('mint the self-baseline', () => {
       provenance: provenance(),
       values,
     }
-    writeFileSync(path, `${JSON.stringify(document, null, 2)}\n`, 'utf8')
+    writeFileSync(path, `${JSON.stringify(document, replaceNonFinite, 2)}\n`, 'utf8') // -Infinity as a string
     console.log(`\n✅ Wrote ${path}`)
     console.log('   Review it, commit it, and publish it to the hub so the parity')
     console.log('   arithmetic can see this configuration.')
