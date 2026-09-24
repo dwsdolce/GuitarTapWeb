@@ -1607,8 +1607,15 @@ export class TapToneAnalyzer {
     if (!this.sessionRecording) return
     for (let i = 0; i < s.length; i++) this.sessionSamples.push(s[i]!)
     if (!this.sessionPreRollActive) return // frozen after the first tap → fully live
-    const excess = this.sessionSamples.length - this.sessionPreRollSamples
-    if (excess > 0) this.sessionSamples.splice(0, excess)
+    if (this.gatedCaptureActive) {
+      // The first tap has started — freeze the pre-roll. The latch is owned HERE, as in Swift and
+      // Python (`if gatedCaptureActive { sessionPreRollActive = false }`); it used to be cleared in
+      // beginCapture instead, a second owner of one rule (#17 F47).
+      this.sessionPreRollActive = false
+    } else {
+      const excess = this.sessionSamples.length - this.sessionPreRollSamples
+      if (excess > 0) this.sessionSamples.splice(0, excess)
+    }
   }
 
   /** Finish the session: write the accumulated audio (if any) as one WAV, then clear. Swift's analyzer
@@ -1859,8 +1866,7 @@ export class TapToneAnalyzer {
       out[k] = this.preroll[(startRing + k) % this.prerollSamples]!
     }
     this.captureIdx = count
-    this.sessionPreRollActive = false // first tap → stop trimming the session WAV's leading idle
-    this.gatedCaptureActive = true
+    this.gatedCaptureActive = true // (the session WAV's pre-roll freezes on the next chunk — maintainSessionRecording)
     if (this.isGuitar) this.setStatusMessage(this.guitarLoopStatus(true)) // Swift TapDetection:355
   }
 

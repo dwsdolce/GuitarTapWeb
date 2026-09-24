@@ -15,6 +15,7 @@ type SessionInternals = {
   sessionRate: number
   sessionRecording: boolean
   sessionPreRollActive: boolean
+  gatedCaptureActive: boolean
   sessionSamples: number[]
   maintainSessionRecording(s: Float32Array): void
   readonly sessionPreRollSamples: number
@@ -26,6 +27,7 @@ function armed(): { a: TapToneAnalyzer; s: SessionInternals } {
   s.sessionRate = 48000
   s.sessionRecording = true
   s.sessionPreRollActive = true
+  s.gatedCaptureActive = false
   s.sessionSamples = []
   return { a, s }
 }
@@ -48,9 +50,12 @@ describe('session-pre-roll — the first tap freezes the latch', () => {
     const { s } = armed()
     feed(s, 300)
     expect(s.sessionPreRollActive).toBe(true)
-    s.sessionPreRollActive = false // the first capture freezes the latch (beginCapture)
+    // The first tap begins: the next chunk appended while a capture is active freezes the latch —
+    // driven through gatedCaptureActive, as in Swift and Python. This used to set the latch false by
+    // hand and then assert it was false, which tested nothing (#17 F47).
+    s.gatedCaptureActive = true
     s.maintainSessionRecording(new Float32Array(CHUNK_LEN))
-    expect(s.sessionPreRollActive).toBe(false)
+    expect(s.sessionPreRollActive, 'the first gated capture must freeze the pre-roll latch').toBe(false)
   })
 })
 
@@ -58,17 +63,19 @@ describe('session-pre-roll — THE INVARIANT: everything after the first tap is 
   it('multi-tap / multi-phase with big idle gaps trims nothing after the first tap', () => {
     const { s } = armed()
     feed(s, 300)
-    s.sessionPreRollActive = false
+    s.gatedCaptureActive = true // first tap begins
     s.maintainSessionRecording(new Float32Array(CHUNK_LEN)) // freezes
     let expected = s.sessionSamples.length
 
-    // Long session with ~4 s idle GAPS between taps — far more than the 2 s pre-roll. None trimmed.
+    // Long session with ~4 s idle GAPS between taps — far more than the 2 s pre-roll. Toggle
+    // gatedCaptureActive like real taps (as Swift and Python do); none of it may be trimmed.
     for (let tap = 0; tap < 5; tap++) {
+      s.gatedCaptureActive = false
       for (let i = 0; i < 200; i++) {
         s.maintainSessionRecording(new Float32Array(CHUNK_LEN))
         expected += CHUNK_LEN
       }
-      if (tap % 2 === 0) s.sessionPreRollActive = false
+      s.gatedCaptureActive = tap % 2 === 0
       s.maintainSessionRecording(new Float32Array(CHUNK_LEN))
       expected += CHUNK_LEN
     }
