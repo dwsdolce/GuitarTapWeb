@@ -257,3 +257,27 @@ describe('statusMessage — removed web-only inventions are never produced', () 
     expect(seen[3]).toBe('Complete - check Results') // brace completes generically
   })
 })
+
+// The re-arm after a guitar tap's cooldown does not touch the status: the capture set the loop prompt
+// and it stays, as in Swift. Python used to rewrite it at the re-arm, and to show "Tap N/M captured.
+// Waiting for settle..." while the level was still high (#17 F45).
+describe('statusMessage — guitar re-arm', () => {
+  it('the re-arm after the tap cooldown leaves the status as the capture set it', async () => {
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'classical'
+    a.setNumberOfTaps(3)
+    a.startTapSequence({ arm: false })
+    const n = 65536
+    const tap = new Float32Array(n)
+    for (let i = 0; i < n; i++) tap[i] = 0.5 * Math.exp((-i / 48000) * 6) * Math.sin((2 * Math.PI * 100 * i) / 48000)
+    a.finishGuitarGatedCapture(tap, 48000)
+    const afterCapture = a.statusMessage
+    expect(afterCapture).toBe(a.guitarLoopStatus(false))
+
+    a.processAudioFrame(new Float32Array(1024), -20, 0) // still ringing, above the falling threshold
+    await new Promise((r) => setTimeout(r, 800))
+    expect(a.isDetecting).toBe(true)
+    expect(a.statusMessage).toBe(afterCapture)
+  })
+})
+

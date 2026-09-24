@@ -216,7 +216,7 @@ describe('a silent buffer yields -Infinity, not a finite floor', () => {
       onMetrics: (m) => (metrics = m),
     })
     engine.initForTesting()
-    await engine.playFile(samples, 48000, { pace: false })
+    await engine.playFile(samples, 48000) // paced, as the natives play
     return { levels, metrics: metrics as EngineMetrics | null }
   }
 

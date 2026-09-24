@@ -109,6 +109,12 @@ const matPhaseLabel = (ph: MaterialPhaseName): string => (ph === 'cross' ? 'fC' 
 // Swift tapCooldown (0.5 s): after the C tap is accepted, the FLC capture is held disarmed for this
 // long while the user repositions the plate, so the repositioning bump can't be taken as the FLC tap.
 const FLC_COOLDOWN_MS = 500
+// Swift tapCooldown (0.5 s): after each guitar tap of a multi-tap sequence, detection rests this long
+// before re-arming, so a bounce or a hurried second strike is not captured as the next tap.
+const TAP_COOLDOWN_MS = 500
+// Swift captureWindow (0.2 s): after the LAST guitar tap, "All taps captured. Processing..." shows for
+// this long before the taps are averaged into the result.
+const CAPTURE_WINDOW_MS = 200
 
 // Frequency tolerance (Hz) for carrying per-peak state across a peak RE-MINT, mirroring Swift's
 // applyFrozenPeakState `tolerance` (5 Hz) / Python's remap tolerance. A re-detect (Re-analyze, guitar
@@ -503,8 +509,7 @@ export class TapToneAnalyzer {
   /** Record one captured guitar tap's spectrum (computed + delivered raw by the device) and advance
    *  the count. processMultipleTaps() later power-averages the accumulated taps into the frozen
    *  spectrum, mirroring the canonical analyzer accumulating spectra (Swift capturedTaps /
-   *  process_multiple_taps). Replaces the old finishGuitarGatedCapture(samples) — computing the FFT
-   *  is the device's job now (D1: RealtimeFFTAnalyzer delivers the spectrum, TapToneAnalyzer averages). */
+   *  process_multiple_taps). Called by finishGuitarGatedCapture, which computes the spectrum. */
   recordGuitarTap(spectrum: Spectrum): void {
     this.capturedTaps.push({ magnitudes: spectrum.magnitudesDb, frequencies: spectrum.frequencies, captureTime: 0 })
     this.currentTapCount = this.capturedTaps.length
@@ -1519,6 +1524,8 @@ export class TapToneAnalyzer {
 
   // Detector state (Swift TapToneAnalyzer+TapDetection).
   private isAboveThreshold = false
+  /** The latest chunk's input level — Swift `fftAnalyzer.inputLevelDB`; seeds the latch at re-arm. */
+  private inputLevelDb = -100
   private consecutive = 0
   private noiseFloorEstimate = -60
   private justExitedWarmup = false
@@ -1639,6 +1646,7 @@ export class TapToneAnalyzer {
    *  and fills the capture window. Swift's analyzer does the same from its FFT subscriber and the
    *  audio-queue level-crossing handler (#17 F30). */
   processAudioFrame(samples: Float32Array, levelDb: number, audioTime: number): void {
+    this.inputLevelDb = levelDb
     const rate = this.device?.sampleRate ?? this.captureSampleRate
     if (rate !== this.captureSampleRate || this.preroll.length === 0) this.resizeCaptureBuffers(rate)
     this.maintainSessionRecording(samples)
@@ -1863,49 +1871,63 @@ export class TapToneAnalyzer {
     if (this.captureIdx >= this.capture.length) this.finishCapture()
   }
 
+  /** The capture window filled: hand its samples to the finisher for its kind — Swift's device side
+   *  handing a full gated buffer to finishGuitarGatedCapture / finishGatedFFTCapture. */
   private finishCapture(): void {
-    if (this.captureKind === 'material') {
-      // Material (3c-C4 Option C): the device computes this tap's gated spectrum (gatedCaptureResult —
-      // gated FFT + calibration, unchanged), DISARMS, and hands the raw spectrum up. The TapToneAnalyzer
-      // owns the per-tap validity gate, the tap count, the re-arm (armMaterial → back to 'listening'),
-      // and the L→C→FLC phase advance — so the device no longer counts, re-arms, or auto-advances.
-      // Disarm BEFORE the callback so the analyzer's re-arm (armMaterial, guarded on state!=='capturing')
-      // isn't blocked; during file playback the analyzer arms the next phase synchronously from here.
-      const { magnitudesDb, frequencies } = gatedCaptureResult(this.capture, this.captureSampleRate, this.materialSearch!)
-      this.captureIdx = 0
-      this.gatedCaptureActive = false
-      this.detectionState = 'idle'
-      this.recordMaterialTap({ magnitudesDb, frequencies })
-      return
-    }
-
-    // Guitar: the device computes each per-tap spectrum (its FFT + calibration, unchanged) and
-    // delivers it RAW; the TapToneAnalyzer accumulates the taps and averages them into the frozen
-    // result (processMultipleTaps). The device keeps only a lightweight tap counter — it no longer
-    // owns averaging (6-TEST 3c-C2a).
-    // Align the capture window to the sample-level tap onset so that chunk-boundary
-    // differences (live vs file playback) don't shift the FFT input. The material path has
-    // always done this inside gatedCaptureResult; the guitar path fed this.capture straight
-    // to the FFT, so the same recording analysed live and on replay could land on a different
-    // sample range — and Swift, which does align here, was handed a different window than the
-    // web for the same audio. Mirrors Swift finishGuitarGatedCapture.
-    const fftSize = this.device?.fftSize ?? GUITAR_FFT_SIZE
-    const aligned = alignCaptureToOnset(this.capture, fftSize, Math.round(this.captureSampleRate * PRE_ONSET_DURATION))
-    const spectrum = this.applyCalibration(dftAnalRect(aligned, this.captureSampleRate, fftSize))
+    const samples = this.capture
     this.captureIdx = 0
+    if (this.captureKind === 'material') {
+      this.finishGatedFFTCapture(samples, this.captureSampleRate, this.materialTapPhase)
+    } else {
+      this.finishGuitarGatedCapture(samples, this.captureSampleRate)
+    }
+  }
+
+  /** A material (plate/brace) gated capture is complete: compute its gated spectrum and record the tap
+   *  for `phase`. Mirrors Swift/Python `finishGatedFFTCapture(samples:sampleRate:phase:)` — public, as
+   *  there, so tests drive the same production path the audio does (#17 F45). The analyzer owns the
+   *  per-tap validity gate, the tap count, the re-arm and the L→C→FLC advance (recordMaterialTap). */
+  finishGatedFFTCapture(samples: Float32Array, sampleRate: number, phase: MaterialTapPhase): void {
+    const name: MaterialPhaseName =
+      phase === 'capturingC' ? 'cross' : phase === 'capturingFlc' ? 'flc' : 'longitudinal'
+    const search = this.materialSearch ?? this.matSearch(name)
+    const { magnitudesDb, frequencies } = gatedCaptureResult(samples, sampleRate, search)
+    // Disarm BEFORE recording, so the analyzer's re-arm (guarded on state !== 'capturing') isn't
+    // blocked; during file playback the next phase is armed synchronously from here.
+    this.gatedCaptureActive = false
+    this.detectionState = 'idle'
+    this.recordMaterialTap({ magnitudesDb, frequencies })
+  }
+
+  /** A guitar gated capture is complete: align it to the tap onset, compute its spectrum, record the
+   *  tap — then rest through the tap cooldown and re-arm, or, after the last tap, average.
+   *
+   *  Mirrors Swift/Python `finishGuitarGatedCapture(samples:sampleRate:)` — public, with the same job
+   *  and the same timing (#17 F45). The web used to do this inside `finishCapture` and re-arm
+   *  IMMEDIATELY, relying on the hysteresis latch alone, where both natives stop detecting for
+   *  `tapCooldown` (0.5 s) and then re-anchor the latch from the current level; and it averaged the
+   *  taps at once, where both natives show "All taps captured. Processing..." for `captureWindow`
+   *  (0.2 s) first. Both waits are wall-clock timers, as in the natives — #19 moves all three editions
+   *  to audio time together.
+   *
+   *  The capture window is aligned to the sample-level tap onset so chunk-boundary differences (live
+   *  vs file playback) don't shift the FFT input. */
+  finishGuitarGatedCapture(samples: Float32Array, sampleRate: number): void {
+    const fftSize = this.device?.fftSize ?? GUITAR_FFT_SIZE
+    const aligned = alignCaptureToOnset(samples, fftSize, Math.round(sampleRate * PRE_ONSET_DURATION))
+    const spectrum = this.applyCalibration(dftAnalRect(aligned, sampleRate, fftSize))
+    this.gatedCaptureActive = false
     this.guitarTapCount += 1
     this.recordGuitarTap(spectrum)
 
     const total = this.numberOfTaps
+    // A tap was captured: stop listening until the cooldown re-arms (Swift leaves `listening` here).
+    this.detectionState = 'idle'
     if (this.guitarTapCount < total) {
-      // Need more taps — re-arm for the next. The LATCH is deliberately left alone: it is still up
-      // from the tap just captured, and hysteresis requires the signal to fall below `falling`
-      // before the next strike counts. Resetting it here is what let a ring-out become a tap.
       this.consecutive = 0
       this.currentTapCount = this.guitarTapCount
-      this.gatedCaptureActive = false
-      this.detectionState = 'listening'
       this.setStatusMessage(this.guitarLoopStatus(false)) // Swift SpectrumCapture:742
+      this.scheduleGuitarReEnable()
       this.notify()
       return
     }
@@ -1913,9 +1935,20 @@ export class TapToneAnalyzer {
     this.guitarTapCount = 0
     this.currentTapCount = total
     this.finishSessionRecording(`Guitar_${total}tap`) // write the continuous session WAV (dump-gated)
-    this.gatedCaptureActive = false
-    this.detectionState = 'idle'
-    this.processMultipleTaps() // sequence done — average the accumulated taps
+    this.setStatusMessage('All taps captured. Processing...')
+    this.notify()
+    setTimeout(() => this.processMultipleTaps(), CAPTURE_WINDOW_MS) // Swift: asyncAfter(captureWindow)
+  }
+
+  /** After the tap cooldown, re-anchor the hysteresis latch from the current input level and listen
+   *  for the next tap. Mirrors Swift scheduleGuitarReEnable, which has no other guard. */
+  private scheduleGuitarReEnable(): void {
+    setTimeout(() => {
+      const falling = this.tapDetectionThreshold - this.hysteresisMargin
+      this.isAboveThreshold = this.inputLevelDb > falling
+      this.detectionState = 'listening'
+      this.notify()
+    }, TAP_COOLDOWN_MS)
   }
 
   // ── React external-store seam (D2: immutable snapshot) ─────────────────────
@@ -2420,53 +2453,4 @@ export interface TapToneSnapshot {
   microphoneWarning: string | null
   /** Ring-out of what is on screen — the file's when loaded, the live tracker's during a capture. */
   currentDecayTime: number | null
-}
-
-/**
- * Checks that `s` does not violate any documented state-machine invariant.
- * Returns null when all hold, or a string describing the first violation.
- * Mirrors Swift `stateInvariantViolation` (I1–I6).
- */
-export function stateInvariantViolation(s: TapToneAnalyzer): string | null {
-  const isGuitar = s.isGuitar
-
-  // I1: guitar mode — isDetecting && isMeasurementComplete is illegal.
-  if (isGuitar && s.isDetecting && s.isMeasurementComplete) {
-    return 'I1: isDetecting && isMeasurementComplete is illegal in guitar mode'
-  }
-
-  // I2: cannot be paused once the measurement is complete.
-  if (s.isDetectionPaused && s.isMeasurementComplete) {
-    return 'I2: isDetectionPaused && isMeasurementComplete is illegal (cannot be paused once measurement is done)'
-  }
-
-  // I3: capturedTaps.count must never exceed numberOfTaps.
-  if (s.capturedTaps.length > s.numberOfTaps) {
-    return `I3: capturedTaps.count (${s.capturedTaps.length}) > numberOfTaps (${s.numberOfTaps})`
-  }
-
-  // I4: guitar mode — currentTapCount must match capturedTaps.count.
-  if (isGuitar && s.currentTapCount !== s.capturedTaps.length) {
-    return `I4: currentTapCount (${s.currentTapCount}) != capturedTaps.count (${s.capturedTaps.length}) in guitar mode`
-  }
-
-  // I5: tapProgress must be in [0, 1].
-  if (s.tapProgress < 0 || s.tapProgress > 1) {
-    return `I5: tapProgress (${s.tapProgress}) outside [0, 1]`
-  }
-
-  // I6: during a plate/brace review phase, isDetecting must be false.
-  if (!isGuitar) {
-    if (
-      s.materialTapPhase === 'reviewingL' ||
-      s.materialTapPhase === 'reviewingC' ||
-      s.materialTapPhase === 'reviewingFlc'
-    ) {
-      if (s.isDetecting) {
-        return `I6: isDetecting must be false during a plate/brace review phase (phase=${s.materialTapPhase})`
-      }
-    }
-  }
-
-  return null
 }

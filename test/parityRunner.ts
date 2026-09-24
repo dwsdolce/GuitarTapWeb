@@ -82,6 +82,9 @@ export async function playGuitar(
   analyzer.startTapSequence({ skipWarmup: true })
   await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration) })
   analyzer.flushPartialGuitarCapture()
+  // The last tap is averaged `captureWindow` (0.2 s) later, as in Swift/Python — so wait for it the way
+  // Swift's playFileForTesting polls, rather than read a result that has not been produced yet.
+  await waitForCompletion(analyzer)
   if (!analyzer.isMeasurementComplete) return null
   const spectrum: Spectrum = { magnitudesDb: analyzer.frozenMagnitudes, frequencies: analyzer.frozenFrequencies }
   const taps =
@@ -149,6 +152,15 @@ function record(
   return out
 }
 
+/** Poll until the analyzer completes its measurement, or give up after `timeoutMs` — the web's
+ *  counterpart of Swift playFileForTesting spinning until processMultipleTaps has run. */
+export async function waitForCompletion(analyzer: TapToneAnalyzer, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!analyzer.isMeasurementComplete && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
+
 /** Ring-out for REG-G1, computed the way decay-tracking.test.ts computes it. */
 async function ringOutSec(reg: RegCase): Promise<number> {
   const wav = loadWav(reg.fixture)
@@ -162,7 +174,7 @@ async function ringOutSec(reg: RegCase): Promise<number> {
   engine.initForTesting()
   analyzer.setDevice(engine)
   analyzer.startTapSequence({ skipWarmup: true })
-  await engine.playFile(wav.samples, wav.sampleRate, { pace: false })
+  await engine.playFile(wav.samples, wav.sampleRate) // paced, as the natives play (#17 F45)
   if (engine.decayTime === null) throw new Error('REG-G1: no ring-out was measured')
   return engine.decayTime
 }

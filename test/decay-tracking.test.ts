@@ -115,7 +115,7 @@ describe('G4d — REG-G ring-out (file playback)', () => {
     engine.initForTesting()
     analyzer.setDevice(engine)
     analyzer.startTapSequence({ skipWarmup: true })
-    await engine.playFile(wav.samples, wav.sampleRate, { pace: false })
+    await engine.playFile(wav.samples, wav.sampleRate) // paced, as the natives play
     expect(engine.decayTime, 'no ring-out measured').not.toBeNull()
     expect(Math.abs(engine.decayTime! - RING_OUT_GOLDEN_SEC)).toBeLessThan(RING_OUT_TOL_SEC)
   })
