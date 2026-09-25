@@ -21,7 +21,8 @@ import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { ComparisonEntryModel, TapToneMeasurementModel } from '../measurement/types'
 import { comparisonAxisRange, measurementToLive, measurementToLiveMaterial, measurementWarning } from '../measurement/fromLive'
 import type { ChartView } from '../presentation/chartTypes'
-import { PLATE_PHASES, BRACE_PHASE, findDominantPeak, gatedCaptureResult, alignCaptureToOnset, PRE_ONSET_DURATION, type MaterialPeak, type DetectedMaterialPeak } from '../dsp/gatedCapture'
+import { PLATE_PHASES, BRACE_PHASE, findDominantPeak, alignCaptureToOnset, GATED_FFT_WINDOW_DURATION, PRE_ONSET_DURATION, type MaterialPeak, type DetectedMaterialPeak } from '../dsp/gatedCapture'
+import { gatedHannFFT } from '../dsp/gatedFFT'
 import { dftAnalRect, GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
 import type { RealtimeFFTAnalyzer, MaterialSearch, MaterialPhaseName, EngineState } from '../audio/realtimeFFTAnalyzer'
 import type { MaterialPeaks } from '../components/MaterialResults'
@@ -1202,9 +1203,9 @@ export class TapToneAnalyzer {
     }
   }
 
-  /** Build the gated search for a material phase: its frequency range + rule, with the device's active
-   *  calibration applied to the gated spectrum before its peak-find (mirrors Swift reading
-   *  fftAnalyzer.calibrationCorrections / Python self.mic._calibration). */
+  /** Build the gated search for a material phase: its frequency range and peak-selection rule. The
+   *  calibration is not part of it — the gated transform applies the active calibration itself, at
+   *  the moment of the capture, as Swift and Python do (#17 F49). */
   private matSearch(phase: MaterialPhaseName): MaterialSearch {
     const base =
       phase === 'cross'
@@ -1214,7 +1215,7 @@ export class TapToneAnalyzer {
           : this.measurementType === 'brace'
             ? BRACE_PHASE
             : PLATE_PHASES[0]
-    return { ...base, calibration: this.device?.activeCalibration ?? null }
+    return { ...base }
   }
 
   /** Continuous session WAV label for a completed material measurement (Swift Plate_LC / Plate_LCF / Brace). */
@@ -1894,10 +1895,17 @@ export class TapToneAnalyzer {
    *  there, so tests drive the same production path the audio does (#17 F45). The analyzer owns the
    *  per-tap validity gate, the tap count, the re-arm and the L→C→FLC advance (recordMaterialTap). */
   finishGatedFFTCapture(samples: Float32Array, sampleRate: number, phase: MaterialTapPhase): void {
-    const name: MaterialPhaseName =
-      phase === 'capturingC' ? 'cross' : phase === 'capturingFlc' ? 'flc' : 'longitudinal'
-    const search = this.materialSearch ?? this.matSearch(name)
-    const { magnitudesDb, frequencies } = gatedCaptureResult(samples, sampleRate, search)
+    // Align to the sample-level onset, then the calibrated gated transform — Swift's
+    // `alignCaptureToOnset` → `fftAnalyzer.computeGatedFFT`. With no engine attached there is no
+    // calibration to apply, so the bare transform is the same thing.
+    const aligned = alignCaptureToOnset(
+      samples,
+      Math.round(sampleRate * GATED_FFT_WINDOW_DURATION),
+      Math.round(sampleRate * PRE_ONSET_DURATION),
+    )
+    const { magnitudesDb, frequencies } = this.device
+      ? this.device.computeGatedFFT(aligned, sampleRate)
+      : gatedHannFFT(aligned, sampleRate)
     // Disarm BEFORE recording, so the analyzer's re-arm (guarded on state !== 'capturing') isn't
     // blocked; during file playback the next phase is armed synchronously from here.
     this.gatedCaptureActive = false

@@ -18,7 +18,6 @@ import { describe, it, expect } from 'vitest'
 import { parabolicInterpolate, calculateQ } from '../src/dsp/peaks'
 import { dftAnalRect, GUITAR_FFT_SIZE, spectrumPeak } from '../src/dsp/guitarFFT'
 import { RealtimeFFTAnalyzer, type EngineMetrics } from '../src/audio/realtimeFFTAnalyzer'
-import { computeGatedFFT } from '../src/dsp/gatedFFT'
 
 /**
  * A Gaussian peak on a noise floor — the same synthetic spectrum the natives build, with the
@@ -183,7 +182,7 @@ describe('a silent buffer yields -Infinity, not a finite floor', () => {
   // test driving only the gated path. Swift pins this path too (its live path cannot be called
   // without starting the engine); Python pins both, as here.
   it('the gated path is also unclamped', () => {
-    const { magnitudesDb } = computeGatedFFT(new Float64Array(4096), 48000)
+    const { magnitudesDb } = new RealtimeFFTAnalyzer().computeGatedFFT(new Float64Array(4096), 48000)
     expect(magnitudesDb.length).toBeGreaterThan(0)
     expect(magnitudesDb.every((d) => d === -Infinity)).toBe(true)
   })

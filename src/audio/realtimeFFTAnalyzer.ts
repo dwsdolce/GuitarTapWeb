@@ -3,9 +3,9 @@ import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, wa
 import { dftAnalRect, GUITAR_FFT_SIZE, spectrumPeak, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { DecayTracker } from '../dsp/decay'
+import { gatedHannFFT, type GatedFFTResult } from '../dsp/gatedFFT'
 import {
   alignCaptureToOnset,
-  gatedCaptureResult,
   PLATE_PHASES,
   BRACE_PHASE,
   type DetectedMaterialPeak,
@@ -22,8 +22,6 @@ export interface MaterialSearch {
   maxHz: number
   /** Prefer the lowest significant peak over the tallest (the plate longitudinal rule). */
   preferLowestSignificant: boolean
-  /** Active mic calibration applied to the gated spectrum before peak-finding (see gatedCapture). */
-  calibration?: Calibration | null
 }
 /** One captured material phase: its gated spectrum, the located peak, and which phase it is. */
 export interface MaterialCaptureResult {
@@ -144,9 +142,9 @@ export class RealtimeFFTAnalyzer {
   /** Last-enumerated input deviceIds — baseline for detecting attach (new id) vs detach (id gone). */
   private knownDevices: string[] = []
 
-  // Active mic calibration applied to the continuous + guitar-capture spectra (material/gated
-  // applies it via the MaterialSearch passed to armMaterial). guitarCorr caches the per-bin
-  // corrections for the fixed guitar FFT bins; null = recompute on next use.
+  // Active mic calibration, applied to the continuous and guitar-capture spectra and, inside
+  // computeGatedFFT, to the material gated spectrum at the moment it is computed. guitarCorr caches
+  // the per-bin corrections for the fixed guitar FFT bins; null = recompute on next use.
   private calibration: Calibration | null = null
   private guitarCorr: number[] | null = null
 
@@ -296,19 +294,26 @@ export class RealtimeFFTAnalyzer {
     // its "Tap N times…" prompt are owned by the analyzer now (3c-C4 Option C: analyzer.setNumberOfTaps).
   }
 
-  /** Set (or clear) the active mic calibration for the continuous + guitar-capture paths.
-   *  Adds interpolated per-bin dB corrections to the magnitude spectrum before it leaves the
-   *  engine, so the App finds peaks on calibrated data — mirroring Swift's vDSP_vadd in FFT
-   *  processing. The gated/material path receives the same calibration via armMaterial's search. */
+  /** Set (or clear) the active mic calibration. Adds interpolated per-bin dB corrections to every
+   *  spectrum before it leaves the engine — continuous, guitar capture, and the gated material
+   *  transform (`computeGatedFFT`) — mirroring Swift's vDSP_vadd. */
   setCalibration(cal: Calibration | null): void {
     this.calibration = cal
     this.guitarCorr = null
   }
 
-  /** The active mic calibration. Read by the TapToneAnalyzer when it builds a material search
-   *  (mirrors Swift reading `fftAnalyzer.calibrationCorrections` / Python `self.mic._calibration`). */
+  /** The active mic calibration (Swift `activeCalibration`), read for a saved measurement's provenance. */
   get activeCalibration(): Calibration | null {
     return this.calibration
+  }
+
+  /** The gated transform every plate/brace capture runs, calibrated: `gatedHannFFT` plus the active
+   *  calibration at the bin frequencies, read at the moment of the call. Mirrors Swift
+   *  `computeGatedFFT(samples:sampleRate:)` and Python `compute_gated_fft`, which apply the
+   *  calibration inside the transform. The web used to leave it to the caller, which took a copy of
+   *  the calibration when the phase was armed (#17 F49). */
+  computeGatedFFT(samples: Float32Array | Float64Array | number[], sampleRate: number): GatedFFTResult {
+    return this.applyCal(gatedHannFFT(samples, sampleRate))
   }
 
   /** Add calibration corrections to a freshly-computed spectrum (no-op when no calibration).
@@ -714,9 +719,9 @@ export class RealtimeFFTAnalyzer {
     this.sampleRate = fileSampleRate
     if (opts && 'calibration' in opts) this.setCalibration(opts.calibration ?? null)
     this.accumIdx = 0
-    // Material: set the device calibration to the file's, so the analyzer's per-phase search — which
-    // reads `activeCalibration` — gates every phase with the right corrections. Restored after the
-    // loop. The PHASE MACHINE is the analyzer's: the caller arms before playback and recordMaterialTap
+    // Material: set the device calibration to the file's, so every phase's gated transform
+    // (`computeGatedFFT`, which reads it at the moment of the call) applies the right corrections.
+    // Restored after the loop. The PHASE MACHINE is the analyzer's: the caller arms before playback and recordMaterialTap
     // auto-advances L→C→FLC, exactly as Swift's analyzer does (#17 F30).
     if (opts?.material) this.setCalibration(opts.material.calibration ?? null)
 

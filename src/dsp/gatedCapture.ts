@@ -1,12 +1,10 @@
 // @parity dsp/gated-capture
-import { computeGatedFFT } from './gatedFFT'
 import { parabolicInterpolate, calculateQ } from './peaks'
-import { interpolateToBins, applyCalibration, type Calibration } from './calibration'
 
 /**
  * Gated capture pipeline for plate/brace, ported from Swift/Python:
  *   level-crossing onset → 500 ms capture → `alignCaptureToOnset` →
- *   `computeGatedFFT` → (calibration) → `findDominantPeak`.
+ *   `RealtimeFFTAnalyzer.computeGatedFFT` (transform + calibration) → `findDominantPeak`.
  * `alignCaptureToOnset` re-anchors the FFT window to the sample-level onset,
  * so the exact level-crossing timing is invisible downstream — we replicate it
  * faithfully but the result is robust to it.
@@ -17,7 +15,8 @@ const LEVEL_CROSSING_CONFIRMATION_CHUNKS = 2
 
 /** Gated capture window length, in seconds (Swift/Python `gatedCaptureDuration` = 500 ms). */
 export const GATED_CAPTURE_DURATION = 0.5
-const GATED_FFT_WINDOW_DURATION = 0.4
+/** The gated FFT window, in seconds (Swift/Python `gatedFFTWindowDuration` = 400 ms). */
+export const GATED_FFT_WINDOW_DURATION = 0.4
 export const PRE_ONSET_DURATION = 0.1
 
 const ONSET_NOISE_ESTIMATE_SAMPLES = 2048
@@ -207,37 +206,6 @@ export function findDominantPeak(
   const { frequency, magnitude } = parabolicInterpolate(magnitudesDb, frequencies, best.index)
   const { quality, bandwidth } = calculateQ(magnitudesDb, frequencies, best.index, magnitude)
   return { frequency, magnitude, quality, bandwidth }
-}
-
-/** Search window + peak-selection rule for one material phase's gated capture. */
-export interface PhaseSearch {
-  /** Low edge of the peak search range, in Hz. */
-  minHz: number
-  /** High edge of the peak search range, in Hz. */
-  maxHz: number
-  /** Prefer the lowest significant peak (L/FLC) over the strongest (cross-grain). */
-  preferLowestSignificant?: boolean
-  /** Optional mic calibration applied before peak-finding. */
-  calibration?: Calibration | null
-}
-
-/** Live material capture: align a pre-sliced ~500 ms buffer, gated FFT, dominant peak.
- *  The buffer should hold ~0.2 s pre-roll + the tap (as the engine accumulates it). */
-export function gatedCaptureResult(
-  buffer: Samples,
-  sampleRate: number,
-  search: PhaseSearch,
-): { magnitudesDb: number[]; frequencies: number[]; peak: DetectedMaterialPeak | null } {
-  const windowSize = Math.round(sampleRate * GATED_FFT_WINDOW_DURATION)
-  const preOnset = Math.round(sampleRate * PRE_ONSET_DURATION)
-  const aligned = alignCaptureToOnset(buffer, windowSize, preOnset)
-  const { magnitudesDb, frequencies } = computeGatedFFT(aligned, sampleRate)
-  if (magnitudesDb.length === 0) return { magnitudesDb: [], frequencies: [], peak: null }
-  const mags = search.calibration
-    ? applyCalibration(magnitudesDb, interpolateToBins(search.calibration, frequencies))
-    : magnitudesDb
-  const peak = findDominantPeak(mags, frequencies, search.minHz, search.maxHz, search.preferLowestSignificant)
-  return { magnitudesDb: mags, frequencies, peak }
 }
 
 /** Brace: single longitudinal tap. Search 100–1200 Hz (fL ≈ 500 Hz), strongest peak. */

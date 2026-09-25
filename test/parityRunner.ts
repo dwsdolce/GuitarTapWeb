@@ -22,8 +22,7 @@ import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { decodeWav } from '../src/dsp/wav'
 import { parseCalibration, type Calibration } from '../src/dsp/calibration'
 import { modePeaksFromSpectrum, type Spectrum } from '../src/dsp/guitarFFT'
-import { computeGatedFFT, magnitudeAtFrequency } from '../src/dsp/gatedFFT'
-import { makeToneSignal, makeSilence, type Tone } from '../src/dsp/signal'
+import { makeGatedTestSignal, gatedMagnitudeAt, type Tone } from './gatedSignal'
 import { reviveNonFinite } from './selfBaseline'
 
 export const oracle = JSON.parse(
@@ -238,13 +237,15 @@ export function computeGatedFft(): Record<string, unknown> {
       maxDb?: number
       signal?: string
     }
-    const signal = spec.signal === 'silence' ? makeSilence(SR) : makeToneSignal(spec.tones!, SR)
-    const { magnitudesDb, frequencies } = computeGatedFFT(signal, SR)
+    // Silence is the signal with no tones. The same builder the GFFT tests use, through the same
+    // calibrated transform the app runs (#17 F49).
+    const signal = makeGatedTestSignal(spec.signal === 'silence' ? [] : spec.tones!, SR)
+    const { magnitudesDb, frequencies } = new RealtimeFFTAnalyzer().computeGatedFFT(signal, SR)
     const computed: Record<string, unknown> = {}
     if (spec.expected) {
       const got = spec.expected.map((e) => ({
         hz: e.hz,
-        db: magnitudeAtFrequency(e.hz, magnitudesDb, frequencies)!,
+        db: gatedMagnitudeAt(e.hz, magnitudesDb, frequencies)!,
       }))
       computed.expected = got
       if (spec.deltaDb !== undefined) computed.deltaDb = got[got.length - 1]!.db - got[0]!.db
