@@ -137,6 +137,10 @@ export class RealtimeFFTAnalyzer {
   audioSettings: MediaTrackSettings | null = null
   /** Label of the active input device (track.label), for the Settings panel. */
   deviceLabel = ''
+  /** Called at the end of file playback, before live audio resumes — the analyzer flushes its gated
+   *  capture here. Swift `preMicRestartHandler`. */
+  preMicRestartHandler: (() => void) | null = null
+
   /** deviceId of the active input (for the device picker + per-device calibration mapping). */
   inputDeviceId: string | null = null
   /** Last-enumerated input deviceIds — baseline for detecting attach (new id) vs detach (id gone). */
@@ -637,7 +641,13 @@ export class RealtimeFFTAnalyzer {
     // Dead-input stamp: reuses the rms the worklet already computed, so this costs
     // nothing. A dead track feeds exact zeros, giving rms 0.
     if (chunkCarriesSignal(data.rms)) this.lastSignalTime = now
-    if (this.playingFile) return // mic chunks are ignored while a file plays through the pipeline
+    // While a file plays, the mic's samples are ignored — but each chunk is still a tick of the AUDIO
+    // clock, and that is what paces the file (#19).
+    if (this.playingFile) {
+      this.renderedSeconds += data.samples.length / (this.context?.sampleRate ?? this.sampleRate)
+      this.wakePlaybackPacer()
+      return
+    }
     this.processChunk(data.samples, data.rms)
   }
 
@@ -697,6 +707,7 @@ export class RealtimeFFTAnalyzer {
     this.callbacks.onAudioFrame?.(s, db, this.audioElapsed)
   }
 
+  // @parity util/timing-activity
   /** Play decoded mono samples through the live pipeline (no mic) — the web equivalent of Swift
    *  startFromFile/processFileData. The file defines the analysis sample rate. Guitar: arms a tap
    *  sequence (single- or multi-tap). Material: the ENGINE owns the session — it arms phase L and
@@ -728,17 +739,58 @@ export class RealtimeFFTAnalyzer {
     const pace = opts?.pace ?? true
     const CHUNK = 1024
     const chunkMs = (CHUNK / fileSampleRate) * 1000
+    // Pace from the AUDIO clock when there is one: feed the next chunk once the audio device has
+    // rendered as much audio as the file has played. A browser throttles a hidden tab's timers — Chrome
+    // to about one a minute after 5 minutes — but keeps rendering audio, so this pacing stays at real
+    // time where `setTimeout` pacing slowed to a crawl (#19). This is the web's counterpart to the
+    // natives' timing activity (Swift holdTimingActivity). Headless (tests, no AudioContext) paces with
+    // `setTimeout` as before.
+    const audioClock = !this.headless && this.context !== null
+    const renderedAtStart = this.renderedSeconds
     for (let i = 0; i < samples.length && this.playingFile; i += CHUNK) {
       const chunk = samples.subarray(i, Math.min(i + CHUNK, samples.length))
       let sumSq = 0
       for (let k = 0; k < chunk.length; k++) sumSq += chunk[k]! * chunk[k]!
       this.processChunk(chunk, Math.sqrt(sumSq / Math.max(1, chunk.length)))
-      if (pace) await new Promise((r) => setTimeout(r, chunkMs))
+      if (!pace) continue
+      if (audioClock) await this.untilRendered(renderedAtStart + (i + chunk.length) / fileSampleRate)
+      else await new Promise((r) => setTimeout(r, chunkMs))
     }
+    // File end: let the analyzer finish a capture the file stopped filling, before live audio could
+    // reach it (Swift preMicRestartHandler → flushGatedCaptureOnFileEnd).
+    if (this.playingFile) this.preMicRestartHandler?.()
     // Restore live state; the mic worklet kept running, so clearing the flag resumes it.
     this.sampleRate = saved.rate
     this.setCalibration(saved.cal)
     this.playingFile = false
+  }
+
+  /** Seconds of audio the device has rendered while files played — the file pacer's clock. */
+  private renderedSeconds = 0
+  private playbackPacerWaiters: { until: number; resolve: () => void }[] = []
+
+  /** Resolve once the device has rendered up to `until` seconds of audio. If no audio arrives at all
+   *  for a while (the input stopped), it gives up waiting after 250 ms so playback cannot hang — pacing
+   *  is then as slow as the timer allows, which changes speed, not results. */
+  private untilRendered(until: number): Promise<void> {
+    if (this.renderedSeconds >= until) return Promise.resolve()
+    return new Promise((resolve) => {
+      const waiter = { until, resolve }
+      this.playbackPacerWaiters.push(waiter)
+      setTimeout(() => {
+        const k = this.playbackPacerWaiters.indexOf(waiter)
+        if (k >= 0) {
+          this.playbackPacerWaiters.splice(k, 1)
+          resolve()
+        }
+      }, 250)
+    })
+  }
+
+  private wakePlaybackPacer(): void {
+    const ready = this.playbackPacerWaiters.filter((w) => this.renderedSeconds >= w.until)
+    this.playbackPacerWaiters = this.playbackPacerWaiters.filter((w) => this.renderedSeconds < w.until)
+    for (const w of ready) w.resolve()
   }
 
   // ── Input clipping (peak ≥ 0.99 or RMS ≥ 0 dBFS; 1.5 s hold) ──────────────

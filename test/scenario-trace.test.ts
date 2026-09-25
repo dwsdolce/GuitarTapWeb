@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
+import { advanceAudio } from './audioClockFeed'
 
 interface StateSnapshot {
   label: string
@@ -42,9 +43,9 @@ function captureTap(s: TapToneAnalyzer): void {
   s.finishGuitarGatedCapture(tap, 48000)
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const afterCooldown = () => sleep(500 + 300) // tapCooldown (0.5 s) + margin
-const afterCaptureWindow = () => sleep(200 + 300) // captureWindow (0.2 s) + margin
+// The waits are the real ones, measured as the app measures them: in AUDIO (#19).
+const afterCooldown = (s: TapToneAnalyzer) => advanceAudio(s, s.tapCooldown)
+const afterCaptureWindow = (s: TapToneAnalyzer) => advanceAudio(s, s.captureWindow)
 
 const row = (
   label: string,
@@ -69,7 +70,7 @@ describe('ScenarioStateTrace', () => {
     trace.push(snap('postStart', s))
     captureTap(s)
     trace.push(snap('postCapture', s))
-    await afterCaptureWindow() // completion averages after the capture window
+    afterCaptureWindow(s) // completion averages after the capture window
     trace.push(snap('postProcess', s))
 
     expect(trace).toEqual([
@@ -90,7 +91,7 @@ describe('ScenarioStateTrace', () => {
     trace.push(snap('postStart', s))
     captureTap(s)
     trace.push(snap('postCapture', s))
-    await afterCaptureWindow()
+    afterCaptureWindow(s)
     trace.push(snap('postProcess', s))
 
     expect(trace).toEqual([
@@ -109,18 +110,18 @@ describe('ScenarioStateTrace', () => {
     trace.push(snap('postStart', s))
     captureTap(s) // tap 1: detection rests through the cooldown
     trace.push(snap('postTap1', s))
-    await sleep(250) // halfway through the cooldown: still resting
+    advanceAudio(s, s.tapCooldown / 2) // halfway through the cooldown: still resting
     trace.push(snap('midCooldown', s))
-    await sleep(250 + 300) // ...then re-arms
+    advanceAudio(s, s.tapCooldown / 2) // ...then re-arms
     trace.push(snap('postReArm', s))
     s.pauseTapDetection()
     trace.push(snap('postPause', s))
     s.resumeTapDetection()
     trace.push(snap('postResume', s))
     captureTap(s) // tap 2
-    await afterCooldown()
+    afterCooldown(s)
     captureTap(s) // tap 3 — the last
-    await afterCaptureWindow()
+    afterCaptureWindow(s)
     trace.push(snap('postProcess', s))
 
     expect(trace).toEqual([
@@ -144,9 +145,9 @@ describe('ScenarioStateTrace', () => {
     trace.push(snap('postStart', s))
     captureTap(s)
     trace.push(snap('postTap1', s))
-    await sleep(250) // halfway through the cooldown: still resting
+    advanceAudio(s, s.tapCooldown / 2) // halfway through the cooldown: still resting
     trace.push(snap('midCooldown', s))
-    await sleep(250 + 300)
+    advanceAudio(s, s.tapCooldown / 2)
     trace.push(snap('postReArm', s))
     s.cancelTapSequence()
     trace.push(snap('postCancel', s))

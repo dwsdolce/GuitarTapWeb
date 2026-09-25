@@ -7,6 +7,7 @@
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer, type CapturedTap } from '../src/state/tapToneAnalyzer'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
+import { advanceAudio } from './audioClockFeed'
 
 /** Returns a description of the first invariant `s` violates, or null when all hold. Keep in sync
  *  with Swift stateInvariantViolation / Python state_invariant_violation. */
@@ -65,7 +66,6 @@ function tapSamples(hz: number, count: number, rate = 48000): Float32Array {
   return out
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 describe('StateInvariants', () => {
   // V1: fresh analyzer is valid
@@ -102,7 +102,7 @@ describe('StateInvariants', () => {
     expect(s.isDetecting, 'detection rests through the tap cooldown').toBe(false)
     expect(stateInvariantViolation(s)).toBeNull()
 
-    await sleep(800) // tapCooldown (0.5 s) + margin
+    advanceAudio(s, s.tapCooldown) // the rest runs on the audio clock (#19)
     expect(s.isDetecting, 're-armed for the next tap once the cooldown has passed').toBe(true)
     expect(stateInvariantViolation(s)).toBeNull()
   })

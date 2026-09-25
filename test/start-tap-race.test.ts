@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
+import { advanceAudio } from './audioClockFeed'
 
 function makeSUT(numberOfTaps = 1): TapToneAnalyzer {
   const s = new TapToneAnalyzer()
@@ -28,8 +29,6 @@ function captureTap(s: TapToneAnalyzer): void {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const TAP_COOLDOWN_MS = 500
-const CAPTURE_WINDOW_MS = 200
 
 describe('StartTapSequenceRace', () => {
   // R1: a handleTapDetection-style idle must survive any DEFERRED work startTapSequence leaves
@@ -51,7 +50,7 @@ describe('StartTapSequenceRace', () => {
     s.detectionState = 'idle' // handleTapDetection effect
     await sleep(50)
     captureTap(s)
-    await sleep(CAPTURE_WINDOW_MS + 300)
+    advanceAudio(s, s.captureWindow) // the capture window runs on the audio clock (#19)
     expect(s.isMeasurementComplete).toBe(true)
     expect(s.isDetecting).toBe(false)
     expect(s.isDetectionPaused).toBe(false)
@@ -64,9 +63,9 @@ describe('StartTapSequenceRace', () => {
     await sleep(50)
     for (let tap = 1; tap <= 3; tap++) {
       captureTap(s)
-      if (tap < 3) await sleep(TAP_COOLDOWN_MS + 300)
+      if (tap < 3) advanceAudio(s, s.tapCooldown) // the rest, in audio (#19)
     }
-    await sleep(CAPTURE_WINDOW_MS + 300)
+    advanceAudio(s, s.captureWindow)
     expect(s.currentTapCount).toBe(3)
     expect(s.isMeasurementComplete).toBe(true)
     expect(s.isDetecting).toBe(false)
@@ -83,7 +82,7 @@ describe('StartTapSequenceRace', () => {
     expect(s.isDetecting, 'armed').toBe(true)
     s.finishGuitarGatedCapture(new Float32Array(GUITAR_FFT_SIZE), 48000)
     expect(s.isDetecting, 'REGRESSION: finishGuitarGatedCapture must clear isDetecting').toBe(false)
-    await sleep(CAPTURE_WINDOW_MS + 300) // completion is scheduled by the capture itself
+    advanceAudio(s, s.captureWindow) // completion is scheduled by the capture itself, in audio (#19)
     expect(s.isMeasurementComplete).toBe(true)
     expect(s.isDetecting).toBe(false)
     expect(s.isDetectionPaused).toBe(false)

@@ -11,10 +11,11 @@
 //   tapProgress    = min(1, currentTapCount / (guitar ? numberOfTaps : totalPlateTaps))
 //   currentTapCount (material) is CUMULATIVE, and rebases to the prior phases' taps on Accept/Redo
 //                                                                        [Swift Control:465-487]
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import type { Spectrum } from '../src/dsp/guitarFFT'
+import { advanceAudio } from './audioClockFeed'
 
 /** Flat -80 dB over 0–200 Hz with a single-bin resonance at `peakHz` (null → no detectable peak). */
 function spectrum(peakHz: number | null): Spectrum {
@@ -241,22 +242,14 @@ describe('loadMeasurement tears down an interrupted capture', () => {
 })
 
 // ── FLC cooldown cancellation ───────────────────────────────────────────────
-// Accepting fC schedules a cooldown, after which detection re-arms for the FLC tap. If the user
-// restarts (Cancel / New Tap) before it elapses, that timer must not drag the fresh sequence into
-// the FLC phase. Swift shipped without any protection until #17 — its asyncAfter cannot be
-// cancelled — so the re-arm fired into whatever was running 0.5 s later. Pinned in all three now.
-//
-// The web is protected TWICE: startTapSequence cancels the pending timer, and the callback also
-// guards on the phase. Swift and Python have only the guard, their scheduled work being
-// uncancellable. So a single-mutation check survives here and fails there; removing BOTH web
-// mechanisms fails this case, which is what makes it load-bearing.
+// Accepting fC schedules a hold, after which detection re-arms for the FLC tap. If the user
+// restarts (Cancel / New Tap) before it elapses, it must not drag the fresh sequence into the FLC
+// phase. Swift shipped without any protection until #17, so the re-arm fired into whatever was
+// running 0.5 s later. Pinned in all three now. The hold runs on the AUDIO clock and, as in Swift and
+// Python, cannot be cancelled: the phase guard in the callback is the protection (#19 — the web used
+// to cancel a wall-clock timer as well).
 describe('the FLC cooldown does not re-arm a restarted sequence', () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it('a restart during the cooldown leaves the fresh sequence alone', () => {
-    vi.useFakeTimers()
     const a = material('plate', 1, true)
     a.recordMaterialTap(L_TAP())
     a.acceptMaterial() // reviewingL -> capturingC
@@ -270,7 +263,7 @@ describe('the FLC cooldown does not re-arm a restarted sequence', () => {
     const phaseAfterRestart = a.materialTapPhase
     expect(phaseAfterRestart).not.toBe('waitingForFlcTap')
 
-    vi.advanceTimersByTime(2000) // let the cooldown fire against the restarted sequence
+    advanceAudio(a, 0.8) // the hold ends, in AUDIO (#19), against the restarted sequence
 
     expect(a.materialTapPhase).toBe(phaseAfterRestart)
     expect(a.materialTapPhase).not.toBe('capturingFlc')

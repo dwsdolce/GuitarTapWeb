@@ -10,6 +10,7 @@ import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import type { Spectrum } from '../src/dsp/guitarFFT'
 import type { MaterialPeak } from '../src/dsp/gatedCapture'
+import { advanceAudio } from './audioClockFeed'
 
 const CLIP = '⚠ Input clipping — reduce mic gain'
 
@@ -274,8 +275,9 @@ describe('statusMessage — guitar re-arm', () => {
     const afterCapture = a.statusMessage
     expect(afterCapture).toBe(a.guitarLoopStatus(false))
 
-    a.processAudioFrame(new Float32Array(1024), -20, 0) // still ringing, above the falling threshold
-    await new Promise((r) => setTimeout(r, 800))
+    // The rest runs on the audio clock (#19); the audio is still ringing, above the falling
+    // threshold, when the re-arm falls due.
+    advanceAudio(a, a.tapCooldown, -20)
     expect(a.isDetecting).toBe(true)
     expect(a.statusMessage).toBe(afterCapture)
   })

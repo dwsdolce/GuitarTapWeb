@@ -215,7 +215,6 @@ async function playGuitarSession(
   // The analyzer owns detection and therefore the session's start and finish (#17 F30).
   analyzer.startTapSequence({ skipWarmup: true })
   await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration) })
-  analyzer.flushPartialGuitarCapture()
   const sessions = dumped.map((d) => ({ samples: d.samples, rate: d.rate, label: d.label.replace(/^session_/, '') }))
   return { wav, sessions }
 }

@@ -453,7 +453,6 @@ export default function App() {
       } else {
         await engineRef.current.playFile(samples, fileRate, { calibration: cal })
       }
-      analyzer.flushPartialGuitarCapture() // a tap near the end of the file still yields a result
     } catch (e) {
       setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
     }

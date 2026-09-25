@@ -80,7 +80,7 @@ export async function playGuitar(
   // Arm, then play — Swift's order. Guitar playback skips the warm-up (absolute threshold).
   analyzer.startTapSequence({ skipWarmup: true })
   await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration) })
-  analyzer.flushPartialGuitarCapture()
+  // A capture the file stopped filling is flushed by the engine at file end (#19).
   // The last tap is averaged `captureWindow` (0.2 s) later, as in Swift/Python — so wait for it the way
   // Swift's playFileForTesting polls, rather than read a result that has not been produced yet.
   await waitForCompletion(analyzer)
