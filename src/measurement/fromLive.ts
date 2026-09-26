@@ -6,7 +6,7 @@
 import { type Spectrum } from '../dsp/guitarFFT'
 import { type Peak } from '../dsp/peaks'
 import type { TapEntry } from '../state/tapToneAnalyzer'
-import type { MaterialPeak } from '../dsp/gatedCapture'
+import type { MaterialPeak } from '../state/tapToneAnalyzer'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { exportStem } from './exportFilename'

@@ -31,7 +31,7 @@ import { materialDimensions, materialStiffness } from '../measurement/materialMe
 import { formatDisplayDate } from '../format/date'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { TapToneMeasurementModel } from '../measurement'
-import type { MaterialPeak } from '../dsp/gatedCapture'
+import type { MaterialPeak } from '../state/tapToneAnalyzer'
 import { MODE_DISPLAY_NAME as MODE_FULL_NAME } from './modeColors'
 import { decayQuality, decayQualityColor, tapToneRatioQuality, tapToneRatioQualityColor } from '../dsp/analysisQuality'
 import {

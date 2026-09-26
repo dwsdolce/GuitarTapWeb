@@ -18,7 +18,7 @@ import {
   woodQuality,
   overallQuality,
 } from '../dsp/material'
-import type { MaterialPeak } from '../dsp/gatedCapture'
+import type { MaterialPeak } from '../state/tapToneAnalyzer'
 import { WOOD_QUALITY_COLOR } from '../presentation/qualityColors'
 import { STIFFNESS_LABEL, type StiffnessPreset } from '../settings'
 import {

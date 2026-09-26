@@ -174,8 +174,8 @@ async function ringOutSec(reg: RegCase): Promise<number> {
   analyzer.setDevice(engine)
   analyzer.startTapSequence({ skipWarmup: true })
   await engine.playFile(wav.samples, wav.sampleRate) // paced, as the natives play (#17 F45)
-  if (engine.decayTime === null) throw new Error('REG-G1: no ring-out was measured')
-  return engine.decayTime
+  if (analyzer.currentDecayTime === null) throw new Error('REG-G1: no ring-out was measured')
+  return analyzer.currentDecayTime
 }
 
 export async function computeFilePlayback(): Promise<Record<string, unknown>> {

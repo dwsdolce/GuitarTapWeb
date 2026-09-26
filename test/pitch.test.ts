@@ -176,3 +176,18 @@ describe('isInTune', () => {
     expect(p.isInTune(440 * 2 ** (-15 / 1200))).toBe(false)
   })
 })
+
+// A frequency with no pitch — 0 Hz, negative, NaN, infinite — gets "no pitch" from every method. It used
+// to come out as the note "undefinedNaN" (#17 F50 item 14). Paired with Swift
+// aFrequencyWithNoPitch_getsNoPitch and Python TestNoPitch.
+describe('no pitch', () => {
+  it.each([0, -5, NaN, Infinity])('a frequency with no pitch (%s) gets no pitch', (frequency) => {
+    expect(p.hasPitch(frequency)).toBe(false)
+    expect(p.note(frequency)).toBe('')
+    expect(p.cents(frequency)).toBe(0)
+    expect(p.freq0(frequency)).toBe(0)
+    expect(p.pitchRange(frequency)).toEqual({ upper: 0, lower: 0 })
+    expect(p.formattedNote(frequency)).toBe('')
+    expect(p.isInTune(frequency)).toBe(false)
+  })
+})

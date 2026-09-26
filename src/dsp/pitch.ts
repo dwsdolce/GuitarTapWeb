@@ -54,12 +54,24 @@ export class Pitch {
   }
 
   /**
+   * Whether `frequency` has a pitch at all: a finite, positive number of hertz. A frequency that has
+   * none — 0 Hz, a negative value, NaN, infinity — gets "no pitch" from every method here: an empty note
+   * name, 0 cents, 0 Hz, a (0, 0) range, not in tune. It used to reach `Math.log2(0)` and come out as
+   * the note "undefinedNaN" (#17 F50 item 14). Mirrors Swift `hasPitch(_:)` / Python `has_pitch`.
+   */
+  hasPitch(frequency: number): boolean {
+    return Number.isFinite(frequency) && frequency > 0
+  }
+
+  /**
    * Nearest equal-temperament note as `(note 0–11, octave)`. Rounding snaps to the
    * nearest semitone; floor div/mod keep negative octaves correct (matches Python).
    * @param frequency Frequency to analyse, in Hz.
-   * @returns `{ note, octave }` where note 0 = C, 1 = C#, … 11 = B.
+   * @returns `{ note, octave }` where note 0 = C, 1 = C#, … 11 = B; `{ 0, 0 }` for a frequency with no
+   *   pitch ({@link hasPitch}).
    */
   pitch(frequency: number): { note: number; octave: number } {
+    if (!this.hasPitch(frequency)) return { note: 0, octave: 0 }
     const halfSteps = Math.round(12 * Math.log2(frequency / this.c0))
     const octave = Math.floor(halfSteps / 12)
     const note = ((halfSteps % 12) + 12) % 12
@@ -82,6 +94,7 @@ export class Pitch {
    * @returns The note-name-plus-octave string.
    */
   note(frequency: number): string {
+    if (!this.hasPitch(frequency)) return '' // no pitch
     const { note, octave } = this.pitch(frequency)
     return `${NOTE_NAMES[note]}${octave}`
   }
@@ -92,6 +105,7 @@ export class Pitch {
    * @returns The exact frequency of the nearest note, in Hz.
    */
   freq0(frequency: number): number {
+    if (!this.hasPitch(frequency)) return 0 // no pitch
     const { note, octave } = this.pitch(frequency)
     return this.freq(note, octave)
   }
@@ -103,6 +117,7 @@ export class Pitch {
    * @returns Cents offset from the nearest equal-temperament pitch.
    */
   cents(frequency: number): number {
+    if (!this.hasPitch(frequency)) return 0 // no pitch
     const { note, octave } = this.pitch(frequency)
     return 1200 * Math.log2(frequency / this.freq(note, octave))
   }
@@ -122,6 +137,7 @@ export class Pitch {
    * @returns `{ upper, lower }`, one semitone apart, bracketing `frequency`.
    */
   pitchRange(frequency: number): { upper: number; lower: number } {
+    if (!this.hasPitch(frequency)) return { upper: 0, lower: 0 } // no pitch
     const { note, octave } = this.pitch(frequency)
     if (this.cents(frequency) >= 0) {
       // Sharp of (or exactly on) the nearest note: that note is the LOWER bound.
@@ -138,6 +154,7 @@ export class Pitch {
    * @returns A human-readable pitch-and-deviation string.
    */
   formattedNote(frequency: number): string {
+    if (!this.hasPitch(frequency)) return '' // no pitch
     const c = this.cents(frequency)
     const sign = c >= 0 && !Object.is(c, -0) ? '+' : ''
     return `${this.note(frequency)} (${sign}${roundTiesToEven(c)} cents)`
@@ -151,6 +168,7 @@ export class Pitch {
    * @returns `true` when `|cents| <= threshold`.
    */
   isInTune(frequency: number, threshold = 10): boolean {
+    if (!this.hasPitch(frequency)) return false // no pitch
     return Math.abs(this.cents(frequency)) <= threshold
   }
 }

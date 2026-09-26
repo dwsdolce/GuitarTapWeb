@@ -2,14 +2,17 @@
 import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, watchdogDecision } from './deadInput'
 import { dftAnalRect, GUITAR_FFT_SIZE, spectrumPeak, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
-import { DecayTracker } from '../dsp/decay'
-import { gatedHannFFT, type GatedFFTResult } from '../dsp/gatedFFT'
-import {
-  alignCaptureToOnset,
-  PLATE_PHASES,
-  BRACE_PHASE,
-  type DetectedMaterialPeak,
-} from '../dsp/gatedCapture'
+import { fftInPlace } from '../dsp/fft'
+import type { DetectedMaterialPeak } from '../state/tapToneAnalyzer'
+
+/** Output of {@link RealtimeFFTAnalyzer.computeGatedFFT}: a one-sided dBFS magnitude spectrum + its bin
+ *  frequencies. */
+export interface GatedFFTResult {
+  /** Magnitude spectrum in dBFS (ref 1.0), one value per bin [0, fftSize/2). */
+  magnitudesDb: number[]
+  /** Bin centre frequencies in Hz, parallel to magnitudesDb. */
+  frequencies: number[]
+}
 
 /** Identity of a captured material phase (mirrors the plate/brace gated phase order). */
 export type MaterialPhaseName = 'longitudinal' | 'cross' | 'flc'
@@ -55,9 +58,6 @@ export interface RealtimeFFTAnalyzerCallbacks {
    *  mic was unplugged → fell back). The caller re-syncs device state + reloads the per-device
    *  calibration for `deviceId`. Mirrors Swift's CoreAudio device-change → selectedInputDevice.didSet. */
   onInputChanged?: (deviceId: string | null) => void
-  /** Live ring-out (decay) time in seconds, or null — fired when it changes (the value refines as
-   *  the post-tap level decays, and clears to null on New Tap). Drives the live Ring-Out box. */
-  onDecay?: (decayTime: number | null) => void
 }
 
 /** Live-FFT performance counters (mirrors FFTAnalysisMetricsView's Performance section). */
@@ -156,9 +156,6 @@ export class RealtimeFFTAnalyzer {
   private readonly accum = new Float32Array(GUITAR_FFT_SIZE)
   private accumIdx = 0
 
-  // Ring-out (decay) tracking — guitar only; fed the broadband level per chunk on an audio clock.
-  private decay = new DecayTracker()
-
   // ── Services the TapToneAnalyzer calls while IT owns detection + gated capture ─────────────
   // Swift's split: the analyzer holds the pre-roll, the capture window and the detector, and calls
   // RealtimeFFTAnalyzer for the raw transform and the calibration corrections — applying them
@@ -189,12 +186,7 @@ export class RealtimeFFTAnalyzer {
 
 
 
-  /** Seed the ring-out decay from the peak-held level (guitar only; Swift `decay.start`). */
-  startDecayFromPeak(): void {
-    this.decay.start(this.audioElapsed, this.recentPeakDb)
-  }
-  private audioElapsed = 0 // accumulated audio time (s) — the decay tracker's clock
-  private lastDecay: number | null = null // last value emitted via onDecay (de-dupe)
+  private audioElapsed = 0 // accumulated audio time (s) — the audio clock each chunk is stamped with
   // Peak-held broadband level for the decay SEED — mirrors Swift `recentPeakLevelDB`
   // (RealtimeFFTAnalyzer+FFTProcessing.swift): latch the running max, release to the current level
   // only after PEAK_HOLD_SECONDS without a higher peak. Captures the true tap strike even though tap
@@ -214,10 +206,6 @@ export class RealtimeFFTAnalyzer {
   // while true, only the last SESSION_PRE_ROLL_SECONDS of audio is kept; after the first tap the
   // buffer grows straight through. Mirrors Swift sessionPreRollActive.
 
-  /** Latest measured ring-out time (s), read into the measurement at save (Swift currentDecayTime). */
-  get decayTime(): number | null {
-    return this.decay.decayTime
-  }
 
   // Guitar tap counter. The device no longer accumulates per-tap spectra (6-TEST 3c-C2a — the
   // TapToneAnalyzer owns accumulation + averaging); it keeps only this lightweight count to know
@@ -311,13 +299,68 @@ export class RealtimeFFTAnalyzer {
     return this.calibration
   }
 
-  /** The gated transform every plate/brace capture runs, calibrated: `gatedHannFFT` plus the active
-   *  calibration at the bin frequencies, read at the moment of the call. Mirrors Swift
-   *  `computeGatedFFT(samples:sampleRate:)` and Python `compute_gated_fft`, which apply the
-   *  calibration inside the transform. The web used to leave it to the caller, which took a copy of
-   *  the calibration when the phase was armed (#17 F49). */
+  /**
+   * The gated transform every plate/brace capture runs, calibrated. Swift
+   * `computeGatedFFT(samples:sampleRate:)` and Python `compute_gated_fft`, on their FFT analyzers as
+   * this is on the engine; the web had the transform as a free function in `src/dsp/gatedFFT.ts`
+   * (#17 F50 item 2). The active calibration is added at the bin frequencies at the moment of the call —
+   * the web used to leave that to the caller, which took a copy when the phase was armed (#17 F49).
+   *
+   *   - fewer than two samples → an empty spectrum (there is nothing to transform);
+   *   - pad up to the next power of two, capped at 32768;
+   *   - apply the PERIODIC Hann window 0.5−0.5·cos(2πi/N) — Swift's vDSP_HANN_DENORM, not
+   *     numpy.hanning's symmetric (N−1) form. The two differ by less than any tolerance can see,
+   *     which is how this edition drifted to the symmetric one before; a window test in all three
+   *     guards it;
+   *   - forward FFT; take the lower half;
+   *   - magnitude = |X| / fftSize, with bins ≥1 doubled (one-sided spectrum);
+   *   - 20·log10 → dBFS (no floor: an empty bin is -Infinity, as Swift gives).
+   *
+   * The window spans the PADDED length, not the captured one. At 48 kHz the 0.4 s capture is 19200 of
+   * 32768 samples, so its last sample is weighted ≈0.93, not tapered to zero. For a steady tone that
+   * is a hard edge with poor sidelobes (a tone 7 Hz from a stronger one picks up its leakage at about
+   * −21 dB). For a TAP it works: the ring-out decays, so the signal supplies its own end taper, and the
+   * abrupt onset — 0.1 s in, after the pre-onset silence — is weighted ≈0.2. Tested against decaying
+   * modes at known frequencies, this measures a tap's frequency as well as or better than a Hann
+   * spanning only the captured samples (#17 F49). Because the capture fills a different share of the
+   * padded window at each sample rate, the window's gain differs with it: about −10.8 dB at 44.1 kHz,
+   * −9.5 dB at 48 kHz, and −6.0 dB at 96 kHz, where the capture exceeds 32768 samples and is
+   * truncated to it.
+   */
   computeGatedFFT(samples: Float32Array | Float64Array | number[], sampleRate: number): GatedFFTResult {
-    return this.applyCal(gatedHannFFT(samples, sampleRate))
+    const n = samples.length
+    if (n < 2) return this.applyCal({ magnitudesDb: [], frequencies: [] })
+
+    const MAX_FFT = 32768
+    let fftSize = 1
+    while (fftSize < n) fftSize <<= 1
+    if (fftSize > MAX_FFT) fftSize = MAX_FFT
+
+    const re = new Float64Array(fftSize)
+    const im = new Float64Array(fftSize)
+    const copyCount = Math.min(n, fftSize)
+    for (let i = 0; i < copyCount; i++) {
+      const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / fftSize) // periodic Hann (Swift HANN_DENORM)
+      re[i] = (samples[i] as number) * w
+    }
+    // Samples beyond copyCount stay zero; windowing zeros yields zeros, so this
+    // matches "window the full padded array" exactly.
+
+    fftInPlace(re, im)
+
+    const halfN = fftSize >> 1
+    const magnitudesDb = new Array<number>(halfN)
+    const frequencies = new Array<number>(halfN)
+    for (let i = 0; i < halfN; i++) {
+      let mag = Math.hypot(re[i]!, im[i]!) / fftSize
+      if (i >= 1) mag *= 2
+      // No epsilon clamp — a bin with no energy is -Infinity, as Swift's vDSP_vdbcon gives. The
+      // gated path carried the same clamp as the live one (guitarFFT); both are gone, so "nothing at
+      // all" stays distinguishable from -100 dB, a real level a quiet UMIK-1 reaches (#17).
+      magnitudesDb[i] = 20 * Math.log10(mag)
+      frequencies[i] = (i * sampleRate) / fftSize
+    }
+    return this.applyCal({ magnitudesDb, frequencies })
   }
 
   /** Add calibration corrections to a freshly-computed spectrum (no-op when no calibration).
@@ -687,18 +730,13 @@ export class RealtimeFFTAnalyzer {
     this.callbacks.onLevel?.(db)
     this.detectClipping(s, db)
 
-    // Ring-out clock: track the broadband level on an audio timeline (runs through capture + idle).
+    // The audio clock: every chunk carries its audio time up to the analyzer.
     this.audioElapsed += s.length / this.sampleRate
     // Recent-peak hold for the decay seed (Swift recentPeakLevelDB): latch the max, release to the
     // current level after 2.0 s without a higher peak.
     if (db > this.recentPeakDb || this.audioElapsed - this.recentPeakTime > PEAK_HOLD_SECONDS) {
       this.recentPeakDb = db
       this.recentPeakTime = this.audioElapsed
-    }
-    this.decay.track(this.audioElapsed, db)
-    if (this.decay.decayTime !== this.lastDecay) {
-      this.lastDecay = this.decay.decayTime
-      this.callbacks.onDecay?.(this.lastDecay)
     }
 
     this.feedContinuous(s)

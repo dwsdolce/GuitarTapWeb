@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import type { Spectrum } from '../src/dsp/guitarFFT'
-import type { MaterialPeak } from '../src/dsp/gatedCapture'
+import type { MaterialPeak } from '../src/state/tapToneAnalyzer'
 import { advanceAudio } from './audioClockFeed'
 
 const CLIP = '⚠ Input clipping — reduce mic gain'

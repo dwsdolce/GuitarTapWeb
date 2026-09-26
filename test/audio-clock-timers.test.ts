@@ -9,9 +9,6 @@
 // fails. The guitar rest (T1) and the capture window (T5) are pinned by the scenario traces'
 // midCooldown / postReArm / postProcess rows; this file pins what nothing else did.
 //
-// The ring-out stop (T7) is pinned in decay-tracking.test.ts: the web tracks the ring-out in the
-// engine's DecayTracker, where the natives track it on the analyzer.
-//
 // Paired with Swift GuitarTapTests/AudioClockTimerTests.swift and Python tests/test_audio_clock_timers.py.
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
@@ -182,6 +179,22 @@ describe('the tap lifecycle runs on the audio clock (#19)', () => {
     expect(played.length).toBe(4)
     tick()
     await done
+  })
+
+  // T7: ring-out tracking stops once a chunk arrives `decayTrackingDuration` of audio after the tap,
+  // and that chunk is not recorded.
+  it('ring-out tracking stops on the audio clock', () => {
+    const a = new TapToneAnalyzer()
+    a.startDecayTracking(10.0)
+    const end = 10.0 + a.decayTrackingDuration
+
+    a.trackDecayFast(-40, end - 0.01)
+    expect(a.isTrackingDecay, 'still inside the window').toBe(true)
+    const samplesBefore = a.peakMagnitudeHistory.length
+
+    a.trackDecayFast(-40, end)
+    expect(a.isTrackingDecay, 'stopped by the audio clock alone').toBe(false)
+    expect(a.peakMagnitudeHistory.length, 'the stopping chunk is not recorded').toBe(samplesBefore)
   })
 
   // File end: the capture window is released at once, so a measurement whose last capture ends with

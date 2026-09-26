@@ -215,9 +215,6 @@ export function useAudioEngine({
           // so a different number is a different user-visible behaviour (#17 F32).
           deviceChangeTimer.current = setTimeout(() => analyzer.handleDeviceChange(false), 3000)
         },
-        // The ring-out VALUE lives on the analyzer (Swift `currentDecayTime`), so one field serves
-        // both a live capture and a loaded measurement. The engine keeps the TRACKER.
-        onDecay: (d) => analyzer.setDecayTime(d),
       },
       { tapDetectionThreshold: tapThresholdRef.current, dumpCaptureAudio: dumpCaptureRef.current },
     )
