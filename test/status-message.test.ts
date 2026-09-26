@@ -11,6 +11,14 @@ import type { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import type { Spectrum } from '../src/dsp/guitarFFT'
 import type { MaterialPeak } from '../src/state/tapToneAnalyzer'
 import { advanceAudio } from './audioClockFeed'
+import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
+
+/** A decaying tone — a tap's ring-out — at 48 kHz. */
+function decayingTone(hz: number, count: number): Float32Array {
+  const out = new Float32Array(count)
+  for (let i = 0; i < count; i++) out[i] = 0.5 * Math.exp((-i / 48000) * 6) * Math.sin((2 * Math.PI * hz * i) / 48000)
+  return out
+}
 
 const CLIP = '⚠ Input clipping — reduce mic gain'
 
@@ -87,13 +95,16 @@ describe('statusMessage — guitar detection-loop strings', () => {
   it('capturing (provisional) and between-taps strings', () => {
     // The analyzer owns these now, so assert the string function the capture transitions call —
     // Swift's `guitarLoopStatus(capturing:)`, same shape (#17 F30).
+    // The count comes from real taps through the capture finish (it was set by hand through
+    // setCurrentTapCount, dead in production — #17 F51).
     const a = new TapToneAnalyzer()
     a.setNumberOfTaps(3)
-    a.setCurrentTapCount(0)
+    a.startTapSequence()
+    const tap = decayingTone(100, GUITAR_FFT_SIZE)
     expect(a.guitarLoopStatus(true)).toBe('Tap 1/3 capturing...')
-    a.setCurrentTapCount(1)
+    a.finishGuitarGatedCapture(tap, 48000)
     expect(a.guitarLoopStatus(false)).toBe('Tap 1/3 captured. Tap again...')
-    a.setCurrentTapCount(2)
+    a.finishGuitarGatedCapture(tap, 48000)
     expect(a.guitarLoopStatus(true)).toBe('All taps captured. Processing...') // last tap → processing
   })
 

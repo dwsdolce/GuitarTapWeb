@@ -7,61 +7,44 @@
 // printed its per-phase count directly; Swift subtracts the completed phases from its cumulative one),
 // so nothing caught it — until the progress bar was added, where the web's bar would have refilled 0→100%
 // on EVERY phase instead of filling once across the whole sequence. These tests pin the canonical model:
-//   totalPlateTaps = numberOfTaps × (brace ? 1 : measureFlc ? 3 : 2)      [Swift TapDetection:360]
+//   totalPlateTaps = numberOfTaps × (brace ? 1 : measureFlc ? 3 : 2)      [Swift `totalPlateTaps`]
 //   tapProgress    = min(1, currentTapCount / (guitar ? numberOfTaps : totalPlateTaps))
-//   currentTapCount (material) is CUMULATIVE, and rebases to the prior phases' taps on Accept/Redo
-//                                                                        [Swift Control:465-487]
+//   currentTapCount (material) is CUMULATIVE, and rebases to the prior phases' taps on Redo
+//                                                                        [Swift `redoCurrentPhase`]
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import type { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
-import type { Spectrum } from '../src/dsp/guitarFFT'
+import type { TapToneMeasurementModel } from '../src/measurement/types'
 import { advanceAudio } from './audioClockFeed'
+import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
 
-/** Flat -80 dB over 0–200 Hz with a single-bin resonance at `peakHz` (null → no detectable peak). */
-function spectrum(peakHz: number | null): Spectrum {
-  const frequencies = Array.from({ length: 201 }, (_, i) => i)
-  const magnitudesDb = frequencies.map(() => -80)
-  if (peakHz != null) {
-    magnitudesDb[peakHz] = -40
-    magnitudesDb[peakHz - 1] = -55
-    magnitudesDb[peakHz + 1] = -55
-  }
-  return { magnitudesDb, frequencies }
+/** A decaying tone — a tap's ring-out — at 48 kHz. */
+function decayingTone(hz: number, count: number): Float32Array {
+  const out = new Float32Array(count)
+  for (let i = 0; i < count; i++) out[i] = 0.5 * Math.exp((-i / 48000) * 6) * Math.sin((2 * Math.PI * hz * i) / 48000)
+  return out
 }
 
-function fakeDevice(playingFile = false): RealtimeFFTAnalyzer {
-  return {
-    playingFile,
-    activeCalibration: null,
-    armMaterial() {},
-    arm() {},
-    disarm() {},
-    checkpointSession() {},
-    redoSession() {},
-    startSessionRecording() {},
-    finishSessionRecording() {},
-    cancelSessionRecording() {},
-  } as unknown as RealtimeFFTAnalyzer
-}
-
-/** An armed plate/brace analyzer with `taps` taps per phase. */
+/** An armed plate/brace analyzer with `taps` taps per phase, armed as the app arms it. No device: the
+ *  analyzer's gated transform then runs on an uncalibrated engine, which is the bare transform. (A fake
+ *  device used to stand here, faking eight engine methods that no longer exist — #17 F51.) */
 function material(type: 'plate' | 'brace', taps: number, flc = false): TapToneAnalyzer {
   const a = new TapToneAnalyzer()
   a.measurementType = type
   a.measureFlc = flc
   a.setNumberOfTaps(taps)
-  a.setDevice(fakeDevice())
-  a.startTapSequence({ arm: false })
+  a.startTapSequence()
   return a
 }
 
-// Phase peaks that land inside each search band (plate L 20–100, C 40–220, FLC 15–100; brace 100–1200).
-const L_TAP = () => spectrum(60)
-const C_TAP = () => spectrum(150)
-const FLC_TAP = () => spectrum(60)
-const BRACE_TAP = () => spectrum(150)
+// Real taps through the capture finish, at frequencies inside each search band (plate L 20–100, C 40–220,
+// FLC 15–100; brace 100–1200). Each case reaches its state through them, never by setting it (#17 F51).
+const MATERIAL_TAP = 24_000 // a 0.5 s capture at 48 kHz
+const tapL = (a: TapToneAnalyzer) => a.finishGatedFFTCapture(decayingTone(60, MATERIAL_TAP), 48000, 'capturingL')
+const tapC = (a: TapToneAnalyzer) => a.finishGatedFFTCapture(decayingTone(150, MATERIAL_TAP), 48000, 'capturingC')
+const tapFlc = (a: TapToneAnalyzer) => a.finishGatedFFTCapture(decayingTone(60, MATERIAL_TAP), 48000, 'capturingFlc')
+const tapBrace = (a: TapToneAnalyzer) => a.finishGatedFFTCapture(decayingTone(150, MATERIAL_TAP), 48000, 'capturingL')
 
-describe('totalPlateTaps — taps expected across ALL phases (Swift TapDetection:360)', () => {
+describe('totalPlateTaps — taps expected across ALL phases', () => {
   it('brace = numberOfTaps (longitudinal only)', () => {
     expect(material('brace', 3).totalPlateTaps).toBe(3)
   })
@@ -75,20 +58,40 @@ describe('totalPlateTaps — taps expected across ALL phases (Swift TapDetection
   })
 })
 
-describe('tapProgress — guitar divides by numberOfTaps', () => {
-  it('advances 0 → 1/4 → 2/4 as taps are captured, clamped at 1', () => {
+describe('tapProgress — the fraction the bar renders', () => {
+  // A guitar measurement's bar advances by numberOfTaps, through the real capture finish — the place
+  // progress is decided. (This used to record spectra one level below it; the material denominator is
+  // asserted by the cumulative case below, and the clamp is unreachable in production — #17 F51.)
+  // Mirrors Swift guitarProgressAdvancesByNumberOfTaps and Python test_guitar_progress_advances_by_number_of_taps.
+  it('guitar progress advances by numberOfTaps as taps are captured', () => {
     const a = new TapToneAnalyzer()
     a.setNumberOfTaps(4)
     a.startTapSequence()
-    a.beginGuitarAccumulation()
     expect(a.tapProgress).toBe(0)
 
-    a.recordGuitarTap(spectrum(100))
-    expect(a.currentTapCount).toBe(1)
+    const tap = decayingTone(100, GUITAR_FFT_SIZE)
+    a.finishGuitarGatedCapture(tap, 48000)
     expect(a.tapProgress).toBeCloseTo(0.25, 6)
-
-    a.recordGuitarTap(spectrum(100))
+    a.finishGuitarGatedCapture(tap, 48000)
     expect(a.tapProgress).toBeCloseTo(0.5, 6)
+    a.finishGuitarGatedCapture(tap, 48000)
+    expect(a.tapProgress).toBeCloseTo(0.75, 6)
+  })
+
+  // A new sequence starts its bar at 0 — a finished measurement's full bar does not carry into it.
+  // Mirrors Swift newSequenceResetsTheBar.
+  it('a new sequence resets the bar', () => {
+    const a = new TapToneAnalyzer()
+    a.setNumberOfTaps(1)
+    a.startTapSequence()
+    a.finishGuitarGatedCapture(decayingTone(100, GUITAR_FFT_SIZE), 48000)
+    advanceAudio(a, a.captureWindow) // complete
+    expect(a.isMeasurementComplete).toBe(true)
+    expect(a.tapProgress).toBe(1)
+
+    a.startTapSequence() // New Tap
+
+    expect(a.tapProgress).toBe(0)
   })
 })
 
@@ -100,11 +103,11 @@ describe('material currentTapCount is CUMULATIVE across phases (Swift), not per-
     expect(a.tapProgress).toBe(0)
 
     // ── L phase ──────────────────────────────────────────────────────────────
-    a.recordMaterialTap(L_TAP())
+    tapL(a)
     expect(a.currentTapCount).toBe(1)
     expect(a.tapProgress).toBeCloseTo(1 / 6, 6)
 
-    a.recordMaterialTap(L_TAP()) // 2/2 → L complete → review
+    tapL(a) // 2/2 → L complete → review
     expect(a.materialTapPhase).toBe('reviewingL')
     expect(a.currentTapCount).toBe(2) // NOT reset — L's taps stay counted
     expect(a.tapProgress).toBeCloseTo(2 / 6, 6)
@@ -115,11 +118,11 @@ describe('material currentTapCount is CUMULATIVE across phases (Swift), not per-
     expect(a.currentTapCount).toBe(2)
     expect(a.tapProgress).toBeCloseTo(2 / 6, 6)
 
-    a.recordMaterialTap(C_TAP())
+    tapC(a)
     expect(a.currentTapCount).toBe(3) // 2 (L) + 1 (C)
     expect(a.tapProgress).toBeCloseTo(3 / 6, 6)
 
-    a.recordMaterialTap(C_TAP()) // 2/2 → C complete
+    tapC(a) // 2/2 → C complete
     expect(a.materialTapPhase).toBe('reviewingC')
     expect(a.currentTapCount).toBe(4)
     expect(a.tapProgress).toBeCloseTo(4 / 6, 6)
@@ -133,32 +136,25 @@ describe('material currentTapCount is CUMULATIVE across phases (Swift), not per-
 
   it('brace (single phase): cumulative == within-phase, bar fills 0→1 over its taps', () => {
     const a = material('brace', 2) // totalPlateTaps = 2
-    a.recordMaterialTap(BRACE_TAP())
+    tapBrace(a)
     expect(a.currentTapCount).toBe(1)
     expect(a.tapProgress).toBeCloseTo(0.5, 6)
 
-    a.recordMaterialTap(BRACE_TAP()) // completes the brace measurement
+    tapBrace(a) // completes the brace measurement
     expect(a.currentTapCount).toBe(2)
     expect(a.tapProgress).toBe(1)
     expect(a.isMeasurementComplete).toBe(true)
   })
-
-  it('tapProgress never exceeds 1', () => {
-    const a = material('brace', 1)
-    a.recordMaterialTap(BRACE_TAP())
-    a.setNumberOfTaps(1)
-    expect(a.tapProgress).toBeLessThanOrEqual(1)
-  })
 })
 
-describe('Redo rebases the count to the PRIOR phases (Swift Control:465-487)', () => {
+describe('Redo rebases the count to the PRIOR phases', () => {
   it('redo C keeps L’s taps counted (currentTapCount = numberOfTaps, not 0)', () => {
     const a = material('plate', 2, true)
-    a.recordMaterialTap(L_TAP())
-    a.recordMaterialTap(L_TAP()) // L done → reviewingL
+    tapL(a)
+    tapL(a) // L done → reviewingL
     a.acceptMaterial() // → capturingC
-    a.recordMaterialTap(C_TAP())
-    a.recordMaterialTap(C_TAP()) // C done → reviewingC
+    tapC(a)
+    tapC(a) // C done → reviewingC
     expect(a.currentTapCount).toBe(4)
 
     a.redoMaterial() // re-tap C
@@ -169,15 +165,16 @@ describe('Redo rebases the count to the PRIOR phases (Swift Control:465-487)', (
 
   it('redo FLC keeps L+C counted (currentTapCount = numberOfTaps × 2)', () => {
     const a = material('plate', 2, true)
-    a.recordMaterialTap(L_TAP())
-    a.recordMaterialTap(L_TAP())
+    tapL(a)
+    tapL(a)
     a.acceptMaterial()
-    a.recordMaterialTap(C_TAP())
-    a.recordMaterialTap(C_TAP())
+    tapC(a)
+    tapC(a)
     a.acceptMaterial() // → waitingForFlcTap
-    a.materialTapPhase = 'capturingFlc' // skip the cooldown timer
-    a.recordMaterialTap(FLC_TAP())
-    a.recordMaterialTap(FLC_TAP()) // FLC done → reviewingFlc
+    advanceAudio(a, a.tapCooldown) // the hold, in audio → capturingFlc
+    expect(a.materialTapPhase).toBe('capturingFlc')
+    tapFlc(a)
+    tapFlc(a) // FLC done → reviewingFlc
     expect(a.currentTapCount).toBe(6)
     expect(a.tapProgress).toBe(1)
 
@@ -189,8 +186,8 @@ describe('Redo rebases the count to the PRIOR phases (Swift Control:465-487)', (
 
   it('redo L resets to 0 (nothing precedes it)', () => {
     const a = material('plate', 2, true)
-    a.recordMaterialTap(L_TAP())
-    a.recordMaterialTap(L_TAP()) // → reviewingL
+    tapL(a)
+    tapL(a) // → reviewingL
     expect(a.currentTapCount).toBe(2)
 
     a.redoMaterial()
@@ -200,25 +197,40 @@ describe('Redo rebases the count to the PRIOR phases (Swift Control:465-487)', (
   })
 })
 
-// Regression: loading a measurement must tear down an in-progress capture the load interrupts, so the
-// status-bar progress bar (gated on currentTapCount > 0) and Analyzing indicator (isDetecting) don't
-// linger over the loaded "frozen" measurement. Swift's loadMeasurement does this reactively
-// (SpectrumCapture:724-728 + materialTapPhase = .complete); the web used to reset neither.
+// Loading a measurement while a capture is unfinished tears it down, so the status-bar progress bar
+// (shown while currentTapCount > 0) and the Analyzing indicator (isDetecting) do not linger over the
+// loaded measurement. The sequence is driven for real; the load is the real loadMeasurement (these used to
+// call restoreSnapshot, one step below it, and set detection to listening by hand — #17 F51). Paired with
+// Swift LoadTearsDownInterruptedCaptureTests and Python TestLoadTearsDownInterruptedCapture.
 describe('loadMeasurement tears down an interrupted capture', () => {
-  const FROZEN = () => ({ magnitudes: spectrum(100).magnitudesDb, frequencies: spectrum(100).frequencies })
+  /** A saved classical measurement to load. */
+  const savedMeasurement = (): TapToneMeasurementModel => {
+    const frequencies = Array.from({ length: 64 }, (_, i) => i * 31.25)
+    const magnitudes = frequencies.map((_, i) => (i === 16 ? -30 : -80))
+    return {
+      id: 'saved',
+      timestamp: '2026-09-25T00:00:00Z',
+      peaks: [],
+      numberOfTaps: 1,
+      spectrumSnapshot: {
+        frequencies, magnitudes, minFreq: 0, maxFreq: 2000, minDB: -90, maxDB: -20, isLogarithmic: false,
+        measurementType: 'Classical Guitar',
+      },
+    }
+  }
 
   it('a plate sequence abandoned after L+C (FLC pending) resets on load', () => {
     const a = material('plate', 2, true)
-    a.recordMaterialTap(L_TAP())
-    a.recordMaterialTap(L_TAP()) // L done → reviewingL
+    tapL(a)
+    tapL(a) // L done → reviewingL
     a.acceptMaterial() // → capturingC
-    a.recordMaterialTap(C_TAP())
-    a.recordMaterialTap(C_TAP()) // C done → reviewingC
+    tapC(a)
+    tapC(a) // C done → reviewingC
     a.acceptMaterial() // → waitingForFlcTap (FLC never captured)
     expect(a.currentTapCount).toBe(4)
     expect(a.materialTapPhase).toBe('waitingForFlcTap')
 
-    a.restoreSnapshot(FROZEN())
+    a.loadMeasurement(savedMeasurement())
 
     expect(a.currentTapCount).toBe(0)
     expect(a.tapProgress).toBe(0)
@@ -227,13 +239,14 @@ describe('loadMeasurement tears down an interrupted capture', () => {
     expect(a.isMeasurementComplete).toBe(true)
   })
 
-  it('load clears an actively-detecting capture', () => {
-    const a = material('plate', 2, true) // capturingL, detecting
-    a.recordMaterialTap(L_TAP())
-    a.detectionState = 'listening' // worst case: load arrives mid-detection
+  it('a load while detecting stops detection', () => {
+    const a = material('plate', 2, true)
+    tapL(a)
+    advanceAudio(a, a.tapCooldown) // the rest ends: listening for tap 2
+    expect(a.isDetecting).toBe(true)
     expect(a.currentTapCount).toBe(1)
 
-    a.restoreSnapshot(FROZEN())
+    a.loadMeasurement(savedMeasurement())
 
     expect(a.isDetecting).toBe(false)
     expect(a.currentTapCount).toBe(0)
@@ -251,15 +264,15 @@ describe('loadMeasurement tears down an interrupted capture', () => {
 describe('the FLC cooldown does not re-arm a restarted sequence', () => {
   it('a restart during the cooldown leaves the fresh sequence alone', () => {
     const a = material('plate', 1, true)
-    a.recordMaterialTap(L_TAP())
+    tapL(a)
     a.acceptMaterial() // reviewingL -> capturingC
-    a.recordMaterialTap(C_TAP())
+    tapC(a)
     expect(a.materialTapPhase).toBe('reviewingC')
 
     a.acceptMaterial() // -> waitingForFlcTap, schedules the re-arm
     expect(a.materialTapPhase).toBe('waitingForFlcTap')
 
-    a.startTapSequence({ arm: false }) // the user restarts before the cooldown elapses
+    a.cancelTapSequence() // the user cancels before the cooldown elapses
     const phaseAfterRestart = a.materialTapPhase
     expect(phaseAfterRestart).not.toBe('waitingForFlcTap')
 
@@ -274,11 +287,16 @@ describe('the FLC cooldown does not re-arm a restarted sequence', () => {
 // afterwards configures the NEXT measurement and must not rewrite the finished one — tapProgress is
 // stored at each count change, as Swift and Python store it, not derived at render time.
 describe('TapProgress — a later count change does not rewrite a finished measurement', () => {
+  // The measurement is completed for real: one tap through the finish, then the capture window's audio.
+  // (This set the count by hand and never completed — #17 F51.) Mirrors Swift
+  // completeMeasurement_keepsFullBar_whenTapCountRaised.
   it('a complete 1-tap measurement keeps a full bar when Taps is raised to 3', () => {
     const a = new TapToneAnalyzer()
-    a.numberOfTaps = 1
+    a.setNumberOfTaps(1)
     a.startTapSequence()
-    a.currentTapCount = 1
+    a.finishGuitarGatedCapture(decayingTone(100, GUITAR_FFT_SIZE), 48000)
+    advanceAudio(a, a.captureWindow) // "All taps captured. Processing..." → complete
+    expect(a.isMeasurementComplete).toBe(true)
     expect(a.tapProgress).toBe(1)
 
     a.setNumberOfTaps(3) // configures the next measurement

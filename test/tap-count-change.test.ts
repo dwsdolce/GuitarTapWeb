@@ -126,7 +126,6 @@ describe('OUT-5 — changing the count with taps captured must NOT implicitly fi
     const a = new TapToneAnalyzer()
     a.setNumberOfTaps(total)
     a.startTapSequence()
-    a.beginGuitarAccumulation()
     for (let i = 0; i < taps; i++) a.recordGuitarTap(spectrum())
     return a
   }

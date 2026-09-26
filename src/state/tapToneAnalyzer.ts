@@ -179,16 +179,10 @@ export class TapToneAnalyzer {
    *  device's not-yet-valid audio. Swift and Python blanked here and web did not — a behaviour
    *  divergence rather than a deliberate difference (#17 F35). */
   isSettling = false
-  private _currentTapCount = 0
-  /** Taps captured so far. Guitar: 0…numberOfTaps. Material: CUMULATIVE across phases.
-   *
-   *  An accessor rather than a plain field so that `tapProgress` is snapshotted on EVERY write,
-   *  including from App and from tests — the explicit-call-site version missed external writers. */
-  get currentTapCount(): number { return this._currentTapCount }
-  set currentTapCount(n: number) {
-    this._currentTapCount = n
-    this.syncTapProgress()
-  }
+  /** Taps captured so far. Guitar: 0…numberOfTaps. Material: CUMULATIVE across phases. Swift
+   *  `currentTapCount`. `tapProgress` is written beside it at each site, as Swift and Python write it —
+   *  it used to be recomputed in a setter on every write (#17 F51). */
+  currentTapCount = 0
   numberOfTaps = 1
   capturedTaps: CapturedTap[] = []
   frozenMagnitudes: number[] = []
@@ -401,28 +395,15 @@ export class TapToneAnalyzer {
   /** Fraction of the sequence captured, 0…1 — the value the status-bar progress bar renders.
    *  Guitar divides by `numberOfTaps`; material divides by `totalPlateTaps`, because the material
    *  `currentTapCount` is CUMULATIVE across phases — so the bar fills once across L→C→FLC rather than
-   *  refilling each phase. Mirrors Swift `tapProgress` (SpectrumCapture:698 guitar / :953 material). */
+   *  refilling each phase. Written where Swift writes it: a new sequence, each guitar and material tap, Redo's
+   *  rebase and a load — the last tap leaves it at 1. Mirrors Swift `tapProgress`. */
   tapProgress = 0
   /** The status from before a device-change settle began, restored when the settle has nothing of
    *  its own to say. `null` when no settle is in flight. */
   private statusBeforeSettle: string | null = null
 
-  /** Snapshot the progress from the CURRENT count. Called wherever `currentTapCount` changes, and
-   *  nowhere else.
-   *
-   *  This was a computed getter, which re-derived on every render — so raising the tap count after
-   *  a finished measurement retroactively shrank its progress bar (complete a 1-tap measurement,
-   *  set Taps to 3, and the full bar dropped to a third). Swift and Python both STORE it, writing
-   *  at each capture site and pinning 1.0 at completion, so a completed measurement's bar records
-   *  what was actually measured and a later count change — which only configures the NEXT
-   *  measurement — cannot rewrite it (#17 F34). */
-  private syncTapProgress(): void {
-    const total = this.isGuitar ? this.numberOfTaps : this.totalPlateTaps
-    this.tapProgress = total > 0 ? Math.min(1, this._currentTapCount / total) : 0
-  }
-
   /** Cumulative taps completed in the phases BEFORE `phase` — the base the material `currentTapCount`
-   *  rebases to on accept / redo / file auto-advance. Guarded on the prior phases actually having been
+   *  counts on from at each tap, and rebases to on Redo. Guarded on the prior phases actually having been
    *  captured, mirroring Swift's redo rebasing (`lCount` / `lcCount`, Control:465-487). */
   private materialPhaseBase(phase: MaterialTapPhase): number {
     const n = this.numberOfTaps
@@ -453,6 +434,7 @@ export class TapToneAnalyzer {
     // The shared reset — result data, per-peak state, completion flag, and the return to live.
     this.clearResult()
     this.currentTapCount = 0
+    this.tapProgress = 0
     // The user is explicitly starting a new sequence, so the loaded measurement's Threshold/Taps are
     // now theirs. Mirrors Swift startTapSequence (Control.swift:149) and Python start_tap_sequence;
     // covers the measurement-type change, file playback and New Tap/Cancel paths, each of which the
@@ -509,13 +491,6 @@ export class TapToneAnalyzer {
       this.setStatusMessage(this.materialArmPrompt())
     }
     this.notify()
-  }
-
-  /** Begin a fresh guitar tap accumulation (the device armed at 0 taps): drop any prior per-tap
-   *  spectra so the next recordGuitarTap starts clean. Only the accumulation — detection / pause /
-   *  completion are driven by the device's state events (6-TEST 3c-C2a). */
-  beginGuitarAccumulation(): void {
-    this.capturedTaps = []
   }
 
   /** Record one captured guitar tap's spectrum (computed + delivered raw by the device) and advance
@@ -717,6 +692,7 @@ export class TapToneAnalyzer {
     // linger over the loaded "frozen" measurement.
     this.detectionState = 'idle'
     this.currentTapCount = 0
+    this.tapProgress = 0
     this.materialTapPhase = 'complete'
     this.isMeasurementComplete = true
     // The file's tap count, BEFORE the raise — its hook clears the warning, so restoring it
@@ -1248,7 +1224,6 @@ export class TapToneAnalyzer {
     const phase = this.materialTapPhase
     if (phase === 'reviewingL') {
       this.materialTapPhase = 'capturingC'
-      this.currentTapCount = this.materialPhaseBase('capturingC') // cumulative: L's taps stay counted
       this.materialBuffer = []
       this.checkpointSession() // C phase start (so a redo can drop it)
       this.armMaterialPhase(this.matSearch('cross'), this.inputLevelDb, this.device?.audioTime ?? 0)
@@ -1260,7 +1235,6 @@ export class TapToneAnalyzer {
         // detection DISARMED (waitingForFlcTap) so the plate-repositioning bump isn't taken as the FLC
         // tap; then arm the FLC capture.
         this.materialTapPhase = 'waitingForFlcTap'
-        this.currentTapCount = this.materialPhaseBase('waitingForFlcTap') // cumulative: L+C stay counted
         this.materialBuffer = []
         this.checkpointSession() // FLC phase start (so a redo can drop it)
         this.setStatusMessage(this.materialArmPrompt()) // phase is waitingForFlcTap (#17 F37)
@@ -1312,6 +1286,7 @@ export class TapToneAnalyzer {
     // Rebase the cumulative count to the taps completed in the PRIOR phases — redoing C keeps L's taps
     // counted, redoing FLC keeps L+C's (Swift redo: `currentTapCount = lCount` / `= lcCount`).
     this.currentTapCount = this.materialPhaseBase(this.materialTapPhase)
+    this.tapProgress = this.currentTapCount / this.totalPlateTaps
     this.notify()
   }
 
@@ -1345,6 +1320,7 @@ export class TapToneAnalyzer {
     // Cumulative across phases (Swift): prior phases' taps + this phase's buffered taps. The phase
     // machinery below keys on `materialBuffer.length` (the WITHIN-phase count), never on currentTapCount.
     this.currentTapCount = this.materialPhaseBase(this.materialTapPhase) + this.materialBuffer.length
+    this.tapProgress = Math.min(1, this.currentTapCount / this.totalPlateTaps)
     const total = this.numberOfTaps
     if (this.materialBuffer.length < total) {
       // More taps for this phase — re-arm the same phase (Swift reEnableDetectionForNextPlateTap).
@@ -1385,7 +1361,6 @@ export class TapToneAnalyzer {
         this.setStatusMessage(this.materialCompleteString())
       } else if (playing) {
         this.materialTapPhase = 'capturingC'
-        this.currentTapCount = this.materialPhaseBase('capturingC') // cumulative: L's taps stay counted
         this.setStatusMessage('File: fL complete, capturing fC...')
         this.autoAdvanceMaterialPhase(this.matSearch('cross'))
       } else {
@@ -1398,7 +1373,6 @@ export class TapToneAnalyzer {
       if (playing) {
         if (this.measureFlc) {
           this.materialTapPhase = 'capturingFlc'
-          this.currentTapCount = this.materialPhaseBase('capturingFlc') // cumulative: L+C stay counted
           this.setStatusMessage('File: fC complete, capturing fLC...')
           this.autoAdvanceMaterialPhase(this.matSearch('flc'))
         } else {
@@ -2397,12 +2371,12 @@ export class TapToneAnalyzer {
     this.gatedCaptureActive = false
     this.guitarTapCount += 1
     this.recordGuitarTap(spectrum)
+    this.tapProgress = Math.min(1, this.currentTapCount / this.numberOfTaps)
 
     const total = this.numberOfTaps
     // A tap was captured: stop listening until the cooldown re-arms (Swift leaves `listening` here).
     this.detectionState = 'idle'
     if (this.guitarTapCount < total) {
-      this.currentTapCount = this.guitarTapCount
       this.setStatusMessage(this.guitarLoopStatus(false)) // Swift SpectrumCapture:742
       this.scheduleGuitarReEnable()
       this.notify()
@@ -2410,7 +2384,6 @@ export class TapToneAnalyzer {
     }
 
     this.guitarTapCount = 0
-    this.currentTapCount = total
     this.finishSessionRecording(`Guitar_${total}tap`) // write the continuous session WAV (dump-gated)
     this.setStatusMessage('All taps captured. Processing...')
     this.notify()
@@ -2775,10 +2748,6 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  setCurrentTapCount(n: number): void {
-    this.currentTapCount = n
-    this.notify()
-  }
 
   /** The device forwards its engine-state transitions here (was setDetecting). Drives isDetecting/
    *  isDetectionPaused AND the guitar status strings (the device owns the guitar detection loop, so the
