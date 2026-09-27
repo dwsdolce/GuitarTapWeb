@@ -415,6 +415,8 @@ export class TapToneAnalyzer {
     this.loadedAxisRange = null
     this.loadedSettings = null
     this.currentDecayTime = null
+    this.peakMagnitudeHistory = []
+    this.resetDecayTracking()
     this.showingMultiTapComparison = false
     // A new sequence listens to the input until playFile says otherwise, and no longer names a file.
     this.resultProvenance = null
@@ -1305,6 +1307,13 @@ export class TapToneAnalyzer {
     }
   }
 
+  /** There is something to save or export: a complete measurement (captured, loaded, multi-tap, or a
+   *  finished plate/brace) or a comparison. Save, Export Spectrum and Export PDF are enabled only then.
+   *  Mirrors Swift `hasResultToSaveOrExport`. */
+  get hasResultToSaveOrExport(): boolean {
+    return this.isMeasurementComplete || this.displayMode === 'comparison'
+  }
+
   /** A file is playing through the device. Mirrors Swift `fftAnalyzer.isPlayingFile`. */
   get isPlayingFile(): boolean {
     return this.device?.playingFile ?? false
@@ -2169,6 +2178,12 @@ export class TapToneAnalyzer {
     this.isTrackingDecay = false
   }
 
+  /** Stops any active ring-out tracking — a new sequence must not keep measuring the previous tap. Swift
+   *  `resetDecayTracking()`. */
+  private resetDecayTracking(): void {
+    this.isTrackingDecay = false
+  }
+
   /** Record one chunk's level, and re-measure. Stops — without recording — once the chunk is
    *  `decayTrackingDuration` of audio after the tap. Swift `trackDecayFast(inputLevel:audioTime:)`. */
   trackDecayFast(inputLevel: number, audioTime: number): void {
@@ -2179,8 +2194,6 @@ export class TapToneAnalyzer {
       return
     }
     this.peakMagnitudeHistory.push({ time: audioTime, magnitude: inputLevel })
-    const decayHistoryWindowSeconds = 5.0
-    this.peakMagnitudeHistory = this.peakMagnitudeHistory.filter((e) => audioTime - e.time < decayHistoryWindowSeconds)
     const minimumDecayHistoryCount = 10
     if (tapTime !== null && this.peakMagnitudeHistory.length > minimumDecayHistoryCount) {
       this.setDecayTime(this.measureDecayTime(tapTime))
@@ -2616,6 +2629,7 @@ export class TapToneAnalyzer {
         isDetecting: this.isDetecting,
         isDetectionPaused: this.isDetectionPaused,
         isPlayingFile: this.isPlayingFile,
+        hasResultToSaveOrExport: this.hasResultToSaveOrExport,
         playingFileName: this.device?.playingFileName ?? null,
         resultProvenance: this.resultProvenance,
         isReadyForDetection: this.isReadyForDetection,
@@ -2997,6 +3011,8 @@ export interface TapToneSnapshot {
   isDetectionPaused: boolean
   /** A file is playing through the device. */
   isPlayingFile: boolean
+  /** Save and the exports are enabled only when this holds (see the analyzer's getter). */
+  hasResultToSaveOrExport: boolean
   /** The file being played or last played, for the chart title; null once a new sequence starts. */
   playingFileName: string | null
   /** Where the current result came from when it is not the live input (see the analyzer's field). */

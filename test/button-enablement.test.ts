@@ -7,6 +7,7 @@
 // three editions the tests assert against the production rule. Update the table on
 // all three together.
 import { describe, it, expect } from 'vitest'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { buttonRule } from '../src/state/buttonEnablement'
 
 describe('ButtonEnablement', () => {
@@ -196,5 +197,18 @@ describe('ButtonEnablement', () => {
         isPlayingFile: true,
       }),
     ).toEqual(cancelOnly)
+  })
+
+  // Save and the exports: enabled only when there is something to save or export — a complete
+  // measurement or a comparison. One analyzer rule, read by the Save and export buttons. Mirrors Swift
+  // hasResultToSaveOrExport_onlyForACompleteMeasurementOrAComparison.
+  it('hasResultToSaveOrExport — only a complete measurement or a comparison', () => {
+    const a = new TapToneAnalyzer()
+    expect(a.hasResultToSaveOrExport, 'nothing to save or export while live').toBe(false)
+    a.isMeasurementComplete = true
+    expect(a.hasResultToSaveOrExport, 'a complete measurement').toBe(true)
+    a.isMeasurementComplete = false
+    a.displayMode = 'comparison'
+    expect(a.hasResultToSaveOrExport, 'a comparison').toBe(true)
   })
 })

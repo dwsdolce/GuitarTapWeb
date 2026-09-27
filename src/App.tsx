@@ -850,7 +850,6 @@ export default function App() {
     [comparison],
   )
   // Export the CURRENT chart (whatever's displayed) as a PNG — same props passed to SpectrumChart.
-  const canExportSpectrum = !!(displaySpectrum || comparison || showMultiTap || (material && matSpectra.longitudinal))
   const exportSpectrumImage = useCallback(async () => {
     const now = performance.now()
     if (isExportingRef.current || now - lastSpectrumExportRef.current < 700) return  // in-flight or double-click
@@ -957,7 +956,7 @@ export default function App() {
         <button
           className="btn"
           onClick={() => setShowSave(true)}
-          disabled={comparison ? false : material ? matPhase !== 'complete' : !captured}
+          disabled={!snapshot.hasResultToSaveOrExport}
           title={HINTS.save}
         >
           <SaveIcon />
@@ -1343,7 +1342,7 @@ export default function App() {
           {/* Guitar summary (Ring-Out · Tap Ratio) — pinned below the scrollable peak list, above
               the export bar, side by side. Mirrors the native live panel (guitar only). */}
           {!material && !comparison && !showMultiTap && (
-            <AnalysisResults decayTime={currentDecayTime} ratio={tapRatio} guitarType={guitarType} />
+            <AnalysisResults decayTime={currentDecayTime} decayThreshold={analyzer.decayThreshold} ratio={tapRatio} guitarType={guitarType} />
           )}
 
           {/* Export footer — running/stopped status (left) + Export Spectrum · Export PDF (right),
@@ -1356,7 +1355,7 @@ export default function App() {
               <button
                 className="btn mini"
                 onClick={exportSpectrumImage}
-                disabled={!canExportSpectrum || isExporting}
+                disabled={!snapshot.hasResultToSaveOrExport || isExporting}
                 title={HINTS.exportSpectrum}
               >
                 ∿ Export Spectrum
@@ -1364,7 +1363,7 @@ export default function App() {
               <button
                 className="btn mini"
                 onClick={exportPdf}
-                disabled={!canExportSpectrum || isExporting}
+                disabled={!snapshot.hasResultToSaveOrExport || isExporting}
                 title="Export a single-page PDF report"
               >
                 ▤ Export PDF

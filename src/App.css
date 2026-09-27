@@ -463,6 +463,11 @@
   font-size: 0.64rem;
   color: var(--muted);
 }
+/* No value yet — a small grey placeholder, as Swift's caption-sized secondary text. */
+.ac-placeholder {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
 
 /* Highlighted Specific Modulus (E/ρ) box */
 .mat-specmod {
