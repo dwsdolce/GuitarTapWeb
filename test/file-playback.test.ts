@@ -255,6 +255,146 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
     expect(sessions).toHaveLength(0)
   }, 20_000)
 
+  // Cancel during a playback stops the file and restarts the sequence on live input; a measurement-type
+  // change stops it before arming the new type. Nothing from the rest of the file reaches the new
+  // sequence, and the playback ends (the input's calibration returns). Twins of Swift's
+  // stopping-a-playback cases.
+  async function stopPlaybackAfterFirstTap(stop: (a: TapToneAnalyzer) => void) {
+    const reg = oracle.filePlayback['REG-G2']
+    const wav = loadWav(reg.fixture)
+    const input = loadCal(oracle.filePlayback['REG-B1'].calibration)
+    const analyzer = new TapToneAnalyzer()
+    analyzer.measurementType = 'generic'
+    analyzer.peakMinThreshold = reg.settings.peakMinThreshold!
+    analyzer.setNumberOfTaps(8)
+    analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
+    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: (s, db, t) => analyzer.processAudioFrame(s, db, t) })
+    engine.initForTesting()
+    analyzer.setDevice(engine)
+    engine.setCalibration(input)
+    let ended = false
+    const playing = analyzer.playFile(wav.samples, wav.sampleRate, null, 'Recording').then(() => {
+      ended = true
+    })
+    const deadline = Date.now() + 20_000
+    while (analyzer.currentTapCount < 1 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5))
+    expect(analyzer.currentTapCount, 'precondition: a tap before the stop').toBeGreaterThanOrEqual(1)
+    stop(analyzer)
+    await playing
+    return { analyzer, engine, ended, input }
+  }
+  const runOnFor = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  it('Cancel during a playback stops the file and restarts on live input', async () => {
+    const { analyzer, engine, ended, input } = await stopPlaybackAfterFirstTap((a) => a.cancelTapSequence())
+    expect(engine.playingFile, 'the file is stopped').toBe(false)
+    expect(analyzer.isPlayingFile, 'the view sees no playback').toBe(false)
+    expect(ended, 'the playback ended').toBe(true)
+    expect(engine.activeCalibration, "the input's calibration is back").toBe(input)
+    expect(analyzer.detectionState, 'a fresh sequence is armed').toBe('listening')
+    expect(analyzer.currentTapCount, 'the partial result is discarded').toBe(0)
+    // The rest of the file must not reach the fresh sequence.
+    await runOnFor(2000)
+    expect(analyzer.currentTapCount, 'no tap from the abandoned file').toBe(0)
+    expect(analyzer.isMeasurementComplete).toBe(false)
+  }, 30_000)
+
+  it('a measurement-type change during a playback stops the file before arming the new type', async () => {
+    const { analyzer, engine, ended } = await stopPlaybackAfterFirstTap((a) => {
+      a.measurementType = 'plate'
+      a.requestStartTapSequence() // what App's type-change arm does
+    })
+    expect(engine.playingFile, 'the file is stopped').toBe(false)
+    expect(ended, 'the playback ended').toBe(true)
+    expect(analyzer.materialTapPhase, 'the plate sequence is armed').toBe('capturingL')
+    await runOnFor(2000)
+    expect(analyzer.selectedLongitudinalPeak, 'no guitar tap from the abandoned file reaches the plate measurement').toBeNull()
+    expect(analyzer.currentTapCount).toBe(0)
+  }, 30_000)
+
+  // The chart title names the file being played, and still names it when the file ends; a new sequence or
+  // a Cancel mid-playback clears it. Mirrors Swift playingFileName (chartTitle: playingFileName ??
+  // loadedMeasurementName ?? "New").
+  it('a played file is named while it plays and after it ends; a new sequence clears the name', async () => {
+    const reg = oracle.filePlayback['REG-G1']
+    const wav = loadWav(reg.fixture)
+    const analyzer = new TapToneAnalyzer()
+    analyzer.measurementType = 'generic'
+    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: (s, db, t) => analyzer.processAudioFrame(s, db, t) })
+    engine.initForTesting()
+    analyzer.setDevice(engine)
+    const playing = analyzer.playFile(wav.samples, wav.sampleRate, null, 'Recording 5')
+    expect(analyzer.getSnapshot().playingFileName, 'named while it plays').toBe('Recording 5')
+    await playing
+    expect(analyzer.getSnapshot().playingFileName, 'still named when it ends').toBe('Recording 5')
+    analyzer.requestStartTapSequence()
+    expect(analyzer.getSnapshot().playingFileName, 'a new sequence clears it').toBeNull()
+  }, 20_000)
+
+  it('Cancel during a playback clears the file name', async () => {
+    const { analyzer } = await stopPlaybackAfterFirstTap((a) => a.cancelTapSequence())
+    expect(analyzer.getSnapshot().playingFileName).toBeNull()
+  }, 30_000)
+
+  // A result made from a played file is saved with the file's provenance: the calibration it was played
+  // with (or none), the file's sample rate, and no microphone — the microphone that recorded a file is
+  // unknown. A new sequence listens to the input again, and saves the input's. Twins of Swift's cases.
+  const VIEW = { minHz: 100, maxHz: 1200, minDb: -100, maxDb: 0 }
+
+  it('a save after a playback records the file provenance and an unknown microphone', async () => {
+    const reg = oracle.filePlayback['REG-B1']
+    const analyzer = await playMaterial(reg, true)
+    expect(analyzer.materialTapPhase, 'precondition: the brace completed').toBe('complete')
+    const m = analyzer.buildMeasurement('', '', VIEW)
+    expect(m, 'a measurement to save').not.toBeNull()
+    expect(m!.microphoneName, 'the microphone is unknown').toBeUndefined()
+    expect(m!.microphoneUID).toBeUndefined()
+    expect(m!.calibrationName, "the file's calibration").toBe(loadCal(reg.calibration)!.name)
+    expect(m!.sampleRate, "the file's sample rate").toBe(loadWav(reg.fixture).sampleRate)
+    expect(m!.selectedLongitudinalPeakID, "fL's role, read by the save").toBe(analyzer.selectedLongitudinalPeak!.id)
+  }, 30_000)
+
+  it('a loaded measurement reports its recorded provenance, and a re-save keeps it', async () => {
+    // A played-file result built with an unknown microphone and the file's calibration and rate.
+    const reg = oracle.filePlayback['REG-B1']
+    const source = await playMaterial(reg, true)
+    const saved = source.buildMeasurement('', '', VIEW)!
+
+    // Loaded by an analyzer whose input has no calibration: the loaded result reports the file's.
+    const sut = new TapToneAnalyzer()
+    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: (s, db, t) => sut.processAudioFrame(s, db, t) })
+    engine.initForTesting()
+    sut.setDevice(engine)
+    sut.loadMeasurement(saved)
+    expect(sut.resultProvenance, 'a loaded result has provenance').not.toBeNull()
+    expect(sut.captureMicrophoneName, 'the microphone is unknown').toBeUndefined()
+    expect(sut.captureCalibrationName, 'the recorded calibration').toBe(saved.calibrationName)
+    expect(sut.captureSampleRate, 'the recorded sample rate').toBe(saved.sampleRate)
+
+    sut.measurementType = 'brace' // App applies the loaded measurement's type (loadedSettings)
+    const reSaved = sut.buildMeasurement('', '', VIEW)!
+    expect(reSaved.microphoneName, 'a re-save keeps the unknown microphone').toBeUndefined()
+    expect(reSaved.calibrationName, 'and the recorded calibration').toBe(saved.calibrationName)
+    expect(reSaved.sampleRate, 'and the recorded sample rate').toBe(saved.sampleRate)
+  }, 30_000)
+
+  it('a new sequence after a playback saves the input provenance', async () => {
+    const reg = oracle.filePlayback['REG-G1']
+    const input = loadCal(oracle.filePlayback['REG-B1'].calibration)
+    const analyzer = new TapToneAnalyzer()
+    analyzer.measurementType = 'generic'
+    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: (s, db, t) => analyzer.processAudioFrame(s, db, t) })
+    engine.initForTesting()
+    analyzer.setDevice(engine)
+    engine.setCalibration(input)
+    const wav = loadWav(reg.fixture)
+    await analyzer.playFile(wav.samples, wav.sampleRate, null)
+    expect(analyzer.captureCalibrationName, 'precondition: the file played uncalibrated').toBeUndefined()
+
+    analyzer.startTapSequence({ arm: false })
+    expect(analyzer.captureCalibrationName, "the input's calibration again").toBe(input!.name)
+  }, 30_000)
+
   // A file plays with the calibration given for it, or with none: the microphone it was recorded with
   // is unknown, so the live input's calibration never applies to it. The input's calibration is back
   // once playback ends. Twins of Swift's playback-calibration cases.

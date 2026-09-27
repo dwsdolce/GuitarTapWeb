@@ -24,8 +24,7 @@ import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
-import { buildGuitarMeasurement, buildMaterialMeasurement, buildComparisonEntries, buildComparisonMeasurement, comparisonEntryModeFreqs, comparisonAxisRange, colorComponentsToCss, measurementToLive, measurementToLiveMaterial, measurementWarning } from './measurement/fromLive'
-import { materialInputsFromSettings } from './measurement/materialMeasurementInputs'
+import { buildComparisonEntries, buildComparisonMeasurement, comparisonEntryModeFreqs, comparisonAxisRange, colorComponentsToCss, measurementToLive, measurementToLiveMaterial, measurementWarning } from './measurement/fromLive'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { importMeasurements, saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
@@ -190,7 +189,9 @@ export default function App() {
   // load while its restored Threshold/Taps are active; cleared on a new measurement or
   // when the user changes Taps. It is MODEL state (snapshot.showLoadedSettingsWarning), as in
   // Swift and Python.
-  // Name of the currently loaded measurement → chart title ("FFT Peaks — {name}", else "New").
+  // The chart title names the file being played (or last played), else the loaded measurement, else
+  // "New" — Swift chartTitle: fft.playingFileName ?? tap.loadedMeasurementName ?? "New".
+  const playingFileName = snapshot.playingFileName
   const loadedName = snapshot.loadedMeasurementName
   const loadedNotes = snapshot.loadedNotes
   const annotationMode = settings.annotationVisibilityMode
@@ -304,7 +305,7 @@ export default function App() {
   // → startTapSequence(). Reads measRef so it always sees the live type (fires outside render).
   const armForCurrentType = useCallback(() => {
     if (!engineRef.current?.running) return
-    analyzer.startTapSequence() // one path, guitar or material — the analyzer arms the device
+    analyzer.requestStartTapSequence() // one path, guitar or material; stops a playing file first
   }, [analyzer])
   // Tracks the previous measurement type so a type change can distinguish a guitar-SUBTYPE change (both
   // types guitar) from a paradigm change (crossing guitar↔material, or plate↔brace).
@@ -390,7 +391,7 @@ export default function App() {
       // The analyzer applies the calibration, arms the sequence and plays the file (the app's one Play
       // File path, which the file-playback regressions also run). Mirrors Swift openAudioFile calling
       // tapToneAnalyzer.playFile(url:calibrationURL:completion:).
-      await analyzer.playFile(samples, fileRate, cal)
+      await analyzer.playFile(samples, fileRate, cal, audio.name.replace(/\.[^.]+$/, ''))
     } catch (e) {
       setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
     }
@@ -419,7 +420,7 @@ export default function App() {
 
   const newTap = useCallback(() => {
     clearLoadedMeasurement()
-    analyzer.startTapSequence() // clears, returns to live, and arms — guitar or material
+    analyzer.requestStartTapSequence() // clears, returns to live, and arms — guitar or material
   }, [analyzer, clearLoadedMeasurement])
 
   const changeTaps = useCallback((n: number) => {
@@ -428,12 +429,14 @@ export default function App() {
     engineRef.current?.setConfig({ numberOfTaps: v })
   }, [analyzer])
 
-  // Cancel is a restart (mirror Swift cancelTapSequence → startTapSequence): re-arm a fresh
-  // sequence exactly like New Tap. Only offered while a multi-step sequence is active; during a
-  // material review phase the Cancel button acts as Redo instead (see its onClick).
+  // Cancel is a restart (Swift cancelTapSequence): re-arm a fresh sequence exactly like New Tap, and
+  // during a file playback stop the file first. Offered while a multi-step sequence is active and
+  // throughout a playback; during a material review phase the Cancel button acts as Redo instead
+  // (see its onClick).
   const cancelTap = useCallback(() => {
-    newTap() // one restart path for both types, like Swift cancelTapSequence -> startTapSequence
-  }, [newTap])
+    clearLoadedMeasurement()
+    analyzer.cancelTapSequence()
+  }, [analyzer, clearLoadedMeasurement])
 
   // Lock the stepper once a tap has been captured mid-sequence, so the per-phase tap total can't
   // change — the exact canonical single expression, guitar AND material (Swift `.disabled(currentTapCount
@@ -717,55 +720,26 @@ export default function App() {
   // assembles a measurement from live state, shared by Save and the PDF/report exports so
   // the saved record and the exported report are built identically. Returns null when
   // there's nothing to capture (no spectrum yet).
+  // The current measurement for a save or a PDF: the analyzer builds it from its own state (Swift
+  // saveMeasurement); App passes only the view's state — the name, the notes and the displayed range. A
+  // comparison is App's, as Swift's view branches to saveComparison.
   const buildCurrentMeasurement = useCallback(
     (name: string, notes: string): TapToneMeasurementModel | null => {
       if (comparison) return buildComparisonMeasurement({ name, notes, entries: comparison })
-      if (material) {
-        if (!matSpectra.longitudinal) return null
-        return buildMaterialMeasurement({
-          name, notes, spectra: matSpectra, peaks: matPeaks, view, settings, numberOfTaps, sampleRate, deviceLabel,
-          // Store B is the sole source for the saved dims (seeded at complete). Fall back to the
-          // Settings snapshot defensively if it's somehow unset.
-          materialInputs: matInputs ?? materialInputsFromSettings(brace ? 'brace' : 'plate', settings),
-          microphoneUID: currentDeviceId ?? undefined,
-          calibrationName: calibrationRef.current?.name,
-          annotationOffsetsById: annotationOffsets,
-        })
-      }
-      if (!captured) return null
-      return buildGuitarMeasurement({
-        name,
-        notes,
-        spectrum: captured,
-        peaks,
-        selectedIds,
-        overridesById: overrides,
-        annotationOffsetsById: annotationOffsets,
-        // The ring-out on screen: the file's for a loaded measurement (it survives Re-analyze), the live
-        // tracker's for a capture — one value on the analyzer, as Swift's currentDecayTime.
-        decayTime: currentDecayTime,
-        view,
-        settings,
-        numberOfTaps,
-        tapEntries,
-        sampleRate,
-        deviceLabel,
-        microphoneUID: currentDeviceId ?? undefined,
-        calibrationName: calibrationRef.current?.name,
-        // A still-loaded measurement (loadedPeaks not yet cleared by Re-analyze) keeps its
-        // authoritative saved peaks; live captures and re-analyzed measurements persist the full set.
-        userModified,
-      })
+      return analyzer.buildMeasurement(name, notes, view)
     },
-    [comparison, material, matSpectra, matPeaks, matInputs, brace, captured, peaks, selectedIds, overrides, annotationOffsets, userModified, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId, currentDecayTime],
+    [analyzer, comparison, view],
   )
 
   const onSaveMeasurement = useCallback(
     (name: string, notes: string) => {
-      const m = buildCurrentMeasurement(name, notes)
-      if (m) void saveMeasurement(m)
+      if (comparison) {
+        void saveMeasurement(buildComparisonMeasurement({ name, notes, entries: comparison }))
+        return
+      }
+      void analyzer.saveMeasurement(name, notes, view)
     },
-    [buildCurrentMeasurement],
+    [analyzer, comparison, view],
   )
 
   // Export the CURRENT view as a single-page PDF report (live mirror of the Saved-Measurements
@@ -884,7 +858,7 @@ export default function App() {
     lastSpectrumExportRef.current = now
     setIsExporting(true)
     const opts: SpectrumImageOpts = {
-      title: `FFT Peaks — ${loadedName ?? 'New'}`,
+      title: `FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`,
       spectrum: comparison || material || showMultiTap ? null : displaySpectrum,
       overlays: comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined,
       markers: comparison || showMultiTap ? [] : chartMarkers,
@@ -904,7 +878,7 @@ export default function App() {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, loadedName, settings.measurementType, guitarType, setError, setErrorKind])
+  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, playingFileName, loadedName, settings.measurementType, guitarType, setError, setErrorKind])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
@@ -940,7 +914,7 @@ export default function App() {
           <span>Results</span>
         </button>
         <button
-          className="btn"
+          className={`btn${snapshot.isPlayingFile ? ' playing-file' : ''}`}
           onClick={() => setShowPlayFile(true)}
           disabled={!running || comparison != null}
           title={HINTS.playFile}
@@ -1148,6 +1122,7 @@ export default function App() {
             measurementType: material ? (brace ? 'brace' : 'plate') : 'classical',
             materialTapPhase: matPhase,
             numberOfTaps,
+            isPlayingFile: snapshot.isPlayingFile,
           })
           return (
             // No-wrap group so the trio never splits across rows, and each button has a fixed
@@ -1207,7 +1182,7 @@ export default function App() {
                       : liveSpectrum
                     : displaySpectrum
               }
-              title={`FFT Peaks — ${loadedName ?? 'New'}`}
+              title={`FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`}
               overlays={comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined}
               guitarType={material || comparison || showMultiTap ? undefined : guitarType}
               peakMin={peakMin}
@@ -1269,7 +1244,12 @@ export default function App() {
               absent, so the header doesn't reflow between measurement types. */}
           {!comparison && (
             <div className="results-mic">
-              <span className="results-mic-name">{deviceLabel}</span>
+              {/* The microphone the result was captured with: the input for a live result, the recorded
+                  one — or "unknown" — for a played file or a loaded measurement. Swift
+                  TapAnalysisResultsView reading analyzer.captureMicrophoneName. */}
+              <span className="results-mic-name">
+                {snapshot.resultProvenance ? (snapshot.resultProvenance.microphoneName ?? 'unknown') : deviceLabel}
+              </span>
               <button
                 className="btn mini icon"
                 onClick={reanalyze}

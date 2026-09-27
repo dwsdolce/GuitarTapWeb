@@ -120,6 +120,9 @@ export class RealtimeFFTAnalyzer {
   sampleRate = 48000
   /** True while a file is playing through the pipeline (mic chunks are ignored meanwhile). */
   playingFile = false
+  /** The name of the file being played, or last played — kept after the file ends so a finished result
+   *  still names it; `stopFilePlayback` and a new tap sequence clear it. Mirrors Swift `playingFileName`. */
+  playingFileName: string | null = null
   /** Test seam: when true, the pure pipeline (playFile/arm/capture) runs without a browser
    *  AudioContext (no mic). The web equivalent of Swift TapToneAnalyzer.forTesting(). */
   private headless = false
@@ -741,12 +744,16 @@ export class RealtimeFFTAnalyzer {
     fileSampleRate: number,
     opts?: {
       pace?: boolean
+      /** The file's name without its extension, for the chart title (Swift `playingFileName`). */
+      fileName?: string | null
     },
   ): Promise<void> {
     if ((!this.context && !this.headless) || this.playingFile) return
+    const myGeneration = ++this.filePlaybackGeneration
     this.playingFile = true
+    this.playingFileName = opts?.fileName ?? null
     // Swap to the file's rate + rate-dependent buffers (Swift prepareForFilePlayback).
-    const savedRate = this.sampleRate
+    this.liveSampleRate = this.sampleRate
     this.sampleRate = fileSampleRate
     this.accumIdx = 0
 
@@ -761,7 +768,7 @@ export class RealtimeFFTAnalyzer {
     // `setTimeout`.
     const audioClock = !this.headless && this.context !== null
     const renderedAtStart = this.renderedSeconds
-    for (let i = 0; i < samples.length && this.playingFile; i += CHUNK) {
+    for (let i = 0; i < samples.length && this.filePlaybackGeneration === myGeneration; i += CHUNK) {
       const chunk = samples.subarray(i, Math.min(i + CHUNK, samples.length))
       let sumSq = 0
       for (let k = 0; k < chunk.length; k++) sumSq += chunk[k]! * chunk[k]!
@@ -770,12 +777,38 @@ export class RealtimeFFTAnalyzer {
       if (audioClock) await this.untilRendered(renderedAtStart + (i + chunk.length) / fileSampleRate)
       else await new Promise((r) => setTimeout(r, chunkMs))
     }
+    // Stopped: stopFilePlayback has restored live state, and nothing of the abandoned file is processed.
+    if (this.filePlaybackGeneration !== myGeneration) return
     // File end: let the analyzer finish a capture the file stopped filling, before live audio could
     // reach it (Swift preMicRestartHandler → flushGatedCaptureOnFileEnd).
-    if (this.playingFile) this.preMicRestartHandler?.()
+    this.preMicRestartHandler?.()
     // Restore live state; the mic worklet kept running, so clearing the flag resumes it.
-    this.sampleRate = savedRate
+    this.sampleRate = this.liveSampleRate
     this.playingFile = false
+  }
+
+  /** Identity token for the active playback: bumped when a playback starts or is stopped. The pump
+   *  checks it on every chunk and before any end-of-file work. Mirrors Swift filePlaybackGeneration. */
+  private filePlaybackGeneration = 0
+  /** The live input's sample rate, restored when a playback ends. */
+  private liveSampleRate = 0
+
+  /** Stop a file playback before the end of the file and switch back to the microphone.
+   *
+   *  The rest of the file is not played, and nothing from it is processed: no capture is flushed —
+   *  the playback is being abandoned. `playFile`'s promise resolves at once. No-op when no file is
+   *  playing. Mirrors Swift `RealtimeFFTAnalyzer.stopFilePlayback()`. */
+  stopFilePlayback(): void {
+    if (!this.playingFile) return
+    this.filePlaybackGeneration++
+    this.sampleRate = this.liveSampleRate
+    this.accumIdx = 0
+    this.playingFile = false
+    this.playingFileName = null
+    // Wake a pacer wait so the stopped pump returns now.
+    const waiters = this.playbackPacerWaiters
+    this.playbackPacerWaiters = []
+    for (const w of waiters) w.resolve()
   }
 
   /** Seconds of audio the device has rendered while files played — the file pacer's clock. */

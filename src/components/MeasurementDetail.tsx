@@ -100,7 +100,9 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
             <InfoRow label="Date:" value={formatDisplayDate(m.timestamp)} />
             <InfoRow label="Measurement Type:" value={measurementTypeName(m)} />
             {m.numberOfTaps != null && <InfoRow label="Number of Taps:" value={String(m.numberOfTaps)} />}
-            {m.microphoneName && <InfoRow label="Microphone:" value={m.microphoneName} />}
+            {/* No recorded microphone means it is unknown (a played file, say). A comparison has no
+                microphone of its own. Mirrors Swift MeasurementDetailView. */}
+            {!comparison && <InfoRow label="Microphone:" value={m.microphoneName || 'unknown'} />}
             {m.calibrationName && <InfoRow label="Calibration:" value={m.calibrationName} />}
             {m.notes && (
               <div className="detail-notes">

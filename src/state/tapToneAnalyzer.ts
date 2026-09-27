@@ -22,7 +22,8 @@ import type { GuitarTypeName } from '../dsp/guitarModes'
 import { makeResonantPeak, TapEntry, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapToneMeasurementModel } from '../measurement/types'
 import { newId } from '../measurement/newId'
 import { Pitch } from '../dsp/pitch'
-import { comparisonAxisRange, GUITAR_TYPE_RAW, measurementToLive, measurementToLiveMaterial, measurementWarning } from '../measurement/fromLive'
+import { buildGuitarMeasurement, buildMaterialMeasurement, comparisonAxisRange, GUITAR_TYPE_RAW, measurementToLive, measurementToLiveMaterial, measurementWarning } from '../measurement/fromLive'
+import { saveMeasurement as storeMeasurement } from '../measurement/store'
 import type { ChartView } from '../presentation/chartTypes'
 import { dftAnalRect, GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
 import { RealtimeFFTAnalyzer, type MaterialSearch, type MaterialPhaseName, type EngineState } from '../audio/realtimeFFTAnalyzer'
@@ -415,6 +416,9 @@ export class TapToneAnalyzer {
     this.loadedSettings = null
     this.currentDecayTime = null
     this.showingMultiTapComparison = false
+    // A new sequence listens to the input until playFile says otherwise, and no longer names a file.
+    this.resultProvenance = null
+    if (this.device) this.device.playingFileName = null
     // No pause-clear here: the arming below moves straight to 'listening', which leaves 'paused'
     // on its own. Mirrors Swift/Python startTapSequence.
 
@@ -528,10 +532,69 @@ export class TapToneAnalyzer {
   }
 
   /** Cancel the sequence by restarting it: re-arm a fresh sequence (≡ New Tap), NOT
-   *  complete the measurement. Mirrors Swift cancelTapSequence (which delegates to
-   *  startTapSequence). Cancel is only offered while a multi-step sequence is active. */
+   *  complete the measurement. Mirrors Swift cancelTapSequence. Cancel is offered while a multi-step
+   *  sequence is active, and throughout a file playback. During a playback it stops the file first,
+   *  so the fresh sequence listens to the microphone and the partial result is discarded. */
   cancelTapSequence(): void {
+    this.device?.stopFilePlayback()
     this.startTapSequence()
+  }
+
+  /** Build the current measurement from the analyzer's state — guitar or material — or null when there is
+   *  no result to save. Everything but the view's own state is read here: the peaks and selection, the
+   *  identified material peaks, overrides, annotation offsets, the ring-out, the spectra, the material
+   *  inputs, and the capture's provenance. The view passes the name, the notes and the displayed range.
+   *  The save and the live PDF export both use it. Mirrors Swift `saveMeasurement` (which builds and
+   *  stores in one step). */
+  buildMeasurement(name: string, notes: string, view: ChartView): TapToneMeasurementModel | null {
+    const provenance = {
+      sampleRate: this.captureSampleRate,
+      deviceLabel: this.captureMicrophoneName ?? '',
+      microphoneUID: this.captureMicrophoneUID,
+      calibrationName: this.captureCalibrationName,
+    }
+    const type = this.measurementType
+    const settings = { ...this.settings, measurementType: type }
+    if (!isGuitarType(type)) {
+      if (!this.matSpectra.longitudinal) return null
+      return buildMaterialMeasurement({
+        name,
+        notes,
+        spectra: this.matSpectra,
+        peaks: { longitudinal: this.selectedLongitudinalPeak, cross: this.selectedCrossPeak, flc: this.selectedFlcPeak },
+        view,
+        settings,
+        numberOfTaps: this.numberOfTaps,
+        // The measurement's own dimensions; the Settings template until completion has seeded them.
+        materialInputs: this.materialInputs ?? materialInputsFromSettings(type, settings),
+        annotationOffsetsById: this.annotationOffsets,
+        ...provenance,
+      })
+    }
+    const spectrum = this.frozenSpectrum()
+    if (!spectrum) return null
+    return buildGuitarMeasurement({
+      name,
+      notes,
+      spectrum,
+      peaks: this.peaks,
+      selectedIds: this.selectedPeakIds,
+      overridesById: this.overrides,
+      annotationOffsetsById: this.annotationOffsets,
+      decayTime: this.currentDecayTime,
+      view,
+      settings,
+      numberOfTaps: this.numberOfTaps,
+      tapEntries: this.tapEntries,
+      userModified: this.userModifiedSelection,
+      ...provenance,
+    })
+  }
+
+  /** Save the current measurement to the measurement store. Mirrors Swift `saveMeasurement`. */
+  async saveMeasurement(name: string, notes: string, view: ChartView): Promise<void> {
+    const m = this.buildMeasurement(name, notes, view)
+    if (m) await storeMeasurement(m)
   }
 
   /** Load a saved measurement — guitar, material or comparison record. THE load entry point.
@@ -560,6 +623,7 @@ export class TapToneAnalyzer {
       this.loadComparisonRecord(m.comparisonEntries) // ...then enters comparison (clears loaded state)
       this.loadedMeasurementName = m.measurementName ?? null // ...but a SAVED record has a name
       this.loadedNotes = m.notes ?? null
+      this.resultProvenance = null // a comparison has no microphone of its own
       this.notify()
       return
     }
@@ -608,6 +672,13 @@ export class TapToneAnalyzer {
     this.loadedNotes = m.notes ?? null
     // The FILE's stored ring-out, not whatever the live tracker last reported.
     this.currentDecayTime = m.decayTime ?? null
+    // The loaded result's provenance is what the file recorded; no microphone means unknown.
+    this.resultProvenance = {
+      microphoneName: m.microphoneName ?? null,
+      microphoneUID: m.microphoneUID ?? null,
+      calibrationName: m.calibrationName ?? null,
+      sampleRate: m.sampleRate ?? null,
+    }
     // Load-time provenance: the microphone, calibration and sample rate this was recorded with,
     // against what is connected now. The device carries all three, so the model can ask it — the
     // check used to sit in App because only App could see them.
@@ -1211,17 +1282,80 @@ export class TapToneAnalyzer {
    *
    *  `startTapSequence` runs BEFORE the file starts, as in Swift, so the analyzer is fully reset before
    *  any file audio flows. */
-  async playFile(samples: Float32Array, sampleRate: number, calibration: Calibration | null): Promise<void> {
+  async playFile(
+    samples: Float32Array,
+    sampleRate: number,
+    calibration: Calibration | null,
+    fileName: string | null = null,
+  ): Promise<void> {
     const device = this.device
     if (!device) return
     const previousCalibration = device.activeCalibration
     device.setCalibration(calibration)
     this.startTapSequence({ skipWarmup: this.isGuitar })
     try {
-      await device.playFile(samples, sampleRate)
+      const playing = device.playFile(samples, sampleRate, { fileName })
+      // The result comes from the file: its calibration, its sample rate, an unknown microphone.
+      this.resultProvenance = { microphoneName: null, microphoneUID: null, calibrationName: calibration?.name ?? null, sampleRate }
+      this.notify() // the playback has started — the view's buttons read isPlayingFile
+      await playing
     } finally {
       device.setCalibration(previousCalibration)
+      this.notify()
     }
+  }
+
+  /** A file is playing through the device. Mirrors Swift `fftAnalyzer.isPlayingFile`. */
+  get isPlayingFile(): boolean {
+    return this.device?.playingFile ?? false
+  }
+
+  /** Where the current result came from when it is not the live input — a played file or a loaded
+   *  measurement — or null while the sequence listens to the input. A played file has no microphone (the
+   *  one that recorded a file is not known), the calibration it was played with (or none) and its sample
+   *  rate; a loaded measurement has what the file recorded. Set by `playFile` and `loadMeasurement`; a
+   *  new sequence clears it. Mirrors Swift `resultProvenance`. */
+  resultProvenance: {
+    microphoneName: string | null
+    microphoneUID: string | null
+    calibrationName: string | null
+    sampleRate: number | null
+  } | null = null
+
+  /** The microphone the current result was captured with, as shown, saved and reported: the input device
+   *  for a live result; the recorded one for a played file or a loaded measurement, undefined (unknown)
+   *  when there is none. Mirrors Swift `captureMicrophoneName`. */
+  get captureMicrophoneName(): string | undefined {
+    if (this.resultProvenance) return this.resultProvenance.microphoneName ?? undefined
+    return this.device?.deviceLabel || undefined
+  }
+
+  /** The id of `captureMicrophoneName`'s device. Mirrors Swift `captureMicrophoneUID`. */
+  get captureMicrophoneUID(): string | undefined {
+    if (this.resultProvenance) return this.resultProvenance.microphoneUID ?? undefined
+    return this.device?.inputDeviceId ?? undefined
+  }
+
+  /** The calibration the current result was captured with: the input's for a live result, the recorded
+   *  one otherwise (none for a file played uncalibrated). Mirrors Swift `captureCalibrationName`. */
+  get captureCalibrationName(): string | undefined {
+    if (this.resultProvenance) return this.resultProvenance.calibrationName ?? undefined
+    return this.device?.activeCalibration?.name
+  }
+
+  /** The sample rate the current result was captured at: the input's for a live result (null when there is
+   *  no rate yet), the recorded one otherwise. Mirrors Swift `captureSampleRate`. */
+  get captureSampleRate(): number | null {
+    if (this.resultProvenance) return this.resultProvenance.sampleRate
+    return this.device?.sampleRate || null
+  }
+
+  /** User-initiated arming (New Tap, a measurement-type change). A file that is playing is stopped
+   *  first: a new sequence — for a changed measurement type, say — must not be fed the rest of the
+   *  file. Mirrors Swift `requestStartTapSequence` (the web has no dump-folder guard to check). */
+  requestStartTapSequence(): void {
+    this.device?.stopFilePlayback()
+    this.startTapSequence()
   }
 
   /** Mirror the plate FLC-measurement setting (App drives it from the settings store). */
@@ -1617,7 +1751,8 @@ export class TapToneAnalyzer {
   private captureKind: 'guitar' | 'material' = 'guitar'
   private materialSearch: MaterialSearch | null = null
   private guitarTapCount = 0
-  private captureSampleRate = 48000
+  /** The rate of the audio feeding the gated capture. Mirrors Swift `mpmSampleRate`. */
+  private mpmSampleRate = 48000
 
   // ── Continuous session recording (Swift TapToneAnalyzer+SpectrumCapture) ────────────────────
   // Swift keeps the whole session WAV on the analyzer: the buffer, the bounded pre-roll, the phase
@@ -1727,8 +1862,8 @@ export class TapToneAnalyzer {
    *  audio-queue level-crossing handler. */
   processAudioFrame(samples: Float32Array, levelDb: number, audioTime: number): void {
     this.inputLevelDb = levelDb
-    const rate = this.device?.sampleRate ?? this.captureSampleRate
-    if (rate !== this.captureSampleRate || this.preroll.length === 0) this.resizeCaptureBuffers(rate)
+    const rate = this.device?.sampleRate ?? this.mpmSampleRate
+    if (rate !== this.mpmSampleRate || this.preroll.length === 0) this.resizeCaptureBuffers(rate)
     this.maintainSessionRecording(samples)
     this.feedPreroll(samples)
     if (this.gatedCaptureActive) this.feedCapture(samples)
@@ -1815,7 +1950,7 @@ export class TapToneAnalyzer {
   /** Size the pre-roll ring and capture windows for the current rate. Swift derives both from
    *  `fftAnalyzer.actualSampleRate` on demand, so a file at another rate re-sizes them. */
   private resizeCaptureBuffers(rate: number): void {
-    this.captureSampleRate = rate
+    this.mpmSampleRate = rate
     this.prerollSamples = Math.round(rate * 0.2)
     this.preroll = new Float32Array(this.prerollSamples)
     this.prerollIdx = 0
@@ -1828,7 +1963,7 @@ export class TapToneAnalyzer {
 
   /** Arm guitar tap detection — a fresh sequence. Swift startTapSequence's guitar arm. */
   private armGuitarDetection(skipWarmup: boolean): void {
-    this.resizeCaptureBuffers(this.device?.sampleRate ?? this.captureSampleRate)
+    this.resizeCaptureBuffers(this.device?.sampleRate ?? this.mpmSampleRate)
     this.captureKind = 'guitar'
     this.capture = this.guitarCaptureBuf
     this.guitarTapCount = 0
@@ -1840,7 +1975,7 @@ export class TapToneAnalyzer {
   /** Point the capture at a material phase's search range — the buffers only. How detection then
    *  resumes is the caller's: the natives arm a material phase in three different shapes. */
   private prepareMaterialCapture(search: MaterialSearch): void {
-    if (this.preroll.length === 0) this.resizeCaptureBuffers(this.device?.sampleRate ?? this.captureSampleRate)
+    if (this.preroll.length === 0) this.resizeCaptureBuffers(this.device?.sampleRate ?? this.mpmSampleRate)
     this.captureKind = 'material'
     this.materialSearch = search
     this.capture = this.materialCapture
@@ -2143,7 +2278,7 @@ export class TapToneAnalyzer {
       const partial = this.capture.slice(0, this.captureIdx)
       this.captureIdx = 0
       if (partial.length > 0) {
-        this.finishGatedFFTCapture(partial, this.captureSampleRate, phase)
+        this.finishGatedFFTCapture(partial, this.mpmSampleRate, phase)
       } else {
         this.setStatusMessage('No signal detected — tap again')
         this.reEnableDetectionForNextPlateTap()
@@ -2160,13 +2295,13 @@ export class TapToneAnalyzer {
     this.captureKind = 'guitar'
     this.capture = this.guitarCaptureBuf
     const captureId = this.openCaptureWindow()
-    const timeoutMs = (this.capture.length / Math.max(this.captureSampleRate, 1)) * 1000 + GUITAR_CAPTURE_SAFETY_EXTRA_MS
+    const timeoutMs = (this.capture.length / Math.max(this.mpmSampleRate, 1)) * 1000 + GUITAR_CAPTURE_SAFETY_EXTRA_MS
     this.afterAudioStall(timeoutMs, () => captureId === this.gatedCaptureId && this.gatedCaptureActive, () => {
       this.gatedCaptureActive = false
       const partial = this.capture.slice(0, this.captureIdx)
       this.captureIdx = 0
       if (partial.length > 0) {
-        this.finishGuitarGatedCapture(partial, this.captureSampleRate)
+        this.finishGuitarGatedCapture(partial, this.mpmSampleRate)
       } else {
         this.setStatusMessage('No signal detected — tap again')
         this.scheduleGuitarReEnable()
@@ -2199,9 +2334,9 @@ export class TapToneAnalyzer {
     const samples = this.capture
     this.captureIdx = 0
     if (this.captureKind === 'material') {
-      this.finishGatedFFTCapture(samples, this.captureSampleRate, this.materialTapPhase)
+      this.finishGatedFFTCapture(samples, this.mpmSampleRate, this.materialTapPhase)
     } else {
-      this.finishGuitarGatedCapture(samples, this.captureSampleRate)
+      this.finishGuitarGatedCapture(samples, this.mpmSampleRate)
     }
   }
 
@@ -2480,6 +2615,9 @@ export class TapToneAnalyzer {
         isSettling: this.isSettling,
         isDetecting: this.isDetecting,
         isDetectionPaused: this.isDetectionPaused,
+        isPlayingFile: this.isPlayingFile,
+        playingFileName: this.device?.playingFileName ?? null,
+        resultProvenance: this.resultProvenance,
         isReadyForDetection: this.isReadyForDetection,
         isMeasurementComplete: this.isMeasurementComplete,
         currentTapCount: this.currentTapCount,
@@ -2857,6 +2995,12 @@ export interface TapToneSnapshot {
   /** Derived from `detectionState`, as on the analyzer — Swift's views read the same two. */
   isDetecting: boolean
   isDetectionPaused: boolean
+  /** A file is playing through the device. */
+  isPlayingFile: boolean
+  /** The file being played or last played, for the chart title; null once a new sequence starts. */
+  playingFileName: string | null
+  /** Where the current result came from when it is not the live input (see the analyzer's field). */
+  resultProvenance: TapToneAnalyzer['resultProvenance']
   /** False while the input is reinitialising after a device change — disables New Tap. */
   isReadyForDetection: boolean
   isMeasurementComplete: boolean

@@ -304,9 +304,10 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
   }
   if (data.notes?.trim()) metaRow('Notes', data.notes.trim())
   metaRow('Frequency Range', `${fmtFreq(data.freqRange.min)} – ${fmtFreq(data.freqRange.max)}`)
-  if (!isComparison && data.microphoneName) {
+  // No recorded microphone means it is unknown (a played file, say): say so, and keep the calibration.
+  if (!isComparison) {
     const calSuffix = data.calibrationName ? ` · calibrated (${data.calibrationName})` : ' · uncalibrated'
-    metaRow('Microphone', data.microphoneName + calSuffix)
+    metaRow('Microphone', (data.microphoneName || 'unknown') + calSuffix)
   }
   cur.y += 8
 

@@ -511,17 +511,11 @@ describe('frozen-peak-recalc — material peaks are the identified L/C/FLC', () 
     a.recordMaterialTap({ magnitudesDb: s.mags, frequencies: s.freqs })
     return a.selectedLongitudinalPeak
   }
-  /** What the save builds from the analyzer (App's save wiring). */
+  /** What the save writes: the analyzer builds the measurement from its own state. */
   function save(a: TapToneAnalyzer) {
-    return buildMaterialMeasurement({
-      name: '', notes: '',
-      spectra: a.matSpectra,
-      peaks: { longitudinal: a.selectedLongitudinalPeak, cross: a.selectedCrossPeak, flc: a.selectedFlcPeak },
-      view: { minHz: 100, maxHz: 1200, minDb: -100, maxDb: 0 },
-      settings: { ...DEFAULT_SETTINGS, measurementType: a.measurementType },
-      materialInputs: a.materialInputs!,
-      numberOfTaps: 1, sampleRate: null, deviceLabel: '',
-    })
+    const m = a.buildMeasurement('', '', { minHz: 100, maxHz: 1200, minDb: -100, maxDb: 0 })
+    if (!m) throw new Error('no measurement to save')
+    return m
   }
 
   it('PR42: saving a material measurement writes its identified peaks, all selected', () => {

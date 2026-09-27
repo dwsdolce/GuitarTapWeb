@@ -158,4 +158,43 @@ describe('ButtonEnablement', () => {
       }),
     ).toEqual({ pauseEnabled: false, newTapDisabled: false, cancelEnabled: false })
   })
+
+  // B14–B16: During a file playback Cancel (stop the file) is enabled; Pause and New Tap are
+  // disabled — whatever the detector is doing.
+  const cancelOnly = { pauseEnabled: false, newTapDisabled: true, cancelEnabled: true }
+
+  // B14: Guitar single-tap playback, listening — Cancel is enabled even though a single-tap
+  // sequence offers no Cancel live.
+  it('B14 — playback, guitar listening: cancel only', () => {
+    expect(
+      buttonRule({ displayMode: 'live', detectionState: 'listening', isMeasurementComplete: false, isPlayingFile: true }),
+    ).toEqual(cancelOnly)
+  })
+
+  // B15: Guitar multi-tap playback between taps — the detector idle while it rests and re-arms.
+  it('B15 — playback, guitar between taps: cancel only', () => {
+    expect(
+      buttonRule({
+        displayMode: 'live',
+        detectionState: 'idle',
+        isMeasurementComplete: false,
+        numberOfTaps: 8,
+        isPlayingFile: true,
+      }),
+    ).toEqual(cancelOnly)
+  })
+
+  // B16: Plate playback complete while the file still plays — Cancel still stops the file.
+  it('B16 — playback, plate complete, file still playing: cancel only', () => {
+    expect(
+      buttonRule({
+        displayMode: 'live',
+        detectionState: 'idle',
+        isMeasurementComplete: true,
+        measurementType: 'plate',
+        materialTapPhase: 'complete',
+        isPlayingFile: true,
+      }),
+    ).toEqual(cancelOnly)
+  })
 })

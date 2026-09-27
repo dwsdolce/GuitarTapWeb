@@ -261,6 +261,12 @@
 .btn-cancel:hover:not(:disabled) {
   border-color: #e08a32;
 }
+/* Play File while a file plays — tinted orange, as Swift's Play File button is. */
+.btn.playing-file {
+  background: rgba(255, 149, 0, 0.15);
+  border-color: rgba(255, 149, 0, 0.45);
+  color: #f0a258;
+}
 /* Toggle buttons (Auto dB, Annotations) show an "on" state like the native tinted toolbar items. */
 .btn.toggle.on {
   background: color-mix(in srgb, var(--accent) 22%, #11161d);
