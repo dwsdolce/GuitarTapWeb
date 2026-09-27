@@ -8,7 +8,7 @@
 //
 // This edition had no counterpart to Swift's `TapToneMeasurement.with` / Python's `with_`: the
 // amend was written inline in the Measurements panel, so the rule could not be tested and could
-// not be shared. See SLUG-SWEEP.md F20.
+// not be shared.
 
 import type { TapToneMeasurementModel } from './types'
 import { newMeasurementId } from './fromLive'

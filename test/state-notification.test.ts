@@ -5,16 +5,15 @@
 // Web satisfies it by putting the field on the snapshot and calling notify() (this file), Swift
 // with @Published (observed via objectWillChange), Python with an explicit signal. Every one of
 // those can be broken by an ordinary edit — drop the @Published, forget to add the signal, leave
-// the field off the snapshot — and web had the last of those: isReadyForDetection was declared and
-// never written, never notified, never on the snapshot, so a device change disabled nothing (#17 F32).
+// the field off the snapshot — so each edition pins it.
 //
 // The contract is not "does this framework emit" but "does a state change reach the UI", which all
-// three implement and all three can break. PARITY-TEST-METHOD rule 4: an "n/a" that rests on the
-// view layer is a finding, not a difference.
+// three implement and all three can break.
 //
 // Mirrors: GuitarTapTests/StateNotificationTests.swift · tests/test_state_notification.py
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import { makeResonantPeak } from '../src/measurement/types'
 
 const sut = () => new TapToneAnalyzer()
 
@@ -60,7 +59,7 @@ describe('StateNotification', () => {
   })
 
   // N4: the settle must not tell a FINISHED measurement to tap again, and must not throw away a
-  // result announcement. Derived, not chosen — see statusAfterSettle(). (#17 F33)
+  // result announcement. Derived, not chosen — see statusAfterSettle().
   it('N4 — a complete measurement keeps its status through a device change', () => {
     const a = sut()
     a.numberOfTaps = 1
@@ -94,25 +93,28 @@ describe('StateNotification', () => {
     expect(a.statusAfterSettle()).toBe('Ready')
   })
 
-  // N7: a COMPLETED measurement survives a device change — the settle blanks only a LIVE spectrum.
-  // Swift/Python asked `displayMode == live`, still true of a finished measurement, and wiped it
-  // (#17 F35). Web never blanked at all, which was the opposite divergence; it does now.
+  // N7: a COMPLETED measurement survives a device change — the settle blanks only a LIVE spectrum,
+  // and `displayMode == live` alone would still be true of a finished measurement.
   it('N7 — a device change leaves a completed measurement intact', () => {
     const a = sut()
+    a.peaks = [makeResonantPeak({ frequency: 100, magnitude: -40, quality: 0, bandwidth: 0 })]
     a.isMeasurementComplete = true
 
     a.handleDeviceChange(true)
 
-    expect(a.isSettling).toBe(false)
+    expect(a.isSettling).toBe(false) // a completed measurement is not a live spectrum — nothing to blank
+    expect(a.peaks).toHaveLength(1) // REGRESSION: the settle wiped a finished measurement's peaks
   })
 
   // N8: mid-sequence, with a live spectrum on screen, the settle DOES blank.
   it('N8 — a device change blanks a live spectrum', () => {
     const a = sut()
     a.startTapSequence()
+    a.peaks = [makeResonantPeak({ frequency: 100, magnitude: -40, quality: 0, bandwidth: 0 })] // a live frame's peaks
 
     a.handleDeviceChange(true)
     expect(a.isSettling).toBe(true)
+    expect(a.peaks).toHaveLength(0) // and its peaks cleared, so no annotation floats on a blank chart
 
     a.handleDeviceChange(false)
     expect(a.isSettling).toBe(false)
@@ -121,7 +123,7 @@ describe('StateNotification', () => {
   // N9: a MATERIAL phase prompt is an instruction about something that already happened
   // ("Rotate 90°…"), not a description of the state, so the settle must put it back rather than
   // re-derive it. Two strings are equally correct for one phase — the advance's instruction and a
-  // redo's "…— tap again" — which is the proof it is not a function of the state (#17 F37).
+  // redo's "…— tap again" — which is the proof it is not a function of the state.
   it('N9 — the settle preserves a material phase instruction', () => {
     const a = sut()
     a.measurementType = 'plate'
@@ -135,9 +137,7 @@ describe('StateNotification', () => {
   })
 
   // N10: the override precedence, in one place. Dead input outranks clipping, and an ordinary
-  // status write while a condition holds must not drop the warning. Web had no dead-input status at
-  // all: the engine detected it, warned to the console, retried — and told the user nothing, where
-  // both natives showed the warning (#17 F37).
+  // status write while a condition holds must not drop the warning.
   it('N10 — dead input outranks clipping and survives a status write', () => {
     const a = sut()
     a.startTapSequence({ arm: false })
@@ -161,8 +161,8 @@ describe('StateNotification', () => {
 
   // N11: what the settle PRESERVES is the analyzer's real status, not the override-resolved string.
   // The natives assert the captured value (their restore is behind a 3 s timer); web can also reach
-  // the consequence synchronously, which is the bug as the user meets it: the warning gets stored AS
-  // the real status, so clearing the condition restores the warning forever (#17 F37).
+  // the consequence synchronously, as the user would meet it: were the warning stored AS the real
+  // status, clearing the condition would restore the warning forever.
   it('N11 — the settle captures the real status, not an override warning', () => {
     const a = sut()
     a.startTapSequence({ arm: false })
@@ -180,10 +180,8 @@ describe('StateNotification', () => {
   })
 
   // N12: the phase ADVANCE and the armed DERIVATION must produce the same string, because they are
-  // the same string. They used to be two sets of literals — the advance set 'Rotate 90° and tap for
-  // fC' and the derivation repeated it in a second switch — so a drift in either reworded the
-  // instruction on every resume, settle and tap-count change (#17 F37). Pinned from both ends: the
-  // advance's output, and a pause/resume round trip that re-derives it.
+  // the same string — otherwise a resume, settle or tap-count change would reword the instruction.
+  // Pinned from both ends: the advance's output, and a pause/resume round trip that re-derives it.
   it('N12 — the material phase advance and the armed derivation agree', () => {
     const a = sut()
     a.measurementType = 'plate'

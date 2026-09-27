@@ -1,38 +1,16 @@
 // @parity view/material-results
-import {
-  density,
-  densityGPerCm3,
-  plateYoungsLongGPa,
-  plateYoungsLongPa,
-  plateYoungsCrossGPa,
-  plateYoungsCrossPa,
-  braceYoungsLongGPa,
-  braceYoungsLongPa,
-  speedOfSound,
-  specificModulus,
-  radiationRatio,
-  crossLongRatio,
-  longCrossRatio,
-  goreShearPa,
-  goreTargetThicknessMm,
-  woodQuality,
-  overallQuality,
-} from '../dsp/material'
-import type { MaterialPeak } from '../state/tapToneAnalyzer'
+import { density, densityGPerCm3, plateYoungsLongGPa, plateYoungsLongPa, plateYoungsCrossGPa, plateYoungsCrossPa, braceYoungsLongGPa, braceYoungsLongPa, speedOfSound, specificModulus, radiationRatio, crossLongRatio, longCrossRatio, goreShearPa, goreTargetThicknessMm, woodQuality, overallQuality } from '../dsp/material'
 import { WOOD_QUALITY_COLOR } from '../presentation/qualityColors'
 import { STIFFNESS_LABEL, type StiffnessPreset } from '../settings'
-import {
-  materialDimensions,
-  materialStiffness,
-  type MaterialMeasurementInputs,
-} from '../measurement/materialMeasurementInputs'
+import { materialDimensions, materialStiffness, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { NumberField } from './NumberField'
 import { FieldPrecision } from '../precision'
+import type { ResonantPeak } from '../measurement/types'
 
 export interface MaterialPeaks {
-  longitudinal: MaterialPeak | null
-  cross: MaterialPeak | null
-  flc: MaterialPeak | null
+  longitudinal: ResonantPeak | null
+  cross: ResonantPeak | null
+  flc: ResonantPeak | null
 }
 
 export interface MaterialResultsProps {
@@ -114,7 +92,7 @@ const ROLE_LABEL: Record<Role, string> = { L: 'fL', C: 'fC', FLC: 'fLC' }
 
 /** One row of the sorted peak list: star, frequency, magnitude, phase badges.
  *  Mirrors Swift MaterialPeakRowView (display-only in plate/brace mode). */
-function PeakRow({ peak, role, showCross, showFlc }: { peak: MaterialPeak | null; role: Role; showCross: boolean; showFlc: boolean }) {
+function PeakRow({ peak, role, showCross, showFlc }: { peak: ResonantPeak | null; role: Role; showCross: boolean; showFlc: boolean }) {
   // Dashes + an unselected bubble until this phase's peak is captured.
   const found = peak != null
   const badge = (r: Role, color: string) => (
@@ -190,8 +168,7 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
 
   // Fixed per-phase slot rows (L, C, [FLC] for plate; fL for brace). The layout matches the
   // final display, but each row shows a dash + unselected bubble until its phase is captured.
-  // See Development/MATERIAL-RESULTS-PHASED-DISPLAY.md.
-  const slots: { role: Role; peak: MaterialPeak | null }[] = plate
+  const slots: { role: Role; peak: ResonantPeak | null }[] = plate
     ? [
         { role: 'L', peak: peaks.longitudinal },
         { role: 'C', peak: peaks.cross },

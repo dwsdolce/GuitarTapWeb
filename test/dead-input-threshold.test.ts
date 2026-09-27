@@ -7,8 +7,7 @@
 // re-acquired mid-measurement. The UMIK-1 is an unusually quiet microphone and can sit
 // near -90 dBFS in a silent room, which is what makes the upper bound real.
 //
-// Source of the numbers: hub docs/AUDIO-WATCHDOG-SILENT-STREAM.md (incidents
-// 2026-07-16, recurrence 2026-08-21).
+// Source of the numbers: the silent-input incidents of 2026-07-16 and 2026-08-21.
 import { describe, it, expect } from 'vitest'
 import {
   BUFFER_DELIVERY_TIMEOUT_MS,

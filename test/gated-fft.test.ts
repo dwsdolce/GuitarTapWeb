@@ -5,7 +5,7 @@
 // (GatedFFTParityTests.swift) and Python (test_gated_fft_parity.py) do — any systematic difference
 // between the implementations shows up as a one-sided failure. The remaining cases pin rules the
 // oracle cases cannot see: which window is used, that calibration is applied inside the transform,
-// and that too little input is not a spectrum (#17 F49).
+// and that too little input is not a spectrum.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { reviveNonFinite } from './selfBaseline'
@@ -59,7 +59,7 @@ describe('gated FFT parity (GFFT1–5) and the transform’s own rules', () => {
   it('GFFT3 — bin-centred two tones match the oracle', () => check('GFFT3'))
 
   // Silence reads exactly the oracle's value — -Infinity in every bin. The oracle stores it as the
-  // string "-Infinity", which every edition's reader decodes (#17 F44).
+  // string "-Infinity", which every edition's reader decodes.
   it('GFFT4 — silence is -Infinity in every bin', () => {
     const { magnitudesDb } = analyzer().computeGatedFFT(makeGatedTestSignal([], SR), SR)
     let max = -Infinity

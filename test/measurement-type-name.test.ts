@@ -9,17 +9,15 @@
 //         ?? measurement.longitudinalSnapshot?.measurementType
 //     return mt?.shortName ?? "—"
 //
-// The web already resolves this way; these tests lock it in. The Python port did NOT — it read the
-// top-level `measurement_type`, which is None in memory by design, so every measurement saved in the
-// current session showed "—" in Details (found in the 1.0.2 run-review, 2026-07-16; fixed in
-// measurement_detail_view.py `_type_name`, three-way with tests/test_measurement_type_name.py).
+// These tests lock that resolution in. The top-level `measurement_type` is not a usable source: it is
+// None in memory by design, so reading it would show "—" in Details for every measurement saved in the
+// current session. Python pins the same rule in tests/test_measurement_type_name.py.
 //
 // A round-trip test cannot catch that class of bug: loading from a dict populates the top-level
 // field, so only an IN-MEMORY measurement (snapshot-only) exposes it. Hence the shape used here.
 //
 // Swift counterpart deferred: `measurementTypeName` is `private` inside the View struct and is
-// unreachable from a test without an application change. See
-// GuitarTapWeb/Development/MATERIAL-MULTITAP-DISCREPANCIES.md §2.
+// unreachable from a test without an application change.
 
 import { describe, it, expect } from 'vitest'
 import { measurementTypeName } from '../src/measurement/fromLive'
@@ -68,10 +66,9 @@ describe('measurementTypeName — resolves from the snapshot (Swift parity)', ()
   })
 })
 
-// ── Cases levelled across the editions (#17 F16) ───────────────────────────────────────────
+// ── Cases shared by all three editions ─────────────────────────────────────────────────────
 //
-// The six cases above were shared by all three editions; each had then grown extras the others
-// never received. These are the ones this edition lacked.
+// Like the six cases above, every case below is in all three editions.
 
 describe('measurementTypeName — every type resolves to its short name', () => {
   // Mirrors Swift everyTypeResolvesToItsShortName. Only Swift pinned the 6-type table, so a
@@ -108,7 +105,7 @@ describe('measurementTypeName — fallbacks', () => {
     // the writer resolves it from the snapshot at save time. A resolver that read the top-level
     // field showed "—" for everything saved in the current session and only came right after a
     // restart re-read the file — session-scoped, which is why no test caught it. Python added
-    // this case after that bug; this edition had no equivalent. See SLUG-SWEEP.md F16.
+    // this case after that bug; this edition had no equivalent.
     const loaded = meas({
       spectrumSnapshot: snap('Classical Guitar'),
       measurementType: 'Classical Guitar',

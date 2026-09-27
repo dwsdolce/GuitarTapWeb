@@ -1,6 +1,6 @@
 // @parity test/session-pre-roll
 //
-// Pin the bounded pre-roll for the session WAV (FILE-PATHS-AND-NAMES-SPEC §6): the head is trimmed
+// Pin the bounded pre-roll for the session WAV: the head is trimmed
 // to ~2 s ONLY before the first tap; everything after — subsequent taps, plate phases, and the gaps
 // between them — is completely live. Three-way with Swift SessionPreRollTests.swift and Python
 // test_session_pre_roll.py. The web session buffer is now a flat SAMPLE buffer (like Swift/Python),
@@ -51,8 +51,7 @@ describe('session-pre-roll — the first tap freezes the latch', () => {
     feed(s, 300)
     expect(s.sessionPreRollActive).toBe(true)
     // The first tap begins: the next chunk appended while a capture is active freezes the latch —
-    // driven through gatedCaptureActive, as in Swift and Python. This used to set the latch false by
-    // hand and then assert it was false, which tested nothing (#17 F47).
+    // driven through gatedCaptureActive, as in Swift and Python, never by setting the latch by hand.
     s.gatedCaptureActive = true
     s.maintainSessionRecording(new Float32Array(CHUNK_LEN))
     expect(s.sessionPreRollActive, 'the first gated capture must freeze the pre-roll latch').toBe(false)

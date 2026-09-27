@@ -9,8 +9,7 @@ import type { WoodQuality } from '../dsp/material'
  * Swift and Python both hang the colour off the **model** enum — `WoodQuality.color`
  * (`MaterialProperties.swift:537`, `material_properties.py:177`). That is a layer violation: a hex
  * is a presentation concern, and the model should not know how it is drawn. **They are wrong and
- * will be fixed later** — tracked in THEME-SPEC.md / STATUS item 3; not worth churning the natives
- * for now.
+ * will be fixed later**; not worth churning the natives for now.
  *
  * The web already does this correctly for the analogous case: Swift keeps `GuitarMode.color` on the
  * enum, and the web extracted it to `presentation/modeColors.ts` under its own `model/mode-colors`

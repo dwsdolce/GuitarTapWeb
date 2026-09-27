@@ -7,7 +7,7 @@
 export interface PeakMarker {
   /** The peak's stable id — carried so the chart can hit-test a clicked dot back to a peak (the
    *  dot ↔ results-row highlight). Omitted for markers built without a source peak id. */
-  id?: number
+  id?: string
   frequency: number
   magnitude: number
   /** Mode color for the dot (gray when omitted — e.g. unidentified peaks). */
@@ -41,7 +41,7 @@ export interface AnnotationRect {
 /** A drawn peak dot's screen centre (CSS px) + radius + its peak id — pushed by the renderer so the
  *  chart can hit-test a click back to a peak (the dot ↔ results-row highlight). */
 export interface DotHit {
-  id: number
+  id: string
   x: number
   y: number
   r: number

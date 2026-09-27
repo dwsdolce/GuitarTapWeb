@@ -1,6 +1,6 @@
 // @parity test/measurement-name
 //
-// Pin the required-name rule (FILE-PATHS-AND-NAMES-SPEC §3): a measurement name must be non-empty
+// Pin the required-name rule: a measurement name must be non-empty
 // after trimming before Save is allowed, and the stored name is trimmed. Three-way with Swift
 // MeasurementNameTests.swift and Python test_measurement_name.py.
 import { describe, it, expect } from 'vitest'
@@ -43,7 +43,7 @@ describe('measurement-name — validity agrees with storage', () => {
 describe('normalizedMeasurementNotes — the other user-entered field', () => {
   it('trims and blanks to undefined, exactly as the name does', () => {
     // Swift stored notes verbatim and Python trimmed in the edit dialog but not on the save path,
-    // so the three disagreed on whether retyping whitespace was an edit. See SLUG-SWEEP.md F21.
+    // so the three disagreed on whether retyping whitespace was an edit.
     expect(normalizedMeasurementNotes('  Tapped cold  ')).toBe('Tapped cold')
     expect(normalizedMeasurementNotes('line one\nline two')).toBe('line one\nline two')
     expect(normalizedMeasurementNotes('')).toBeUndefined()

@@ -13,7 +13,7 @@
      toolkit otherwise inherits a DIFFERENT colour: Swift took the user's macOS accent, Qt took
      `palette(highlight)`, and the web used `--accent` — so they could never agree.
      systemBlue is light/dark adaptive on Apple's side; this is the dark value. The light value is
-     #007AFF. THIS IS A THEME TOKEN: the Light/Dark/System work owns swapping it (THEME-SPEC.md),
+     #007AFF. THIS IS A THEME TOKEN: the Light/Dark/System work owns swapping it,
      which is why it is a named variable rather than a literal at the use site. */
   --system-blue: #0a84ff;
 }

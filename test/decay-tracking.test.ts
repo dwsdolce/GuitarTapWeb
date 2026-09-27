@@ -1,15 +1,10 @@
 // @parity test/decay-tracking
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { reviveNonFinite } from './selfBaseline'
-import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import { decodeWav } from '../src/dsp/wav'
 
 // Ring-out (decay) time — pinned to the Swift DecayTrackingTests / Python test_decay_tracking
 // reference vectors. Peak → first later sample below (peak − threshold) → elapsed seconds.
-// The ring-out lives on the analyzer, as in the natives (#17 F50); it used to be a DecayTracker in the
-// engine.
+// The ring-out lives on the analyzer, as in the natives.
 
 const history = (mags: number[], interval = 0.1, start = 0) =>
   mags.map((magnitude, i) => ({ time: start + i * interval, magnitude }))
@@ -69,48 +64,5 @@ describe('trackDecayFast — streaming', () => {
     a.trackDecayFast(-50, 0.1)
     expect(a.peakMagnitudeHistory).toEqual([])
     expect(a.currentDecayTime).toBeNull()
-  })
-})
-
-// REG-G — ring-out regression through the FULL live engine (the same end-to-end path as REG-G1 in
-// g11): Recording 5.wav → chunked pipeline → tap detection → per-chunk level → trackDecayFast →
-// post-tap peak → first sample below peak−15 dB. The web's clock is audio-time so the value is
-// deterministic regardless of pacing. This golden is SHARED cross-platform: the Swift
-// FilePlaybackRegression and Python file-playback tests assert the same value ± RING_OUT_TOL_SEC
-// (they run the file at real-time pace, where wall-clock ≈ audio-time, so they reach the same
-// crossing). 0.0853 s = 4 chunks @ 1024/48 kHz for this fixture.
-
-const oracle = JSON.parse(
-  readFileSync(new URL('./fixtures/parity-oracle.json', import.meta.url), 'utf8'),
-  reviveNonFinite, // "-Infinity" → -Infinity, as every oracle reader does
-)
-/** Shared cross-platform ring-out golden for Recording 5.wav (REG-G1 fixture, −40 dB, 1 tap).
- *  From the oracle, not a literal: Swift and Python assert the same number, and it drifted into
- *  three hand-maintained copies before the oracle carried it. */
-export const RING_OUT_GOLDEN_SEC: number = oracle.filePlayback['REG-G1'].ringOutSec
-/** Tolerance covering per-platform chunk-granularity + seed differences (~1.5 chunks). */
-export const RING_OUT_TOL_SEC: number = oracle.tolerances.ringOutSec
-
-describe('G4d — REG-G ring-out (file playback)', () => {
-  it('Recording 5.wav decays to −15 dB in ~0.085 s', async () => {
-    const wav = decodeWav(
-      new Uint8Array(readFileSync(new URL('./fixtures/Recording 5.wav', import.meta.url))),
-      { downmix: true },
-    )
-    // The ring-out is seeded when a tap is CONFIRMED, and detection lives on the analyzer now
-    // (#17 F30) — so the analyzer has to be driving the pipeline for a decay to be measured at all.
-    const analyzer = new TapToneAnalyzer()
-    analyzer.setNumberOfTaps(1)
-    analyzer.tapDetectionThreshold = -40
-    const engine = new RealtimeFFTAnalyzer(
-      { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
-      { tapDetectionThreshold: -40, numberOfTaps: 1 },
-    )
-    engine.initForTesting()
-    analyzer.setDevice(engine)
-    analyzer.startTapSequence({ skipWarmup: true })
-    await engine.playFile(wav.samples, wav.sampleRate) // paced, as the natives play
-    expect(analyzer.currentDecayTime, 'no ring-out measured').not.toBeNull()
-    expect(Math.abs(analyzer.currentDecayTime! - RING_OUT_GOLDEN_SEC)).toBeLessThan(RING_OUT_TOL_SEC)
   })
 })

@@ -2,7 +2,7 @@
 // Plate material property formulas. Mirrors Swift PlatePropertiesTests.swift and Python
 // tests/test_plate.py — same fixtures, same cases, same expected values.
 //
-// TWO fixtures, for two different jobs. Mixing them is what let this suite drift.
+// TWO fixtures, for two different jobs, kept apart so neither can stand in for the other.
 //
 // `realPlate` is an actual measured sample, for every test that claims a result is
 // physically sensible. Dimensions and frequencies are read straight out of the hub's
@@ -12,9 +12,8 @@
 //
 // and the expected values are the ones GuitarTap itself reported for it, printed in the .pdf
 // beside that file. They are NOT numbers this suite produced — a suite that generates its own
-// expectations can never fail. Until the #17 sweep this file used 560 x 230 x 2.8 mm / 210 g:
-// a near-miss of the real sample on length, width and mass, but 2.8 mm against a real 4.85 mm.
-// Since E is proportional to 1/t-squared, that one field inflated E_L from 6.11 to 31.1 GPa.
+// expectations can never fail. Every field matters: E is proportional to 1/t-squared, so a
+// thickness off by a couple of millimetres moves E_L several-fold.
 //
 // `syntheticPlate` is round numbers (density lands on exactly 400 kg/m3), for the algebraic
 // identities only. Those hold for any input, so being unphysical costs nothing and
@@ -168,9 +167,8 @@ describe('plate specific modulus', () => {
 
 // ── Radiation ratio ────────────────────────────────────────────────────────────────────────
 describe('plate radiation ratio', () => {
-  // R = c/rho is shown in the Results panel and baked into the exported image, and had no test
-  // in any edition until the #17 sweep — which is how the web port's inline copy came to be
-  // missing this zero guard and to render the string "NaN" where the natives render 0.
+  // R = c/rho is shown in the Results panel and baked into the exported image, so its zero guard
+  // is pinned here: a zero density gives 0, as the natives render, never the string "NaN".
   it('equals c over rho, in both directions', () => {
     const rho = density(realPlate)
     expect(radiationRatio(cL(realPlate, fL), rho)).toBeCloseTo(cL(realPlate, fL) / rho, 6)

@@ -2,8 +2,7 @@
 //
 // The one place the gated-FFT test signal is built and read back. Used by the GFFT parity tests
 // (gated-fft.test.ts) and by the self-regression runner (parityRunner.ts), so both feed the transform
-// the same samples by construction rather than by two copies kept in step (#17 F49). It lived in
-// src/dsp/signal.ts until then, though nothing in the app used it.
+// the same samples by construction rather than by two copies kept in step.
 //
 // Mirrors Swift GuitarTapTests/GatedTestSignal.swift and Python tests/gated_signal.py.
 

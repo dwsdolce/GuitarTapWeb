@@ -1,26 +1,9 @@
 // @parity view/peak-card
 import { useRef, useEffect } from 'react'
-import type { Peak } from '../dsp/peaks'
 import type { ResolvedMode } from '../dsp/classify'
-import {
-  MODE_COLOR,
-  MODE_DISPLAY_NAME,
-  MODE_BY_DISPLAY_NAME,
-  USER_MODE_COLOR,
-  QUICK_PICK_MODES,
-  ADDITIONAL_MODE_LABELS,
-  magnitudeColor,
-} from '../presentation/modeColors'
-import {
-  WindIcon,
-  ArrowUpDownIcon,
-  SquareFilledIcon,
-  DipoleIcon,
-  CircleDashedIcon,
-  WaveformIcon,
-  HelpIcon,
-  TagIcon,
-} from './icons'
+import { MODE_COLOR, MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, USER_MODE_COLOR, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS, magnitudeColor } from '../presentation/modeColors'
+import { WindIcon, ArrowUpDownIcon, SquareFilledIcon, DipoleIcon, CircleDashedIcon, WaveformIcon, HelpIcon, TagIcon } from './icons'
+import type { ResonantPeak } from '../measurement/types'
 
 // One resonant-peak card, mirroring Swift CombinedPeakModeRowView:
 //   [star] [mode glyph + in-range check] [mode label · freq / pitch / Q · BW · mag]
@@ -39,7 +22,7 @@ const MODE_ICON: Record<ResolvedMode, () => JSX.Element> = {
 /** Props for {@link PeakCard}. */
 export interface PeakCardProps {
   /** The resonant peak to display (frequency, magnitude, Q, bandwidth). */
-  peak: Peak
+  peak: ResonantPeak
   /** Auto-classified mode — drives the range badge (mirrors Swift `analyzer.peakMode(for:)`). */
   mode: ResolvedMode
   /** The displayed label: the auto mode's name, or a manual override. */
@@ -107,8 +90,7 @@ export function PeakCard({
 
   // Build the option list, ensuring the current value is present. Two groups, as in Swift's
   // CombinedPeakModeRowView menu and Python's peak_card_widget: the standard tap-tone modes,
-  // then the extended T(m,n) labels for users who prefer the academic designations. The web had
-  // no extended group at all until the #17 sweep (SLUG-SWEEP.md F11).
+  // then the extended T(m,n) labels for users who prefer the academic designations.
   const options = [...QUICK_PICK_MODES]
   const extended = [...ADDITIONAL_MODE_LABELS]
   const isKnownOption = options.includes(effectiveLabel) || extended.includes(effectiveLabel)

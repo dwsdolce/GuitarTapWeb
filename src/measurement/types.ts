@@ -9,6 +9,9 @@
 // values. Dates/UUIDs are strings (ISO-8601 / RFC 4122), as on the wire.
 
 import type { AnnotationMode } from '../settings'
+import { newId } from './newId'
+import type { GuitarTypeName, ModeName } from '../dsp/guitarModes'
+import { resolvedModePeaks } from '../dsp/classify'
 
 /** Guitar mode label overrides are stored per peak as the assigned label string. */
 export type PeakModeOverrides = Record<string, string>
@@ -16,19 +19,25 @@ export type PeakModeOverrides = Record<string, string>
 /** Absolute data-space annotation label positions: uuid → [absFreqHz, absDB]. */
 export type AnnotationOffsets = Record<string, [number, number]>
 
-export interface ResonantPeakModel {
+/** A detected resonant peak — one type in memory and on file, guitar and material alike. Mirrors Swift
+ *  `ResonantPeak` / Python `ResonantPeak`. Make one with {@link makeResonantPeak}. */
+export interface ResonantPeak {
+  /** Stable unique id (an uppercase UUID), kept through save and load. */
   id: string
+  /** Interpolated peak frequency, in Hz. */
   frequency: number
+  /** Interpolated peak magnitude, in dB. */
   magnitude: number
+  /** Q factor: `frequency / bandwidth` (0 when bandwidth is 0). */
   quality: number
+  /** −3 dB bandwidth, in Hz. */
   bandwidth: number
+  /** When the peak was found (ISO-8601, no fractional seconds). */
   timestamp: string
+  /** Nearest equal-temperament note, its cents offset and its exact frequency, when known. */
   pitchNote?: string
   pitchCents?: number
   pitchFrequency?: number
-  /** Encode-only convenience the writer injects on top-level peaks; carried through
-   *  on decode so a re-export preserves it. Ignored for nested peaks. */
-  modeLabel?: string
 }
 
 export interface SpectrumSnapshotModel {
@@ -67,7 +76,7 @@ export interface ComparisonEntryModel {
   /** RGBA, each 0.0–1.0 (double precision). */
   colorComponents: number[]
   snapshot: SpectrumSnapshotModel
-  peaks: ResonantPeakModel[]
+  peaks: ResonantPeak[]
   guitarType?: string
   sourceMeasurementID?: string
   /** The DEFINITIVE Air/Top/Back for this overlaid spectrum, `{mode display name → peak id}` referencing
@@ -82,8 +91,54 @@ export interface TapEntryModel {
   id: string
   tapIndex: number
   snapshot: SpectrumSnapshotModel
-  peaks: ResonantPeakModel[]
+  peaks: ResonantPeak[]
   selectedPeakIDs: string[]
+}
+
+/** ISO-8601 without fractional seconds, matching Swift's `.iso8601` date strategy. */
+export const isoNow = (): string => new Date().toISOString().replace(/\.\d+Z$/, 'Z')
+
+/** A new peak: a fresh id and the current time, as Swift's `ResonantPeak.init` gives them. */
+export function makeResonantPeak(p: Omit<ResonantPeak, 'id' | 'timestamp'>): ResonantPeak {
+  return { id: newId(), timestamp: isoNow(), ...p }
+}
+
+/** The classifier's guitar-type name for a snapshot's raw guitar type ("Classical" → 'classical');
+ *  'generic' when absent or unknown. */
+export function guitarTypeNameFromRaw(raw: string | undefined): GuitarTypeName {
+  return raw === 'Acoustic' ? 'acoustic' : raw === 'Classical' ? 'classical' : raw === 'Flamenco' ? 'flamenco' : 'generic'
+}
+
+/**
+ * One individual tap's spectrum and detected peaks within a multi-tap guitar sequence — the analyzer's
+ * `tapEntries`, which drive the per-tap comparison view. Built by `processMultipleTaps` when more than one
+ * tap was captured, and restored from the file's `tapEntries` on load. Mirrors Swift `TapEntry` /
+ * Python `TapEntry`; {@link TapEntryModel} is its form on file.
+ */
+export class TapEntry {
+  constructor(
+    /** Stable unique identifier (an uppercase UUID). */
+    readonly id: string,
+    /** 1-based display index ("Tap 1", "Tap 2", …). */
+    readonly tapIndex: number,
+    /** Full spectrum snapshot for this tap, recording the guitar type it was captured under. */
+    readonly snapshot: SpectrumSnapshotModel,
+    /** Every peak found in this tap's spectrum, at the detection floor. */
+    readonly peaks: ResonantPeak[],
+    /** Ids of the auto-selected peaks — one per guitar mode where found. */
+    readonly selectedPeakIDs: string[],
+  ) {}
+
+  /** The strongest peak per guitar mode among this tap's SELECTED peaks. Used by the multi-tap
+   *  comparison table and the regression tests. Mirrors Swift `TapEntry.resolvedModePeaks(guitarType:)`.
+   *  @param guitarType Guitar type to classify under; defaults to the snapshot's. */
+  resolvedModePeaks(guitarType?: GuitarTypeName): Map<ModeName, ResonantPeak> {
+    const selected = new Set(this.selectedPeakIDs)
+    return resolvedModePeaks(
+      this.peaks.filter((p) => selected.has(p.id)),
+      guitarType ?? guitarTypeNameFromRaw(this.snapshot.guitarType),
+    )
+  }
 }
 
 export interface TapToneMeasurementModel {
@@ -92,7 +147,7 @@ export interface TapToneMeasurementModel {
   // `measurementType`): "derive, don't duplicate", since a stored copy can fall out of sync with the
   // snapshot. Do NOT add a top-level `measurementType` and read it for logic (TypeScript already makes
   // such a read a compile error). The write-only top-level copy in the `.guitartap` FILE (encode.ts,
-  // resolved from the snapshot at encode time) is a separate, fine thing — for external readers. See §12.
+  // resolved from the snapshot at encode time) is a separate, fine thing — for external readers.
   /**
    * The measurement's DATASET identity, mirroring Swift `TapToneMeasurement.id`. It travels in
    * the `.guitartap` file, survives import unchanged, and is re-minted whenever the data changes
@@ -101,9 +156,7 @@ export interface TapToneMeasurementModel {
    * produces and which editing either one ends.
    *
    * It is deliberately NOT how the library addresses a row: duplicate imports share it. Rows are
-   * addressed by `rowKey`. Until the #17 sweep this field was doing both jobs, and import
-   * overwrote it — which destroyed the dataset identity of every file brought into this edition,
-   * and of every file exported from it. See SLUG-SWEEP.md F19a.
+   * addressed by `rowKey`, so import keeps this field as the file carries it.
    */
   id: string
   /**
@@ -117,7 +170,7 @@ export interface TapToneMeasurementModel {
    */
   rowKey?: string
   timestamp: string
-  peaks: ResonantPeakModel[]
+  peaks: ResonantPeak[]
   decayTime?: number
   measurementName?: string
   notes?: string

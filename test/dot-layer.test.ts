@@ -19,8 +19,8 @@
 import { describe, it, expect } from 'vitest'
 import { peaksInDisplayRange, isKnown } from '../src/dsp/guitarModes'
 import { buildGuitarMarkers } from '../src/presentation/measurementImage'
-import type { Peak } from '../src/dsp/peaks'
 import type { ResolvedMode } from '../src/dsp/classify'
+import type { ResonantPeak } from '../src/measurement/types'
 
 // ---------------------------------------------------------------------------
 // Fixture — generic guitar bands (guitarModes RANGES.generic):
@@ -40,19 +40,20 @@ const MIN_HZ = 75
 const MAX_HZ = 350
 
 let nextId = 1
-const peak = (frequency: number, magnitude = -30): Peak => ({
-  id: nextId++,
+const peak = (frequency: number, magnitude = -30): ResonantPeak => ({
+  id: String(nextId++),
   frequency,
   magnitude,
   quality: 10,
   bandwidth: frequency / 10,
+  timestamp: '2026-09-25T00:00:00Z',
 })
 
 const dots = (
-  peaks: Peak[],
+  peaks: ResonantPeak[],
   isGuitar = true,
   showUnknown = false,
-  overriddenIds: ReadonlySet<number> = new Set(),
+  overriddenIds: ReadonlySet<string> = new Set(),
 ): number[] =>
   peaksInDisplayRange(peaks, MIN_HZ, MAX_HZ, isGuitar, showUnknown, overriddenIds, 'generic').map((p) => p.frequency)
 
@@ -87,8 +88,8 @@ describe('dot layer — the dot list is NOT the annotation list (DL6–DL7)', ()
   it('DL6 — the dot list is identical under every annotation mode and selection', () => {
     const p1 = peak(100), p2 = peak(200), p3 = peak(250)
     const peaks = [p1, p2, p3]
-    const modes = new Map<number, ResolvedMode>([[p1.id, 'air'], [p2.id, 'top'], [p3.id, 'back']])
-    const selected = new Set<number>([p2.id]) // only ONE peak selected
+    const modes = new Map<string, ResolvedMode>([[p1.id, 'air'], [p2.id, 'top'], [p3.id, 'back']])
+    const selected = new Set<string>([p2.id]) // only ONE peak selected
     const expected = [100, 200, 250]
 
     for (const mode of ['all', 'selected', 'none'] as const) {
@@ -111,7 +112,7 @@ describe('dot layer — the dot list is NOT the annotation list (DL6–DL7)', ()
     // ASSIGNED mode resolves to 'unknown'. Swift/Python still dot it; the web used to drop it
     // because it filtered dots by assigned mode.
     const p = peak(200)
-    const assignedModes = new Map<number, ResolvedMode>([[p.id, 'unknown']])
+    const assignedModes = new Map<string, ResolvedMode>([[p.id, 'unknown']])
 
     // The assigned-mode filter (what the Results panel uses) would drop it…
     const byAssignedMode = [p].filter((q) => (assignedModes.get(q.id) ?? 'unknown') !== 'unknown')
@@ -123,10 +124,10 @@ describe('dot layer — the dot list is NOT the annotation list (DL6–DL7)', ()
   })
 })
 
-describe('dot layer — a named peak is known (DL8–DL10, Phase 4)', () => {
+describe('dot layer — a named peak is known (DL8–DL10)', () => {
   // 305 Hz and 137 Hz are IN range but in NO band (back ends 300, dipole starts 310; air ends 135, top
   // starts 140), so they are hidden with Show Unknown Modes off — until the user names one.
-  it('DL8 — a named out-of-band peak becomes visible with Show Unknown Modes off (the Phase 4 change)', () => {
+  it('DL8 — a named out-of-band peak becomes visible with Show Unknown Modes off', () => {
     const p = peak(305)
     expect(dots([p])).toEqual([]) // unnamed, out-of-band → hidden
     expect(dots([p], true, false, new Set([p.id]))).toEqual([305]) // named → shown
@@ -144,7 +145,7 @@ describe('dot layer — a named peak is known (DL8–DL10, Phase 4)', () => {
     const overridden = new Set([named.id])
     expect(dots([named, unnamed], true, false, overridden)).toEqual([305]) // dot only for the named one
     const dotSet = peaksInDisplayRange([named, unnamed], MIN_HZ, MAX_HZ, true, false, overridden, 'generic')
-    const modes = new Map<number, ResolvedMode>([[named.id, 'unknown'], [unnamed.id, 'unknown']])
+    const modes = new Map<string, ResolvedMode>([[named.id, 'unknown'], [unnamed.id, 'unknown']])
     const markers = buildGuitarMarkers(dotSet, modes, new Set(), new Map(), 'all', undefined)
     expect(markers.filter((m) => m.annotated).map((m) => m.frequency)).toEqual([305]) // badge follows the dot
   })

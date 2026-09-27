@@ -5,7 +5,7 @@ import { isValidMeasurementName } from '../measurement/measurementName'
 /** Props for {@link SaveSheet}. */
 export interface SaveSheetProps {
   /** Pre-fill for the measurement-name field: the loaded measurement's name on re-save, else ""
-   *  (§3). Mirrors Swift SaveMeasurementSheet `defaultName`. */
+   *  Mirrors Swift SaveMeasurementSheet `defaultName`. */
   defaultName?: string
   /** Pre-fill for the notes field: the loaded measurement's notes on re-save, else "" — seeds
    *  symmetrically with `defaultName` (Swift SaveMeasurementSheet `defaultNotes`). */
@@ -21,7 +21,7 @@ export function SaveSheet({ defaultName = '', defaultNotes = '', onSave, onClose
   const [name, setName] = useState(defaultName)
   const [notes, setNotes] = useState(defaultNotes)
 
-  // A name is required (§3): Save is disabled until the field is non-empty after trimming.
+  // A name is required: Save is disabled until the field is non-empty after trimming.
   const canSave = isValidMeasurementName(name)
 
   const save = () => {
@@ -61,7 +61,7 @@ export function SaveSheet({ defaultName = '', defaultNotes = '', onSave, onClose
         {/* Cancel / Save sit BELOW the fields, bottom-right — where Swift puts them on macOS
             (a sheet's .cancellationAction/.confirmationAction render in a bottom bar) and where
             Python's trailing button row is. They are a form's confirm/cancel pair, not the
-            list-level toolbar actions WEB-UI-GUIDELINES item 6 describes. */}
+            list-level toolbar actions in a header. */}
         <div className="settings-modal-foot">
           <button className="btn" onClick={onClose}>
             Cancel

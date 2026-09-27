@@ -25,10 +25,9 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
  *
  * This exists because `Number.prototype.toFixed` rounds ties AWAY FROM ZERO, so a naive port of
  * `formattedNote` would disagree with Swift and Python at every exact half-cent: `0.5` renders as
- * `1` here and `0` there, `2.5` as `3` and `2`, `-0.5` as `-1` and `-0`. Sub-cent, but it is a
- * cross-edition string difference in a user-visible label, which is the class of divergence the
- * #17 sweep exists to remove. The sign is applied separately so `-0.4` renders `-0`, as it does
- * in both natives.
+ * `1` here and `0` there, `2.5` as `3` and `2`, `-0.5` as `-1` and `-0`. Sub-cent, but it would be a
+ * cross-edition string difference in a user-visible label. The sign is applied separately so `-0.4`
+ * renders `-0`, as it does in both natives.
  */
 export function roundTiesToEven(value: number): string {
   const a = Math.abs(value)
@@ -56,8 +55,8 @@ export class Pitch {
   /**
    * Whether `frequency` has a pitch at all: a finite, positive number of hertz. A frequency that has
    * none — 0 Hz, a negative value, NaN, infinity — gets "no pitch" from every method here: an empty note
-   * name, 0 cents, 0 Hz, a (0, 0) range, not in tune. It used to reach `Math.log2(0)` and come out as
-   * the note "undefinedNaN" (#17 F50 item 14). Mirrors Swift `hasPitch(_:)` / Python `has_pitch`.
+   * name, 0 cents, 0 Hz, a (0, 0) range, not in tune — never a note computed from `Math.log2(0)`.
+   * Mirrors Swift `hasPitch(_:)` / Python `has_pitch`.
    */
   hasPitch(frequency: number): boolean {
     return Number.isFinite(frequency) && frequency > 0
@@ -131,8 +130,7 @@ export class Pitch {
    *
    * No octave special-casing is needed. {@link freq} is `c0 · 2^(note/12) · 2^octave` with no
    * bounds check, so note 12 already *means* C of the next octave and note −1 already means B of
-   * the previous one — the exponent carries it. The natives had two `note === 0 / === 11`
-   * branches here until the #17 sweep, claiming to "handle octave boundaries"; they did nothing.
+   * the previous one — the exponent carries it.
    * @param frequency Frequency to analyse, in Hz.
    * @returns `{ upper, lower }`, one semitone apart, bracketing `frequency`.
    */

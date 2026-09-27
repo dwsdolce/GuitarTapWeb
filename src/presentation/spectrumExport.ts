@@ -47,7 +47,7 @@ const th: ChartTheme = LIGHT_CHART
  *
  * NOTE: the rule itself is untagged on every platform — Swift `visiblePeaks` and Python `visible_peaks`
  * carry no `@parity` slug, and the web re-derives it here rather than owning it on the analyzer. Giving
- * it a real 3-way `state/` slug belongs with the view-layer restructure (RESTRUCTURE-NOTES.md).
+ * it a real 3-way `state/` slug belongs with the view-layer restructure.
  */
 export function reportPeaks(markers: PeakMarker[]): PeakMarker[] {
   return markers.filter((m) => m.annotated)

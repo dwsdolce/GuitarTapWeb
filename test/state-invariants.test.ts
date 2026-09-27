@@ -2,8 +2,7 @@
 // Mirrors GuitarTapTests/StateInvariantTests.swift and Python tests/test_state_invariants.py: the
 // load-bearing state-machine invariants (I1–I6) that must hold after any sequence of operations.
 //
-// The checker lives HERE, in the test, as it does in both natives. It used to be exported from
-// src/state/tapToneAnalyzer.ts, where nothing but this file called it (#17 F45).
+// The checker lives HERE, in the test, as it does in both natives.
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer, type CapturedTap } from '../src/state/tapToneAnalyzer'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
@@ -92,7 +91,7 @@ describe('StateInvariants', () => {
   })
 
   // V4: mid multi-tap sequence holds invariants — reached through the REAL capture path
-  // (finishGuitarGatedCapture), not by assigning the taps, count and state by hand (#17 F45).
+  // (finishGuitarGatedCapture), not by assigning the taps, count and state by hand.
   // Checked resting through the tap cooldown, and re-armed after it.
   it('V4 — mid multi-tap sequence holds invariants', async () => {
     const s = makeSUT(3)
@@ -102,7 +101,7 @@ describe('StateInvariants', () => {
     expect(s.isDetecting, 'detection rests through the tap cooldown').toBe(false)
     expect(stateInvariantViolation(s)).toBeNull()
 
-    advanceAudio(s, s.tapCooldown) // the rest runs on the audio clock (#19)
+    advanceAudio(s, s.tapCooldown) // the rest runs on the audio clock
     expect(s.isDetecting, 're-armed for the next tap once the cooldown has passed').toBe(true)
     expect(stateInvariantViolation(s)).toBeNull()
   })
@@ -132,7 +131,7 @@ describe('StateInvariants', () => {
   })
 
   // V8: a plate capture reaches its REVIEW phase through the real gated path, and invariants hold —
-  // including I6, which no guitar case can reach (#17 F45).
+  // including I6, which no guitar case can reach.
   it('V8 — plate review phase holds invariants', () => {
     const s = makeSUT(1)
     s.measurementType = 'plate'
@@ -144,7 +143,7 @@ describe('StateInvariants', () => {
     expect(stateInvariantViolation(s)).toBeNull()
   })
 
-  // V9–V13: each invariant REPORTS its forbidden state. V7 did this for I1 alone (#17 F45).
+  // V9–V13: each invariant REPORTS its forbidden state, as V7 does for I1.
   it('I2 — paused and complete is flagged', () => {
     const s = makeSUT()
     s.detectionState = 'paused'

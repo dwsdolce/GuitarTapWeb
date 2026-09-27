@@ -1,15 +1,11 @@
 // @parity view/measurement-detail
-import {
-  measurementTypeName,
-  comparisonEntryModeFreqs,
-  colorComponentsToCss,
-  measurementPeakModeLabels,
-} from '../measurement/fromLive'
-import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type TapToneMeasurementModel, type ResonantPeakModel } from '../measurement'
+import { measurementTypeName, comparisonEntryModeFreqs, colorComponentsToCss, measurementPeakModeLabels } from '../measurement/fromLive'
+import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
 import { MODE_COLOR, MODE_DISPLAY_NAME, magnitudeColor } from '../presentation/modeColors'
 import type { ResolvedMode } from '../dsp/classify'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
 import { formatDisplayDate } from '../format/date'
+import type { ResonantPeak } from '../measurement/types'
 
 // Read-only measurement inspector — mirrors Swift MeasurementDetailView / Python
 // MeasurementDetailDialog. Opened from the Measurements ⋯ menu ("View Details"). A
@@ -34,7 +30,7 @@ function labelColor(label: string): string {
   return MATERIAL_LABEL_COLOR[label] ?? 'var(--accent)'
 }
 
-const pitchText = (p: ResonantPeakModel): string | null => {
+const pitchText = (p: ResonantPeak): string | null => {
   if (!p.pitchNote) return null
   const cents = p.pitchCents
   if (cents == null) return `♪ ${p.pitchNote}`
@@ -61,16 +57,13 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
   const shownPeaks = m.peaks.filter((p) => selectedIds.has(p.id)).sort((a, b) => a.frequency - b.frequency)
 
   // Material peaks are labeled by their selected role ID (full words); guitar peaks are RESOLVED
-  // (override > classification), never read from the peak's stored `modeLabel`.
-  //
-  // This read `p.modeLabel ?? 'Peak'` until the #17 sweep, which meant a loaded file's stale label
-  // was shown as-is — and a file with no label at all showed "Peak" where Swift classifies and
-  // shows "Top". `modeLabel` is an export-only convenience injected at serialisation time, not
-  // stored state; Swift's MeasurementDetailView derives at display time for exactly this reason.
-  // See SLUG-SWEEP.md F15.
+  // (override > classification), never read from the peak's stored `modeLabel`. `modeLabel` is an
+  // export-only convenience injected at serialisation time, not stored state, so a loaded file's
+  // label may be stale or absent; Swift's MeasurementDetailView derives at display time for the
+  // same reason.
   const isMaterial = isMaterialMeasurement(m)
   const modeLabels = isMaterial ? null : measurementPeakModeLabels(m)
-  const peakLabel = (p: ResonantPeakModel): string => {
+  const peakLabel = (p: ResonantPeak): string => {
     if (isMaterial) {
       if (p.id === m.selectedLongitudinalPeakID) return 'Longitudinal'
       if (p.id === m.selectedCrossPeakID) return 'Cross-grain'

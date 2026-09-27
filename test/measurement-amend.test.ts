@@ -7,10 +7,9 @@
 // meaning — same `id` ⟺ same content — and it is why `isAmended` exists: a Save that changes
 // nothing would hand unchanged content a new identity, so the edit row must not allow one.
 //
-// New in the #17 sweep. This edition had no counterpart to Swift's `with` / Python's `with_` at
-// all — the amend was inline in the Measurements panel, untestable and unshared. Mirrors Swift
+// The web's counterpart to Swift's `with` / Python's `with_`. Mirrors Swift
 // GuitarTapTests/MeasurementAmendTests.swift and Python tests/test_measurement_amend.py, case for
-// case. See SLUG-SWEEP.md F20.
+// case.
 import { describe, it, expect } from 'vitest'
 import { isAmended, amendMeasurement } from '../src/measurement/amend'
 import { normalizedMeasurementName, normalizedMeasurementNotes } from '../src/measurement/measurementName'
@@ -49,7 +48,7 @@ describe('isAmended — the gate on Save', () => {
   it('is false for whitespace-only differences', () => {
     // Whitespace-only retyping is NOT an edit, because both fields normalize the same way. This is
     // the case that made the rule worth sharing: Swift stored notes verbatim and Python trimmed on
-    // one path only, so the three disagreed on whether this counted. See SLUG-SWEEP.md F21.
+    // one path only, so the three disagreed on whether this counted.
     const m = make('Bridge', 'Some notes')
     const name = normalizedMeasurementName('  Bridge  ')
     const notes = normalizedMeasurementNotes('\n Some notes \n')

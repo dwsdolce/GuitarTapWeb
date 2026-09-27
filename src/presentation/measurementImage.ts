@@ -1,9 +1,4 @@
-// Bridge: build the spectrum-image opts (styled markers + spectrum/overlays + view + metadata) for a
-// SAVED measurement, so the Saved-Measurements row menu can Export Spectrum / Export PDF Report and
-// the PDF can embed the same composite. The marker builders are shared with the live view (App.tsx)
-// so the displayed graph and the exported image use identical peak styling.
 
-import type { Peak } from '../dsp/peaks'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
 import { MODE_COLOR, MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, USER_MODE_COLOR } from './modeColors'
@@ -11,56 +6,17 @@ import { WOOD_QUALITY_COLOR } from './qualityColors'
 import { FieldPrecision } from '../precision'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
-import {
-  measurementToLive,
-  measurementToLiveMaterial,
-  measurementTypeName,
-  comparisonAxisRange,
-  comparisonEntryModeFreqs,
-  colorComponentsToCss,
-  multiTapComparisonEntries,
-  measurementTapToneRatio,
-} from '../measurement/fromLive'
-import {
-  isGuitarType,
-  MEASUREMENT_FULL_NAME,
-  STIFFNESS_RAW_NAME,
-  DEFAULT_SETTINGS,
-} from '../settings'
+import { measurementToLive, measurementToLiveMaterial, measurementTypeName, comparisonAxisRange, comparisonEntryModeFreqs, colorComponentsToCss, multiTapComparisonEntries, measurementTapToneRatio } from '../measurement/fromLive'
+import { isGuitarType, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, DEFAULT_SETTINGS } from '../settings'
 import { materialDimensions, materialStiffness } from '../measurement/materialMeasurementInputs'
 import { formatDisplayDate } from '../format/date'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { TapToneMeasurementModel } from '../measurement'
-import type { MaterialPeak } from '../state/tapToneAnalyzer'
 import { MODE_DISPLAY_NAME as MODE_FULL_NAME } from './modeColors'
 import { decayQuality, decayQualityColor, tapToneRatioQuality, tapToneRatioQualityColor } from '../dsp/analysisQuality'
-import {
-  density,
-  densityGPerCm3,
-  plateYoungsLongGPa,
-  plateYoungsLongPa,
-  plateYoungsCrossGPa,
-  plateYoungsCrossPa,
-  braceYoungsLongGPa,
-  braceYoungsLongPa,
-  speedOfSound,
-  specificModulus,
-  radiationRatio,
-  crossLongRatio,
-  longCrossRatio,
-  goreShearPa,
-  goreTargetThicknessMm,
-  woodQuality,
-  overallQuality,
-  type Dimensions,
-} from '../dsp/material'
-import type {
-  PdfReportData,
-  PdfPeakRow,
-  PdfMaterialAnalysis,
-  PdfMaterialProp,
-  PdfTapInstructions,
-} from './pdfReport'
+import { density, densityGPerCm3, plateYoungsLongGPa, plateYoungsLongPa, plateYoungsCrossGPa, plateYoungsCrossPa, braceYoungsLongGPa, braceYoungsLongPa, speedOfSound, specificModulus, radiationRatio, crossLongRatio, longCrossRatio, goreShearPa, goreTargetThicknessMm, woodQuality, overallQuality, type Dimensions } from '../dsp/material'
+import type { PdfReportData, PdfPeakRow, PdfMaterialAnalysis, PdfMaterialProp, PdfTapInstructions } from './pdfReport'
+import type { ResonantPeak } from '../measurement/types'
 
 const pitch = new Pitch(440)
 type AnnoMode = 'all' | 'selected' | 'none'
@@ -81,17 +37,17 @@ const f3 = (n: number) => n.toFixed(3)
 /** Styled guitar peak markers (dot color + mode label + pitch + override/annotation) — the SAME
  *  mapping the live view uses, so the on-screen chart and exported image agree. */
 export function buildGuitarMarkers(
-  peaks: Peak[],
-  modeByPeak: Map<number, ResolvedMode>,
-  selectedIds: Set<number>,
-  overridesById: Map<number, string>,
+  peaks: ResonantPeak[],
+  modeByPeak: Map<string, ResolvedMode>,
+  selectedIds: Set<string>,
+  overridesById: Map<string, string>,
   annotationMode: AnnoMode,
-  offsetsById?: Map<number, [number, number]>,
+  offsetsById?: Map<string, [number, number]>,
 ): PeakMarker[] {
   return peaks.map((p) => {
-    const key = String(p.id) // RB: annotation-offset key is the peak id (analyzer-owned store)
+    const key = p.id // the annotation-offset key is the peak id (analyzer-owned store)
     const mode = modeByPeak.get(p.id) ?? 'unknown'
-    const override = overridesById.get(p.id) // RA: overrides are id-keyed (analyzer-owned)
+    const override = overridesById.get(p.id) // overrides are id-keyed (analyzer-owned)
     // Override wins for color too (like the label): a predefined override uses that mode's color, a
     // freeform label is user-defined; else the auto-classified mode's color. Mirrors Swift peakColor /
     // Python peak_color — so the callout AND the Detected Peaks Summary chip match the override.
@@ -121,19 +77,19 @@ export function buildGuitarMarkers(
  *  guitar markers — material reuses the single shared offset store (Swift/Python peakAnnotationOffsets). */
 export function buildMaterialMarkers(
   matPeaks: {
-    longitudinal: MaterialPeak | null
-    cross: MaterialPeak | null
-    flc: MaterialPeak | null
+    longitudinal: ResonantPeak | null
+    cross: ResonantPeak | null
+    flc: ResonantPeak | null
   },
   mode: AnnoMode,
-  offsetsById?: Map<number, [number, number]>,
+  offsetsById?: Map<string, [number, number]>,
 ): PeakMarker[] {
   // Material (plate/brace) has no per-peak selection, so All and Selected both annotate every
   // identified peak; None hides all badges (dots remain). Mirrors Swift/Python visiblePeaks.
   const annotated = mode !== 'none'
   const out: PeakMarker[] = []
-  const push = (mp: MaterialPeak, color: string, label: string) => {
-    const key = String(mp.id) // RB: material offsets are id-keyed in the shared analyzer store
+  const push = (mp: ResonantPeak, color: string, label: string) => {
+    const key = mp.id // material offsets are id-keyed in the shared analyzer store
     out.push({ ...mp, color, label, annotated, annoKey: key, annoOffset: offsetsById?.get(mp.id) })
   }
   if (matPeaks.longitudinal) push(matPeaks.longitudinal, '#4ea1ff', 'Longitudinal')
@@ -172,7 +128,11 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
       title,
       spectrum: null,
       overlays,
-      markers: buildMaterialMarkers(r.matPeaks, (m.annotationVisibilityMode as AnnoMode) ?? 'all', r.annotationOffsetsById),
+      markers: buildMaterialMarkers(
+        { longitudinal: r.selectedLongitudinalPeak, cross: r.selectedCrossPeak, flc: r.selectedFlcPeak },
+        (m.annotationVisibilityMode as AnnoMode) ?? 'all',
+        r.annotationOffsetsById,
+      ),
       view: { minHz: s.minFreq, maxHz: s.maxFreq, minDb: s.minDB, maxDb: s.maxDB },
       measurementTypeName: MEASUREMENT_FULL_NAME[r.measurementType],
       date,
@@ -186,7 +146,7 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
   const markers = buildGuitarMarkers(
     r.loadedPeaks,
     modeByPeak,
-    r.selectedIndices,
+    r.selectedIds,
     r.overridesById,
     (m.annotationVisibilityMode as AnnoMode) ?? 'all',
     r.annotationOffsetsById,
@@ -286,11 +246,11 @@ function guitarPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData
   // fall within the displayed frequency range (Swift PDFReportGenerator.rangeFilteredPeaks +
   // visibleSortedPeaks). Peaks outside [minFreq, maxFreq] are excluded.
   const visible = r.loadedPeaks
-    .filter((p) => r.selectedIndices.has(p.id) && p.frequency >= base.freqRange.min && p.frequency <= base.freqRange.max)
+    .filter((p) => r.selectedIds.has(p.id) && p.frequency >= base.freqRange.min && p.frequency <= base.freqRange.max)
     .sort((a, b) => a.frequency - b.frequency)
   const peaks: PdfPeakRow[] = visible.map((p) => {
     const mode = modeByPeak.get(p.id) ?? 'unknown'
-    const override = r.overridesById.get(p.id) // RA: id-keyed overrides
+    const override = r.overridesById.get(p.id) // id-keyed overrides
     return {
       frequency: p.frequency,
       magnitude: p.magnitude,
@@ -332,18 +292,18 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
   const fvs = materialStiffness(mi)
   const rho = density(dims)
   const rhoGcm3 = densityGPerCm3(dims)
-  const fL = r.matPeaks.longitudinal?.frequency ?? null
-  const fC = r.matPeaks.cross?.frequency ?? null
-  const fLC = r.matPeaks.flc?.frequency ?? null
+  const fL = r.selectedLongitudinalPeak?.frequency ?? null
+  const fC = r.selectedCrossPeak?.frequency ?? null
+  const fLC = r.selectedFlcPeak?.frequency ?? null
   const measureFlc = r.settingsPatch.measureFlc ?? DEFAULT_SETTINGS.measureFlc
   const showFlc = plate && measureFlc
 
   // Peaks table — selected peaks, sorted low → high, role cell name-first (Swift peakRoleCell:559).
-  const roleRows: { peak: MaterialPeak; role: string; color: string }[] = []
-  if (r.matPeaks.longitudinal)
-    roleRows.push({ peak: r.matPeaks.longitudinal, role: 'Longitudinal (fL)', color: ROLE_L })
-  if (plate && r.matPeaks.cross) roleRows.push({ peak: r.matPeaks.cross, role: 'Cross-grain (fC)', color: ROLE_C })
-  if (showFlc && r.matPeaks.flc) roleRows.push({ peak: r.matPeaks.flc, role: 'Diagonal (fLC)', color: ROLE_FLC })
+  const roleRows: { peak: ResonantPeak; role: string; color: string }[] = []
+  if (r.selectedLongitudinalPeak)
+    roleRows.push({ peak: r.selectedLongitudinalPeak, role: 'Longitudinal (fL)', color: ROLE_L })
+  if (plate && r.selectedCrossPeak) roleRows.push({ peak: r.selectedCrossPeak, role: 'Cross-grain (fC)', color: ROLE_C })
+  if (showFlc && r.selectedFlcPeak) roleRows.push({ peak: r.selectedFlcPeak, role: 'Diagonal (fLC)', color: ROLE_FLC })
   roleRows.sort((a, b) => a.peak.frequency - b.peak.frequency)
   const peaks: PdfPeakRow[] = roleRows.map((rr) => ({
     frequency: rr.peak.frequency,

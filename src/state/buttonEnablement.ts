@@ -11,16 +11,16 @@ import { isGuitarType, type MeasurementType } from '../settings'
 export interface ButtonState {
   /** Whether the detector is listening, paused mid-sequence, or neither.
    *  One value rather than a detecting/paused boolean pair: the pair could express "detecting AND
-   *  paused", which the analyzer can no longer represent, so a fixture built from two booleans
-   *  would encode a contract the app no longer has (#17 F30). */
+   *  paused", which the analyzer cannot represent, so a fixture built from two booleans could
+   *  encode a state the app never reaches. */
   detectionState: DetectionState
   isMeasurementComplete: boolean
   isReadyForDetection?: boolean
   fftIsRunning?: boolean
   /** What the spectrum is showing. REQUIRED, and the mode itself rather than a boolean: the rule
    *  reads `tap.displayMode` in Swift and `display_mode` in Python, so it cannot be omitted there.
-   *  It was an optional boolean here until #17 F24 — and omitting it meant New Tap came out
-   *  DISABLED during a comparison, trapping the user in it with no way back to live. */
+   *  Required here too, because New Tap is the way back to live from a comparison and the rule
+   *  must see the comparison to enable it. */
   displayMode: DisplayMode
   measurementType?: MeasurementType
   materialTapPhase?: MaterialTapPhase
@@ -51,7 +51,7 @@ export function buttonRule(s: ButtonState): ButtonOutput {
   // is disabled while in flight and enabled otherwise (idle OR complete) — the honest
   // predicate, replacing the old `!isMeasurementComplete` proxy that wrongly locked New
   // Tap in the disarmed-idle state the Dump Capture Audio folder guard can produce on
-  // Swift/Python (§4b). The web never reaches that state (Downloads-only, no folder guard),
+  // Swift/Python. The web never reaches that state (Downloads-only, no folder guard),
   // so this is a no-op here — kept identical for cross-platform parity. Cancel restarts,
   // offered during a review phase (as "Redo") or an active multi-step sequence (multi-tap
   // or multi-phase = plate; brace is single-phase). Pause/Resume: review, detecting, or paused.

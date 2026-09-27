@@ -17,11 +17,11 @@
 // assertions and the regression baseline are measurements of the same code.
 
 import { readFileSync } from 'node:fs'
-import { RealtimeFFTAnalyzer, type MaterialCaptureResult, type MaterialPhaseName } from '../src/audio/realtimeFFTAnalyzer'
+import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
+import type { ResonantPeak } from '../src/measurement/types'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { decodeWav } from '../src/dsp/wav'
 import { parseCalibration, type Calibration } from '../src/dsp/calibration'
-import { modePeaksFromSpectrum, type Spectrum } from '../src/dsp/guitarFFT'
 import { makeGatedTestSignal, gatedMagnitudeAt, type Tone } from './gatedSignal'
 import { reviveNonFinite } from './selfBaseline'
 
@@ -60,15 +60,17 @@ export function loadCal(name: string | null): Calibration | null {
   return parseCalibration(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8'), name)
 }
 
-/** Run a guitar recording through engine.playFile (headless), wired to a real TapToneAnalyzer exactly
- *  as the app wires them (6-TEST 3c-C2a): the device delivers each per-tap spectrum RAW; the analyzer
- *  accumulates + power-averages them into the frozen result. Mirrors Swift's TapToneAnalyzer.forTesting()
- *  driving playFileForTesting → the averaged spectrum + per-tap spectra come from the analyzer. */
-export async function playGuitar(
-  reg: RegCase,
-): Promise<{ spectrum: Spectrum; taps?: Spectrum[] } | null> {
+/** Run a generic-guitar recording through analyzer.playFile — the app's Play File path (headless), wired to a real TapToneAnalyzer
+ *  exactly as the app wires them: the device delivers each per-tap spectrum RAW; the analyzer
+ *  accumulates + power-averages them into the frozen result and builds the per-tap entries. Returns the
+ *  completed analyzer, whose peaks are read the way the app reads them — `getPeak(mode)` (the Results
+ *  panel) and `tapEntries[i].resolvedModePeaks()` (the multi-tap view). Mirrors Swift's
+ *  TapToneAnalyzer.forTesting() driving playFileAndWait(measurementType: .generic). */
+export async function playGuitar(reg: RegCase): Promise<TapToneAnalyzer> {
   const wav = loadWav(reg.fixture)
   const analyzer = new TapToneAnalyzer()
+  analyzer.measurementType = 'generic'
+  analyzer.peakMinThreshold = reg.settings.peakMinThreshold!
   analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1)
   analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
   const engine = new RealtimeFFTAnalyzer(
@@ -77,30 +79,21 @@ export async function playGuitar(
   )
   engine.initForTesting()
   analyzer.setDevice(engine)
-  // Arm, then play — Swift's order. Guitar playback skips the warm-up (absolute threshold).
-  analyzer.startTapSequence({ skipWarmup: true })
-  await engine.playFile(wav.samples, wav.sampleRate, { calibration: loadCal(reg.calibration) })
-  // A capture the file stopped filling is flushed by the engine at file end (#19).
+  await analyzer.playFile(wav.samples, wav.sampleRate, loadCal(reg.calibration))
+  // A capture the file stopped filling is flushed by the engine at file end.
   // The last tap is averaged `captureWindow` (0.2 s) later, as in Swift/Python — so wait for it the way
-  // Swift's playFileForTesting polls, rather than read a result that has not been produced yet.
+  // Swift's playFileAndWait polls, rather than read a result that has not been produced yet.
   await waitForCompletion(analyzer)
-  if (!analyzer.isMeasurementComplete) return null
-  const spectrum: Spectrum = { magnitudesDb: analyzer.frozenMagnitudes, frequencies: analyzer.frozenFrequencies }
-  const taps =
-    analyzer.capturedTaps.length > 1
-      ? analyzer.capturedTaps.map((t) => ({ magnitudesDb: t.magnitudes, frequencies: t.frequencies }))
-      : undefined
-  return { spectrum, taps }
+  return analyzer
 }
 
-/** Run a plate/brace session through engine.playFile (headless), wired to a real TapToneAnalyzer as the
- *  app wires them (6-TEST 3c-C4 Option C): the device emits each raw gated tap; the analyzer owns the
- *  per-tap validity gate, the tap count, the re-arm, and the L→C→FLC auto-advance (recordMaterialTap),
- *  averaging + findDominantPeak at each phase end. One result per completed phase is read off the analyzer. */
-export async function playMaterial(
-  reg: RegCase,
-  brace: boolean,
-): Promise<MaterialCaptureResult[]> {
+/** Run a plate/brace session through analyzer.playFile — the app's Play File path (headless), wired to a real TapToneAnalyzer as the
+ *  app wires them: the device emits each raw gated tap; the analyzer owns the per-tap validity gate, the tap
+ *  count, the re-arm, and the L→C→FLC auto-advance, averaging + findDominantPeak at each phase end. Returns
+ *  the analyzer, whose identified peaks are read as the app reads them (`selectedLongitudinalPeak` /
+ *  `selectedCrossPeak` / `selectedFlcPeak`). Mirrors Swift's TapToneAnalyzer.forTesting() driving
+ *  playFileAndWait(measurementType: .plate / .brace). */
+export async function playMaterial(reg: RegCase, brace: boolean): Promise<TapToneAnalyzer> {
   const wav = loadWav(reg.fixture)
   const analyzer = new TapToneAnalyzer()
   analyzer.measurementType = brace ? 'brace' : 'plate'
@@ -112,32 +105,20 @@ export async function playMaterial(
     { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
   )
   engine.initForTesting()
-  // The analyzer's per-phase search reads the DEVICE's active calibration, as it does in the app
-  // (App applies it per input) — so set it here rather than passing it through playFile.
-  engine.setCalibration(loadCal(reg.calibration))
   analyzer.setDevice(engine)
-  // Arm, then play — Swift's order. Material always runs the warm-up (relative noise-floor detector).
-  analyzer.startTapSequence()
-  await engine.playFile(wav.samples, wav.sampleRate, {
-    material: { brace, measureFlc: reg.settings.measureFlc ?? false, calibration: loadCal(reg.calibration) },
-  })
-  // Collect one result per completed phase off the analyzer (the engine auto-advanced L→C→(FLC)).
-  const phases: MaterialPhaseName[] = brace
-    ? ['longitudinal']
-    : reg.settings.measureFlc
-      ? ['longitudinal', 'cross', 'flc']
-      : ['longitudinal', 'cross']
-  const caps: MaterialCaptureResult[] = []
-  for (const ph of phases) {
-    if (analyzer.matSpectra[ph]) caps.push({ spectrum: analyzer.matSpectra[ph]!, peak: analyzer.matPeaks[ph], phase: ph })
-  }
-  return caps
+  await analyzer.playFile(wav.samples, wav.sampleRate, loadCal(reg.calibration))
+  return analyzer
 }
 
-const ROLE_TO_PHASE: Record<string, MaterialPhaseName> = {
-  longitudinal: 'longitudinal',
-  cross: 'cross',
-  flc: 'flc',
+/** A material role's identified peak on the analyzer (Swift `selected…Peak`). */
+export function identifiedPeak(analyzer: TapToneAnalyzer, role: string): ResonantPeak | null {
+  return role === 'longitudinal'
+    ? analyzer.selectedLongitudinalPeak
+    : role === 'cross'
+      ? analyzer.selectedCrossPeak
+      : role === 'flc'
+        ? analyzer.selectedFlcPeak
+        : null
 }
 
 function record(
@@ -152,30 +133,12 @@ function record(
 }
 
 /** Poll until the analyzer completes its measurement, or give up after `timeoutMs` — the web's
- *  counterpart of Swift playFileForTesting spinning until processMultipleTaps has run. */
+ *  counterpart of Swift playFileAndWait polling until processMultipleTaps has run. */
 export async function waitForCompletion(analyzer: TapToneAnalyzer, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (!analyzer.isMeasurementComplete && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 10))
   }
-}
-
-/** Ring-out for REG-G1, computed the way decay-tracking.test.ts computes it. */
-async function ringOutSec(reg: RegCase): Promise<number> {
-  const wav = loadWav(reg.fixture)
-  const analyzer = new TapToneAnalyzer()
-  analyzer.setNumberOfTaps(1)
-  analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
-  const engine = new RealtimeFFTAnalyzer(
-    { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
-    { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: 1 },
-  )
-  engine.initForTesting()
-  analyzer.setDevice(engine)
-  analyzer.startTapSequence({ skipWarmup: true })
-  await engine.playFile(wav.samples, wav.sampleRate) // paced, as the natives play (#17 F45)
-  if (analyzer.currentDecayTime === null) throw new Error('REG-G1: no ring-out was measured')
-  return analyzer.currentDecayTime
 }
 
 export async function computeFilePlayback(): Promise<Record<string, unknown>> {
@@ -186,40 +149,35 @@ export async function computeFilePlayback(): Promise<Record<string, unknown>> {
     const computed: Record<string, unknown> = {}
 
     if (guitar) {
-      const cap = await playGuitar(spec)
-      if (!cap) throw new Error(`${name}: no capture emitted`)
-      const modes = modePeaksFromSpectrum(cap.spectrum, {
-        peakMinThreshold: spec.settings.peakMinThreshold!,
-        guitarType: 'generic',
-      })
+      const analyzer = await playGuitar(spec)
+      if (!analyzer.isMeasurementComplete) throw new Error(`${name}: the measurement did not complete`)
       for (const block of ['peaks', 'averagedPeaks'] as const) {
         if (!spec[block]) continue
         computed[block] = (spec[block] as PeakRef[]).map((want) =>
-          record(modes[want.role as 'air' | 'top' | 'back'], want, name),
+          record(analyzer.getPeak(want.role as 'air' | 'top' | 'back'), want, name),
         )
       }
       if (spec.perTap) {
         const perTap = spec.perTap as { tap: number; peaks: PeakRef[] }[]
         computed.perTap = perTap.map((entry, i) => {
-          const modesForTap = modePeaksFromSpectrum(cap.taps![i]!, {
-            peakMinThreshold: spec.settings.peakMinThreshold!,
-            guitarType: 'generic',
-          })
+          const modesForTap = analyzer.tapEntries[i]!.resolvedModePeaks()
           return {
             tap: entry.tap,
             peaks: entry.peaks.map((want) =>
-              record(modesForTap[want.role as 'air' | 'top' | 'back'], want, `${name} tap ${entry.tap}`),
+              record(modesForTap.get(want.role as 'air' | 'top' | 'back'), want, `${name} tap ${entry.tap}`),
             ),
           }
         })
       }
-      if (spec.ringOutSec !== undefined) computed.ringOutSec = await ringOutSec(spec)
+      // The ring-out is read off the same playback, as file-playback's REG-G case reads it.
+      if (spec.ringOutSec !== undefined) {
+        if (analyzer.currentDecayTime === null) throw new Error(`${name}: no ring-out was measured`)
+        computed.ringOutSec = analyzer.currentDecayTime
+      }
     } else {
       const brace = (spec.settings as unknown as { measurementType: string }).measurementType === 'Material (Brace)'
-      const caps = await playMaterial(spec, brace)
-      computed.peaks = (spec.peaks as PeakRef[]).map((want) =>
-        record(caps.find((c) => c.phase === ROLE_TO_PHASE[want.role])?.peak, want, name),
-      )
+      const analyzer = await playMaterial(spec, brace)
+      computed.peaks = (spec.peaks as PeakRef[]).map((want) => record(identifiedPeak(analyzer, want.role), want, name))
     }
     out[name] = computed
   }
@@ -238,7 +196,7 @@ export function computeGatedFft(): Record<string, unknown> {
       signal?: string
     }
     // Silence is the signal with no tones. The same builder the GFFT tests use, through the same
-    // calibrated transform the app runs (#17 F49).
+    // calibrated transform the app runs.
     const signal = makeGatedTestSignal(spec.signal === 'silence' ? [] : spec.tones!, SR)
     const { magnitudesDb, frequencies } = new RealtimeFFTAnalyzer().computeGatedFFT(signal, SR)
     const computed: Record<string, unknown> = {}

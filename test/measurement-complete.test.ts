@@ -97,9 +97,7 @@ describe('MeasurementCompleteTransitions', () => {
     expect(s.showLoadedSettingsWarning).toBe(false)
   })
 
-  // MC9-MC11: the OTHER three rules that move this flag. Until #17 F40 the banner's real state was
-  // an App.tsx useState and these were unreachable from a test — MC8 above passed against a field
-  // the application never read, which is a test proving something about a dead copy.
+  // MC9-MC11: the OTHER three rules that move this flag, which the banner reads from the analyzer.
   //
   // MC9: starting a new sequence clears it — the user's own Threshold/Taps now apply.
   it('MC9 — a new sequence clears the loaded-settings warning', () => {

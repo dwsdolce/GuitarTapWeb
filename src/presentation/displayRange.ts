@@ -17,9 +17,7 @@ export const FLOOR_HZ = 1
  *
  * A plate or brace identifies fL / fC / fFLC by scanning a wide band (brace: 100–1200 Hz), and the
  * display range is per-measurement-type and persisted — so the peak a measurement just produced can
- * land off the edge of the chart. Swift has widened the axis since the feature was written; web and
- * Python did neither, so the same measurement showed the peak on one edition and hid it on two.
- * Ported 2026-09-20 (project issue #8).
+ * land off the edge of the chart.
  */
 export function expandedToInclude(
   frequency: number,

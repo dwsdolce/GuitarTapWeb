@@ -1,6 +1,6 @@
 // @parity model/material-measurement-inputs
-// The material inputs of the CURRENT measurement — "Store B" in the measurement-dimensions design
-// (Development/MEASUREMENT-DIMENSIONS-SPEC.md), the web mirror of Swift MaterialMeasurementInputs /
+// The material inputs of the CURRENT measurement — "Store B" in the measurement-dimensions design,
+// the web mirror of Swift MaterialMeasurementInputs /
 // Python material_measurement_inputs. It is the SOLE source for a material measurement's derived
 // properties, Results-panel display, PDF, and Save — distinct from `Settings` (Store A), which holds
 // only the defaults for a NEW measurement. A measurement's values are seeded from Settings at

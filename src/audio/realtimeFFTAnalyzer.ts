@@ -3,7 +3,6 @@ import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, wa
 import { dftAnalRect, GUITAR_FFT_SIZE, spectrumPeak, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { fftInPlace } from '../dsp/fft'
-import type { DetectedMaterialPeak } from '../state/tapToneAnalyzer'
 
 /** Output of {@link RealtimeFFTAnalyzer.computeGatedFFT}: a one-sided dBFS magnitude spectrum + its bin
  *  frequencies. */
@@ -26,15 +25,6 @@ export interface MaterialSearch {
   /** Prefer the lowest significant peak over the tallest (the plate longitudinal rule). */
   preferLowestSignificant: boolean
 }
-/** One captured material phase: its gated spectrum, the located peak, and which phase it is. */
-export interface MaterialCaptureResult {
-  spectrum: Spectrum
-  peak: DetectedMaterialPeak | null
-  /** Which phase this capture is for. Set by the engine during a file-playback material session
-   *  (auto-advance); undefined during live capture, where the App derives it from its phase state. */
-  phase?: MaterialPhaseName
-}
-
 /** Lifecycle state of the {@link RealtimeFFTAnalyzer}. */
 export type EngineState = 'idle' | 'listening' | 'capturing' | 'paused'
 
@@ -44,7 +34,7 @@ export interface RealtimeFFTAnalyzerCallbacks {
   onLevel?: (db: number) => void
   /** Every pipeline chunk, with its level and audio-clock value. The TapToneAnalyzer owns the
    *  pre-roll, the detector and the capture window (Swift's split), so this is the whole seam
-   *  between the device and the model (#17 F30). */
+   *  between the device and the model. */
   onAudioFrame?: (samples: Float32Array, levelDb: number, audioTime: number) => void
   /** Edge-triggered input clipping (peak ≥ 0.99 or RMS ≥ 0 dBFS, 1.5 s hold). */
   onClipping?: (clipping: boolean) => void
@@ -160,7 +150,7 @@ export class RealtimeFFTAnalyzer {
   // Swift's split: the analyzer holds the pre-roll, the capture window and the detector, and calls
   // RealtimeFFTAnalyzer for the raw transform and the calibration corrections — applying them
   // itself. The FFT primitive stays here in both editions; only the work around it is the
-  // analyzer's (#17 F30).
+  // analyzer's.
 
   /** This chunk's audio-clock value — the detector's warm-up anchor (Swift `fftAnalyzer.audioElapsed`). */
   get audioTime(): number {
@@ -201,15 +191,15 @@ export class RealtimeFFTAnalyzer {
   // start so a redone material phase can be truncated away. Only runs when the dump-capture setting
   // is on. (number[], not Float32Array, so it grows cheaply and truncates like the native lists;
   // flattened to a Float32Array at finishSessionRecording.)
-  // Bounded pre-roll for the session WAV (FILE-PATHS-AND-NAMES-SPEC §6). True from
+  // Bounded pre-roll for the session WAV. True from
   // startSessionRecording until the first capture begins, then false for the rest of the session:
   // while true, only the last SESSION_PRE_ROLL_SECONDS of audio is kept; after the first tap the
   // buffer grows straight through. Mirrors Swift sessionPreRollActive.
 
 
-  // Guitar tap counter. The device no longer accumulates per-tap spectra (6-TEST 3c-C2a — the
-  // TapToneAnalyzer owns accumulation + averaging); it keeps only this lightweight count to know
-  // when the sequence is done (re-arm vs complete) and to label the session WAV.
+  // Guitar tap counter. The TapToneAnalyzer owns per-tap accumulation + averaging; the device keeps
+  // only this lightweight count to know when the sequence is done (re-arm vs complete) and to label
+  // the session WAV.
   private guitarTapCount = 0
 
   // Clipping detection.
@@ -270,20 +260,15 @@ export class RealtimeFFTAnalyzer {
   }
 
   /** Enable the headless pipeline for regression tests: drive the SAME playFile path the app uses,
-   *  with no AudioContext/mic. Mirrors Swift TapToneAnalyzer.forTesting() + playFileForTesting. */
+   *  with no AudioContext/mic. Mirrors Swift TapToneAnalyzer.forTesting() + playFileAndWait. */
   initForTesting(): void {
     this.headless = true
   }
 
   setConfig(config: Partial<RealtimeFFTAnalyzerConfig>): void {
-    const prevTaps = this.config.numberOfTaps
     this.config = { ...this.config, ...config }
-    // A tap-count change while armed and waiting must immediately refresh the progress display so
-    // the status prompt ("Tap the guitar N times…") tracks the new count without needing a re-arm
-    // (New Tap is disabled until complete). Mirrors Swift numberOfTaps.didSet updating the prompt.
-    // Skipped mid-capture and when idle: the stepper is locked once a tap is captured, and on load
-    // the result is frozen (setConfig(loadedTaps) runs while idle). Guitar only — material progress +
-    // its "Tap N times…" prompt are owned by the analyzer now (3c-C4 Option C: analyzer.setNumberOfTaps).
+    // The tap count's "Tap the guitar N times…" prompt is refreshed by the analyzer
+    // (TapToneAnalyzer.setNumberOfTaps, mirroring Swift numberOfTaps.didSet), not here.
   }
 
   /** Set (or clear) the active mic calibration. Adds interpolated per-bin dB corrections to every
@@ -302,16 +287,14 @@ export class RealtimeFFTAnalyzer {
   /**
    * The gated transform every plate/brace capture runs, calibrated. Swift
    * `computeGatedFFT(samples:sampleRate:)` and Python `compute_gated_fft`, on their FFT analyzers as
-   * this is on the engine; the web had the transform as a free function in `src/dsp/gatedFFT.ts`
-   * (#17 F50 item 2). The active calibration is added at the bin frequencies at the moment of the call —
-   * the web used to leave that to the caller, which took a copy when the phase was armed (#17 F49).
+   * this is on the engine. The active calibration is added at the bin frequencies at the moment of
+   * the call, so a capture is corrected by the calibration active when it is transformed.
    *
    *   - fewer than two samples → an empty spectrum (there is nothing to transform);
    *   - pad up to the next power of two, capped at 32768;
    *   - apply the PERIODIC Hann window 0.5−0.5·cos(2πi/N) — Swift's vDSP_HANN_DENORM, not
    *     numpy.hanning's symmetric (N−1) form. The two differ by less than any tolerance can see,
-   *     which is how this edition drifted to the symmetric one before; a window test in all three
-   *     guards it;
+   *     so a window test in all three editions guards it;
    *   - forward FFT; take the lower half;
    *   - magnitude = |X| / fftSize, with bins ≥1 doubled (one-sided spectrum);
    *   - 20·log10 → dBFS (no floor: an empty bin is -Infinity, as Swift gives).
@@ -322,7 +305,7 @@ export class RealtimeFFTAnalyzer {
    * −21 dB). For a TAP it works: the ring-out decays, so the signal supplies its own end taper, and the
    * abrupt onset — 0.1 s in, after the pre-onset silence — is weighted ≈0.2. Tested against decaying
    * modes at known frequencies, this measures a tap's frequency as well as or better than a Hann
-   * spanning only the captured samples (#17 F49). Because the capture fills a different share of the
+   * spanning only the captured samples. Because the capture fills a different share of the
    * padded window at each sample rate, the window's gain differs with it: about −10.8 dB at 44.1 kHz,
    * −9.5 dB at 48 kHz, and −6.0 dB at 96 kHz, where the capture exceeds 32768 samples and is
    * truncated to it.
@@ -354,9 +337,9 @@ export class RealtimeFFTAnalyzer {
     for (let i = 0; i < halfN; i++) {
       let mag = Math.hypot(re[i]!, im[i]!) / fftSize
       if (i >= 1) mag *= 2
-      // No epsilon clamp — a bin with no energy is -Infinity, as Swift's vDSP_vdbcon gives. The
-      // gated path carried the same clamp as the live one (guitarFFT); both are gone, so "nothing at
-      // all" stays distinguishable from -100 dB, a real level a quiet UMIK-1 reaches (#17).
+      // No epsilon clamp — a bin with no energy is -Infinity, as Swift's vDSP_vdbcon gives, and as the
+      // live path (guitarFFT) does, so "nothing at all" stays distinguishable from -100 dB, a real
+      // level a quiet UMIK-1 reaches.
       magnitudesDb[i] = 20 * Math.log10(mag)
       frequencies[i] = (i * sampleRate) / fftSize
     }
@@ -536,7 +519,7 @@ export class RealtimeFFTAnalyzer {
     this.context = ctx
     this.sampleRate = ctx.sampleRate
     // The pre-roll ring and capture windows are the analyzer's, sized from this rate when it sees
-    // the first frame (#17 F30).
+    // the first frame.
     await ctx.audioWorklet.addModule(`${import.meta.env.BASE_URL}spectrum-processor.js`)
     await ctx.resume()
     // Browsers may bring the context up suspended without a user gesture (e.g. on
@@ -663,11 +646,11 @@ export class RealtimeFFTAnalyzer {
       await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId)
       this.lastChunkTime = performance.now() // give the fresh stream a grace window
       // NOT lastSignalTime: it means "signal was last OBSERVED", and re-acquiring a stream observes
-      // nothing. Stamping it here made the next tick read 'healthy', which cleared the warning and
-      // reset the attempt streak — so 'deadInputExhausted' was unreachable and the input was
-      // re-acquired every 15 s forever, strobing the warning. Found on a BlackHole 2ch virtual
-      // input during the #17 run-review; any permanently silent input does it. Only a chunk that
-      // carries signal moves this stamp (see the onAudioFrame path). Mirrors Swift
+      // nothing. Stamping it here would make the next tick read 'healthy', clearing the warning and
+      // resetting the attempt streak, so a permanently silent input (a BlackHole 2ch virtual input,
+      // say) would never reach 'deadInputExhausted' and would be re-acquired every 15 s forever,
+      // strobing the warning. Only a chunk that carries signal moves this stamp (see the onAudioFrame
+      // path). Mirrors Swift
       // start(isWatchdogRecovery:) and Python start_buffer_watchdog(is_watchdog_recovery=True).
       this.engineStartTime = performance.now()
       console.warn('[engine] buffer watchdog: input re-acquired')
@@ -685,7 +668,7 @@ export class RealtimeFFTAnalyzer {
     // nothing. A dead track feeds exact zeros, giving rms 0.
     if (chunkCarriesSignal(data.rms)) this.lastSignalTime = now
     // While a file plays, the mic's samples are ignored — but each chunk is still a tick of the AUDIO
-    // clock, and that is what paces the file (#19).
+    // clock, and that is what paces the file.
     if (this.playingFile) {
       this.renderedSeconds += data.samples.length / (this.context?.sampleRate ?? this.sampleRate)
       this.wakePlaybackPacer()
@@ -741,38 +724,31 @@ export class RealtimeFFTAnalyzer {
 
     this.feedContinuous(s)
     // Detection and gated capture belong to the TapToneAnalyzer, as they do in Swift — this layer is
-    // the microphone, the FFT and the watchdogs. Hand the chunk up (#17 F30).
+    // the microphone, the FFT and the watchdogs. Hand the chunk up.
     this.callbacks.onAudioFrame?.(s, db, this.audioElapsed)
   }
 
   // @parity util/timing-activity
   /** Play decoded mono samples through the live pipeline (no mic) — the web equivalent of Swift
-   *  startFromFile/processFileData. The file defines the analysis sample rate. Guitar: arms a tap
-   *  sequence (single- or multi-tap). Material: the ENGINE owns the session — it arms phase L and
-   *  AUTO-ADVANCES L→C→(FLC)→done as taps are detected (Swift isPlayingFile), so this same path is
-   *  exercised by both the app and the headless regression tests. `pace` (default true) real-time-
-   *  paces the chunks; tests pass `pace:false` to run synchronously. Mic chunks are ignored meanwhile. */
+   *  startFromFile/processFileData. The file defines the analysis sample rate. The caller arms the
+   *  analyzer first; the analyzer owns detection, the captures and (material) the L→C→FLC auto-advance,
+   *  exactly as for live input (Swift isPlayingFile), so the app and the headless regression tests run
+   *  the same path. The calibration is the analyzer's to set for the playback (Swift `playFile` sets it
+   *  on the engine; `startFromFile` knows nothing of it). `pace` (default true) real-time-paces the
+   *  chunks. Mic chunks are ignored meanwhile. */
   async playFile(
     samples: Float32Array,
     fileSampleRate: number,
     opts?: {
-      calibration?: Calibration | null
-      material?: { brace: boolean; measureFlc: boolean; calibration?: Calibration | null }
       pace?: boolean
     },
   ): Promise<void> {
     if ((!this.context && !this.headless) || this.playingFile) return
     this.playingFile = true
     // Swap to the file's rate + rate-dependent buffers (Swift prepareForFilePlayback).
-    const saved = { rate: this.sampleRate, cal: this.calibration }
+    const savedRate = this.sampleRate
     this.sampleRate = fileSampleRate
-    if (opts && 'calibration' in opts) this.setCalibration(opts.calibration ?? null)
     this.accumIdx = 0
-    // Material: set the device calibration to the file's, so every phase's gated transform
-    // (`computeGatedFFT`, which reads it at the moment of the call) applies the right corrections.
-    // Restored after the loop. The PHASE MACHINE is the analyzer's: the caller arms before playback and recordMaterialTap
-    // auto-advances L→C→FLC, exactly as Swift's analyzer does (#17 F30).
-    if (opts?.material) this.setCalibration(opts.material.calibration ?? null)
 
     const pace = opts?.pace ?? true
     const CHUNK = 1024
@@ -780,9 +756,9 @@ export class RealtimeFFTAnalyzer {
     // Pace from the AUDIO clock when there is one: feed the next chunk once the audio device has
     // rendered as much audio as the file has played. A browser throttles a hidden tab's timers — Chrome
     // to about one a minute after 5 minutes — but keeps rendering audio, so this pacing stays at real
-    // time where `setTimeout` pacing slowed to a crawl (#19). This is the web's counterpart to the
+    // time where `setTimeout` pacing would slow to a crawl. This is the web's counterpart to the
     // natives' timing activity (Swift holdTimingActivity). Headless (tests, no AudioContext) paces with
-    // `setTimeout` as before.
+    // `setTimeout`.
     const audioClock = !this.headless && this.context !== null
     const renderedAtStart = this.renderedSeconds
     for (let i = 0; i < samples.length && this.playingFile; i += CHUNK) {
@@ -798,8 +774,7 @@ export class RealtimeFFTAnalyzer {
     // reach it (Swift preMicRestartHandler → flushGatedCaptureOnFileEnd).
     if (this.playingFile) this.preMicRestartHandler?.()
     // Restore live state; the mic worklet kept running, so clearing the flag resumes it.
-    this.sampleRate = saved.rate
-    this.setCalibration(saved.cal)
+    this.sampleRate = savedRate
     this.playingFile = false
   }
 

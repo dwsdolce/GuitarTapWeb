@@ -1,17 +1,12 @@
 // @parity test/quality-colors
 //
-// Locks the WoodQuality → colour table against silent drift — the material quality-colours motivated
-// this whole parity group: a copy once drifted to wrong hues (Good was yellow, Very Good was
-// Excellent's green) with nothing to catch it.
+// Locks the WoodQuality → colour table against silent drift, such as a hue swapped between grades.
 //
-// The values are ABSOLUTE in all three editions as of the #17 sweep. Swift used to resolve these
-// from SwiftUI's semantic colours, which the OS supplies — so what Swift drew changed when Apple
-// revised the palette, and macOS 26 did: Swift moved to .blue = #0088FF and .orange = #FF8D28 while
-// this table and Python went on pinning #007AFF and #FF9500. Three editions that all claimed to
-// agree rendered two visibly different blues and oranges on the same white surface — the macOS app,
-// the Python app, and THIS edition's PDF report, which is pinned to `light` because a printed
-// report is never themed. Swift now pins `WoodQuality.hex`, and `light` below is what all three
-// editions compare. Mirrors Swift QualityColorsTests and Python test_quality_colors.py.
+// The values are ABSOLUTE in all three editions: Swift pins `WoodQuality.hex` rather than resolving
+// SwiftUI's semantic colours, which the OS supplies and Apple revises (macOS 26 moved .blue and
+// .orange). `light` below is what all three editions compare; it is also what THIS edition's PDF
+// report draws, because a printed report is never themed. Mirrors Swift QualityColorsTests and
+// Python test_quality_colors.py.
 //
 // `dark` is web-only for now: the brightened variant for the app's dark chrome, which the natives
 // have no equivalent of until the theme work lands. Hue matches `light`; only shade differs.

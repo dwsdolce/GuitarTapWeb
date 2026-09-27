@@ -62,9 +62,7 @@ describe('setDisplayRangePatch — per-type persistence without clobbering', () 
 //
 // A plate or brace scans a wide band (brace: 100–1200 Hz) and the display range is
 // per-measurement-type and persisted, so the fL / fC / fFLC a measurement just produced can land
-// off the edge of the chart. Swift has widened the axis since the feature was written; web and
-// Python did neither, so the same measurement showed the peak on one edition and hid it on two.
-// Ported 2026-09-20 (project issue #8) — user-visible behaviour, not an implementation difference.
+// off the edge of the chart. This is user-visible behaviour, not an implementation difference.
 //
 // Twin of Swift DisplayRangeExpansionTests / Python test_display_range_expansion.py.
 // ---------------------------------------------------------------------------

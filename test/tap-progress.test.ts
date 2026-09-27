@@ -25,8 +25,7 @@ function decayingTone(hz: number, count: number): Float32Array {
 }
 
 /** An armed plate/brace analyzer with `taps` taps per phase, armed as the app arms it. No device: the
- *  analyzer's gated transform then runs on an uncalibrated engine, which is the bare transform. (A fake
- *  device used to stand here, faking eight engine methods that no longer exist — #17 F51.) */
+ *  analyzer's gated transform then runs on an uncalibrated engine, which is the bare transform. */
 function material(type: 'plate' | 'brace', taps: number, flc = false): TapToneAnalyzer {
   const a = new TapToneAnalyzer()
   a.measurementType = type
@@ -37,7 +36,7 @@ function material(type: 'plate' | 'brace', taps: number, flc = false): TapToneAn
 }
 
 // Real taps through the capture finish, at frequencies inside each search band (plate L 20–100, C 40–220,
-// FLC 15–100; brace 100–1200). Each case reaches its state through them, never by setting it (#17 F51).
+// FLC 15–100; brace 100–1200). Each case reaches its state through them, never by setting it.
 const MATERIAL_TAP = 24_000 // a 0.5 s capture at 48 kHz
 const tapL = (a: TapToneAnalyzer) => a.finishGatedFFTCapture(decayingTone(60, MATERIAL_TAP), 48000, 'capturingL')
 const tapC = (a: TapToneAnalyzer) => a.finishGatedFFTCapture(decayingTone(150, MATERIAL_TAP), 48000, 'capturingC')
@@ -60,8 +59,7 @@ describe('totalPlateTaps — taps expected across ALL phases', () => {
 
 describe('tapProgress — the fraction the bar renders', () => {
   // A guitar measurement's bar advances by numberOfTaps, through the real capture finish — the place
-  // progress is decided. (This used to record spectra one level below it; the material denominator is
-  // asserted by the cumulative case below, and the clamp is unreachable in production — #17 F51.)
+  // progress is decided. The material denominator is asserted by the cumulative case below.
   // Mirrors Swift guitarProgressAdvancesByNumberOfTaps and Python test_guitar_progress_advances_by_number_of_taps.
   it('guitar progress advances by numberOfTaps as taps are captured', () => {
     const a = new TapToneAnalyzer()
@@ -199,8 +197,7 @@ describe('Redo rebases the count to the PRIOR phases', () => {
 
 // Loading a measurement while a capture is unfinished tears it down, so the status-bar progress bar
 // (shown while currentTapCount > 0) and the Analyzing indicator (isDetecting) do not linger over the
-// loaded measurement. The sequence is driven for real; the load is the real loadMeasurement (these used to
-// call restoreSnapshot, one step below it, and set detection to listening by hand — #17 F51). Paired with
+// loaded measurement. The sequence is driven for real; the load is the real loadMeasurement. Paired with
 // Swift LoadTearsDownInterruptedCaptureTests and Python TestLoadTearsDownInterruptedCapture.
 describe('loadMeasurement tears down an interrupted capture', () => {
   /** A saved classical measurement to load. */
@@ -257,10 +254,8 @@ describe('loadMeasurement tears down an interrupted capture', () => {
 // ── FLC cooldown cancellation ───────────────────────────────────────────────
 // Accepting fC schedules a hold, after which detection re-arms for the FLC tap. If the user
 // restarts (Cancel / New Tap) before it elapses, it must not drag the fresh sequence into the FLC
-// phase. Swift shipped without any protection until #17, so the re-arm fired into whatever was
-// running 0.5 s later. Pinned in all three now. The hold runs on the AUDIO clock and, as in Swift and
-// Python, cannot be cancelled: the phase guard in the callback is the protection (#19 — the web used
-// to cancel a wall-clock timer as well).
+// phase. Pinned in all three editions. The hold runs on the AUDIO clock and, as in Swift and Python,
+// cannot be cancelled: the phase guard in the callback is the protection.
 describe('the FLC cooldown does not re-arm a restarted sequence', () => {
   it('a restart during the cooldown leaves the fresh sequence alone', () => {
     const a = material('plate', 1, true)
@@ -276,20 +271,19 @@ describe('the FLC cooldown does not re-arm a restarted sequence', () => {
     const phaseAfterRestart = a.materialTapPhase
     expect(phaseAfterRestart).not.toBe('waitingForFlcTap')
 
-    advanceAudio(a, 0.8) // the hold ends, in AUDIO (#19), against the restarted sequence
+    advanceAudio(a, 0.8) // the hold ends, in AUDIO, against the restarted sequence
 
     expect(a.materialTapPhase).toBe(phaseAfterRestart)
     expect(a.materialTapPhase).not.toBe('capturingFlc')
   })
 })
 
-// F34: a completed measurement's progress bar records what was MEASURED. Raising the tap count
+// A completed measurement's progress bar records what was MEASURED. Raising the tap count
 // afterwards configures the NEXT measurement and must not rewrite the finished one — tapProgress is
 // stored at each count change, as Swift and Python store it, not derived at render time.
 describe('TapProgress — a later count change does not rewrite a finished measurement', () => {
   // The measurement is completed for real: one tap through the finish, then the capture window's audio.
-  // (This set the count by hand and never completed — #17 F51.) Mirrors Swift
-  // completeMeasurement_keepsFullBar_whenTapCountRaised.
+  // Mirrors Swift completeMeasurement_keepsFullBar_whenTapCountRaised.
   it('a complete 1-tap measurement keeps a full bar when Taps is raised to 3', () => {
     const a = new TapToneAnalyzer()
     a.setNumberOfTaps(1)

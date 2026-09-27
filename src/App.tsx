@@ -18,48 +18,13 @@ import { QuickStartGuide } from './components/QuickStartGuide'
 import { ReleaseNotes } from './components/ReleaseNotes'
 // Toolbar + tap-control icons live in a shared module so the Quick Start Guide can render the
 // exact same glyphs next to each control (Swift SF Symbols / Python qtawesome equivalents).
-import {
-  TapIcon,
-  PauseIcon,
-  PlayIcon,
-  CancelIcon,
-  CheckIcon,
-  UndoIcon,
-  AutoDbIcon,
-  EyeIcon,
-  StarIcon,
-  EyeOffIcon,
-  SaveIcon,
-  ClipboardIcon,
-  BarChartIcon,
-  GearIcon,
-  HelpIcon,
-  BookIcon,
-  NotesIcon,
-  FilePlayIcon,
-  DotViewfinderIcon,
-  PlusViewfinderIcon,
-  WandIcon,
-  ResultsIcon,
-  RefreshIcon,
-} from './components/icons'
+import { TapIcon, PauseIcon, PlayIcon, CancelIcon, CheckIcon, UndoIcon, AutoDbIcon, EyeIcon, StarIcon, EyeOffIcon, SaveIcon, ClipboardIcon, BarChartIcon, GearIcon, HelpIcon, BookIcon, NotesIcon, FilePlayIcon, DotViewfinderIcon, PlusViewfinderIcon, WandIcon, ResultsIcon, RefreshIcon } from './components/icons'
 import { buttonRule } from './state/buttonEnablement'
 import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
-import { MaterialResults } from './components/MaterialResults'
+import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
-import {
-  buildGuitarMeasurement,
-  buildMaterialMeasurement,
-  buildComparisonEntries,
-  buildComparisonMeasurement,
-  comparisonEntryModeFreqs,
-  comparisonAxisRange,
-  colorComponentsToCss,
-  measurementToLive,
-  measurementToLiveMaterial,
-  measurementWarning,
-} from './measurement/fromLive'
+import { buildGuitarMeasurement, buildMaterialMeasurement, buildComparisonEntries, buildComparisonMeasurement, comparisonEntryModeFreqs, comparisonAxisRange, colorComponentsToCss, measurementToLive, measurementToLiveMaterial, measurementWarning } from './measurement/fromLive'
 import { materialInputsFromSettings } from './measurement/materialMeasurementInputs'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { importMeasurements, saveMeasurement } from './measurement/store'
@@ -73,30 +38,14 @@ import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfRepo
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
 import { MODE_DISPLAY_NAME } from './presentation/modeColors'
 import { GUITAR_FFT_SIZE } from './dsp/guitarFFT'
-import {
-  MultiTapComparisonResultsView,
-  MULTITAP_PALETTE,
-  MULTITAP_AVG_COLOR,
-  type MultiTapRow,
-} from './components/MultiTapComparisonResultsView'
-import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, type Peak } from './dsp/peaks'
+import { MultiTapComparisonResultsView, MULTITAP_PALETTE, MULTITAP_AVG_COLOR, type MultiTapRow } from './components/MultiTapComparisonResultsView'
+import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ } from './dsp/peaks'
 import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
 import { modeBands, peaksInDisplayRange, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
 import { FieldPrecision } from './precision'
-import {
-  loadSettings,
-  saveSettings,
-  isGuitarType,
-  isMaterialType,
-  displayRangeFor,
-  MEASUREMENT_SHORT_NAME,
-  MEASUREMENT_FULL_NAME,
-  ANNOTATION_NEXT,
-  ANNOTATION_LABEL,
-  type Settings,
-  type MeasurementType,
-} from './settings'
+import { loadSettings, saveSettings, isGuitarType, isMaterialType, displayRangeFor, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_NEXT, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
+import type { ResonantPeak } from './measurement/types'
 import './App.css'
 
 const pitch = new Pitch(440)
@@ -171,16 +120,15 @@ export default function App() {
   const calibrationRef = useRef<Calibration | null>(null)
 
   // The lifecycle-state owner (mirrors Swift/Python TapToneAnalyzer). App reads its immutable snapshot
-  // via useSyncExternalStore; the device + the handlers below drive it. 6-TEST 3c-A migrates the two
-  // count facts here (numberOfTaps, currentTapCount); completion/detection + material follow in 3c-A2/B.
+  // via useSyncExternalStore; the device + the handlers below drive it.
   const { analyzer, snapshot } = useTapToneAnalyzer()
   const numberOfTaps = snapshot.numberOfTaps
   const currentTapCount = snapshot.currentTapCount
   // Detection state + clipping are analyzer facts (no duplicate React state in useAudioEngine) — the
-  // status-bar className and the threshold-slider red zone read the snapshot (3c-C5). Derived from the
-  // analyzer's own detectionState / gatedCaptureActive now that it owns detection rather than
-  // mirroring a device state machine (#17 F30). 'capturing' is a status-bar label, not a detection
-  // state: a capture runs WHILE the detector listens, so it is layered on here and not in the enum.
+  // status-bar className and the threshold-slider red zone read the snapshot. Derived from the
+  // analyzer's own detectionState / gatedCaptureActive, since the analyzer owns detection. 'capturing'
+  // is a status-bar label, not a detection state: a capture runs WHILE the detector listens, so it is
+  // layered on here and not in the enum.
   const engineState =
     snapshot.detectionState === 'paused'
       ? 'paused'
@@ -190,17 +138,17 @@ export default function App() {
           ? 'listening'
           : 'idle'
   const clipping = snapshot.isClipping
-  // The frozen guitar result + per-tap comparison spectra now live on the analyzer (mirrors Swift
+  // The frozen guitar result + per-tap comparison spectra live on the analyzer (mirrors Swift
   // frozenMagnitudes/Frequencies + tapEntries), exposed via the snapshot. App reads them through
-  // these aliases (all downstream reads unchanged); writes go through analyzer transitions
-  // (processMultipleTaps on completion, loadMeasurement on load, clearResult on reset). 6-TEST 3c-C2b.
+  // these aliases; writes go through analyzer transitions
+  // (processMultipleTaps on completion, loadMeasurement on load, clearResult on reset).
   const captured = snapshot.frozenSpectrum
   const tapEntries = snapshot.tapEntries
   // The per-tap overlay toggle is analyzer state (Swift `showingMultiTapComparison`).
   const showMultiTap = snapshot.showingMultiTapComparison
   // Active comparison overlay (created from a selection or loaded). Non-null = comparison mode.
-  // Derived from the analyzer, which owns the display mode and the overlay data together (#17
-  // F24). Kept as `comparison` so the render paths below read unchanged; null when not comparing.
+  // Derived from the analyzer, which owns the display mode and the overlay data together. Named
+  // `comparison` for the render paths below; null when not comparing.
   const comparison =
     snapshot.displayMode === 'comparison' && snapshot.comparisonEntries.length > 0
       ? snapshot.comparisonEntries
@@ -235,16 +183,13 @@ export default function App() {
   const [showSave, setShowSave] = useState(false)
   const [showMeasurements, setShowMeasurements] = useState(false)
   // The load-time provenance warning (microphone / calibration / sample rate), the loaded name and
-  // the loaded notes are MODEL state now — Swift's `microphoneWarning` / `loadedMeasurementName` /
-  // `loadedNotes`. They used to be three useStates here, set by the view's own load sequence and
-  // cleared at five sites apiece; nothing but this file could load a measurement as a result (#17 F41).
+  // the loaded notes are MODEL state — Swift's `microphoneWarning` / `loadedMeasurementName` /
+  // `loadedNotes` — so every load path sets and clears them the same way.
   const loadWarning = snapshot.microphoneWarning
   // Loaded-measurement settings banner (Swift showLoadedSettingsWarning): shown after a
   // load while its restored Threshold/Taps are active; cleared on a new measurement or
-  // when the user changes Taps.
-  // The loaded-settings banner reads MODEL state now (snapshot.showLoadedSettingsWarning), as in
-  // Swift and Python. It used to be a useState here with five clear sites and two raise sites spread
-  // through this file, while the analyzer carried a dead field of the same name (#17 F40).
+  // when the user changes Taps. It is MODEL state (snapshot.showLoadedSettingsWarning), as in
+  // Swift and Python.
   // Name of the currently loaded measurement → chart title ("FFT Peaks — {name}", else "New").
   const loadedName = snapshot.loadedMeasurementName
   const loadedNotes = snapshot.loadedNotes
@@ -262,8 +207,6 @@ export default function App() {
   // and measurement type are mirrored into refs for the onMaterialCapture handler.
   const measRef = useRef(settings.measurementType)
   measRef.current = settings.measurementType
-  const measureFlcRef = useRef(settings.measureFlc)
-  measureFlcRef.current = settings.measureFlc
   const tapThresholdRef = useRef(settings.tapDetectionThreshold)
   tapThresholdRef.current = settings.tapDetectionThreshold
   const dumpAudioRef = useRef(settings.dumpCaptureAudio)
@@ -275,29 +218,34 @@ export default function App() {
   }, [settings.dumpCaptureAudio])
 
   // The audio engine handle (constructed in `start`) — declared early so the material session
-  // can arm it. The analyzer owns the plate/brace phase machine (6-TEST 3c-C3): App reads the phase +
+  // can arm it. The analyzer owns the plate/brace phase machine: App reads the phase +
   // per-phase spectra/peaks from the snapshot and drives the transitions via thin stable wrappers.
   const engineRef = useRef<RealtimeFFTAnalyzer | null>(null)
   const matPhase = snapshot.materialTapPhase
-  const matPeaks = snapshot.matPeaks
+  // The identified peaks (the analyzer's selected…Peak, Swift's names) as the per-role bundle the material
+  // views take.
+  const matPeaks = useMemo<MaterialPeaks>(
+    () => ({ longitudinal: snapshot.selectedLongitudinalPeak, cross: snapshot.selectedCrossPeak, flc: snapshot.selectedFlcPeak }),
+    [snapshot.selectedLongitudinalPeak, snapshot.selectedCrossPeak, snapshot.selectedFlcPeak],
+  )
+  const materialIdentifiedPeaks = snapshot.materialIdentifiedPeaks
   const matSpectra = snapshot.matSpectra
   // Store B — the current material measurement's OWN dimensions. Owned by the ANALYZER, like Swift
   // `analyzer.materialInputs` and Python `analyzer.material_inputs`: seeded from Settings by the
   // completion setter (the didSet), restored from the file by restoreMaterial, edited through
   // setMaterialInputs. `null` for guitar and before a material measurement completes. The sole source
-  // for MaterialResults' calc + Save, never the live Settings (#17 F26).
-  // See Development/MEASUREMENT-DIMENSIONS-SPEC.md §10.
+  // for MaterialResults' calc + Save, never the live Settings.
   const matInputs = snapshot.materialInputs
 
   // Mirror the settings the analyzer needs onto it: Swift/Python read these from the TapDisplaySettings
   // singleton, but the web has no analyzer-visible global. `measurementType` drives the material search
   // ranges + WAV label + brace auto-complete; `measureFlc` drives the plate phase plan. A LAYOUT effect
-  // declared BEFORE the measurement-type transition + peak-recalc layout effects, so the analyzer sees
-  // the new type before the transition re-arms and before recalc reclassifies for it. 3c-C3.
+  // declared BEFORE the measurement-type transition layout effect, so the analyzer sees the new type
+  // before the transition re-arms and reclassifies for it.
   useLayoutEffect(() => {
     analyzer.setMeasurementTypeAndNotify(settings.measurementType)
     analyzer.setMeasureFlc(settings.measureFlc)
-    // The whole settings object, for the completion setter's Store B seed (#17 F26).
+    // The whole settings object, for the completion setter's Store B seed.
     analyzer.setSettings(settings)
   }, [analyzer, settings])
 
@@ -321,7 +269,7 @@ export default function App() {
   // and could be observed half-applied. Reading it from the snapshot keeps one source of truth.
   const loadedPeaks = snapshot.loadedPeaks
   const setLoadedPeaks = useCallback(
-    (v: Peak[] | null) => { if (v === null) analyzer.clearLoadedPeaks(); else analyzer.loadedPeaks = v },
+    (v: ResonantPeak[] | null) => { if (v === null) analyzer.clearLoadedPeaks(); else analyzer.loadedPeaks = v },
     [analyzer],
   )
   // Ring-out of what is on screen — ONE value on the analyzer (Swift `currentDecayTime`): the file's
@@ -365,8 +313,8 @@ export default function App() {
   // CLEAN SLATE for the new type — reclassify + clear manual labels + re-auto-select, KEEPING the frozen
   // measurement (Swift reclassifyForGuitarTypeChange / Python reclassify_for_guitar_type_change). Crossing
   // the guitar↔material boundary, or plate↔brace, is a paradigm change that needs a fresh sequence. A
-  // LAYOUT effect placed before the peak-recalc layout effect, so the clean slate (or reset) is applied
-  // before recalc reclassifies + auto-selects — synchronous, no intermediate frame, matching Swift
+  // LAYOUT effect, so the clean slate (or reset) is applied before paint — synchronous, no intermediate
+  // frame, matching Swift
   // (onApply) and Python (_on_measurement_type_changed), both synchronous. Skipped while loading a
   // measurement (which sets the type + the restored result in the same commit).
   useLayoutEffect(() => {
@@ -378,8 +326,8 @@ export default function App() {
       return
     }
     if (prev !== next && isGuitarType(prev) && isGuitarType(next)) {
-      // Guitar subtype change: clean-slate re-derivation for the new type, keeping the frozen spectrum,
-      // peaks and dragged offsets. The recalc layout effect below reclassifies modeByPeak for the new bands.
+      // Guitar subtype change: clean-slate re-classification for the new type, keeping the frozen
+      // spectrum, peaks and dragged offsets (Swift reclassifyForGuitarTypeChange — no re-detection).
       analyzer.reclassifyForGuitarTypeChange(guitarType)
       return
     }
@@ -422,9 +370,8 @@ export default function App() {
     retry,
   } = useAudioEngine({ engineRef, calibrationRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onStarted: armForCurrentType, analyzer })
 
-  // Play a recorded WAV through the live pipeline (Swift openAudioFile/startFromFile). Resets the
-  // view like New Tap, applies an optional calibration for the playback, then pumps. Guitar arms a
-  // tap sequence; material (plate/brace) arms phase L and auto-advances L→C→FLC during playback.
+  // Play a recorded WAV through the live pipeline (Swift openAudioFile). The calibration is the one the
+  // user gives for the file, or none — never the live input's.
   const onPlayFile = useCallback(async (audio: File, calFile: File | null) => {
     if (!engineRef.current) return
     try {
@@ -440,19 +387,10 @@ export default function App() {
       }
       setLoadedPeaks(null)
       setLoadedView(null) // playing a file starts a new measurement — drop any loaded range
-      analyzer.clearResult()
-      // Arm the analyzer, THEN start playback — Swift's order (TapToneAnalysisView+Actions arms the
-      // analyzer and then calls fft.startFromFile). Material always runs the warm-up, because it is
-      // the only mode using the relative noise-floor detector; guitar skips it on playback.
-      const material = isMaterialType(measRef.current)
-      analyzer.startTapSequence({ skipWarmup: !material })
-      if (material) {
-        await engineRef.current.playFile(samples, fileRate, {
-          material: { brace: measRef.current === 'brace', measureFlc: measureFlcRef.current, calibration: cal },
-        })
-      } else {
-        await engineRef.current.playFile(samples, fileRate, { calibration: cal })
-      }
+      // The analyzer applies the calibration, arms the sequence and plays the file (the app's one Play
+      // File path, which the file-playback regressions also run). Mirrors Swift openAudioFile calling
+      // tapToneAnalyzer.playFile(url:calibrationURL:completion:).
+      await analyzer.playFile(samples, fileRate, cal)
     } catch (e) {
       setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
     }
@@ -476,8 +414,7 @@ export default function App() {
     setLoadedPeaks(null)
     setLoadedView(null) // drop the loaded measurement's transient axis range
     // Store B is NOT nulled here: Swift never clears materialInputs on New Tap, and it does not need
-    // to — the completion setter re-seeds on the next transition. Nulling it was only required while
-    // the seed was a view effect guarded on `matInputs == null` (#17 F26).
+    // to — the completion setter re-seeds on the next transition.
   }, [setLoadedPeaks])
 
   const newTap = useCallback(() => {
@@ -501,37 +438,21 @@ export default function App() {
   // Lock the stepper once a tap has been captured mid-sequence, so the per-phase tap total can't
   // change — the exact canonical single expression, guitar AND material (Swift `.disabled(currentTapCount
   // > 0 && !isMeasurementComplete)` / Python `not (tap_count > 0 and not complete)`). Unlocked while merely
-  // waiting for the first tap; re-enabled when the measurement completes (material now flips
-  // isMeasurementComplete too, 3c-D). 3c-C4 §12a: `analyzer.setNumberOfTaps` re-fires the prompt on change.
+  // waiting for the first tap; re-enabled when the measurement completes (material flips
+  // isMeasurementComplete too). `analyzer.setNumberOfTaps` re-fires the prompt on change.
   const tapsLocked = currentTapCount > 0 && !snapshot.isMeasurementComplete
 
-  // Live-tap path: re-analyze the frozen spectrum as Peak Min / guitar type change.
-  // Loaded-measurement path: the saved peaks are authoritative — only filter them by
-  // magnitude, never re-run findPeaks on the loaded spectrum (the spectrum is stored
-  // for display only and may not reproduce the saved peaks). Mirrors Swift/Python
-  // recalculateFrozenPeaksIfNeeded.
-  // Peaks + classification now live on the analyzer (mirrors Swift currentPeaks / identifiedModes),
-  // recomputed by recalculatePeaks whenever the frozen spectrum, loaded peaks, or the analysis settings
-  // (Peak Min / guitar type / range) change — the web's TapDisplaySettings.didSet. Driven here via a
-  // layout effect (recompute before paint, no stale flash), read via the snapshot. 3c §10 P1.
-  // While detecting, peaks track the live spectrum (Swift analyzeMagnitudes per frame); once frozen
-  // (complete) they use the frozen result, so gate the live spectrum off after completion to avoid
-  // recomputing frozen peaks on every continuous FFT frame.
-  const liveForPeaks = snapshot.isMeasurementComplete ? null : liveSpectrum
-  // Phase 1: Peak Min is NOT an input here — detection stores the FULL set at the -100 floor, and the
-  // Peak Min slider is applied afterwards as the `peaksAbovePeakMin` projection below. So a slider tick
-  // no longer re-runs findPeaks or re-mints peaks, and per-peak state (selection/overrides/offsets)
-  // survives it. Mirrors Swift `allPeaks` (durable) + `currentPeaks` (Peak-Min projection).
-  useLayoutEffect(() => {
-    analyzer.recalculatePeaks({ material, liveSpectrum: liveForPeaks, guitarType, minHz: ANALYSIS_MIN_HZ, maxHz: ANALYSIS_MAX_HZ })
-  }, [analyzer, material, loadedPeaks, liveForPeaks, guitarType, captured])
+  // Peaks + classification live on the analyzer and are set at the event, as in Swift: a live FFT frame
+  // (onFftFrame, wired in useAudioEngine), completion (processMultipleTaps), a load (loadMeasurement),
+  // Re-analyze (reanalyzePeaks) and a guitar-type change (reclassifyForGuitarTypeChange). Peak Min is a
+  // display projection (`peaksAbovePeakMin`), never a re-detection.
   const peaks = snapshot.peaks // the durable FULL set (down to -100) — used for selection state + save
 
   // Peak Min is a DISPLAY control, so it is pushed into the analyzer on its OWN effect and never
-  // added to the recalc effect's deps. Making it a recalculatePeaks input would re-run findPeaks on
-  // every slider tick, re-minting peak ids and churning the per-peak state hanging off them — the
-  // Phase 1 defect (a deselected peak re-selecting, dragged labels snapping back). Setting the
-  // threshold only re-projects. Mirrors Swift, where the slider writes
+  // triggers detection. Making it a detection input would re-run findPeaks on every slider tick,
+  // re-minting peak ids and churning the per-peak state hanging off them (a deselected peak
+  // re-selecting, dragged labels snapping back). Setting the threshold only re-projects. Mirrors
+  // Swift, where the slider writes
   // TapDisplaySettings.peakMinThreshold and the analyzer's didSet calls refreshDisplayedPeaks().
   useLayoutEffect(() => {
     analyzer.setPeakMinThreshold(peakMin)
@@ -542,18 +463,14 @@ export default function App() {
   // `expandFreqRangeToInclude`, with the rule shared (presentation/displayRange).
   //
   // A plate or brace scans a wide band (brace: 100-1200 Hz) and this range is per-type and
-  // persisted, so the peak a measurement just produced can easily be off-screen. Swift has widened
-  // the axis since the feature was written; web and Python did neither — the same measurement
-  // showed the peak on one edition and hid it on two (project issue #8).
+  // persisted, so the peak a measurement just produced can easily be off-screen without this.
   //
   // Expands for ALL identified peaks rather than tracking which is new: idempotent, so the settings
   // write it triggers re-runs this effect once and then finds nothing to change. Guitar ranges are
   // the user's analysis window and are never widened for them, matching Swift's isGuitar guard.
   useEffect(() => {
     if (!material) return
-    const identified = [matPeaks.longitudinal, matPeaks.cross, matPeaks.flc].filter(
-      (p): p is NonNullable<typeof p> => p != null,
-    )
+    const identified = materialIdentifiedPeaks
     if (identified.length === 0) return
     const current = displayRangeFor(settings, settings.measurementType)
     let { minHz, maxHz } = current
@@ -561,7 +478,7 @@ export default function App() {
     if (minHz !== current.minHz || maxHz !== current.maxHz) {
       updateDisplayRange(settings.measurementType, { minHz, maxHz })
     }
-  }, [material, matPeaks, settings, updateDisplayRange])
+  }, [material, materialIdentifiedPeaks, settings, updateDisplayRange])
 
   const modeByPeak = snapshot.modeByPeak
 
@@ -588,39 +505,29 @@ export default function App() {
     return m
   }, [guitarType])
 
-  // Per-peak SELECTION, overrides (RA), and dragged offsets (RB) all live on the analyzer now (RC),
-  // keyed by peak id — read them from the snapshot, write via analyzer methods. `useAnnotations` is gone.
+  // Per-peak SELECTION, overrides, and dragged offsets all live on the analyzer, keyed by peak id —
+  // read them from the snapshot, write via analyzer methods.
   const selectedIds = snapshot.selectedPeakIds
   const userModified = snapshot.userModifiedSelection
-  const toggleSelect = useCallback((id: number) => analyzer.togglePeakSelection(id), [analyzer])
+  const toggleSelect = useCallback((id: string) => analyzer.togglePeakSelection(id), [analyzer])
   const selectNone = useCallback(() => analyzer.selectNoPeaks(), [analyzer])
   const resetSelection = useCallback(() => analyzer.resetToAutoSelection(guitarType), [analyzer, guitarType])
   const overrides = snapshot.overrides
-  const annotationOffsets = snapshot.annotationOffsets // id-keyed dragged label positions (RB)
-  // Chart drag → analyzer (markers carry String(id) as their annoKey); Reset Labels clears the store.
-  const onAnnotationDrag = useCallback((k: string, pos: [number, number]) => analyzer.updateAnnotationOffset(Number(k), pos), [analyzer])
+  const annotationOffsets = snapshot.annotationOffsets // id-keyed dragged label positions
+  // Chart drag → analyzer (markers carry the peak id as their annoKey); Reset Labels clears the store.
+  const onAnnotationDrag = useCallback((k: string, pos: [number, number]) => analyzer.updateAnnotationOffset(k, pos), [analyzer])
   const resetLabels = useCallback(() => analyzer.resetAllAnnotationOffsets(), [analyzer])
 
-  // Re-analyze — re-detect peaks on the loaded/frozen spectrum using the CURRENT analysis settings
-  // (Peak Min, guitar type), letting you retune a saved measurement without
-  // re-tapping. Loaded peaks are otherwise authoritative (never recomputed); this is the manual
-  // "re-detect with current settings" action. Mirrors Swift reanalyzePeaks() / Python
-  // reanalyze_peaks(): it CLEARS the loaded peaks so the `peaks` memo falls through to live
-  // findPeaks() on the frozen spectrum, resets manual selection to auto, and — because loadedPeaks
-  // is now null — disables the button (one-shot, exactly like the native apps). The stored ring-out
-  // (loadedDecayTime) is left intact; decay is gated on loadedName, not loadedPeaks, so it persists.
-  const reanalyze = useCallback(() => {
-    if (!captured) return
-    setLoadedPeaks(null)
-    resetSelection()
-  }, [captured, resetSelection, setLoadedPeaks])
+  // Re-analyze — re-detect peaks on the loaded/frozen spectrum with the current guitar type, letting you
+  // retune a saved measurement without re-tapping. Swift reanalyzePeaks() / Python reanalyze_peaks().
+  const reanalyze = useCallback(() => analyzer.reanalyzePeaks(), [analyzer])
 
-  const labelFor = (p: Peak, mode: ResolvedMode) => overrides.get(p.id) ?? MODE_DISPLAY_NAME[mode]
+  const labelFor = (p: ResonantPeak, mode: ResolvedMode) => overrides.get(p.id) ?? MODE_DISPLAY_NAME[mode]
 
-  // Phase 4: the ids of user-NAMED peaks. A named peak is "known" everywhere — the ONE predicate the
+  // The ids of user-NAMED peaks. A named peak is "known" everywhere — the ONE predicate the
   // results table + chart dots + badges share, so it never vanishes when Show Unknown Modes is off.
-  // Mirrors Swift `overriddenPeakIDs` / Python `overridden_peak_ids`. RA made the web's overrides id-keyed
-  // on the analyzer too, so this is now a direct read of the map's keys (no frequency conversion).
+  // Mirrors Swift `overriddenPeakIDs` / Python `overridden_peak_ids`. The overrides are id-keyed on
+  // the analyzer, so this is a direct read of the map's keys (no frequency conversion).
   const overriddenPeakIds = useMemo(() => new Set(overrides.keys()), [overrides])
   // Results-panel list: hide unknown peaks when Show Unknown Modes is off, UNLESS the user named one
   // (override-aware — mirrors Swift `!isUnknown`). Then filtered to the DISPLAY range (Swift
@@ -637,7 +544,7 @@ export default function App() {
     () => displayPeaks.filter((p) => p.frequency >= displayMinHz && p.frequency <= displayMaxHz),
     [displayPeaks, displayMinHz, displayMaxHz],
   )
-  const inRangeFor = (p: Peak, mode: ResolvedMode): boolean | null => {
+  const inRangeFor = (p: ResonantPeak, mode: ResolvedMode): boolean | null => {
     if (mode === 'unknown' || mode === 'upper') return null
     const band = bandByMode.get(mode)
     return band ? p.frequency >= band.lo && p.frequency <= band.hi : null
@@ -651,21 +558,19 @@ export default function App() {
   }, [matPeaks, annotationMode, annotationOffsets])
 
   // ── Multi-tap comparison (guitar, >1 tap) ───────────────────────────────────
-  // Per-tap mode peaks are (re)found from each tap spectrum at the current Peak Min,
-  // mirroring Swift TapEntry recomputing on threshold change.
   const multiTapAvailable = !material && !!captured && tapEntries.length > 1
   const tapRows = useMemo<MultiTapRow[]>(
     () =>
       tapEntries.map((e) => {
-        // Per-tap peaks live on the entry (found by the analyzer at the current Peak Min); resolve
-        // the strongest per mode — identical to the old modePeaksFromSpectrum(sp).air/top/back.
-        const m = resolvedModePeaks(e.peaks, guitarType)
+        // Each tap's own auto-selected peaks, classified under the current guitar type — as Swift's
+        // MultiTapComparisonResultsView calls entry.resolvedModePeaks(guitarType:).
+        const m = e.resolvedModePeaks(guitarType)
         return { tapIndex: e.tapIndex, air: m.get('air')?.frequency ?? null, top: m.get('top')?.frequency ?? null, back: m.get('back')?.frequency ?? null }
       }),
     [tapEntries, guitarType],
   )
   // Averaged row = the DEFINITIVE Air/Top/Back (the SELECTED, override-aware peak per mode), over the
-  // durable set — a fact about the measurement, independent of the Peak-Min slider (spec §5). An
+  // durable set — a fact about the measurement, independent of the Peak-Min slider. An
   // overridden value carries an isOverride flag so the row can mark it italic + " *". Recomputes on any
   // snapshot change (selection / overrides / peaks). Mirrors Swift analyzer.definitiveModeInfo().
   // `snapshot` is a deliberate recompute trigger for the imperative analyzer read — not a lexical dep,
@@ -674,8 +579,8 @@ export default function App() {
   const avgModes = useMemo<DefinitiveModeInfo>(() => analyzer.definitiveModeInfo(), [analyzer, snapshot])
   const multiTapOverlays = useMemo<SpectrumOverlay[]>(() => {
     const out: SpectrumOverlay[] = tapEntries.map((e, i) => ({
-      magnitudesDb: e.spectrum.magnitudesDb,
-      frequencies: e.spectrum.frequencies,
+      magnitudesDb: e.snapshot.magnitudes,
+      frequencies: e.snapshot.frequencies,
       color: MULTITAP_PALETTE[i % MULTITAP_PALETTE.length]!,
       label: `Tap ${e.tapIndex}`,
     }))
@@ -804,10 +709,10 @@ export default function App() {
     // Brace + guitar: single phase, so the cumulative count IS the within-phase count.
     return `Tap ${currentTapCount}/${numberOfTaps}`
   })()
-  // Complete = the shared flag now that material completion flips isMeasurementComplete too (3c-D).
+  // Complete = the shared flag; material completion flips isMeasurementComplete too.
   const sbComplete = !sbDetecting && snapshot.isMeasurementComplete
 
-  // ── Library (Phase 4b): save the frozen guitar result, load one back in ───
+  // ── Library: save the frozen guitar result, load one back in ─────────────
   // Build a TapToneMeasurementModel from the CURRENT frozen result — the one place that
   // assembles a measurement from live state, shared by Save and the PDF/report exports so
   // the saved record and the exported report are built identically. Returns null when
@@ -833,14 +738,12 @@ export default function App() {
         notes,
         spectrum: captured,
         peaks,
-        modeByPeak,
         selectedIds,
         overridesById: overrides,
         annotationOffsetsById: annotationOffsets,
-        // A loaded measurement keeps its stored ring-out (don't overwrite with the live engine's).
-        // Gated on loadedName, not loadedPeaks, so Re-analyze (which clears loadedPeaks) preserves
-        // the stored ring-out — mirrors Swift currentDecayTime surviving reanalyzePeaks().
-        decayTime: analyzer.currentDecayTime,
+        // The ring-out on screen: the file's for a loaded measurement (it survives Re-analyze), the live
+        // tracker's for a capture — one value on the analyzer, as Swift's currentDecayTime.
+        decayTime: currentDecayTime,
         view,
         settings,
         numberOfTaps,
@@ -854,7 +757,7 @@ export default function App() {
         userModified,
       })
     },
-    [comparison, material, matSpectra, matPeaks, matInputs, brace, captured, peaks, modeByPeak, selectedIds, overrides, annotationOffsets, loadedName, userModified, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId],
+    [comparison, material, matSpectra, matPeaks, matInputs, brace, captured, peaks, selectedIds, overrides, annotationOffsets, userModified, view, settings, numberOfTaps, tapEntries, sampleRate, deviceLabel, currentDeviceId, currentDecayTime],
   )
 
   const onSaveMeasurement = useCallback(
@@ -888,7 +791,7 @@ export default function App() {
     lastPdfExportRef.current = now
     setIsExporting(true)
     // A report is a report — multi-tap and comparison included: no `-multitap-`/`-report-` infix,
-    // "report" only as the unnamed default (§2b).
+    // "report" only as the unnamed default.
     const filename = `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'report')}.pdf`
     // Multi-tap guitar measurements always produce the two-page report (averaged + per-tap
     // comparison), mirroring Swift exportMultiTapPDFReport (gated on tapEntries, not the on-screen toggle).
@@ -1069,7 +972,9 @@ export default function App() {
         <button
           className={`btn toggle ${annotationMode !== 'none' ? 'on' : ''}`}
           onClick={cycleAnnotations}
-          disabled={!running || (material ? materialMarkers.length === 0 : displayPeaks.length === 0)}
+          // Something to annotate, and no comparison on screen: the Peak-Min projection (guitar) or the
+          // identified L/C/FLC (material) — the same test as Swift's and Python's.
+          disabled={snapshot.displayMode === 'comparison' || (material ? materialIdentifiedPeaks : peaksAbovePeakMin).length === 0}
           title={HINTS.annotations(ANNOTATION_LABEL[annotationMode])}
         >
           {annotationMode === 'all' ? <EyeIcon /> : annotationMode === 'selected' ? <StarIcon /> : <EyeOffIcon />}
@@ -1194,7 +1099,7 @@ export default function App() {
                   updateSettings({ tapDetectionThreshold: v })
                   engineRef.current?.setConfig({ tapDetectionThreshold: v })
                   // Swift/Python clear the banner inside tapDetectionThreshold's own setter; web's
-                  // threshold is settings state, so the change is reported instead (#17 F40).
+                  // threshold is settings state, so the change is reported instead.
                   analyzer.noteLoadedSettingsDeviation()
                 }}
               />
@@ -1288,10 +1193,10 @@ export default function App() {
               // The primary line = isMeasurementComplete ? frozen : live, matching Swift's displaySpectrum
               // (SpectrumViews.swift) for guitar AND material. Material's frozen base is intentionally empty
               // (the per-phase spectra are matOverlays), so material paints the LIVE spectrum while capturing
-              // (EG-2 fix — was `null`) and no base once complete. Comparison/multi-tap suppress the base.
+              // and no base once complete. Comparison/multi-tap suppress the base.
               spectrum={
                 // A device change is settling: show nothing rather than the new device's
-                // not-yet-valid audio, matching Swift/Python (#17 F35).
+                // not-yet-valid audio, matching Swift/Python.
                 snapshot.isSettling
                   ? null
                   : comparison || showMultiTap
@@ -1315,7 +1220,7 @@ export default function App() {
               onReset={resetView}
               onAnnotationDrag={comparison || showMultiTap ? undefined : onAnnotationDrag}
               onResetLabels={comparison || showMultiTap ? undefined : resetLabels}
-              onResetAnnotation={comparison || showMultiTap ? undefined : (k) => analyzer.resetAnnotationOffset(Number(k))}
+              onResetAnnotation={comparison || showMultiTap ? undefined : (k) => analyzer.resetAnnotationOffset(k)}
               hasMovedLabels={annotationOffsets.size > 0}
               frozen={captured != null || (material && matPhase === 'complete')}
               crosshairMode={crosshairMode}

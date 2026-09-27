@@ -29,8 +29,7 @@ describe('G4a — pitch (12-TET, A4=440)', () => {
 // Pitch is deliberately a GENERAL package, not only what the app calls: pitchRange,
 // formattedNote and isInTune have no call site in any edition. They are still implemented and
 // tested in all three, because the package's API is the contract, not the subset an app happens
-// to use today. This edition carried only that subset until the #17 sweep, which is why
-// test/pitch read 22/22/6 — a difference in surface, not a gap in coverage. See SLUG-SWEEP.md F13.
+// to use today.
 //
 // Every expected value below comes from the canonical natives, not from running this code.
 
@@ -177,9 +176,8 @@ describe('isInTune', () => {
   })
 })
 
-// A frequency with no pitch — 0 Hz, negative, NaN, infinite — gets "no pitch" from every method. It used
-// to come out as the note "undefinedNaN" (#17 F50 item 14). Paired with Swift
-// aFrequencyWithNoPitch_getsNoPitch and Python TestNoPitch.
+// A frequency with no pitch — 0 Hz, negative, NaN, infinite — gets "no pitch" from every method, never
+// a note such as "undefinedNaN". Paired with Swift aFrequencyWithNoPitch_getsNoPitch and Python TestNoPitch.
 describe('no pitch', () => {
   it.each([0, -5, NaN, Infinity])('a frequency with no pitch (%s) gets no pitch', (frequency) => {
     expect(p.hasPitch(frequency)).toBe(false)

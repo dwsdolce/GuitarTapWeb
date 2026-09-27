@@ -8,11 +8,7 @@
 //     guitar-tap-project/Tests/Brace/brace-umik-1-swift-mac-1778816093.guitartap
 //
 // and the expected values are the ones GuitarTap itself reported for it (see the .pdf beside
-// that file), not numbers this suite produced. Until the #17 sweep this file used
-// 600 x 24 x 8.5 mm / 58 g with that same 512.6888 Hz — a different object entirely, which
-// implied E_L = 211 GPa and c = 21 124 m/s: stiffer than steel, faster than sound in diamond.
-// Its one quality assertion then held at a specific modulus of 446 against an Excellent
-// threshold of 25, so it could not have failed for any reason.
+// that file), not numbers this suite produced.
 import { describe, it, expect } from 'vitest'
 import {
   density,
@@ -132,9 +128,8 @@ describe('brace specific modulus', () => {
 })
 
 describe('brace radiation ratio', () => {
-  // R = c/rho is shown in the Brace Properties panel and baked into the exported image, and
-  // had no test in any edition until the #17 sweep — which is how the web port's inline copy
-  // came to be missing this zero guard and to render the string "NaN".
+  // R = c/rho is shown in the Brace Properties panel and baked into the exported image, so its
+  // zero guard is pinned here: a zero density must give 0, never the string "NaN".
   it('equals c over rho', () => {
     const expected = cOf(realBrace, realBraceFl) / density(realBrace)
     expect(rOf(realBrace, realBraceFl)).toBeCloseTo(expected, 6)

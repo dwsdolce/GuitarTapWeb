@@ -5,7 +5,7 @@
 // Swift's `UUID().uuidString` is uppercase, so every id that can travel between editions has to
 // be uppercase to compare equal as a string. This edition already uppercased measurement ids, but
 // minted calibration ids as raw `crypto.randomUUID()` — lowercase — which went unnoticed until
-// Python moved to uppercase (SLUG-SWEEP.md F22) and left web the only edition disagreeing.
+// Python moved to uppercase and left web the only edition disagreeing.
 //
 // The second test is the one that prevents a regression. Checking that `newId()` is uppercase
 // proves the helper works; it does nothing about a `crypto.randomUUID()` added elsewhere next

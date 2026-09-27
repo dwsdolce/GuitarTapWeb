@@ -1,25 +1,13 @@
 // @parity test/measurement-codable
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import {
-  parseGuitarTapFile,
-  serializeGuitarTapFile,
-  encodeMeasurement,
-  encodeSnapshot,
-  f32,
-  type ResonantPeakModel,
-  type TapToneMeasurementModel,
-} from '../src/measurement'
-import {
-  measurementDefinitivePeak,
-  measurementTapToneRatio,
-  healSelection,
-  measurementPeakModeLabels,
-} from '../src/measurement/fromLive'
+import { parseGuitarTapFile, serializeGuitarTapFile, encodeMeasurement, encodeSnapshot, f32, type TapToneMeasurementModel } from '../src/measurement'
+import { measurementDefinitivePeak, measurementTapToneRatio, healSelection, measurementPeakModeLabels } from '../src/measurement/fromLive'
 import { classifyAll } from '../src/dsp/classify'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import type { ResonantPeak } from '../src/measurement/types'
 
-// `.guitartap` model + serialization parity (Phase 4a). The canonical format is the
+// `.guitartap` model + serialization parity. The canonical format is the
 // Swift user manual Appendix B; this mirrors the Swift MeasurementCodableTests and the
 // Python test_measurement_codable. The vendored Contreras file is an OLDER save (legacy
 // `peakThreshold`, extra `hysteresisMargin`/`maxPeaks`, no `sampleRate`), so it doubles
@@ -32,11 +20,8 @@ const raw = JSON.parse(rawText)[0]
 const measurements = parseGuitarTapFile(rawText)
 const m = measurements[0]!
 
-// Mode overrides, read from files the APPS actually wrote — one saved by Swift, one by Python.
-//
-// Until #17 F28 no file in the corpus carried peakModeOverrides at all: 119 measurements, 116 with
-// selection, 91 with annotation offsets, ZERO with an override. Every override test used a
-// hand-built fixture, so the reader had never met a real one. The owner captured these two.
+// Mode overrides, read from files the APPS actually wrote — one saved by Swift, one by Python — so
+// the reader is tested against real overrides, not only hand-built fixtures.
 describe.each([
   ['annotation-override-1790037028.guitartap', 'Fred'],          // written by Swift
   ['annotation-override-python-1790037332.guitartap', 'Fred2'],  // written by Python
@@ -116,7 +101,7 @@ describe('decode — canonical fields + legacy compromises', () => {
     expect(s.magnitudes.length).toBe(s.frequencies.length)
   })
 
-  it('decodes peaks including pitch and the carried-through modeLabel', () => {
+  it('decodes peaks including pitch', () => {
     const p = m.peaks[0]!
     expect(p.id).toBe('95037FB0-44FE-4163-9937-CBCD57BC1469')
     expect(p.frequency).toBeCloseTo(212.24847, 4)
@@ -125,7 +110,6 @@ describe('decode — canonical fields + legacy compromises', () => {
     expect(p.bandwidth).toBeCloseTo(8.7890625, 4)
     expect(p.pitchNote).toBe('G#3')
     expect(p.pitchCents).toBeCloseTo(37.90079, 4)
-    expect(p.modeLabel).toBe('Top')
   })
 
   it('decodes an empty annotation-offsets array to an empty map', () => {
@@ -178,16 +162,16 @@ describe('semantic round-trip (decode → encode → decode)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Definitive saved-measurement ratio + legacy selection heal (Phase 6). The saved-list/PDF ratio uses
+// Definitive saved-measurement ratio + legacy selection heal. The saved-list/PDF ratio uses
 // the same DEFINITIVE rule as the live analyzer (selected + override-aware), so they cannot disagree;
 // decode heals a legacy selection to a valid definitive set. Mirrors Swift TapToneMeasurement
 // definitivePeak / tapToneRatio + the decode heal. Classical bands: air 80–110, top 170–230, back 190–280.
 // ---------------------------------------------------------------------------
-const rp = (id: string, frequency: number, magnitude: number): ResonantPeakModel => ({
+const rp = (id: string, frequency: number, magnitude: number): ResonantPeak => ({
   id, frequency, magnitude, quality: 10, bandwidth: 5, timestamp: '2026-01-01T00:00:00Z',
 })
 const guitarModel = (
-  peaks: ResonantPeakModel[],
+  peaks: ResonantPeak[],
   opts: { selectedPeakIDs?: string[]; peakModeOverrides?: Record<string, string> } = {},
 ): TapToneMeasurementModel => ({
   id: 'M', timestamp: '2026-01-01T00:00:00Z', peaks,
@@ -226,11 +210,11 @@ describe('measurement-codable — definitive saved ratio', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'classical'
     a.peaks = [
-      { id: 0, frequency: 90, magnitude: -20, quality: 10, bandwidth: 5 },
-      { id: 1, frequency: 200, magnitude: -20, quality: 10, bandwidth: 5 },
+      { id: '0', frequency: 90, magnitude: -20, quality: 10, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' },
+      { id: '1', frequency: 200, magnitude: -20, quality: 10, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' },
     ]
     a.modeByPeak = classifyAll(a.peaks, 'classical')
-    a.restoreSelection(new Set([0, 1]), [90, 200], true)
+    a.restoreSelection(new Set(['0', '1']), [90, 200], true)
     expect(a.tapToneRatio()).toBeCloseTo(measurementTapToneRatio(m)!, 6)
   })
 })
@@ -268,9 +252,8 @@ describe('measurement-codable — legacy selection heal on decode', () => {
 
 // ── modeLabel is derived, never carried through ────────────────────────────────────────────
 //
-// Added in the #17 sweep. Swift pinned this rule in MeasurementExportModeLabel; neither port
-// did, and both had drifted — this edition preferred a decoded label over reclassifying, and
-// Python's detail view did the same for display. See SLUG-SWEEP.md F15.
+// A decoded label is never preferred over reclassifying. Swift pins this rule in
+// MeasurementExportModeLabel.
 
 describe('measurement-codable — modeLabel is derived, not carried through', () => {
   const overlapMeasurement = (staleLabelOnStronger?: string): TapToneMeasurementModel =>

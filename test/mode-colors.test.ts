@@ -2,24 +2,18 @@
 //
 // Locks the per-mode annotation colour against silent drift.
 //
-// The values are ABSOLUTE in all three editions as of the #17 sweep. Swift resolved these from
-// SwiftUI's semantic colours until then, so the OS owned what it drew; Python had invented its own
-// palette that never matched Swift on the same white background, and drew Upper Modes and Unknown
-// in a single grey.
+// The values are ABSOLUTE in all three editions: fixed hex values, not colours the OS resolves.
 //
-// This edition's chart is DARK, which is the one legitimate reason to differ, and the owner's rule
-// for the sweep was: keep the web's value where the difference is the background, follow Swift
-// where it is not. Measuring the hues split the table — `top`, `back` and `dipole` sit 1°, 5° and
-// 7° from Swift's and are genuine dark variants, so they stay; `air` was a BLUE 22° from Swift's
-// cyan and `ring` 18° from Swift's purple, so those now carry Swift's values. `upper` and
-// `unknown` are near-neutral, where only lightness matters, so they keep the web's.
+// This edition's chart is DARK, which is the one legitimate reason to differ: the web keeps its own
+// value where the difference is the background and follows Swift where it is not. `top`, `back` and
+// `dipole` sit 1°, 5° and 7° from Swift's and are genuine dark variants; `air` and `ring` carry
+// Swift's values. `upper` and `unknown` are near-neutral, where only lightness matters, so they keep
+// the web's.
 //
-// Mirrors Swift ModeColorsTests and Python test_mode_colors.py. See SLUG-SWEEP.md F9.
+// Mirrors Swift ModeColorsTests and Python test_mode_colors.py.
 //
-// The label and display-name maps are NOT tested here. They were until the #17 sweep, which made
-// this slug read 1/1/3 against the natives — not because the web tested more, but because Swift
-// and Python file those two rules under test/classify. The rule adopted for the sweep is that the
-// canonical edition decides which slug owns a rule, so they moved to classify.test.ts (F10).
+// The label and display-name maps are NOT tested here: Swift and Python file those two rules under
+// test/classify, so they are in classify.test.ts.
 
 import { describe, it, expect } from 'vitest'
 import { MODE_COLOR } from '../src/presentation/modeColors'
@@ -39,7 +33,7 @@ describe('mode-colors', () => {
 
   it('every mode has its own colour', () => {
     // Seven modes must be seven tellable-apart colours — the only thing the hue has to do.
-    // Upper and Unknown are the close pair; Python had them identical until #17.
+    // Upper and Unknown are the close pair.
     const hexes = Object.values(MODE_COLOR)
     expect(new Set(hexes).size).toBe(hexes.length)
     expect(MODE_COLOR.upper).not.toBe(MODE_COLOR.unknown)

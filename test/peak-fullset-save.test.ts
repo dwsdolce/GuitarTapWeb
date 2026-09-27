@@ -1,6 +1,6 @@
 // @parity test/peaks
 //
-// Full-set save (Option 4 — Development/PEAK-MIN-SEMANTICS.md). A freshly captured guitar
+// Full-set save. A freshly captured guitar
 // measurement persists every peak down to the −100 dB floor, not just those above the current Peak
 // Min, so a reloaded measurement can reveal peaks below the capture-time Peak Min exactly as the
 // live one can. Mirrors Swift GuitarFullSavePeaksTests / Python TestGuitarFullSavePeaks.
@@ -18,10 +18,11 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildGuitarMeasurement } from '../src/measurement/fromLive'
-import { findPeaks, PEAK_DETECTION_FLOOR, type Peak } from '../src/dsp/peaks'
+import { findPeaks, PEAK_DETECTION_FLOOR } from '../src/dsp/peaks'
 import { classifyAll } from '../src/dsp/classify'
 import { base64ToFloats } from '../src/measurement/base64'
 import { DEFAULT_SETTINGS } from '../src/settings'
+import type { ResonantPeak } from '../src/measurement/types'
 
 const raw = JSON.parse(
   readFileSync(join(__dirname, 'fixtures', 'dws-2024-umik-1-swift-mac-1784225155.guitartap'), 'utf8'),
@@ -39,14 +40,14 @@ describe('buildGuitarMeasurement — full-set save (Option 4, real capture)', ()
     peakMinThreshold: -60, // above the real Air peak (−64.21 dB) — reproduces the original defect
   }
   // The Peak-Min display projection — what the user sees at −60, and what must NOT be saved.
-  const displayed: Peak[] = findPeaks(spectrum.magnitudesDb, spectrum.frequencies, {
+  const displayed: ResonantPeak[] = findPeaks(spectrum.magnitudesDb, spectrum.frequencies, {
     guitarType: 'generic',
     peakMinThreshold: -60,
     minHz: 30,
     maxHz: 2000,
   })
   // The analyzer's durable set — what App.tsx actually hands the save path.
-  const durable: Peak[] = findPeaks(spectrum.magnitudesDb, spectrum.frequencies, {
+  const durable: ResonantPeak[] = findPeaks(spectrum.magnitudesDb, spectrum.frequencies, {
     guitarType: 'generic',
     peakMinOverride: PEAK_DETECTION_FLOOR,
     minHz: 30,
@@ -57,9 +58,8 @@ describe('buildGuitarMeasurement — full-set save (Option 4, real capture)', ()
     notes: '',
     spectrum,
     peaks: durable,
-    modeByPeak: classifyAll(durable, 'generic'),
-    selectedIds: new Set<number>(),
-    overridesById: new Map<number, string>(),
+    selectedIds: new Set<string>(),
+    overridesById: new Map<string, string>(),
     view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
     settings,
     numberOfTaps: 1,

@@ -4,16 +4,11 @@
 // bandwidth calculation. Mirrors Swift DSPTests.swift and Python tests/test_dsp.py, case for
 // case (F1–F9).
 //
-// This file is new in the #17 sweep. test/dsp read 10/10/0, which looked like this edition
-// missing the slug entirely. It was not: `parabolicInterpolate` and `calculateQ` are exported
-// from src/dsp/peaks.ts and were line-for-line equivalent to the natives — they were simply
-// exercised only INDIRECTLY, through findPeaks, under test/peaks. Two of the rules therefore
-// lived under a different slug here than in the natives, which is the shape recorded as F10.
-//
-// The filing is only half of it. Testing through findPeaks cannot reach the guards that matter:
-// an edge bin, and a flat top where the parabola's denominator goes to zero. Those are exactly
-// the paths that produce NaN or Inf and then travel silently into a saved measurement, so they
-// are tested here directly, as the natives do.
+// `parabolicInterpolate` and `calculateQ` (src/dsp/peaks.ts) are also exercised indirectly through
+// findPeaks under test/peaks, but that cannot reach the guards that matter: an edge bin, and a flat
+// top where the parabola's denominator goes to zero. Those are exactly the paths that produce NaN or
+// Inf and then travel silently into a saved measurement, so they are tested here directly, as the
+// natives do.
 import { describe, it, expect } from 'vitest'
 import { parabolicInterpolate, calculateQ } from '../src/dsp/peaks'
 import { dftAnalRect, GUITAR_FFT_SIZE, spectrumPeak } from '../src/dsp/guitarFFT'
@@ -152,15 +147,12 @@ describe('Q factor and −3 dB bandwidth (F7–F9)', () => {
 // A silent buffer must read as -Infinity, not a finite floor.
 //
 // All three editions convert magnitude to dB with 20·log10, and a bin with no energy is therefore
-// -inf. Swift's vDSP_vdbcon returns exactly that. Python and web had each clamped the magnitude up
-// to float64 epsilon first — the SAME literal, 2.220446049250313e-16, Python's since 2026-05-09 and
-// web's transcribed from it at the initial commit — which put "-313.0 dB" on screen for the absence
-// of a signal.
+// -inf, exactly what Swift's vDSP_vdbcon returns. No edition clamps the magnitude to float64
+// epsilon, which would put a finite "-313.0 dB" on screen for the absence of a signal.
 //
 // It matters because -100 dB is a REAL reading: a live UMIK-1 in a quiet room sits near there, and
 // the dead-input watchdog's own threshold is -100 dBFS. A finite floor makes "no microphone at all"
 // look like "a very quiet microphone", which is the one distinction the Peak readout has to keep.
-// Owner's call during the #17 run-review, having seen -inf on Swift and -313 on Python.
 //
 // Paired with Swift DSPTests and Python tests/test_dsp.py.
 describe('a silent buffer yields -Infinity, not a finite floor', () => {

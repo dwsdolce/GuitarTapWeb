@@ -64,7 +64,7 @@ export interface Baseline {
 // JSON has no infinity — `JSON.stringify(-Infinity)` silently writes `null`. A silent input's peak is
 // -Infinity and has to be stored and compared exactly, so every oracle and baseline file (all three
 // editions and the hub) writes a non-finite number as the STRING "-Infinity" / "Infinity" / "NaN"
-// and turns it back into a number on load (#17 F44).
+// and turns it back into a number on load.
 const NONFINITE: Record<string, number> = { '-Infinity': -Infinity, Infinity: Infinity, NaN: NaN }
 
 /** `JSON.parse` reviver: "-Infinity" / "Infinity" / "NaN" strings → numbers. */

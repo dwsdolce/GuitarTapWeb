@@ -37,7 +37,7 @@ const newRowKey = newId
  * v1 -> v2: the store was keyed by `id`, which conflated the measurement's DATASET identity with
  * its row handle — and forced import to overwrite `id` so that re-importing a file would add a row
  * instead of replacing one. That overwrite destroyed the dataset identity of every file brought
- * into this edition, and of every file exported from it (SLUG-SWEEP.md F19a).
+ * into this edition, and of every file exported from it.
  *
  * Read every record, drop the store, recreate it keyed by `rowKey`, write the records back with
  * `rowKey` set to their old `id`. The key VALUES are unchanged — only the field carrying them — so

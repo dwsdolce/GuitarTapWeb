@@ -43,7 +43,7 @@ function captureTap(s: TapToneAnalyzer): void {
   s.finishGuitarGatedCapture(tap, 48000)
 }
 
-// The waits are the real ones, measured as the app measures them: in AUDIO (#19).
+// The waits are the real ones, measured as the app measures them: in AUDIO.
 const afterCooldown = (s: TapToneAnalyzer) => advanceAudio(s, s.tapCooldown)
 const afterCaptureWindow = (s: TapToneAnalyzer) => advanceAudio(s, s.captureWindow)
 
@@ -57,10 +57,8 @@ const row = (
 ): StateSnapshot => ({ label, isDetecting, isDetectionPaused, isMeasurementComplete, currentTapCount, capturedTapsCount })
 
 // Every tap goes through the real finishGuitarGatedCapture, and the waits are the real ones — the tap
-// cooldown before re-arming, the capture window before averaging. The traces used to assign the "tap
-// happened" state by hand, so their capture rows recorded what the TEST wrote; and S3/S4's postTap1 said
-// detection was back on the instant a tap was captured, a path the app never takes (#17 F46). These
-// traces are identical in Swift, Python and web.
+// cooldown before re-arming, the capture window before averaging — so each capture row records what the
+// app did, not what the test wrote. These traces are identical in Swift, Python and web.
 describe('ScenarioStateTrace', () => {
   // S1: clean single-tap guitar measurement
   it('S1 — clean single tap (guitar)', async () => {

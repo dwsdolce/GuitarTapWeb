@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS } from '../src/settings'
 import { materialInputsFromSettings } from '../src/measurement/materialMeasurementInputs'
 import { measurementToPdfData } from '../src/presentation/measurementImage'
 
-// Phase 4b (material follow-up): loading a saved plate/brace measurement restores the
+// Loading a saved plate/brace measurement restores the
 // per-phase spectra (chart overlay), the selected L/C/FLC peaks (markers + results), and
 // the dimensions (so Material Results recomputes). Mirrors Swift loadMeasurement's
 // material branch.
@@ -58,9 +58,9 @@ describe('measurementToLiveMaterial — restore a plate measurement', () => {
   })
 
   it('restores the selected L/C peaks (markers + results)', () => {
-    expect(r.matPeaks.longitudinal?.frequency).toBe(120)
-    expect(r.matPeaks.cross?.frequency).toBe(250)
-    expect(r.matPeaks.flc).toBeNull()
+    expect(r.selectedLongitudinalPeak?.frequency).toBe(120)
+    expect(r.selectedCrossPeak?.frequency).toBe(250)
+    expect(r.selectedFlcPeak).toBeNull()
   })
 
   it('restores dimensions into Store B (materialInputs), only the type into the settings patch', () => {
@@ -89,14 +89,14 @@ describe('material survives the .guitartap file round-trip (export → import)',
     const r = measurementToLiveMaterial(m)
     expect(r.matSpectra.longitudinal?.frequencies).toEqual([100, 120, 140])
     expect(r.matSpectra.cross?.frequencies).toEqual([200, 250, 300])
-    expect(r.matPeaks.longitudinal?.frequency).toBe(120)
+    expect(r.selectedLongitudinalPeak?.frequency).toBe(120)
     expect(r.materialInputs.lengthMm).toBe(500)
     expect(r.materialInputs.stiffnessPreset).toBe('steelStringTop')
   })
 })
 
 describe('buildMaterialMeasurement — save round-trip (live → model → file → restore)', () => {
-  const matPeak = (id: number, f: number, mag: number) => ({ id, frequency: f, magnitude: mag, quality: 20, bandwidth: 5 })
+  const matPeak = (id: string, f: number, mag: number) => ({ id, frequency: f, magnitude: mag, quality: 20, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' })
   const built = buildMaterialMeasurement({
     name: 'Top Plate',
     notes: 'spruce',
@@ -105,7 +105,7 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
       cross: { frequencies: [200, 250, 300], magnitudesDb: [-55, -45, -65] },
       flc: null,
     },
-    peaks: { longitudinal: matPeak(0, 120, -40), cross: matPeak(1, 250, -45), flc: null },
+    peaks: { longitudinal: matPeak('0', 120, -40), cross: matPeak('1', 250, -45), flc: null },
     view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
     settings: {
       ...DEFAULT_SETTINGS,
@@ -182,8 +182,8 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
     expect(r.matSpectra.longitudinal?.frequencies).toEqual([100, 120, 140])
     expect(r.matSpectra.cross?.magnitudesDb).toEqual([-55, -45, -65])
     expect(r.matSpectra.flc).toBeNull()
-    expect(r.matPeaks.longitudinal?.frequency).toBe(120)
-    expect(r.matPeaks.cross?.frequency).toBe(250)
+    expect(r.selectedLongitudinalPeak?.frequency).toBe(120)
+    expect(r.selectedCrossPeak?.frequency).toBe(250)
     expect(r.materialInputs.lengthMm).toBe(500)
     expect(r.materialInputs.stiffnessPreset).toBe('steelStringTop')
   })
@@ -193,7 +193,7 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
 // peakAnnotationOffsets store. The live store is keyed by `frequency.toFixed(1)`; persistence is
 // keyed by peak UUID (gold-standard format) — this asserts the build→file→restore re-keying both ways.
 describe('material annotation offsets round-trip (6d)', () => {
-  const matPeak = (id: number, f: number, mag: number) => ({ id, frequency: f, magnitude: mag, quality: 20, bandwidth: 5 })
+  const matPeak = (id: string, f: number, mag: number) => ({ id, frequency: f, magnitude: mag, quality: 20, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' })
   const built = buildMaterialMeasurement({
     name: 'Top Plate',
     notes: '',
@@ -202,7 +202,7 @@ describe('material annotation offsets round-trip (6d)', () => {
       cross: { frequencies: [200, 250, 300], magnitudesDb: [-55, -45, -65] },
       flc: null,
     },
-    peaks: { longitudinal: matPeak(0, 120, -40), cross: matPeak(1, 250, -45), flc: null },
+    peaks: { longitudinal: matPeak('0', 120, -40), cross: matPeak('1', 250, -45), flc: null },
     view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
     settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const },
     materialInputs: materialInputsFromSettings('plate', { ...DEFAULT_SETTINGS, measurementType: 'plate' as const }),
@@ -210,7 +210,7 @@ describe('material annotation offsets round-trip (6d)', () => {
     sampleRate: 48000,
     deviceLabel: 'Test Mic',
     // Drag only the longitudinal label; cross is left un-dragged.
-    annotationOffsetsById: new Map<number, [number, number]>([[0, [125, -38]]]),
+    annotationOffsetsById: new Map<string, [number, number]>([['0', [125, -38]]]),
   })
 
   it('writes the dragged offset into peakAnnotationOffsets keyed by the L peak UUID', () => {
@@ -224,16 +224,17 @@ describe('material annotation offsets round-trip (6d)', () => {
   it('restores the offset re-keyed by material peak id after a file round-trip', () => {
     const m = parseGuitarTapFile(serializeGuitarTapFile([built]))[0]!
     const r = measurementToLiveMaterial(m)
-    // Restored material peaks get ids in L,C,FLC order (RB): L=0 (was dragged), C=1 (not).
-    expect(r.annotationOffsetsById.get(0)).toEqual([125, -38])
-    expect(r.annotationOffsetsById.has(1)).toBe(false)
+    // Restored material peaks keep their saved ids: L (was dragged), C (not).
+    expect(r.selectedLongitudinalPeak!.id).toBe(built.selectedLongitudinalPeakID)
+    expect(r.annotationOffsetsById.get(built.selectedLongitudinalPeakID!)).toEqual([125, -38])
+    expect(r.annotationOffsetsById.has(built.selectedCrossPeakID!)).toBe(false)
   })
 
   it('omits peakAnnotationOffsets entirely when no labels were dragged', () => {
     const plain = buildMaterialMeasurement({
       name: '', notes: '',
       spectra: { longitudinal: { frequencies: [100, 120], magnitudesDb: [-50, -40] }, cross: null, flc: null },
-      peaks: { longitudinal: matPeak(0, 120, -40), cross: null, flc: null },
+      peaks: { longitudinal: matPeak('0', 120, -40), cross: null, flc: null },
       view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
       settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const },
       materialInputs: materialInputsFromSettings('plate', { ...DEFAULT_SETTINGS, measurementType: 'plate' as const }),
@@ -245,12 +246,11 @@ describe('material annotation offsets round-trip (6d)', () => {
   })
 })
 
-// Regression: the PDF/PNG export data builder must source dims, body size, AND stiffness from the
-// measurement's own Store B (materialInputs) — never DEFAULT_SETTINGS. Chunk A moved dims out of the
-// settings patch but this builder kept reading them, so exports computed density/moduli/Gore from the
-// template (500×200 plate, steelStringTop) instead of the sample. (Swift V-A#4; missed on web.)
+// The PDF/PNG export data builder sources dims, body size, AND stiffness from the measurement's own
+// Store B (materialInputs) — never DEFAULT_SETTINGS — so exports compute density/moduli/Gore from the
+// sample, not the template (500×200 plate, steelStringTop).
 describe('measurementToPdfData — material analysis reads Store B dims, not defaults', () => {
-  const matPeak = (id: number, f: number, mag: number) => ({ id, frequency: f, magnitude: mag, quality: 20, bandwidth: 5 })
+  const matPeak = (id: string, f: number, mag: number) => ({ id, frequency: f, magnitude: mag, quality: 20, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' })
   const inputs = {
     ...materialInputsFromSettings('plate', { ...DEFAULT_SETTINGS, measurementType: 'plate' as const }),
     lengthMm: 610, // ≠ DEFAULT 500
@@ -268,7 +268,7 @@ describe('measurementToPdfData — material analysis reads Store B dims, not def
       cross: { frequencies: [200, 250, 300], magnitudesDb: [-55, -45, -65] },
       flc: null,
     },
-    peaks: { longitudinal: matPeak(0, 120, -40), cross: matPeak(1, 250, -45), flc: null },
+    peaks: { longitudinal: matPeak('0', 120, -40), cross: matPeak('1', 250, -45), flc: null },
     view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
     settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const, measureFlc: false },
     materialInputs: inputs,

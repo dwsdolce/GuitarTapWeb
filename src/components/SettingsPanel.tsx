@@ -463,7 +463,7 @@ export function SettingsPanel({
                     {/* One WAV per measurement, not per tap/phase (session recording). The browser
                         hides the Downloads path from the page and offers no way to open a folder, so
                         the caption naming Downloads is the most the web can truthfully show — there is
-                        no path field or Open button here (unlike the native apps). §4c / §6. */}
+                        no path field or Open button here (unlike the native apps). */}
                     <em className="set-inline-desc"> — download each measurement's captured audio as a 32-bit-float WAV, to your browser's Downloads folder</em>
                   </span>
                 </label>

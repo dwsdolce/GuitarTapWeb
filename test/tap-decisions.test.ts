@@ -9,18 +9,15 @@
 // detector's state by hand. A tap has fired when a capture has started (`gatedCaptureActive`) — the one
 // effect a tap has in both capture kinds; cases about the detector's state read that state (never write
 // it). The same cases, with the same numbers, are in Swift GuitarTapTests/TapDetectionTests.swift and
-// Python tests/test_tap_detection.py (#17 F50 item 3).
+// Python tests/test_tap_detection.py.
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { advanceAudio, AUDIO_FEED_CHUNK_SECONDS } from './audioClockFeed'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
 
-// The four cases that used to open this file drove `findLevelCrossing` / `findAllLevelCrossings`
-// — offline scanners with no production caller since 2026-07-11, deleted with them (#17 F43). They
-// asserted, among other things, that the brace fixture yields 1 tap and the plate 3; REG-B1 and
-// REG-P1 in file-playback.test.ts assert exactly that on exactly those fixtures, through the engine
-// rather than one level under it. What is left here runs against code the app calls.
+// That the brace fixture yields 1 tap and the plate 3 is asserted by REG-B1 and REG-P1 in
+// file-playback.test.ts, through the engine. Every case here runs against code the app calls.
 describe('G5 — tap-detection decisions', () => {
   it('onset alignment positions the transient at pre-onset (+backup)', () => {
     const buf = new Float32Array(10000)
@@ -118,8 +115,7 @@ describe("the detector's decisions", () => {
   })
 
   // T1c–T1e: the detector uses the threshold the APPLICATION configured — `tapDetectionThreshold`, which
-  // the slider writes. The web once left it behind in the engine's config, so the slider went dead and
-  // detection sat at the -40 dB default (#17 F30).
+  // the slider writes — not the -40 dB default.
 
   it('T1c: a level below the configured threshold (but above the -40 default) does not fire', () => {
     const a = armed(-30)
@@ -231,9 +227,8 @@ describe("the detector's decisions", () => {
     expect(detector(a).noiseFloorEstimate, 'after 50 chunks at -55 dB it is close to -55').toBeGreaterThan(-58)
   })
 
-  // The settle — the latched ring-out falling below the falling threshold — leaves the prompt alone. The
-  // natives used to rewrite it with the GUITAR loop status whatever the mode, so a plate's "fL tap 1/2
-  // captured. Tap again..." became "Tap 1/2 captured. Tap again..." (#17 F50 item 7).
+  // The settle — the latched ring-out falling below the falling threshold — leaves the prompt alone, so
+  // a plate's "fL tap 1/2 captured. Tap again..." is not rewritten with the GUITAR loop status.
   it('the settle leaves a plate prompt alone', () => {
     const a = armed(-40, 'plate')
     a.setNumberOfTaps(2)
@@ -266,9 +261,8 @@ describe("the detector's decisions", () => {
     expect(a.statusMessage).toBe(prompt)
   })
 
-  // Arming and resuming (#17 F50 item 13). A new sequence seeds the noise floor from the current input
-  // level — here from a chunk, the way the level reaches the analyzer — and -100 when the warm-up is
-  // skipped. (The web seeded a fixed -60.)
+  // Arming and resuming. A new sequence seeds the noise floor from the current input level — here from
+  // a chunk, the way the level reaches the analyzer — and -100 when the warm-up is skipped.
   it('starting a sequence seeds the noise floor from the input level', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'

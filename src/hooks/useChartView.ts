@@ -1,6 +1,6 @@
 // ViewModel for the spectrum chart's live view (zoom/pan range) + Auto-dB scaling. Owns the
 // `view` and `autoDb` state and the logic that mutates them (reset-to-saved/defaults, fit-dB-to-
-// spectrum), keeping App.tsx as wiring. Extracted from App as part of Phase 6 6-ARCH.
+// spectrum), keeping App.tsx as wiring.
 
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react'
 import type { ChartView, ResetTarget, ResetAxis } from '../presentation/chartTypes'

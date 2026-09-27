@@ -1,25 +1,20 @@
 // @parity model/mode-colors tests=test/mode-colors,test/classify — the colour table is pinned by
 // test/mode-colors; MODE_LABEL, MODE_DISPLAY_NAME and the override-label resolution are pinned by
-// test/classify, where Swift and Python file them (#17 F10).
+// test/classify, where Swift and Python file them.
 import type { ResolvedMode } from '../dsp/classify'
 
 /**
  * Per-mode annotation colours, for this edition's **dark** chart.
  *
- * The rule, set by the owner during the #17 sweep: where a value differs from Swift because the
- * background differs, the web keeps its own; where it differs for no reason, it follows Swift.
- *
- * Measuring the hues showed the table was a mix of the two. `top`, `back` and `dipole` are Swift's
- * hues brightened for a dark surface — 1°, 5° and 7° away — and those stay. `air` and `ring` were
- * not adaptations at all but different colours: `air` was #4ea1ff, a **blue** 22° from Swift's
- * cyan, and `ring` was #b07ad8, 18° from Swift's purple. Those now carry Swift's values.
+ * Where a value differs from Swift because the background differs, the web keeps its own; otherwise
+ * it follows Swift. `top`, `back` and `dipole` are Swift's hues brightened for a dark surface — 1°,
+ * 5° and 7° away. `air` and `ring` carry Swift's values.
  *
  * `upper` and `unknown` are near-neutral greys, where hue is meaningless and only lightness
  * matters, so these keep the web's — the natives' #8E8E93 and #808080 would be muddy on dark, and
- * the pair has to stay tellable apart. Python could not tell them apart at all until this sweep:
- * both were the same grey.
+ * the pair has to stay tellable apart.
  *
- * See SLUG-SWEEP.md F9. When the theme work lands it adds a light table here, which will be
+ * When the theme work lands it adds a light table here, which will be
  * Swift's values outright, exactly as `qualityColors.ts` already does.
  */
 export const MODE_COLOR: Record<ResolvedMode, string> = {
@@ -77,14 +72,12 @@ export const ADDITIONAL_MODE_LABELS: string[] = [
  * Which mode each academic label resolves to. Mirrors Swift `GuitarMode.fromDisplayName`'s
  * `additionalMap` and Python's `_PYTHON_STR_TO_MODE`.
  *
- * This table was missing here entirely until the #17 sweep, and its absence was not cosmetic: a
- * measurement saved in Swift or Python with one of these overrides loaded here as a *freeform*
- * user label, so it drew in the user-label teal instead of the mode colour and dropped out of
- * every surface that asks "which peak is the Dipole" — including the tap-tone ratio and the
- * definitive-peak resolution. See SLUG-SWEEP.md F11.
+ * It is what lets a measurement saved in Swift or Python with one of these overrides load here as
+ * that mode rather than as a *freeform* user label — so it draws in the mode colour, not the
+ * user-label teal, and takes part in every surface that asks "which peak is the Dipole", including
+ * the tap-tone ratio and the definitive-peak resolution.
  *
- * `Quadrapole T(2,2)` resolves to `ring`, following Swift. Python mapped it to Upper Modes until
- * the same sweep (F12).
+ * `Quadrapole T(2,2)` resolves to `ring`, following Swift.
  */
 export const MODE_BY_ADDITIONAL_LABEL: Record<string, ResolvedMode> = {
   'Helmholtz T(1,1)_1': 'air',

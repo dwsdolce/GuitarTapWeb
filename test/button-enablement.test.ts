@@ -3,16 +3,16 @@
 // Truth-table tests for the Pause / New Tap / Cancel button enablement rules.
 // Mirrors GuitarTapTests/ButtonEnablementTests.swift and Python
 // tests/test_button_enablement.py. `buttonRule` is the PRODUCTION rule, the same
-// function App.tsx calls — App has no inline button logic to drift from it. The
-// natives retyped the rule in their test files until #17 folded that in; all three
-// now assert against one implementation. Update the table on all three together.
+// function App.tsx calls — App has no inline button logic to drift from it. In all
+// three editions the tests assert against the production rule. Update the table on
+// all three together.
 import { describe, it, expect } from 'vitest'
 import { buttonRule } from '../src/state/buttonEnablement'
 
 describe('ButtonEnablement', () => {
   // B1: Disarmed-idle guitar — nothing complete, nothing in flight. New Tap is ENABLED so
   // the user can re-arm; Pause and Cancel stay disabled. (On Swift/Python this is the state
-  // the Dump Capture Audio folder guard can produce, §4b; the web can't reach it, but the
+  // the Dump Capture Audio folder guard can produce; the web can't reach it, but the
   // rule is identical for parity.)
   it('B1 — guitar disarmed-idle: new tap enabled', () => {
     expect(buttonRule({ displayMode: 'live', detectionState: 'idle', isMeasurementComplete: false })).toEqual({

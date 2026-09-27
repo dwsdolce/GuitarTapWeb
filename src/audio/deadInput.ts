@@ -8,8 +8,8 @@
 // up, leaving the app deaf until reload even after the user fixed the microphone — is a
 // single row of the truth table here.
 //
-// The threshold is a field calibration, not a derivation — see hub
-// docs/AUDIO-WATCHDOG-SILENT-STREAM.md for the incidents the numbers come from.
+// The threshold is a field calibration, not a derivation: the numbers come from the silent-input
+// incidents of 2026-07-16 and 2026-08-21.
 
 /**
  * RMS below which a chunk counts as carrying no signal: 1e-5 = -100 dBFS.

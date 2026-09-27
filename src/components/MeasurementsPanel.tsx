@@ -31,7 +31,7 @@ export interface MeasurementsPanelProps {
   onImport: (text: string) => Promise<string>
 }
 
-// "Saved Measurements" library, following WEB-UI-GUIDELINES.md: double-press a row = Load,
+// "Saved Measurements" library: double-press a row = Load,
 // single click = nothing (a no-op keeps double-press reliable; rows have no standalone
 // selected state here), and a right-aligned "⋯" menu (also opened by right-click on
 // desktop) holds the per-row actions. Row content mirrors the native MeasurementRowView.
@@ -83,7 +83,7 @@ const isInstalled = (): boolean =>
  * captured or just-parsed measurement has not been stored yet.
  *
  * Rows are addressed by this and never by `id`: `id` is the DATASET identity, which duplicate
- * imports share and which an edit re-mints. See SLUG-SWEEP.md F19a.
+ * imports share and which an edit re-mints.
  */
 const keyOf = (m: TapToneMeasurementModel): string => m.rowKey as string
 
@@ -273,10 +273,10 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: Meas
       // The whole storage side of the import lives in store.importMeasurements, so what runs here
       // is what the tests exercise. It keeps each measurement's `id` — the DATASET identity, which
       // must survive the round trip as it does in Swift and Python — and mints the `rowKey` that
-      // makes a re-import append rather than overwrite. See SLUG-SWEEP.md F19a.
+      // makes a re-import append rather than overwrite.
       // The MODEL imports: it stores every measurement, auto-loads the file that holds exactly one,
       // and words the message — so the message is the same one Swift and Python show, and a load
-      // performed by an import is the same load performed from this list (#17 F41).
+      // performed by an import is the same load performed from this list.
       const message = await onImport(await file.text())
       await refresh()
       setImportMessage(message)

@@ -6,7 +6,7 @@
 // file — so `fake-indexeddb/auto` provides IndexedDB in the node test env.
 //
 // The extra cases below the IP set pin this edition's DATASET-IDENTITY rules, which the natives get for
-// free from an ordered array and this one has to arrange deliberately (SLUG-SWEEP.md F19a):
+// free from an ordered array and this one has to arrange deliberately:
 //
 //   `id`     — the measurement's dataset identity. Travels in the file, survives import unchanged, is
 //              re-minted whenever the data changes (including a name or notes edit). Duplicate imports
@@ -14,9 +14,8 @@
 //   `rowKey` — library-local row handle, minted per insert, never written to a file. Rows are addressed
 //              by this, which is why an edit that changes `id` still replaces its row instead of adding one.
 //
-// Until the #17 sweep import overwrote `id` with a fresh value, which is what made a re-import append. That
-// destroyed the dataset identity of every file imported here — and, because export writes `id`, of every
-// file exported from here too.
+// Import keeps `id` as the file carries it and mints a fresh `rowKey`, so a re-import appends a row while
+// every imported (and, since export writes `id`, re-exported) file keeps its dataset identity.
 import 'fake-indexeddb/auto'
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
@@ -167,7 +166,7 @@ describe('import-persistence — library save semantics', () => {
 // An import is a library operation and says nothing about microphones; a LOAD shows the user data,
 // so a load warns. A single-file import also loads, so its ONE message carries the load's warning.
 // These pin the OUTCOME — the message — not any edition's mechanism for clearing an acknowledged
-// warning, so they hold however that mechanism changes (#17 F41).
+// warning, so they hold however that mechanism changes.
 // Port of Swift ImportMessageTests / Python TestImportMessage.
 describe('the import message', () => {
   // A microphone no machine running the tests will have.

@@ -1,9 +1,10 @@
 // @parity test/peaks
 import { describe, it, expect } from 'vitest'
-import { findPeaks, removeDuplicatePeaks, type Peak } from '../src/dsp/peaks'
+import { findPeaks, removeDuplicatePeaks } from '../src/dsp/peaks'
 import { averageSpectra } from '../src/dsp/spectrumAverage'
 import { classifyAll, resolvedModePeaks } from '../src/dsp/classify'
 import type { Spectrum } from '../src/dsp/guitarFFT'
+import type { ResonantPeak } from '../src/measurement/types'
 
 // Mirrors the Swift makeSpectrum helper: a Gaussian bump (a downward parabola in
 // dB) on a noise floor. Because the peak is a true parabola in frequency,
@@ -33,8 +34,8 @@ function combine(a: { mags: number[]; freqs: number[] }, b: { mags: number[]; fr
   return { mags: a.mags.map((v, i) => Math.max(v, b.mags[i]!)), freqs: a.freqs }
 }
 
-function p(frequency: number, magnitude: number, id = 0): Peak {
-  return { id, frequency, magnitude, quality: 0, bandwidth: 0 }
+function p(frequency: number, magnitude: number, id = '0'): ResonantPeak {
+  return { id, frequency, magnitude, quality: 0, bandwidth: 0, timestamp: '2026-09-25T00:00:00Z' }
 }
 
 describe('G2 — peak finding', () => {
@@ -47,6 +48,18 @@ describe('G2 — peak finding', () => {
     )
     expect(Math.abs(closest.frequency - 1000)).toBeLessThan(0.1) // parabola vertex
     expect(Math.abs(closest.magnitude - -20)).toBeLessThan(0.1)
+  })
+
+  it('F17: a found peak carries its pitch', () => {
+    // The nearest note, its cents offset and the note's exact frequency are filled in when the peak is
+    // made. Mirrors Swift foundPeak_carriesItsPitch / Python test_F17.
+    const { mags, freqs } = makeSpectrum(440, -20, 20)
+    const peaks = findPeaks(mags, freqs, { minHz: 50, maxHz: 2000, peakMinThreshold: -60 })
+    const a4 = peaks.reduce((a, b) => (Math.abs(a.frequency - 440) < Math.abs(b.frequency - 440) ? a : b))
+
+    expect(a4.pitchNote).toBe('A4')
+    expect(Math.abs(a4.pitchCents!)).toBeLessThan(5)
+    expect(Math.abs(a4.pitchFrequency! - 440)).toBeLessThan(0.01)
   })
 
   it('silence spectrum → empty', () => {
@@ -73,9 +86,8 @@ describe('G2 — peak finding', () => {
 
   // Two tones of UNEQUAL amplitude: a threshold between them keeps only the stronger. The
   // three-tone case above uses near-equal amplitudes and one threshold, so it cannot show the
-  // threshold discriminating between peaks. Moved here from the frozen-recalc suite (project
-  // issue #8), where it was the only coverage of this case in any edition but sat under a slug
-  // about recalculation — it tests detection, not recalculation.
+  // threshold discriminating between peaks. It tests detection, not recalculation, so it is filed
+  // here rather than with the frozen-recalc suite.
   it('a raised threshold drops the weaker of two tones', () => {
     const s = combine(makeSpectrum(400, -20, 15), makeSpectrum(900, -55, 15))
     const opts = { minHz: 50, maxHz: 2000 }
@@ -95,10 +107,10 @@ describe('G2 — peak finding', () => {
   })
 
   it('dedup keeps higher magnitude within 2 Hz; keeps both when separated', () => {
-    expect(removeDuplicatePeaks([p(100.5, -30, 1), p(101.5, -20, 2)])).toEqual([
-      p(101.5, -20, 2),
+    expect(removeDuplicatePeaks([p(100.5, -30, '1'), p(101.5, -20, '2')])).toEqual([
+      p(101.5, -20, '2'),
     ])
-    expect(removeDuplicatePeaks([p(100, -30, 1), p(110, -20, 2)])).toHaveLength(2)
+    expect(removeDuplicatePeaks([p(100, -30, '1'), p(110, -20, '2')])).toHaveLength(2)
   })
 
   it('Q / −3 dB bandwidth computed correctly (exact, hand-checked)', () => {
@@ -146,9 +158,7 @@ describe('averageSpectra — power averaging (mirrors Python average_spectra)', 
 })
 
 // ---------------------------------------------------------------------------
-// Duplicate-peak regression  (D1, D2, D4)
-//
-// Development/PEAK-FINDING-DUPLICATE-PEAKS.md.
+// Duplicate-peak regression
 //
 // findPeaks must never return two peaks for one spectral feature. It did: the
 // per-mode scan visited a bin once per overlapping mode range, minting a fresh id
@@ -162,7 +172,7 @@ describe('averageSpectra — power averaging (mirrors Python average_spectra)', 
 const PEAK_PROXIMITY_HZ = 2
 
 /** D1 — the uniqueness invariant. */
-function expectNoDuplicatePeaks(peaks: Peak[], label: string): void {
+function expectNoDuplicatePeaks(peaks: ResonantPeak[], label: string): void {
   const offenders: string[] = []
   for (let i = 0; i < peaks.length; i++) {
     for (let j = i + 1; j < peaks.length; j++) {

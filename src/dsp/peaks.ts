@@ -1,28 +1,15 @@
 /**
  * Peak detection, parabolic interpolation, and Q / bandwidth for a magnitude
- * spectrum. Pure — takes magnitude + frequency arrays and returns {@link Peak}s.
+ * spectrum. Pure — takes magnitude + frequency arrays and returns {@link ResonantPeak}s.
  *
  * Mirrors the peak-finding algorithm in Swift `TapToneAnalyzer+PeakAnalysis.swift`
- * and Python `tap_tone_analyzer_peak_analysis.py`; the {@link Peak} shape mirrors
- * Swift `ResonantPeak`. Numeric output is pinned by oracle case G2
+ * and Python `tap_tone_analyzer_peak_analysis.py`. Numeric output is pinned by oracle case G2
  * (`test/peaks.test.ts`).
  */
 // @parity dsp/find-peaks tests=test/peaks
 import { modeBands, type GuitarTypeName } from './guitarModes'
-
-/** A detected resonant peak. Mirrors Swift `ResonantPeak` (id + frequency/magnitude/Q/bandwidth). */
-export interface Peak {
-  /** Unique id within a findPeaks call (for assembly/dedup bookkeeping). */
-  id: number
-  /** Interpolated peak frequency, in Hz. */
-  frequency: number
-  /** Interpolated peak magnitude, in dB. */
-  magnitude: number
-  /** Q factor: `frequency / bandwidth` (0 when bandwidth is 0). */
-  quality: number
-  /** −3 dB bandwidth, in Hz. */
-  bandwidth: number
-}
+import { makeResonantPeak, type ResonantPeak } from '../measurement/types'
+import { Pitch } from './pitch'
 
 const WINDOW = 5 // ±5-bin local-max window
 const PEAK_PROXIMITY_HZ = 2.0
@@ -132,12 +119,23 @@ export function calculateQ(
   return { quality, bandwidth }
 }
 
-/** Build a {@link Peak}: parabolic-interpolate bin `i`, then compute its Q and bandwidth. */
-function makePeak(id: number, i: number, mags: Spectrum, freqs: Spectrum): Peak {
+/** Build a {@link ResonantPeak}: parabolic-interpolate bin `i`, then compute its Q, bandwidth and pitch. */
+function makePeak(i: number, mags: Spectrum, freqs: Spectrum): ResonantPeak {
   const { frequency, magnitude } = parabolicInterpolate(mags, freqs, i)
   const { quality, bandwidth } = calculateQ(mags, freqs, i, magnitude)
-  return { id, frequency, magnitude, quality, bandwidth }
+  return makeResonantPeak({
+    frequency,
+    magnitude,
+    quality,
+    bandwidth,
+    pitchNote: PITCH.note(frequency),
+    pitchCents: PITCH.cents(frequency),
+    pitchFrequency: PITCH.freq0(frequency),
+  })
 }
+
+/** Pitch at concert A (440 Hz), as Swift's analyzer `pitchCalculator`. */
+const PITCH = new Pitch(440)
 
 /**
  * Collapse near-coincident peaks: within `PEAK_PROXIMITY_HZ` of an existing
@@ -145,8 +143,8 @@ function makePeak(id: number, i: number, mags: Spectrum, freqs: Spectrum): Peak 
  * @param peaks Peaks to deduplicate.
  * @returns The deduplicated peaks.
  */
-export function removeDuplicatePeaks(peaks: Peak[]): Peak[] {
-  const unique: Peak[] = []
+export function removeDuplicatePeaks(peaks: ResonantPeak[]): ResonantPeak[] {
+  const unique: ResonantPeak[] = []
   for (const peak of peaks) {
     const dupIdx = unique.findIndex((e) => Math.abs(e.frequency - peak.frequency) < PEAK_PROXIMITY_HZ)
     if (dupIdx === -1) unique.push(peak)
@@ -161,7 +159,7 @@ export function removeDuplicatePeaks(peaks: Peak[]): Peak[] {
  * **Detection only — this function knows nothing about guitar modes.**
  *
  * A single sweep over the spectrum in ascending frequency order. Each bin is visited
- * exactly once and mints at most one {@link Peak}, so two peaks can never describe the
+ * exactly once and mints at most one {@link ResonantPeak}, so two peaks can never describe the
  * same spectral feature.
  *
  * This is deliberate and load-bearing. The previous implementation iterated the mode
@@ -170,7 +168,7 @@ export function removeDuplicatePeaks(peaks: Peak[]): Peak[] {
  * `makePeak` was called on it twice, minting two peaks with two ids and otherwise
  * identical values. The assembly step then reconciled two independently deduplicated
  * lists **by id** and let the twin survive, so every guitar capture on every platform
- * saved one duplicated peak. See Development/PEAK-FINDING-DUPLICATE-PEAKS.md.
+ * saved one duplicated peak.
  *
  * Classification and mode claiming belong to {@link classifyAll}, which operates on the
  * returned peak *list* — where each peak has one identity and can be claimed exactly
@@ -182,7 +180,7 @@ export function removeDuplicatePeaks(peaks: Peak[]): Peak[] {
  * @returns Detected peaks, sorted by descending magnitude.
  */
 // @parity dsp/peak-analysis
-export function findPeaks(mags: Spectrum, freqs: Spectrum, opts: FindPeaksOptions = {}): Peak[] {
+export function findPeaks(mags: Spectrum, freqs: Spectrum, opts: FindPeaksOptions = {}): ResonantPeak[] {
   const n = mags.length
   if (n !== freqs.length) return []
 
@@ -198,13 +196,12 @@ export function findPeaks(mags: Spectrum, freqs: Spectrum, opts: FindPeaksOption
   const scanEnd = endIdx - WINDOW
   if (scanStart >= scanEnd) return []
 
-  let nextId = 0
-  const peaks: Peak[] = []
+  const peaks: ResonantPeak[] = []
 
   for (let i = scanStart; i < scanEnd; i++) {
     if (mags[i]! <= threshold) continue
     if (!isLocalMax(mags, i)) continue
-    peaks.push(makePeak(nextId++, i, mags, freqs))
+    peaks.push(makePeak(i, mags, freqs))
   }
 
   // Two adjacent bins can still resolve to interpolated vertices within PEAK_PROXIMITY_HZ

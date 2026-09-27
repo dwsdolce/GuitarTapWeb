@@ -1,30 +1,33 @@
 import { describe, it, expect } from 'vitest'
-import { buildGuitarMeasurement, multiTapComparisonEntries, colorComponentsToCss } from '../src/measurement/fromLive'
+import { buildGuitarMeasurement, measurementToLive, multiTapComparisonEntries, colorComponentsToCss } from '../src/measurement/fromLive'
 import { multiTapPdfData } from '../src/presentation/measurementImage'
 import { serializeGuitarTapFile, parseGuitarTapFile } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
-import type { Peak } from '../src/dsp/peaks'
+import { TapEntry, type SpectrumSnapshotModel, type ResonantPeak } from '../src/measurement/types'
+import { newId } from '../src/measurement/newId'
 
-// Phase 4d: a multi-tap guitar measurement records each tap's spectrum as a tapEntry
-// (mirrors Swift). The web builds them from the per-tap spectra surfaced by the engine,
-// and they must survive the .guitartap round-trip so the comparison view returns on load.
+// A multi-tap guitar measurement records each tap as a tapEntry — its snapshot, peaks and auto-selected
+// peak ids (mirrors Swift). The analyzer builds them at capture; they are saved as they are and must
+// survive the .guitartap round-trip so the comparison view returns on load.
 
 const spectrum = { frequencies: [100, 200, 300], magnitudesDb: [-50, -40, -60] }
 const tap1 = { frequencies: [100, 200, 300], magnitudesDb: [-48, -38, -62] }
 const tap2 = { frequencies: [100, 200, 300], magnitudesDb: [-52, -42, -58] }
-const peaks: Peak[] = [{ id: 1, frequency: 200, magnitude: -40, quality: 20, bandwidth: 10 }]
-// Per-tap entries now carry their own peaks (found by the analyzer), mirroring Swift tapEntries.
-const peaks1: Peak[] = [{ id: 1, frequency: 200, magnitude: -38, quality: 20, bandwidth: 10 }]
-const peaks2: Peak[] = [{ id: 2, frequency: 200, magnitude: -42, quality: 20, bandwidth: 10 }]
-const entry1 = { tapIndex: 1, spectrum: tap1, peaks: peaks1 }
-const entry2 = { tapIndex: 2, spectrum: tap2, peaks: peaks2 }
+const peaks: ResonantPeak[] = [{ id: '1', frequency: 200, magnitude: -40, quality: 20, bandwidth: 10, timestamp: '2026-09-25T00:00:00Z' }]
+const snap = (sp: { frequencies: number[]; magnitudesDb: number[] }): SpectrumSnapshotModel => ({
+  frequencies: sp.frequencies, magnitudes: sp.magnitudesDb, minFreq: 75, maxFreq: 350, minDB: -100, maxDB: 0,
+  isLogarithmic: false, guitarType: 'Generic', measurementType: 'Generic Guitar',
+})
+const peaks1: ResonantPeak[] = [{ id: newId(), frequency: 200, magnitude: -38, quality: 20, bandwidth: 10, timestamp: '2026-09-25T00:00:00Z' }]
+const peaks2: ResonantPeak[] = [{ id: newId(), frequency: 200, magnitude: -42, quality: 20, bandwidth: 10, timestamp: '2026-09-25T00:00:00Z' }]
+const entry1 = new TapEntry(newId(), 1, snap(tap1), peaks1, [peaks1[0]!.id])
+const entry2 = new TapEntry(newId(), 2, snap(tap2), peaks2, [peaks2[0]!.id])
 
 const args = {
   name: 'Multi', notes: '',
   spectrum, peaks,
-  modeByPeak: new Map<number, 'air' | 'top' | 'back' | 'unknown'>([[1, 'top']]),
-  selectedIds: new Set<number>([1]),
-  overridesById: new Map<number, string>(),
+  selectedIds: new Set<string>(['1']),
+  overridesById: new Map<string, string>(),
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'generic' as const },
   numberOfTaps: 2,
@@ -43,6 +46,13 @@ describe('buildGuitarMeasurement — multi-tap entries', () => {
     expect(m.tapEntries![1]!.snapshot.magnitudes).toEqual(tap2.magnitudesDb)
   })
 
+  it('saves each entry as it is — id, peaks and selected peak ids', () => {
+    const m = buildGuitarMeasurement(args)
+    expect(m.tapEntries!.map((e) => e.id)).toEqual([entry1.id, entry2.id])
+    expect(m.tapEntries!.map((e) => e.peaks.map((p) => p.id))).toEqual([[peaks1[0]!.id], [peaks2[0]!.id]])
+    expect(m.tapEntries!.map((e) => e.selectedPeakIDs)).toEqual([entry1.selectedPeakIDs, entry2.selectedPeakIDs])
+  })
+
   it('omits tapEntries for a single-tap capture', () => {
     const m = buildGuitarMeasurement({ ...args, numberOfTaps: 1, tapEntries: [entry1] })
     expect(m.tapEntries).toBeUndefined()
@@ -53,6 +63,14 @@ describe('buildGuitarMeasurement — multi-tap entries', () => {
     expect(m.tapEntries).toHaveLength(2)
     expect(m.tapEntries![0]!.snapshot.frequencies).toEqual([100, 200, 300])
     expect(m.tapEntries![1]!.snapshot.magnitudes).toEqual(tap2.magnitudesDb)
+  })
+
+  it('restores each entry as saved on load', () => {
+    const m = parseGuitarTapFile(serializeGuitarTapFile([buildGuitarMeasurement(args)]))[0]!
+    const restored = measurementToLive(m).tapEntries
+    expect(restored.map((e) => e.id)).toEqual([entry1.id, entry2.id])
+    expect(restored.map((e) => e.selectedPeakIDs)).toEqual([entry1.selectedPeakIDs, entry2.selectedPeakIDs])
+    expect(restored[0]!.resolvedModePeaks().get('top')?.frequency).toBe(200)
   })
 })
 

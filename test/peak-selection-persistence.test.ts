@@ -1,6 +1,6 @@
 // @parity test/peak-selection-persistence
 //
-// Option 1 of PEAK-MIN-SEMANTICS.md: the manual/auto selection flag is persisted, so a reloaded
+// The manual/auto selection flag is persisted, so a reloaded
 // measurement behaves like a live one. Mirrors Swift PeakSelectionPersistenceTests / Python
 // TestPeakSelectionPersistence. The re-selection behaviour itself lives in the useAnnotations hook
 // (effectiveSelectedIds = userModified ? parked : autoIds); here we cover the model/bridge layer:
@@ -16,9 +16,8 @@ const base: Omit<BuildMeasurementArgs, 'userModified'> = {
   notes: '',
   spectrum: { frequencies: [100, 200, 300], magnitudesDb: [-50, -40, -60] },
   peaks: [],
-  modeByPeak: new Map(),
-  selectedIds: new Set<number>(),
-  overridesById: new Map<number, string>(),
+  selectedIds: new Set<string>(),
+  overridesById: new Map<string, string>(),
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'generic' },
   numberOfTaps: 1,

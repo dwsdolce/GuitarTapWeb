@@ -3,7 +3,7 @@
 // (auto-start on mount, stop on unmount), the live telemetry state (running / level / spectrum /
 // engine state / clipping / multi-tap progress / FFT metrics / sample rate / device label / error),
 // and the audio-input + calibration subsystem (device list/switch, calibration import/select/delete
-// with device-specific resolution). Extracted from App (Phase 6 6-ARCH).
+// with device-specific resolution).
 //
 // `engineRef` and `calibrationRef` are owned by App (shared handles: the material session arms the
 // engine; build/save read the calibration) and passed in — this hook populates them. The
@@ -42,7 +42,7 @@ interface UseAudioEngineArgs {
   /** Engine came up — App arms a fresh sequence for the current measurement type (the web's
    *  start() → startTapSequence() branch: guitar arms, plate/brace start the phase machine). STABLE. */
   onStarted: () => void
-  /** The lifecycle-state owner. The device drives `currentTapCount` on it via onProgress (6-TEST 3c-A). */
+  /** The lifecycle-state owner, which the engine's callbacks drive. */
   analyzer: TapToneAnalyzer
 }
 
@@ -101,7 +101,7 @@ export function useAudioEngine({
   const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
   const [activeCalId, setActiveCalId] = useState<string | null>(null)
   // Route-change settle timer: on an automatic hardware change the analyzer shows "Audio device changed
-  // - reinitializing…" then restores the prompt after this fires (6-TEST 3c-C4 — status is analyzer-owned).
+  // - reinitializing…" then restores the prompt after this fires (the status is analyzer-owned).
   const deviceChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
 
@@ -186,15 +186,18 @@ export function useAudioEngine({
     const engine = new RealtimeFFTAnalyzer(
       {
         onLevel: setLevel,
-        onSpectrum: setLiveSpectrum,
+        // Each live spectrum is shown AND handed to the analyzer, which finds the live peaks from it
+        // while a sequence runs (Swift onFftFrame → analyzeMagnitudes).
+        onSpectrum: (spectrum) => {
+          setLiveSpectrum(spectrum)
+          analyzer.onFftFrame(spectrum.magnitudesDb, spectrum.frequencies)
+        },
         // The device is the microphone, the FFT and the watchdogs — it hands every chunk up and the
         // TapToneAnalyzer does the rest: pre-roll, detection, gated capture, the tap count, the
-        // status strings and the L→C→FLC phase machine. That is Swift's split, restored here by
-        // #17 F30; before it, detection and capture lived on the device and reported results back
-        // through five separate callbacks.
+        // status strings and the L→C→FLC phase machine. That is Swift's split.
         onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime),
         // Edge-triggered clipping → the analyzer's status override/restore AND the snapshot's isClipping
-        // (which drives the threshold-slider red zone). One source now (3c-C5). Swift `$isClipping` sink.
+        // (which drives the threshold-slider red zone), from one source. Swift `$isClipping` sink.
         onClipping: (c) => analyzer.setClipping(c),
         onMetrics: setEngineMetrics,
         // A mic was attached (auto-selected) or the active one was unplugged (fell back): re-sync the
@@ -207,25 +210,23 @@ export function useAudioEngine({
           applyCalibrationForDevice(deviceId)
           void refreshDevices()
           // Briefly surface "Audio device changed - reinitializing…" then restore the resting prompt
-          // (mirrors Swift route change). The analyzer owns the status field now (6-TEST 3c-C4).
+          // (mirrors Swift route change). The analyzer owns the status field.
           analyzer.handleDeviceChange(true)
           if (deviceChangeTimer.current) clearTimeout(deviceChangeTimer.current)
-          // 3000 ms matches Swift's fftSettleTime and Python's mirror of it. It was 1500 here with
-          // no recorded reason; the settle is how long New Tap stays disabled after a device change,
-          // so a different number is a different user-visible behaviour (#17 F32).
+          // 3000 ms matches Swift's fftSettleTime and Python's mirror of it. The settle is how long
+          // New Tap stays disabled after a device change, so the number is user-visible behaviour.
           deviceChangeTimer.current = setTimeout(() => analyzer.handleDeviceChange(false), 3000)
         },
       },
       { tapDetectionThreshold: tapThresholdRef.current, dumpCaptureAudio: dumpCaptureRef.current },
     )
     engineRef.current = engine
-    // The dead-input watchdog's user-visible half. The engine has detected, warned to the console and
-    // retried a silent input since the watchdog landed, and exposed this seam for "the owner to surface
-    // 'no audio input' in the status line" — but nothing ever set it, so web alone showed the user
-    // nothing where both natives show the warning (#17 F37). Swift `$inputAppearsDead` sink / Python
+    // The dead-input watchdog's user-visible half: the engine detects a silent input, warns to the
+    // console and retries; this hands its verdict to the analyzer, which shows the "no audio input"
+    // warning in the status line as both natives do. Swift `$inputAppearsDead` sink / Python
     // `inputAppearsDeadChanged` → `_set_input_appears_dead`.
     engine.onInputAppearsDeadChange = (dead) => analyzer.setInputAppearsDead(dead)
-    analyzer.setDevice(engine) // the analyzer holds the device to orchestrate material (6-TEST 3c-C3)
+    analyzer.setDevice(engine) // the analyzer holds the device to orchestrate material
     try {
       await engine.start(getSavedInputDeviceId())
       // Remount / StrictMode guard: start() is async, so if this component was torn down mid-start the

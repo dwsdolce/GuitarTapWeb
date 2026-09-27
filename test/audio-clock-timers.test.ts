@@ -1,8 +1,8 @@
 // @parity test/audio-clock-timers
 //
-// The tap lifecycle's delays run on the AUDIO clock, not the wall clock (#19). File playback advances
-// audio at "real time + processing time", so a wall-clock delay covered a different stretch of audio
-// on a slower run and late captures in a sequence moved.
+// The tap lifecycle's delays run on the AUDIO clock, not the wall clock. File playback advances audio
+// at "real time + processing time", so a wall-clock delay would cover a different stretch of audio on
+// a slower run and move late captures in a sequence.
 //
 // Each case here advances only audio — through `processAudioFrame`, the path audio takes — and no
 // wall time to speak of, so a delay that went back to the wall clock would not have fired and the case
@@ -34,7 +34,7 @@ function feed(a: TapToneAnalyzer, samples: Float32Array, until: () => boolean): 
   }
 }
 
-describe('the tap lifecycle runs on the audio clock (#19)', () => {
+describe('the tap lifecycle runs on the audio clock', () => {
   // T2: between taps of one plate/brace phase, detection rests `tapCooldown` of audio. The tap is a
   // real one, detected from the audio and captured through the real path.
   it('the plate/brace rest between taps runs on the audio clock', () => {
@@ -117,7 +117,7 @@ describe('the tap lifecycle runs on the audio clock (#19)', () => {
   })
 
   // T6 measures SILENCE, not time since the capture started: while audio keeps arriving — however
-  // slowly, as under throttled playback — it does not fire (#19).
+  // slowly, as under throttled playback — it does not fire.
   it('the safety timeout does not fire while audio keeps arriving', async () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
@@ -158,7 +158,7 @@ describe('the tap lifecycle runs on the audio clock (#19)', () => {
 
   // Web only — the natives pace file playback with a sleep under a timing activity, which a unit
   // test cannot reach. The web paces from the AUDIO clock: each chunk the worklet renders lets one
-  // more file chunk through, so a throttled hidden tab still plays at real time (#19).
+  // more file chunk through, so a throttled hidden tab still plays at real time.
   it('file playback is paced by the audio the device renders, not by a timer', async () => {
     const played: number[] = []
     const engine = new RealtimeFFTAnalyzer({ onAudioFrame: () => played.push(1) })

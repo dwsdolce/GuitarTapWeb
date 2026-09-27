@@ -4,26 +4,17 @@
 // selection. Set, clear, restore-whole-map, and blank-slate reset — the store itself, not the
 // remapping that happens over it when peaks are re-minted.
 //
-// SPLIT OUT of frozen-peak-recalc.test.ts on 2026-09-19 (project issue #8), under a new
-// `test/peak-state-store` slug, on the claim that these nine tests had "NO Swift or Python
-// counterpart". **That claim was wrong**, and it stood for two days. Checked properly on
-// 2026-09-20 by looking for the BEHAVIOUR rather than the method name: six of the nine are
-// already paired natively, under `test/annotation-state` and `test/measurement-codable` —
-// `clearResult` is Swift's `startTapSequence` result reset, `restoreOffsets` is
-// `applyAnnotationOffsets`, and setModeOverride / updateAnnotationOffset / togglePeakSelection /
-// resetToAutoSelection all have direct twins.
-//
-// So the slug is retired and these join `test/annotation-state`, where their counterparts live.
+// These are filed under `test/annotation-state`; their Swift and Python counterparts are under
+// `test/annotation-state` and `test/measurement-codable`. `clearResult` is Swift's
+// `startTapSequence` result reset, `restoreOffsets` is `applyAnnotationOffsets`, and the rest —
+// setModeOverride / updateAnnotationOffset / togglePeakSelection / resetToAutoSelection and the CLEAR
+// halves resetModeOverride / resetAnnotationOffset / resetAllAnnotationOffsets — have direct twins.
 // A name that differs between editions is not a missing test — look for what the code DOES.
 //
-// The three genuine gaps the same check turned up (resetModeOverride, resetAnnotationOffset,
-// resetAllAnnotationOffsets — the CLEAR half of pairs whose SET half was tested) were written
-// into Swift and Python rather than left as an orphan slug.
-//
-// The remapping tests that ARE twins of Swift PR20-PR31 stayed in frozen-peak-recalc.test.ts.
+// The remapping tests that are twins of Swift PR20-PR31 are in frozen-peak-recalc.test.ts.
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import type { Peak } from '../src/dsp/peaks'
+import type { ResonantPeak } from '../src/measurement/types'
 
 // A Gaussian bump (downward parabola in dB) on a noise floor — same helper as peaks.test.ts /
 // the Swift makeGaussianSpectrum / Python _make_spectrum_with_peak.
@@ -44,26 +35,18 @@ const combine = (a: { mags: number[]; freqs: number[] }, b: { mags: number[]; fr
   mags: a.mags.map((v, i) => Math.max(v, b.mags[i]!)),
   freqs: a.freqs,
 })
-const peak = (frequency: number, magnitude: number, id = frequency): Peak => ({ id, frequency, magnitude, quality: 0, bandwidth: 0 })
-const near = (peaks: Peak[], hz: number, tol = 20) => peaks.some((p) => Math.abs(p.frequency - hz) < tol)
+const peak = (frequency: number, magnitude: number, id = String(frequency)): ResonantPeak => ({ id, frequency, magnitude, quality: 0, bandwidth: 0, timestamp: '2026-09-25T00:00:00Z' })
+const near = (peaks: ResonantPeak[], hz: number, tol = 20) => peaks.some((p) => Math.abs(p.frequency - hz) < tol)
 
-/** Drive recalculatePeaks with sensible defaults (guitar, generic, 80–1200 Hz).
- *  Phase 1: recalculatePeaks stores the FULL set at the -100 floor — Peak Min is NOT an input; it is a
- *  display projection at the App layer (`peaksAbovePeakMin = allPeaks.filter(mag >= peakMin)`). Tests
- *  that used to assert the analyzer's `peaks` shrank with Peak Min now assert the full set + the
- *  projection separately. */
-function recalc(a: TapToneAnalyzer, over: Partial<Parameters<TapToneAnalyzer['recalculatePeaks']>[0]> = {}) {
-  a.recalculatePeaks({
-    material: false,
-    liveSpectrum: null,
-    guitarType: 'generic',
-    minHz: 80,
-    maxHz: 1200,
-    ...over,
-  })
+/** Drive the frozen-spectrum recalculation (Swift `recalculateFrozenPeaksIfNeeded`) on a Generic guitar.
+ *  It stores the FULL set at the -100 floor — Peak Min is NOT an input; it is a display projection
+ *  (`peaksAbovePeakMin = allPeaks.filter(mag >= peakMin)`). */
+function recalc(a: TapToneAnalyzer) {
+  a.measurementType = 'generic'
+  a.recalculateFrozenPeaksIfNeeded()
 }
 /** The Peak-Min display projection (App `peaksAbovePeakMin`): the SAME peak objects, filtered. */
-const project = (peaks: Peak[], peakMin: number) => peaks.filter((p) => p.magnitude >= peakMin)
+const project = (peaks: ResonantPeak[], peakMin: number) => peaks.filter((p) => p.magnitude >= peakMin)
 function frozen(a: TapToneAnalyzer, mags: number[], freqs: number[]) {
   a.frozenMagnitudes = mags
   a.frozenFrequencies = freqs
@@ -95,11 +78,11 @@ describe('peak-state-store — analyzer override / offset / selection mutators',
 
   it('restoreOverrides REPLACES the whole map (loaded measurement), not merges', () => {
     const a = new TapToneAnalyzer()
-    a.setModeOverride(99, 'stale')
-    a.restoreOverrides(new Map<number, string>([[0, 'Air'], [1, 'Custom']]))
-    expect(a.overrides.get(0)).toBe('Air')
-    expect(a.overrides.get(1)).toBe('Custom')
-    expect(a.overrides.has(99)).toBe(false)
+    a.setModeOverride('99', 'stale')
+    a.restoreOverrides(new Map<string, string>([['0', 'Air'], ['1', 'Custom']]))
+    expect(a.overrides.get('0')).toBe('Air')
+    expect(a.overrides.get('1')).toBe('Custom')
+    expect(a.overrides.has('99')).toBe(false)
   })
 
   it('updateAnnotationOffset / resetAnnotationOffset set and clear by peak id', () => {
@@ -129,10 +112,10 @@ describe('peak-state-store — analyzer override / offset / selection mutators',
 
   it('restoreOffsets replaces the whole map (loaded measurement)', () => {
     const a = new TapToneAnalyzer()
-    a.updateAnnotationOffset(99, [1, 2])
-    a.restoreOffsets(new Map<number, [number, number]>([[0, [10, 20]], [1, [30, 40]]]))
-    expect(a.annotationOffsets.get(0)).toEqual([10, 20])
-    expect(a.annotationOffsets.has(99)).toBe(false)
+    a.updateAnnotationOffset('99', [1, 2])
+    a.restoreOffsets(new Map<string, [number, number]>([['0', [10, 20]], ['1', [30, 40]]]))
+    expect(a.annotationOffsets.get('0')).toEqual([10, 20])
+    expect(a.annotationOffsets.has('99')).toBe(false)
   })
 
   it('togglePeakSelection marks the selection user-modified and flips one peak', () => {

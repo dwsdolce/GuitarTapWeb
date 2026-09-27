@@ -2,8 +2,8 @@
 //
 // Advances the analyzer's AUDIO clock the way audio does: chunk by chunk through the production entry
 // point, `processAudioFrame(samples, levelDb, audioTime)`. The tap lifecycle's rests, the FLC hold and
-// the capture window run on that clock (#19), so a test that used to sleep through a wall-clock delay
-// now feeds the audio that delay covers — the same path playback and the microphone take.
+// the capture window run on that clock, so a test feeds the audio a delay covers rather than sleeping
+// through it — the same path playback and the microphone take.
 //
 // Mirrors Swift GuitarTapTests/AudioClockFeed.swift and Python tests/audio_clock_feed.py.
 import type { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'

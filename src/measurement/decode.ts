@@ -7,15 +7,7 @@
 
 import { base64ToFloats } from './base64'
 import { healSelection, healComparisonModes } from './fromLive'
-import type {
-  AnnotationOffsets,
-  ComparisonEntryModel,
-  PeakModeOverrides,
-  ResonantPeakModel,
-  SpectrumSnapshotModel,
-  TapEntryModel,
-  TapToneMeasurementModel,
-} from './types'
+import type { AnnotationOffsets, ComparisonEntryModel, PeakModeOverrides, ResonantPeak, SpectrumSnapshotModel, TapEntryModel, TapToneMeasurementModel } from './types'
 import type { AnnotationMode } from '../settings'
 
 // ── primitive coercions (return undefined when absent/wrong-typed) ───────────
@@ -120,7 +112,7 @@ export function decodeSnapshot(d: Obj): SpectrumSnapshotModel {
   }
 }
 
-function decodePeak(d: Obj): ResonantPeakModel {
+function decodePeak(d: Obj): ResonantPeak {
   return {
     id: strOpt(d.id) ?? '',
     frequency: num(d.frequency),
@@ -131,11 +123,10 @@ function decodePeak(d: Obj): ResonantPeakModel {
     pitchNote: strOpt(d.pitchNote),
     pitchCents: numOpt(d.pitchCents),
     pitchFrequency: numOpt(d.pitchFrequency),
-    modeLabel: strOpt(d.modeLabel),
   }
 }
 
-const decodePeaks = (v: unknown): ResonantPeakModel[] =>
+const decodePeaks = (v: unknown): ResonantPeak[] =>
   Array.isArray(v) ? v.map((p) => decodePeak(obj(p) ?? {})) : []
 
 /** A `{string: string}` map (e.g. `modePeakIDs`), or undefined when absent/empty. */
@@ -181,7 +172,7 @@ const HEAL_PROXIMITY_HZ = 2
  * capture (and one per tap entry in multi-tap files): the detector visited overlap bins once
  * per overlapping mode band and minted a peak each time. Loaded peaks are authoritative and
  * are never re-derived, so without this every existing file would show a phantom Analysis
- * Results row forever. See Development/PEAK-FINDING-DUPLICATE-PEAKS.md.
+ * Results row forever.
  *
  * Keeps, in order of preference: the peak in `selectedIds` (the claimed mode winner), then
  * the louder, then the first seen. `findPeaks` guarantees legitimately saved peaks are at
@@ -190,10 +181,10 @@ const HEAL_PROXIMITY_HZ = 2
  * Mirrors Swift `TapToneMeasurement.healDuplicatePeaks` / Python `heal_duplicate_peaks`.
  */
 function healDuplicatePeaks(
-  peaks: ResonantPeakModel[],
+  peaks: ResonantPeak[],
   selectedIds: Set<string>,
-): { peaks: ResonantPeakModel[]; removed: Set<string> } {
-  const kept: ResonantPeakModel[] = []
+): { peaks: ResonantPeak[]; removed: Set<string> } {
+  const kept: ResonantPeak[] = []
   const removed = new Set<string>()
 
   for (const peak of peaks) {
@@ -309,7 +300,7 @@ export function healMeasurement(m: TapToneMeasurementModel): boolean {
   // a legacy file's on-screen state, saved-list ratio, and file all agree. Guitar-only, self-guarded.
   if (healSelection(m)) healed = true
 
-  // Fill a legacy comparison's missing per-entry modePeakIDs so the file is self-describing (Phase 6b).
+  // Fill a legacy comparison's missing per-entry modePeakIDs so the file is self-describing.
   if (healComparisonModes(m)) healed = true
 
   if (healed) (m as unknown as Record<string, unknown>).wasHealed = true

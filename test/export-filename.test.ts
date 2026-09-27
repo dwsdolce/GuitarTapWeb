@@ -1,6 +1,6 @@
 // @parity test/export-filename
 //
-// Pins the shared export-filename rule (FILE-PATHS-AND-NAMES-SPEC §2b): one stem function,
+// Pins the shared export-filename rule: one stem function,
 // per-artifact default word, integer-second discriminator, name slugged (spaces and "/" → "-",
 // lowercased). Three-way with Swift ExportFilenameTests.swift and Python test_export_filename.py.
 import { describe, it, expect } from 'vitest'
@@ -10,7 +10,7 @@ import type { TapToneMeasurementModel } from '../src/measurement/types'
 
 const TS = 1784060789 // a fixed instant, so the discriminator is deterministic
 
-describe('export-filenames — the core rule (PR §2b)', () => {
+describe('export-filenames — the core rule', () => {
   it('named: uses the name for every artifact', () => {
     expect(exportStem('Martin 000-28', TS, 'measurement')).toBe('martin-000-28-1784060789')
     expect(exportStem('Martin 000-28', TS, 'report')).toBe('martin-000-28-1784060789')

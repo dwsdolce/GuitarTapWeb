@@ -1,5 +1,5 @@
 // Single source of truth for exported-artifact filenames.
-// See FILE-PATHS-AND-NAMES-SPEC.md §2b. Mirrors Swift `ExportFilename.stem` /
+// Mirrors Swift `ExportFilename.stem` /
 // Python `export_filename.export_stem`.
 //
 // @parity model/export-filename

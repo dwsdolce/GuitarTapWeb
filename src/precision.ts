@@ -5,7 +5,6 @@
 // input field, Settings, the saved measurement, and the report — and identically across the Swift,
 // Python, and web editions. Mirrors Swift `FieldPrecision` / Python `field_precision`.
 //
-// Spec (with the validated value ranges): Development/NUMERIC-PRECISION-SPEC.md.
 // This table MUST stay identical across the Swift, Python, and web mirrors.
 //
 // Precision table — P = decimal places:

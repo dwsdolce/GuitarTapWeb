@@ -13,16 +13,9 @@
 
 import { floatsToBase64 } from './base64'
 import { f32 } from './floatJson'
-import type {
-  ComparisonEntryModel,
-  ResonantPeakModel,
-  SpectrumSnapshotModel,
-  TapEntryModel,
-  TapToneMeasurementModel,
-} from './types'
+import type { ComparisonEntryModel, ResonantPeak, SpectrumSnapshotModel, TapEntryModel, TapToneMeasurementModel } from './types'
 import { classifyAll } from '../dsp/classify'
-import type { Peak } from '../dsp/peaks'
-import type { GuitarTypeName } from '../dsp/guitarModes'
+import { guitarTypeNameFromRaw } from './types'
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 
 type JsonObj = Record<string, unknown>
@@ -34,8 +27,6 @@ function put(d: JsonObj, key: string, value: unknown): void {
 }
 
 // ── mode labels (export-only convenience injected on top-level peaks) ─────────
-const guitarTypeName = (raw?: string): GuitarTypeName =>
-  raw === 'Classical' ? 'classical' : raw === 'Flamenco' ? 'flamenco' : raw === 'Acoustic' ? 'acoustic' : 'generic'
 
 // Material measurement types are "Material (Plate)" / "Material (Brace)"; everything
 // else (and an absent type) is treated as guitar, matching the Swift export path.
@@ -54,23 +45,16 @@ const isGuitarMeasurement = (mt?: string): boolean => mt == null || mt.endsWith(
  *  it is injected at serialisation time as a convenience for external readers, and is derived
  *  afresh every write by design. Preferring a decoded copy inverts that. Same principle this
  *  codebase states for `measurementType` in measurement/types.ts: derive, don't duplicate, since a
- *  stored copy can fall out of sync. See SLUG-SWEEP.md F15. */
+ *  stored copy can fall out of sync. */
 function buildModeLabels(m: TapToneMeasurementModel): Map<string, string> {
   const out = new Map<string, string>()
   const mt = m.spectrumSnapshot?.measurementType ?? m.longitudinalSnapshot?.measurementType
   if (isGuitarMeasurement(mt)) {
-    const gt = guitarTypeName(m.spectrumSnapshot?.guitarType ?? m.longitudinalSnapshot?.guitarType)
-    const adapter: Peak[] = m.peaks.map((p, i) => ({
-      id: i,
-      frequency: p.frequency,
-      magnitude: p.magnitude,
-      quality: p.quality,
-      bandwidth: p.bandwidth,
-    }))
-    const modeMap = classifyAll(adapter, gt)
-    m.peaks.forEach((p, i) => {
+    const gt = guitarTypeNameFromRaw(m.spectrumSnapshot?.guitarType ?? m.longitudinalSnapshot?.guitarType)
+    const modeMap = classifyAll(m.peaks, gt)
+    m.peaks.forEach((p) => {
       const override = m.peakModeOverrides?.[p.id]
-      out.set(p.id, override ?? MODE_DISPLAY_NAME[modeMap.get(i) ?? 'unknown'])
+      out.set(p.id, override ?? MODE_DISPLAY_NAME[modeMap.get(p.id) ?? 'unknown'])
     })
   } else {
     for (const p of m.peaks) {
@@ -120,7 +104,7 @@ export function encodeSnapshot(s: SpectrumSnapshotModel): JsonObj {
 
 /** `includeModeLabel` is true only for the top-level `peaks` array; nested peaks
  *  (tapEntries / comparisonEntries) omit it, matching Swift's plain ResonantPeak. */
-function encodePeak(p: ResonantPeakModel, modeLabel?: string): JsonObj {
+function encodePeak(p: ResonantPeak, modeLabel?: string): JsonObj {
   const d: JsonObj = {
     id: p.id,
     frequency: f32(p.frequency),
@@ -146,7 +130,7 @@ function encodeComparisonEntry(e: ComparisonEntryModel): JsonObj {
   }
   put(d, 'guitarType', e.guitarType)
   put(d, 'sourceMeasurementID', e.sourceMeasurementID)
-  put(d, 'modePeakIDs', e.modePeakIDs) // self-describing definitive Air/Top/Back (Phase 6b)
+  put(d, 'modePeakIDs', e.modePeakIDs) // self-describing definitive Air/Top/Back
   return d
 }
 

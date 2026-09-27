@@ -1,17 +1,17 @@
 // @parity test/status-message
 // Pins the analyzer's imperative `statusMessage` field (Swift @Published TapToneAnalyzer.statusMessage /
 // Python tap_tone_analyzer.status_message) to the canonical strings by DRIVING TRANSITIONS on a real
-// TapToneAnalyzer and asserting the field — the way Swift/Python test it (6-TEST 3c-C4 D3). Covers the
+// TapToneAnalyzer and asserting the field — the way Swift/Python test it. Covers the
 // clipping override/restore, the device-change transient, the guitar detection-loop strings, every
-// material phase string, and the EG-1 no-resonance re-tap. Also guards that the old web-only inventions
+// material phase string, and the no-resonance re-tap. Also guards that strings no edition uses
 // ("Requesting microphone…", "Playing…", "Comparing…", "Microphone unavailable") are never produced.
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import type { Spectrum } from '../src/dsp/guitarFFT'
-import type { MaterialPeak } from '../src/state/tapToneAnalyzer'
 import { advanceAudio } from './audioClockFeed'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
+import type { ResonantPeak } from '../src/measurement/types'
 
 /** A decaying tone — a tap's ring-out — at 48 kHz. */
 function decayingTone(hz: number, count: number): Float32Array {
@@ -23,7 +23,7 @@ function decayingTone(hz: number, count: number): Float32Array {
 const CLIP = '⚠ Input clipping — reduce mic gain'
 
 // A synthetic gated spectrum: flat -80 dB over 0–200 Hz, with an optional single-bin bump (a resonance)
-// at `peakHz`. No bump → findDominantPeak finds no candidate (the EG-1 "no resonance" case).
+// at `peakHz`. No bump → findDominantPeak finds no candidate (the "no resonance" case).
 function spectrum(peakHz: number | null): Spectrum {
   const frequencies = Array.from({ length: 201 }, (_, i) => i)
   const magnitudesDb = frequencies.map(() => -80)
@@ -34,7 +34,7 @@ function spectrum(peakHz: number | null): Spectrum {
   }
   return { magnitudesDb, frequencies }
 }
-const mp = (f: number): MaterialPeak => ({ id: 0, frequency: f, magnitude: -40, quality: 8, bandwidth: 2 })
+const mp = (f: number): ResonantPeak => ({ id: '0', frequency: f, magnitude: -40, quality: 8, bandwidth: 2, timestamp: '2026-09-25T00:00:00Z' })
 
 /** A minimal device stand-in — the analyzer only needs playingFile + activeCalibration + no-op session/arm
  *  hooks (armMaterial etc. re-arm the real device; here they do nothing). */
@@ -93,10 +93,9 @@ describe('statusMessage — guitar detection-loop strings', () => {
   })
 
   it('capturing (provisional) and between-taps strings', () => {
-    // The analyzer owns these now, so assert the string function the capture transitions call —
-    // Swift's `guitarLoopStatus(capturing:)`, same shape (#17 F30).
-    // The count comes from real taps through the capture finish (it was set by hand through
-    // setCurrentTapCount, dead in production — #17 F51).
+    // The analyzer owns these, so assert the string function the capture transitions call —
+    // Swift's `guitarLoopStatus(capturing:)`, same shape.
+    // The count comes from real taps through the capture finish.
     const a = new TapToneAnalyzer()
     a.setNumberOfTaps(3)
     a.startTapSequence()
@@ -117,22 +116,18 @@ describe('statusMessage — guitar detection-loop strings', () => {
     expect(a.statusMessage).toBe('Tap the guitar...')
   })
 
-  it('completion string is set once at completion, FROZEN across Peak-Min recalcs (Swift/Python)', () => {
+  it('completion string is set once at completion, FROZEN across Peak-Min changes (Swift/Python)', () => {
     const a = new TapToneAnalyzer()
+    const sp = spectrum(60) // a peak at 60 Hz (-40 dB)
     a.capturedTaps = [
-      { magnitudes: [], frequencies: [], captureTime: 0 },
-      { magnitudes: [], frequencies: [], captureTime: 0 },
+      { magnitudes: sp.magnitudesDb, frequencies: sp.frequencies, captureTime: 0 },
+      { magnitudes: sp.magnitudesDb, frequencies: sp.frequencies, captureTime: 0 },
     ]
-    a.frozenMagnitudes = spectrum(60).magnitudesDb // a peak at 60 Hz (-40 dB)
-    a.frozenFrequencies = spectrum(60).frequencies
-    a.isMeasurementComplete = true
-    const recalc = (peakMin: number) =>
-      a.recalculatePeaks({ material: false, liveSpectrum: null, guitarType: 'generic', minHz: 0, maxHz: 20000 })
-    recalc(-100)
+    a.processMultipleTaps() // completion finds the peaks and announces them (Swift processMultipleTaps)
     const announced = a.statusMessage
     expect(announced).toMatch(/^Analysis complete! \d+ peaks identified \(from 2 averaged taps\)\.$/)
-    // A Peak-Min slider move recomputes peaks but must NOT re-announce (canonical freezes N at completion).
-    recalc(-30)
+    // A Peak-Min slider move only re-projects the peaks — it must NOT re-announce (N frozen at completion).
+    a.setPeakMinThreshold(-30)
     expect(a.statusMessage).toBe(announced)
   })
 
@@ -143,9 +138,8 @@ describe('statusMessage — guitar detection-loop strings', () => {
     a.isMeasurementComplete = true
     a.restoreSnapshot({ magnitudes: [1, 2], frequencies: [1, 2] })
     expect(a.statusMessage).toBe('Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.')
-    // A recalc on the loaded measurement must NOT flip it to "Analysis complete" (capturedTaps cleared).
-    a.loadedPeaks = []
-    a.recalculatePeaks({ material: false, liveSpectrum: null, guitarType: 'generic', minHz: 0, maxHz: 20000 })
+    // Re-analyzing the loaded measurement must NOT flip it to "Analysis complete" — only completion announces.
+    a.reanalyzePeaks()
     expect(a.statusMessage).toBe('Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.')
   })
 })
@@ -192,7 +186,9 @@ describe('statusMessage — material phase strings', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
     a.setDevice(fakeDevice())
-    a.matPeaks = { longitudinal: mp(100), cross: mp(200), flc: null }
+    a.selectedLongitudinalPeak = mp(100)
+    a.selectedCrossPeak = mp(200)
+    a.selectedFlcPeak = null
     a.materialTapPhase = 'reviewingC'
     a.acceptMaterial() // no FLC → complete
     expect(a.statusMessage).toBe('Complete — fL: 100.0 Hz, fC: 200.0 Hz')
@@ -223,7 +219,7 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     expect(a.statusMessage).toMatch(/^fL: \d+\.\d Hz — Accept to continue or Redo to re-tap$/)
   })
 
-  it('EG-1: a tap with no in-band resonance re-arms the same phase without counting', () => {
+  it('a tap with no in-band resonance re-arms the same phase without counting', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
     a.setNumberOfTaps(1)
@@ -271,8 +267,7 @@ describe('statusMessage — removed web-only inventions are never produced', () 
 })
 
 // The re-arm after a guitar tap's cooldown does not touch the status: the capture set the loop prompt
-// and it stays, as in Swift. Python used to rewrite it at the re-arm, and to show "Tap N/M captured.
-// Waiting for settle..." while the level was still high (#17 F45).
+// and it stays, as in Swift and Python — even while the level is still high.
 describe('statusMessage — guitar re-arm', () => {
   it('the re-arm after the tap cooldown leaves the status as the capture set it', async () => {
     const a = new TapToneAnalyzer()
@@ -286,7 +281,7 @@ describe('statusMessage — guitar re-arm', () => {
     const afterCapture = a.statusMessage
     expect(afterCapture).toBe(a.guitarLoopStatus(false))
 
-    // The rest runs on the audio clock (#19); the audio is still ringing, above the falling
+    // The rest runs on the audio clock; the audio is still ringing, above the falling
     // threshold, when the re-arm falls due.
     advanceAudio(a, a.tapCooldown, -20)
     expect(a.isDetecting).toBe(true)

@@ -43,10 +43,10 @@ export interface SpectrumChartProps {
    *  When true, a one-finger drag moves the crosshair instead of panning. */
   crosshairMode?: boolean
   /** The highlighted peak id (dot ↔ results-row cross-highlight) — its dot renders as a red star. */
-  highlightedPeakId?: number | null
+  highlightedPeakId?: string | null
   /** Clicking a peak dot toggles the highlight (desktop only — the parent omits this on touch, so the
    *  dot-click is inert there, matching Swift's macOS-only behaviour). */
-  onToggleHighlight?: (id: number) => void
+  onToggleHighlight?: (id: string) => void
 }
 
 // Limits mirror SpectrumView+GestureHandlers.swift.

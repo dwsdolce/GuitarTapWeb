@@ -25,8 +25,7 @@ export type ModeName = (typeof MODE_NAMES)[number]
  * Resolving that ambiguity is `classifyAll`'s job: it claims the strongest peak per mode
  * in ascending range order and constrains Back to sit above the claimed Top. Detection
  * must not consult these bands at all — a detector that iterates them visits overlap bins
- * more than once, which is what produced the duplicate-peak defect
- * (Development/PEAK-FINDING-DUPLICATE-PEAKS.md).
+ * more than once, which is what produced the duplicate-peak defect.
  *
  * The values are approximations; `generic` deliberately spans them all and is the more
  * useful setting in practice.
@@ -101,9 +100,8 @@ export function isKnown(freq: number, guitarType: GuitarTypeName): boolean {
  *
  * This is the "dot list" (the always-visible layer), deliberately NOT the annotation list:
  * the annotation set narrows by all/selected/none and drives the badges, while every peak in
- * range keeps its dot regardless. Gating dots on the annotation mode is a bug — it shipped
- * here once, with dots following the selection — which is why this rule now carries a paired
- * 3-platform test (`@parity view/dot-layer`).
+ * range keeps its dot regardless; dots never follow the annotation mode or the selection. The
+ * rule carries a paired 3-platform test (`@parity view/dot-layer`).
  *
  * A peak is kept when it is `overriddenPeakIds.has(p.id)` (the user named it) **or**
  * `isKnown(frequency)` (it falls in a band). The positional test alone is equivalent to the
@@ -111,11 +109,9 @@ export function isKnown(freq: number, guitarType: GuitarTypeName): boolean {
  * back to a per-frequency lookup for peaks its one-per-mode claiming pass did not take; the two
  * differ only under a user override.
  *
- * Note: this previously applied the positional test unconditionally, on the argument that a chart
- * layer should be positional. That was wrong — it discarded the user's own identification, so a peak
- * labelled "Wolf note" lost its dot while keeping its table row (or lost both, if it sat outside every
- * band). One predicate now governs the results table, this dot layer, and the annotation badges — a
- * named peak is known everywhere (Phase 4).
+ * The override term keeps the user's own identification: a peak labelled "Wolf note" keeps its dot
+ * even outside every band. One predicate governs the results table, this dot layer, and the
+ * annotation badges — a named peak is known everywhere.
  *
  * Callers pass the **display/viewport** range, which follows pan and zoom — not the analysis
  * range used by peak detection. `overriddenPeakIds` is a `Set` of peak ids (kept static + pure,
@@ -123,13 +119,13 @@ export function isKnown(freq: number, guitarType: GuitarTypeName): boolean {
  *
  * Mirrors Swift `GuitarMode.peaksInDisplayRange(...)` / Python `GuitarMode.peaks_in_display_range(...)`.
  */
-export function peaksInDisplayRange<T extends { frequency: number; id: number }>(
+export function peaksInDisplayRange<T extends { frequency: number; id: string }>(
   peaks: readonly T[],
   minFreq: number,
   maxFreq: number,
   isGuitar: boolean,
   showUnknownModes: boolean,
-  overriddenPeakIds: ReadonlySet<number>,
+  overriddenPeakIds: ReadonlySet<string>,
   guitarType: GuitarTypeName,
 ): T[] {
   const inRange = peaks.filter((p) => p.frequency >= minFreq && p.frequency <= maxFreq)

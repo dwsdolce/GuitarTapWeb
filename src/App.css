@@ -844,8 +844,8 @@
 /* FORM dialogs (Save, Edit Name & Notes) put Cancel/Save in a footer, bottom-right.
    That matches Swift — on macOS a sheet's .cancellationAction/.confirmationAction render
    in a bottom bar, not the navigation bar — and Python's trailing button row.
-   WEB-UI-GUIDELINES item 6 ("list / dialog-level actions = toolbar buttons in the header")
-   names Import, Export, Delete All, Compare, Done: operations on a LIST. A form's
+   List / dialog-level actions (Import, Export, Delete All, Compare, Done) are toolbar buttons in
+   the header: operations on a LIST. A form's
    confirm/cancel pair is a different category and belongs at the end of the form, after
    the fields the user is filling in. */
 .settings-modal-foot {
@@ -1788,7 +1788,7 @@
   white-space: nowrap;
 }
 /* Swift renders the Peak readout `.foregroundColor(.blue)` — the same systemBlue as the progress bar
-   and its label. Was a fourth, unrelated blue (#6fb6ff). Theme token: --system-blue (index.css). */
+   and its label. Theme token: --system-blue (index.css). */
 .sb-peak {
   font-variant-numeric: tabular-nums;
   color: var(--system-blue);

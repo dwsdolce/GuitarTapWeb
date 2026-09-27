@@ -3,17 +3,13 @@
 // The two-store material-dimensions model — web mirror of Swift MaterialMeasurementInputsTests /
 // Python test_material_measurement_inputs.py. A measurement's own dimensions (Store B) are seeded from
 // the Settings template (Store A) at completion, restored from the file's snapshot on load, and —
-// crucially — loading NEVER writes the Settings defaults (the origin bug this design fixes). See
-// Development/MEASUREMENT-DIMENSIONS-SPEC.md.
+// crucially — loading NEVER writes the Settings defaults.
 //
-// The SEED-GATING cases below drive the analyzer directly, exactly as Swift and Python do. They could
-// not be written until #17 F26 moved Store B onto the analyzer and the seed into
-// `isMeasurementComplete`'s setter: while the seed was a guarded `useEffect` in App.tsx, this file's
-// header recorded the three canonical cases as untestable "React behaviour, covered by run-review".
-// That is METHOD rule 4 — an n/a resting on the view driving the model is a finding, not a difference.
+// The SEED-GATING cases below drive the analyzer directly, exactly as Swift and Python do: Store B
+// lives on the analyzer and the seed runs in `isMeasurementComplete`'s setter.
 //
-// The loadedNotes STATE cases (`loadRestoresNotesForReSave` / `loadTreatsBlankNotesAsNil`) remain
-// App.tsx state and are still run-review territory. The SOURCING cases at the pure `fromLive`/helper
+// The loadedNotes STATE cases (`loadRestoresNotesForReSave` / `loadTreatsBlankNotesAsNil`) are not
+// covered in this file. The SOURCING cases at the pure `fromLive`/helper
 // layer — the seed's data mapping, load → Store B, "Settings untouched" (= settingsPatch carries no
 // dimensions), and save reading Store B — are here too.
 
@@ -69,7 +65,7 @@ function buildPlate(materialInputs: MaterialMeasurementInputs, settingsDims: Par
   return buildMaterialMeasurement({
     name: 'X', notes,
     spectra: { longitudinal: { frequencies: [100, 200], magnitudesDb: [-10, -20] }, cross: null, flc: null },
-    peaks: { longitudinal: { id: 0, frequency: 120, magnitude: -40, quality: 20, bandwidth: 5 }, cross: null, flc: null },
+    peaks: { longitudinal: { id: '0', frequency: 120, magnitude: -40, quality: 20, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' }, cross: null, flc: null },
     view: { minHz: 10, maxHz: 300, minDb: -100, maxDb: 0 },
     settings: { ...DEFAULT_SETTINGS, measurementType: 'plate' as const, ...settingsDims },
     materialInputs,
@@ -163,9 +159,8 @@ describe('seed gating — Store B is seeded at the completion transition and now
     s.isLoadingMeasurement = false
   })
 
-  // The guard is the TRANSITION, not "Store B is empty". This is the case the old useEffect got
-  // wrong: guarded on `matInputs == null`, it re-seeded from Settings whenever Store B was cleared
-  // while still complete. Swift and Python, having spent their one transition, do not (#17 F26).
+  // The guard is the TRANSITION, not "Store B is empty": once the one transition is spent, clearing
+  // Store B while still complete does not re-seed it from Settings — as in Swift and Python.
   it('re-asserting completion does not re-seed a cleared Store B', () => {
     const s = seedSUT('plate')
     s.isMeasurementComplete = true
@@ -182,7 +177,13 @@ describe('seed gating — Store B is seeded at the completion transition and now
     const loaded: MaterialMeasurementInputs = materialInputsFromSettings('plate', {
       ...DEFAULT_SETTINGS, plateLength: 111, plateWidth: 222, plateThickness: 3.33, plateMass: 44,
     })
-    s.restoreMaterial({ matSpectra: s.matSpectra, matPeaks: s.matPeaks, materialInputs: loaded })
+    s.restoreMaterial({
+      matSpectra: s.matSpectra,
+      selectedLongitudinalPeak: s.selectedLongitudinalPeak,
+      selectedCrossPeak: s.selectedCrossPeak,
+      selectedFlcPeak: s.selectedFlcPeak,
+      materialInputs: loaded,
+    })
     expect(s.isMeasurementComplete).toBe(true)
     expect(s.materialInputs!.lengthMm).toBe(111) // the file's dims, not the 501 Settings template
     expect(s.isLoadingMeasurement).toBe(false)   // the window is closed again

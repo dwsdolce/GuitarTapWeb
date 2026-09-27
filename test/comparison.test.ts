@@ -1,29 +1,24 @@
 // @parity test/comparison
 import { describe, it, expect } from 'vitest'
-import {
-  buildGuitarMeasurement,
-  buildComparisonEntries,
-  buildComparisonMeasurement,
-  comparisonEntryModeFreqs,
-} from '../src/measurement/fromLive'
+import { buildGuitarMeasurement, buildComparisonEntries, buildComparisonMeasurement, comparisonEntryModeFreqs } from '../src/measurement/fromLive'
 import { serializeGuitarTapFile, parseGuitarTapFile, isComparison, type ComparisonEntryModel } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import type { Peak } from '../src/dsp/peaks'
 import type { ResolvedMode } from '../src/dsp/classify'
+import type { ResonantPeak } from '../src/measurement/types'
 
-// Phase 4d: a comparison measurement overlays several measurements. Building it from a
+// A comparison measurement overlays several measurements. Building it from a
 // selection assigns palette colors + disambiguated labels and keeps each source's selected
 // peaks; it round-trips through the .guitartap format as a `comparisonEntries` record.
 
 const spectrum = { frequencies: [100, 200, 300], magnitudesDb: [-50, -40, -60] }
-const peaks: Peak[] = [
-  { id: 1, frequency: 100, magnitude: -50, quality: 10, bandwidth: 10 },
-  { id: 2, frequency: 200, magnitude: -40, quality: 20, bandwidth: 10 },
+const peaks: ResonantPeak[] = [
+  { id: '1', frequency: 100, magnitude: -50, quality: 10, bandwidth: 10, timestamp: '2026-09-25T00:00:00Z' },
+  { id: '2', frequency: 200, magnitude: -40, quality: 20, bandwidth: 10, timestamp: '2026-09-25T00:00:00Z' },
 ]
-const modeByPeak = new Map<number, ResolvedMode>([
-  [1, 'air'],
-  [2, 'top'],
+const modeByPeak = new Map<string, ResolvedMode>([
+  ['1', 'air'],
+  ['2', 'top'],
 ])
 
 const src = (name: string) =>
@@ -32,9 +27,8 @@ const src = (name: string) =>
     notes: '',
     spectrum,
     peaks,
-    modeByPeak,
-    selectedIds: new Set<number>([1, 2]),
-    overridesById: new Map<number, string>(),
+    selectedIds: new Set<string>(['1', '2']),
+    overridesById: new Map<string, string>(),
     view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
     settings: { ...DEFAULT_SETTINGS, measurementType: 'classical' as const },
     numberOfTaps: 1,
@@ -80,7 +74,7 @@ describe('comparison measurement round-trip', () => {
 })
 
 // ---------------------------------------------------------------------------
-// modePeakIDs (Phase 6b) — a comparison stores each entry's DEFINITIVE Air/Top/Back as {mode name → peak
+// modePeakIDs — a comparison stores each entry's DEFINITIVE Air/Top/Back as {mode name → peak
 // id}, resolved OVERRIDE-AWARE from the source, so the file is self-describing: the reader reproduces the
 // table by id lookup, never re-classifying. Legacy comparisons (no map) heal positionally on decode.
 // ---------------------------------------------------------------------------
@@ -90,12 +84,11 @@ describe('comparison modePeakIDs — self-describing definitive modes', () => {
     name: 'Ov', notes: '',
     spectrum: { frequencies: [90, 380], magnitudesDb: [-20, -20] },
     peaks: [
-      { id: 1, frequency: 90, magnitude: -20, quality: 10, bandwidth: 5 },
-      { id: 2, frequency: 380, magnitude: -20, quality: 10, bandwidth: 5 },
+      { id: '1', frequency: 90, magnitude: -20, quality: 10, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' },
+      { id: '2', frequency: 380, magnitude: -20, quality: 10, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' },
     ],
-    modeByPeak: new Map<number, ResolvedMode>([[1, 'air'], [2, 'dipole']]),
-    selectedIds: new Set<number>([1, 2]),
-    overridesById: new Map<number, string>([[2, 'Top']]), // assign the Dipole peak to Top
+    selectedIds: new Set<string>(['1', '2']),
+    overridesById: new Map<string, string>([['2', 'Top']]), // assign the Dipole peak to Top
     view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
     settings: { ...DEFAULT_SETTINGS, measurementType: 'classical' as const },
     numberOfTaps: 1, sampleRate: 48000, deviceLabel: 'Mic',
@@ -141,10 +134,8 @@ describe('comparison modePeakIDs — self-describing definitive modes', () => {
 })
 // ── Display-mode transitions ──────────────────────────────────────────────────────────────────
 //
-// These are the cases this edition COULD NOT WRITE until #17 F24. The display mode lived in
-// App.tsx as `comparison != null`, so every Swift/Python transition test — ten of them — had no
-// web counterpart, and the 20/32/7 count spread was the measurement of that rather than of
-// anything being under-tested.
+// The display mode is analyzer state, so each Swift/Python transition test has its web counterpart
+// here, driven on the analyzer.
 //
 // Mirrors Swift ComparisonModeTests (initialDisplayMode_isLive, loadComparison_setsDisplayModeTo…,
 // clearComparison_…, loadMeasurement_duringComparison_…) and the Python equivalents.
@@ -180,8 +171,7 @@ describe('display mode — transitions', () => {
 
   // CP-U9: building a comparison from an ARMED sequence stands the detector down. An overlay is
   // frozen, like a loaded measurement; left armed, the live analysis keeps overwriting the
-  // overlay's peaks and a tap completes a measurement the user never sees (#17 F31 — found by a
-  // run-review of F30 in Swift, which had the defect; web already disarmed).
+  // overlay's peaks and a tap completes a measurement the user never sees.
   it('loadComparison disarms an armed detector', () => {
     const a = sut()
     a.detectionState = 'listening'
@@ -225,11 +215,9 @@ describe('display mode — transitions', () => {
     expect(a.comparisonEntries).toHaveLength(0)
   })
 
-  // The defect the owner's F26 run-review found: load a plate measurement, compare two guitar
-  // measurements, press New Tap — the overlay stayed up with a fresh capture arming underneath it.
-  // New Tap took the material path (`startMaterial`), which never returned to live; the transition
-  // had been wired into `clearResult` only. Neither native can have this: both route every New Tap,
-  // guitar and material alike, through one `startTapSequence`. Web now does too.
+  // Load a plate measurement, compare two guitar measurements, press New Tap: the overlay must come
+  // down rather than stay up over a fresh capture arming underneath it. All three editions route
+  // every New Tap, guitar and material alike, through one `startTapSequence`, which returns to live.
   it('New Tap returns to live from a comparison — MATERIAL type', () => {
     const a = sut()
     a.measurementType = 'plate'

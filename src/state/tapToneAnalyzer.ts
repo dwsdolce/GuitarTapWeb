@@ -12,21 +12,23 @@
 // @parity audio/tap-analyzer  tests=test/tap-decisions
 import { averageSpectra } from '../dsp/spectrumAverage'
 import type { Spectrum } from '../dsp/guitarFFT'
-import { findPeaks, PEAK_DETECTION_FLOOR, parabolicInterpolate, calculateQ, type Peak } from '../dsp/peaks'
+import type { Calibration } from '../dsp/calibration'
+import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, findPeaks, PEAK_DETECTION_FLOOR, parabolicInterpolate, calculateQ } from '../dsp/peaks'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 // The one override-aware mode resolver (mirrors Swift GuitarMode.effectiveMode). A minor state→presentation
 // import (precedent: MaterialPeaks from components) — the resolver lives with the mode↔label map it needs.
 import { effectiveMode as resolveEffectiveMode } from '../presentation/modeColors'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import type { ComparisonEntryModel, TapToneMeasurementModel } from '../measurement/types'
-import { comparisonAxisRange, measurementToLive, measurementToLiveMaterial, measurementWarning } from '../measurement/fromLive'
+import { makeResonantPeak, TapEntry, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapToneMeasurementModel } from '../measurement/types'
+import { newId } from '../measurement/newId'
+import { Pitch } from '../dsp/pitch'
+import { comparisonAxisRange, GUITAR_TYPE_RAW, measurementToLive, measurementToLiveMaterial, measurementWarning } from '../measurement/fromLive'
 import type { ChartView } from '../presentation/chartTypes'
 import { dftAnalRect, GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
 import { RealtimeFFTAnalyzer, type MaterialSearch, type MaterialPhaseName, type EngineState } from '../audio/realtimeFFTAnalyzer'
-import type { MaterialPeaks } from '../components/MaterialResults'
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
-import { isGuitarType, DEFAULT_SETTINGS, type MeasurementType, type Settings } from '../settings'
+import { isGuitarType, defaultDisplayRange, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, type MeasurementType, type Settings } from '../settings'
 import { materialInputsFromSettings, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { dumpCaptureWav } from '../measurement/dumpWav'
 
@@ -39,10 +41,9 @@ import { dumpCaptureWav } from '../measurement/dumpWav'
  *                   paused ┘
  *             (pause/resume, mid-sequence)
  *
- *  This replaced an `isDetecting` / `isDetectionPaused` boolean pair. Two booleans can express
- *  "detecting AND paused" — a state no code path intends, which every site touching either flag
- *  had to avoid by hand, and which the invariant suite existed partly to catch after the fact.
- *  One value makes it unrepresentable. Both booleans survive as derived reads (#17 F30). */
+ *  One value rather than an `isDetecting` / `isDetectionPaused` boolean pair: two booleans can
+ *  express "detecting AND paused", a state no code path intends, and one value makes it
+ *  unrepresentable. Both booleans are available as derived reads. */
 export type DetectionState = 'idle' | 'listening' | 'paused'
 
 /** Material capture phase. Mirrors Swift `MaterialTapPhase` (web spelling). */
@@ -65,7 +66,6 @@ export interface MatSpectra {
   flc: Spectrum | null
 }
 export const EMPTY_MAT_SPECTRA: MatSpectra = { longitudinal: null, cross: null, flc: null }
-const EMPTY_MAT_PEAKS: MaterialPeaks = { longitudinal: null, cross: null, flc: null }
 
 /** The clipping-override warning (Swift `TapToneAnalyzer.clippingWarningStatus` / Python
  *  `_set_clipping`). Displayed while the input clips, then the real status is restored. */
@@ -83,18 +83,15 @@ const fHz = (p: { frequency: number } | null): string => (p ? p.frequency.toFixe
  * the mode is DERIVED from whether there is overlay data: an empty comparison is `live`, not
  * `comparison` (Swift `comparisonSpectra.isEmpty ? .live : .comparison`).
  *
- * This lived in the view as a derived boolean (`comparison != null` in App.tsx) until #17 F24.
- * Three states in one value make "frozen AND comparison" unrepresentable, which is the property
- * both natives rely on and the view could only approximate by clearing at every call site.
+ * One value makes "frozen AND comparison" unrepresentable, which is the property both natives
+ * rely on.
  */
 /** The main spectrum is shown ('live' — live input, or the measurement's own frozen result once
  *  `isMeasurementComplete` is set), or saved measurements are overlaid ('comparison').
  *
- *  Those first two are NOT distinguished: there used to be a 'frozen' value, but nothing in any
- *  edition ever branched on it, because whether a result is displayed is what
- *  `isMeasurementComplete` says. Keeping both meant two fields describing one fact — and in the
- *  natives no completion path set it, so the device-settle guard wiped finished measurements
- *  (#17 F35). */
+ *  Those first two are NOT distinguished: whether a result is displayed is what
+ *  `isMeasurementComplete` says, and a second field describing the same fact could disagree with
+ *  it. */
 export type DisplayMode = 'live' | 'comparison'
 
 /** Loaded-measurement (frozen) status — curly quotes around New Tap match Swift/Python. */
@@ -107,7 +104,7 @@ const matPhaseLabel = (ph: MaterialPhaseName): string => (ph === 'cross' ? 'fC' 
 
 // Gated-capture safety timeouts, on the WALL clock (Swift/Python: material 2.0 s; guitar the FFT
 // window + 0.5 s). They exist for when the audio STOPS — the file ends, the user stops, the device
-// drops — so an audio-clock timeout would never fire (#19).
+// drops — so an audio-clock timeout would never fire.
 const MATERIAL_CAPTURE_SAFETY_MS = 2000
 const GUITAR_CAPTURE_SAFETY_EXTRA_MS = 500
 
@@ -128,15 +125,6 @@ export interface CapturedTap {
   captureTime: number
 }
 
-/** One per-tap entry for the multi-tap comparison view: its spectrum + the peaks found on it (at the
- *  current Peak Min). Mirrors Swift `TapEntry` (snapshot + peaks). The web derives per-mode selection
- *  on demand (the multi-tap table is read-only) rather than storing selectedPeakIDs. */
-export interface TapEntry {
-  tapIndex: number
-  spectrum: Spectrum
-  peaks: Peak[]
-}
-
 /** One definitive mode value for the multi-tap Averaged row: its frequency + whether it came from a user
  *  override (marked italic + " *"). Mirrors Swift `definitiveModeInfo`'s `(frequency, isOverride)`. */
 export interface DefinitiveMode {
@@ -150,19 +138,6 @@ export interface DefinitiveModeInfo {
   back: DefinitiveMode | null
 }
 
-/** A stored material (plate/brace) peak — frequency, magnitude, Q and bandwidth — with the stable id the
- *  analyzer assigns when it stores the identified L/C/FLC peak, so its dragged annotation offset lives in
- *  the same id-keyed store as guitar peaks (Swift/Python material peaks are ResonantPeaks with a UUID). */
-export interface MaterialPeak {
-  id: number
-  frequency: number
-  magnitude: number
-  quality: number
-  bandwidth: number
-}
-
-/** A freshly DETECTED material peak, before the analyzer stores it and assigns its id. */
-export type DetectedMaterialPeak = Omit<MaterialPeak, 'id'>
 
 export class TapToneAnalyzer {
   // ── Published-equivalent state (settable; the audio layer / tests mutate these directly) ──
@@ -176,12 +151,10 @@ export class TapToneAnalyzer {
   get isDetectionPaused(): boolean { return this.detectionState === 'paused' }
   isReadyForDetection = true
   /** True while a device change settles and the chart should show nothing, rather than the new
-   *  device's not-yet-valid audio. Swift and Python blanked here and web did not — a behaviour
-   *  divergence rather than a deliberate difference (#17 F35). */
+   *  device's not-yet-valid audio, as in Swift and Python. */
   isSettling = false
   /** Taps captured so far. Guitar: 0…numberOfTaps. Material: CUMULATIVE across phases. Swift
-   *  `currentTapCount`. `tapProgress` is written beside it at each site, as Swift and Python write it —
-   *  it used to be recomputed in a setter on every write (#17 F51). */
+   *  `currentTapCount`. `tapProgress` is written beside it at each site, as Swift and Python write it. */
   currentTapCount = 0
   numberOfTaps = 1
   capturedTaps: CapturedTap[] = []
@@ -198,15 +171,15 @@ export class TapToneAnalyzer {
   /** True while the per-tap overlay of the CURRENT measurement is shown, which is also
    *  `displayMode === 'comparison'` — `isSavedMeasurementComparison` separates the two. */
   showingMultiTapComparison = false
-  // Per-tap entries for the multi-tap comparison view (spectrum + peaks). Mirrors Swift `tapEntries`.
-  // Built from capturedTaps at completion (>1 tap), restored on load, cleared on reset — distinct from
-  // the raw `capturedTaps` (which are NOT restored on load), exactly like Swift's tapEntries vs
-  // capturedTaps split. Each entry's peaks are (re)found by recalculatePeaks at the current Peak Min.
+  // Per-tap entries for the multi-tap comparison view (snapshot + peaks + auto-selection). Mirrors Swift
+  // `tapEntries`. Built from capturedTaps at completion (>1 tap), restored on load, cleared on reset —
+  // distinct from the raw `capturedTaps` (which are NOT restored on load), exactly like Swift's
+  // tapEntries vs capturedTaps split. Nothing re-derives an entry's peaks once it is built.
   tapEntries: TapEntry[] = []
   // Main peaks detected on the frozen spectrum (or filtered from a loaded measurement's authoritative
   // peaks) + their mode classification. Owned by the analyzer, mirroring Swift `currentPeaks` /
-  // `identifiedModes` (recomputed by recalculatePeaks — the web's recalculateFrozenPeaksIfNeeded). 3c §10 P1.
-  peaks: Peak[] = []
+  // `identifiedModes`, set at Swift's events (a live frame, completion, a load, Re-analyze, a type change).
+  peaks: ResonantPeak[] = []
   // The Peak-Min DISPLAY projection of `peaks` — the same peak objects, filtered to the slider.
   // Mirrors Swift `peaksAbovePeakMin` / Python `peaks_above_peak_min`. Assigning `peaks` or
   // `peakMinThreshold` is the ONLY way this changes; nothing else may write it.
@@ -215,15 +188,15 @@ export class TapToneAnalyzer {
   // filtered" is a rule about the MEASUREMENT, and it had been implemented in App.tsx as a useMemo
   // — so every other consumer (the save path, the PDF, the multi-tap table, the unit tests) had to
   // re-derive it and could disagree. One rule, one home.
-  peaksAbovePeakMin: Peak[] = []
+  peaksAbovePeakMin: ResonantPeak[] = []
   // The authoritative saved peaks of a LOADED measurement, or null for a live capture. Owned by the
   // analyzer, not the view, so that it and the frozen spectrum can never be seen half-applied:
   // a render that saw the spectrum set while this was still null would take the live branch,
   // re-detect, mint fresh ids, and wipe the overrides/offsets/selection just restored from the file.
   // Mirrors Swift `loadedMeasurementPeaks` / Python `loaded_measurement_peaks`.
-  loadedPeaks: Peak[] | null = null
+  loadedPeaks: ResonantPeak[] | null = null
   // True for the duration of `loadMeasurement`, which applies the whole restore — spectrum, per-tap
-  // entries, peaks, overrides, offsets, selection — as ONE step. `recalculatePeaks` returns early
+  // entries, peaks, overrides, offsets, selection — as ONE step. `recalculateFrozenPeaksIfNeeded` returns early
   // while it is set, so nothing can recalculate against a half-applied measurement and clobber what
   // is being loaded. Mirrors Swift `isLoadingMeasurement` / Python `is_loading_measurement`.
   //
@@ -233,7 +206,7 @@ export class TapToneAnalyzer {
   // than from the model. That made correctness of a loaded measurement's per-peak state depend on
   // statement order inside a 100-line view handler, untested and easy to break.
   isLoadingMeasurement = false
-  modeByPeak: Map<number, ResolvedMode> = new Map()
+  modeByPeak: Map<string, ResolvedMode> = new Map()
   // Minimum magnitude (dBFS) for a peak to be DISPLAYED. A display control and nothing more:
   // assigning it re-projects `peaksAbovePeakMin` from the durable set — no detection, no
   // classification, no per-peak state touched — so selection, overrides and dragged labels all
@@ -249,53 +222,51 @@ export class TapToneAnalyzer {
     this._peakMinThreshold = v
     this.refreshDisplayedPeaks()
   }
-  // Per-peak manual mode-label overrides, keyed by peak `id` (RA — was the view's frequency-keyed
-  // `useAnnotations` map). The value stays the display label string (a predefined mode name or a
-  // freeform label), matching the web's existing override idiom; only the KEY moved from frequency to
-  // id, so the state now lives with the peaks it describes. Carried across a peak re-mint by
+  // Per-peak manual mode-label overrides, keyed by peak `id`. The value is the display label string
+  // (a predefined mode name or a freeform label); the id key keeps the state with the peaks it
+  // describes. Carried across a peak re-mint by
   // `applyFrozenPeakState` (±REMAP_TOLERANCE_HZ) and cleared on a blank-slate reset (`clearResult`).
   // Mirrors Swift `peakModeOverrides` / Python `_peak_mode_overrides` (both id/UUID-keyed).
-  overrides: Map<number, string> = new Map()
-  // Dragged annotation-label positions, keyed by peak `id` → [absFreqHz, absDB] (RB — moved off the
-  // view's frequency-keyed useAnnotations store). ONE store for guitar AND material, matching Swift's
+  overrides: Map<string, string> = new Map()
+  // Dragged annotation-label positions, keyed by peak `id` → [absFreqHz, absDB]. ONE store for guitar
+  // AND material, matching Swift's
   // single `peakAnnotationOffsets: [UUID: CGPoint]` and Python's `peak_annotation_offsets` — whose
   // material peaks are id-bearing too. Guitar entries are carried across a re-mint by
   // `applyFrozenPeakState`; material entries never re-mint. Guitar and material never coexist (cleared
   // between by clearResult / resetMaterial), so their ids share one map without collision.
-  annotationOffsets: Map<number, [number, number]> = new Map()
-  // Monotonic id source for STORED material (L/C/FLC) peaks, so each identified peak gets a stable id
-  // its dragged offset keys on. Fresh per store (like Swift minting a new UUID per capture), so a Redo
-  // orphans the old offset, matching Swift/Python.
-  private nextMaterialPeakId = 0
-  // Selection — which peak is the DEFINITIVE Air/Top/Back (RC — moved off the view's useAnnotations).
+  annotationOffsets: Map<string, [number, number]> = new Map()
+  // Selection — which peak is the DEFINITIVE Air/Top/Back.
   // CONCRETE state (full-Swift paradigm, not a derived set): always recomputed on a peak re-mint by
   // applyFrozenPeakState (unmodified → auto; modified → carry-forward). Mirrors Swift `selectedPeakIDs`.
-  selectedPeakIds: Set<number> = new Set()
+  selectedPeakIds: Set<string> = new Set()
   // Stable frequency cache for the selection, mirroring Swift `selectedPeakFrequencies`: a selected peak
   // hidden below Peak Min keeps its frequency here so it re-selects when the slider reveals it again.
   selectedPeakFrequencies: number[] = []
   // Whether the user has hand-modified the selection since the last auto-select. False → a re-mint
   // re-runs auto-selection; true → the selection is carried forward by frequency. Swift
-  // `userHasModifiedPeakSelection`. (Phase 5's enforce-uniqueness will read/maintain this same state.)
+  // `userHasModifiedPeakSelection`.
   userModifiedSelection = false
   // The highlighted peak — transient VIEW state for the chart-dot ↔ results-row cross-highlight; NOT
   // selection and NOT measurement state (lives here like Swift/Python `highlightedPeakID`, but is never
   // persisted). Toggled by clicking a peak dot or its results row (desktop only); cleared on a fresh sequence.
-  highlightedPeakId: number | null = null
+  highlightedPeakId: string | null = null
   materialTapPhase: MaterialTapPhase = 'notStarted'
-  // Material (plate/brace) result data — the per-phase averaged spectra + located peaks. Owned by the
-  // analyzer, mirroring Swift longitudinalSpectrum/crossSpectrum/flcSpectrum + the material peaks. 3c-C3.
+  // Material (plate/brace) result data — the per-phase averaged spectra. Owned by the analyzer, mirroring
+  // Swift longitudinalSpectrum/crossSpectrum/flcSpectrum.
   matSpectra: MatSpectra = EMPTY_MAT_SPECTRA
-  matPeaks: MaterialPeaks = EMPTY_MAT_PEAKS
+  // The identified peak of each material phase — the dominant peak of its averaged spectrum, stored when
+  // the phase completes. These ARE a material measurement's peaks: there is no per-peak selection and no
+  // other material peak state (`peaks` / `selectedPeakIds` are guitar-only). Mirrors Swift/Python
+  // selectedLongitudinalPeak / selectedCrossPeak / selectedFlcPeak.
+  selectedLongitudinalPeak: ResonantPeak | null = null
+  selectedCrossPeak: ResonantPeak | null = null
+  selectedFlcPeak: ResonantPeak | null = null
   // Whether the plate FLC tap is measured. Swift reads TapDisplaySettings.measureFlc / Python
   // _tds.measure_flc(); the web has no analyzer-visible global, so App mirrors it via setMeasureFlc.
   measureFlc = false
   measurementType: MeasurementType = 'classical'
   /** A measurement was just loaded and its Threshold/Taps are in force — the banner's state.
-   *  MODEL state, as in Swift (`@Published var showLoadedSettingsWarning`) and Python. It used to be
-   *  declared here, set false once, and read by nobody, while the real flag lived in an `App.tsx`
-   *  useState with its clears spread across five view call sites — a stub that made the analyzer
-   *  look like it owned something it did not (#17 F40, the shape of F24). */
+   *  MODEL state, as in Swift (`@Published var showLoadedSettingsWarning`) and Python. */
   showLoadedSettingsWarning = false
 
   // ── What a loaded measurement leaves on the model ─────────────────────────────────────────────
@@ -326,9 +297,13 @@ export class TapToneAnalyzer {
   // The settings the model needs to seed Store B at a material completion. Swift and Python read the
   // TapDisplaySettings singleton from inside the model; the web has no analyzer-visible global, so App
   // mirrors the whole object in via setSettings from the same layout effect that pushes
-  // measurementType and measureFlc. Held for the material seed below — anything else that wants a
-  // setting should get its own explicit push, so the model's dependencies stay readable.
+  // measurementType and measureFlc. Read for the material seed below and for the display settings a
+  // per-tap entry's snapshot records at capture (processMultipleTaps, as Swift reads TapDisplaySettings) —
+  // anything else that wants a setting should get its own explicit push, so the model's dependencies
+  // stay readable.
   settings: Settings = DEFAULT_SETTINGS
+  /** Pitch at concert A (440 Hz) for the peaks the analyzer makes. Swift `pitchCalculator`. */
+  readonly pitchCalculator = new Pitch(440)
   // Store B — the current material measurement's OWN dimensions. `null` for guitar and before a
   // material measurement completes. Seeded from Settings at the completion transition (the setter
   // below), restored from the file's snapshot by restoreMaterial, and edited through
@@ -337,7 +312,7 @@ export class TapToneAnalyzer {
   materialInputs: MaterialMeasurementInputs | null = null
 
   // ── Status-bar message (imperative field — mirrors Swift @Published `statusMessage` / Python
-  // `status_message`, set at every transition; 6-TEST 3c-C4 D3). `latestRealStatus` stashes the last
+  // `status_message`, set at every transition). `latestRealStatus` stashes the last
   // analyzer-set string so the clipping override can restore it (Swift `latestRealStatus` / Python
   // `_latest_real_status`). Written only through `setStatusMessage` / `setClipping`.
   // @parity state/status-message  tests=test/status-message
@@ -348,11 +323,6 @@ export class TapToneAnalyzer {
   private inputAppearsDead = false
   // The device owns the guitar detection loop, so the guitar status strings derive from these transitions
   // (the web equivalent of Swift's TapToneAnalyzer+TapDetection setting statusMessage in the loop).
-  // The "Analysis complete! N peaks…" string is set ONCE at completion (Swift/Python set it in the guitar
-  // processing path, NOT in the peak recalc — so N is frozen at completion, not updated by the Peak-Min
-  // slider). The web computes peaks in recalculatePeaks (App-driven), so this flag makes the first
-  // post-completion recalc announce and later recalcs (slider moves) leave the status alone. 6-TEST 3c-C4.
-  private analysisAnnounced = false
 
   // isMeasurementComplete carries Swift's didSet, which does exactly two things and nothing else:
   // clear the loaded-settings warning on completion, and seed Store B from Settings at a material
@@ -419,26 +389,23 @@ export class TapToneAnalyzer {
   /** The canonical fresh sequence, for GUITAR AND MATERIAL alike: clear everything (result data +
    *  all per-peak state + any comparison overlay), set up the type's starting state, and arm.
    *
-   *  This is the web's `startTapSequence(skipWarmup:initialPhase:)` / `start_tap_sequence(skip_warmup,
-   *  initial_phase)`. Both natives route EVERY New Tap through their single method, which is why
-   *  neither can forget to clear the comparison on one type's path — the bug #17 F24 shipped with,
-   *  when material New Tap went through a separate `startMaterial` that never returned to live.
+   *  This is the web's `startTapSequence(skipWarmup:)` / `start_tap_sequence(skip_warmup)`. As in both
+   *  natives, EVERY New Tap — guitar or material — goes through this one method, so no type's path can
+   *  skip clearing the comparison and returning to live.
    *
-   *  `arm: false` is for file playback, where the engine owns the L→C→FLC auto-advance and must not be
-   *  re-armed underneath it, and for tests that run without a device.
+   *  `arm: false` is for tests that run without a device; the natives have no such parameter.
    *
    *  `detectionState` is owned here, as it is in Swift and Python: the arming paths below set it
    *  directly, and the `arm: false` branch covers the direct/test path where no device reports back. */
-  startTapSequence(opts: { initialPhase?: MaterialTapPhase; arm?: boolean; skipWarmup?: boolean } = {}): void {
-    const { initialPhase, arm = true, skipWarmup = false } = opts
+  startTapSequence(opts: { arm?: boolean; skipWarmup?: boolean } = {}): void {
+    const { arm = true, skipWarmup = false } = opts
     // The shared reset — result data, per-peak state, completion flag, and the return to live.
     this.clearResult()
     this.currentTapCount = 0
     this.tapProgress = 0
     // The user is explicitly starting a new sequence, so the loaded measurement's Threshold/Taps are
     // now theirs. Mirrors Swift startTapSequence (Control.swift:149) and Python start_tap_sequence;
-    // covers the measurement-type change, file playback and New Tap/Cancel paths, each of which the
-    // view used to clear by hand (#17 F40).
+    // covers the measurement-type change, file playback and New Tap/Cancel paths.
     this.showLoadedSettingsWarning = false
     // …and with it everything else the loaded measurement left behind: this sequence is no longer
     // "the loaded one". Mirrors Swift startTapSequence (Control.swift:135-136, :163).
@@ -452,7 +419,7 @@ export class TapToneAnalyzer {
     // on its own. Mirrors Swift/Python startTapSequence.
 
     // A new sequence starts its tap confirmation from zero: a chunk counted before it cannot help confirm
-    // its first tap. Swift's and Python's startTapSequence do the same (#17 F50 item 13).
+    // its first tap. Swift's and Python's startTapSequence do the same.
     this.consecutive = 0
 
     if (this.isGuitar) {
@@ -469,11 +436,10 @@ export class TapToneAnalyzer {
       // setEngineState('listening') also sets this; here it covers the direct/test path.
       this.setStatusMessage(this.tapPrompt())
     } else {
-      this.matPeaks = EMPTY_MAT_PEAKS
+      this.clearMaterialPeaks()
       this.matSpectra = EMPTY_MAT_SPECTRA
       this.materialBuffer = []
-      this.nextMaterialPeakId = 0
-      this.materialTapPhase = initialPhase ?? 'capturingL'
+      this.materialTapPhase = 'capturingL'
       if (arm) {
         // startSessionRecording seeds checkpoint [0] (the L-phase truncation anchor), so no explicit
         // checkpoint is needed here.
@@ -483,7 +449,7 @@ export class TapToneAnalyzer {
         // Same as the guitar branch above: leaving `arm` out must not leave the detection state
         // untouched, or a sequence started from `paused` would stay paused. Swift and Python have
         // no `arm` parameter at all — they always end startTapSequence listening — so this keeps
-        // the unarmed path saying the same thing they do (#17 F30).
+        // the unarmed path saying the same thing they do.
         this.detectionState = 'listening'
       }
       // capturingL arm prompt = "Ready for L tap" (mirrors Swift startTapSequence; the silent
@@ -503,7 +469,7 @@ export class TapToneAnalyzer {
   }
 
   /** Complete the measurement: power-average the captured taps into the frozen spectrum, build the
-   *  per-tap display spectra (>1 tap only, mirroring Swift processMultipleTaps building tapEntries),
+   *  per-tap entries (>1 tap only, mirroring Swift processMultipleTaps building tapEntries),
    *  and set isMeasurementComplete. No-op when no taps were captured. */
   processMultipleTaps(): void {
     if (this.capturedTaps.length === 0) return // guard: nothing to freeze (MC6)
@@ -514,19 +480,50 @@ export class TapToneAnalyzer {
     const avg = averageSpectra(spectra)
     this.frozenMagnitudes = avg.magnitudesDb
     this.frozenFrequencies = avg.frequencies
-    // Per-tap entries only for a genuine multi-tap capture (Swift tapEntries gate: count > 1). Phase 3:
-    // each entry's peaks are found ONCE here, at the -100 floor, and are thereafter DURABLE —
-    // recalculatePeaks no longer re-derives them (mirrors Swift building tapEntries at capture +
-    // deleting recalculateTapEntryPeaks). findPeaks ignores guitarType; classification is at render.
-    this.tapEntries =
-      this.capturedTaps.length > 1
-        ? spectra.map((sp, i) => ({
-            tapIndex: i + 1,
-            spectrum: sp,
-            peaks: findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR }),
-          }))
-        : []
     this.isMeasurementComplete = true
+    // Find peaks in the AVERAGED spectrum so they align with what's displayed. Store the FULL set
+    // (detected to the floor) as the durable result, and auto-select one best peak per guitar mode over
+    // that full set — a quiet Air below Peak Min is selected even though it is not displayed. A new
+    // capture is one of the two things that legitimately resets per-peak selection state.
+    const guitarType = this.guitarType
+    const peaksFromAveragedSpectrum = findPeaks(avg.magnitudesDb, avg.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR })
+    this.peaks = peaksFromAveragedSpectrum
+    this.selectedPeakIds = this.guitarModeSelectedPeakIds(peaksFromAveragedSpectrum, guitarType)
+    this.userModifiedSelection = false
+    this.loadedPeaks = null // a new live result — no longer remapping from a loaded measurement
+    this.selectedPeakFrequencies = [] // reset the frequency cache for the new live session
+    this.modeByPeak = classifyAll(peaksFromAveragedSpectrum, guitarType)
+    this.refreshDisplayedPeaks()
+    this.setStatusMessage(
+      `Analysis complete! ${peaksFromAveragedSpectrum.length} peaks identified (from ${this.capturedTaps.length} averaged taps).`,
+    )
+    // Build per-tap entries for the multi-tap comparison view. Only meaningful when more than one tap
+    // was captured; single-tap sessions have nothing to compare. Each entry's peaks are found once, at
+    // the detection floor, with the auto-selected peak per mode, and a snapshot recording the display
+    // settings and guitar type at capture — as Swift's processMultipleTaps builds them.
+    if (this.capturedTaps.length > 1) {
+      const s = this.settings
+      const range = s.displayRanges[this.measurementType] ?? defaultDisplayRange(this.measurementType)
+      this.tapEntries = spectra.map((sp, i) => {
+        const tapPeaks = findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR })
+        const modeSelected = this.guitarModeSelectedPeakIds(tapPeaks, guitarType)
+        const snap: SpectrumSnapshotModel = {
+          frequencies: sp.frequencies,
+          magnitudes: sp.magnitudesDb,
+          minFreq: range.minHz,
+          maxFreq: range.maxHz,
+          minDB: s.minDb,
+          maxDB: 0,
+          isLogarithmic: false,
+          showUnknownModes: s.showUnknownModes,
+          guitarType: GUITAR_TYPE_RAW[this.measurementType] ?? 'Generic',
+          measurementType: MEASUREMENT_FULL_NAME[this.measurementType],
+        }
+        return new TapEntry(newId(), i + 1, snap, tapPeaks, [...modeSelected])
+      })
+    } else {
+      this.tapEntries = []
+    }
     this.notify()
   }
 
@@ -542,14 +539,20 @@ export class TapToneAnalyzer {
    *  Mirrors Swift `loadMeasurement(_:)` and Python `load_measurement()`: hand it the saved
    *  measurement and the model works out what kind it is, converts it, restores itself, and records
    *  what it loaded (name, notes, axis range, settings, microphone warning, ring-out) for the view
-   *  to react to. It used to be ~110 lines in `App.tsx` that converted the file, wrote five pieces of
-   *  React state, told the engine, and handed the analyzer the already-converted parts — so "load a
-   *  measurement" existed only as a sequence in the view, and no other caller (an import, a test)
-   *  could perform one (#17 F41).
+   *  to react to. Because the whole load lives here, any caller — the view, an import, a test —
+   *  performs the same load.
    *
    *  The view still does what only it can: apply `loadedSettings` to the settings store and the
    *  axis range to the chart, exactly as Swift's `.onReceive(tap.$loaded…)` handlers do. */
   loadMeasurement(m: TapToneMeasurementModel): void {
+    // A load replaces the guitar peaks (Swift `allPeaks = measurement.peaks`). A comparison record has
+    // none, and the web keeps a material measurement's L/C/FLC in `matPeaks`, so both leave the set
+    // empty; the guitar branch restores the saved peaks in restoreSnapshot.
+    if (m.comparisonEntries || m.longitudinalSnapshot) {
+      this.peaks = []
+      this.modeByPeak = new Map()
+      this.refreshDisplayedPeaks()
+    }
     // A comparison record restores its overlay spectra directly and is not a single measurement.
     if (m.comparisonEntries) {
       this.loadedPeaks = null
@@ -570,7 +573,9 @@ export class TapToneAnalyzer {
       this.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
       this.restoreMaterial({
         matSpectra: mat.matSpectra,
-        matPeaks: mat.matPeaks,
+        selectedLongitudinalPeak: mat.selectedLongitudinalPeak,
+        selectedCrossPeak: mat.selectedCrossPeak,
+        selectedFlcPeak: mat.selectedFlcPeak,
         materialInputs: mat.materialInputs,
         numberOfTaps: m.numberOfTaps ?? 1,
       })
@@ -584,17 +589,14 @@ export class TapToneAnalyzer {
         magnitudes: live.captured.magnitudesDb,
         frequencies: live.captured.frequencies,
         numberOfTaps: m.numberOfTaps ?? 1,
-        taps: (m.tapEntries ?? []).map((e) => ({
-          magnitudesDb: e.snapshot.magnitudes,
-          frequencies: e.snapshot.frequencies,
-        })),
+        tapEntries: live.tapEntries,
         loadedPeaks: live.loadedPeaks,
         overrides: live.overridesById,
         annotationOffsets: live.annotationOffsetsById,
         selection: {
-          ids: live.selectedIndices,
+          ids: live.selectedIds,
           frequencies: live.loadedPeaks
-            .filter((p) => live.selectedIndices.has(p.id))
+            .filter((p) => live.selectedIds.has(p.id))
             .map((p) => p.frequency),
           userModified: live.userModified,
         },
@@ -651,7 +653,7 @@ export class TapToneAnalyzer {
    *
    *  Everything the file carries — the frozen spectrum, the per-tap entries, the authoritative
    *  peaks, and the per-peak state keyed to them (overrides, dragged offsets, selection) — is
-   *  restored under `isLoadingMeasurement`, so `recalculatePeaks` cannot run against a partly
+   *  restored under `isLoadingMeasurement`, so `recalculateFrozenPeaksIfNeeded` cannot run against a partly
    *  applied measurement. Mirrors Swift/Python `loadMeasurement`, which are likewise one method.
    *
    *  The per-peak arguments are optional: the material load path restores only offsets, and the
@@ -661,30 +663,21 @@ export class TapToneAnalyzer {
     frequencies: number[]
     /** The file's tap count. Restored HERE, not by the caller: Swift writes `numberOfTaps` inside
      *  loadMeasurement (MeasMgmt:784) between the completion assignment and the settings-warning
-     *  raise. App used to call `setNumberOfTaps` AFTER this method, so the tap-count hook's own
-     *  clear wiped the banner this method had just raised — the view sequencing what the model
-     *  owns, which is the F24/F26 shape all over again (#17 F40). */
+     *  raise. The tap-count hook clears the banner, so a restore after this method would wipe the
+     *  banner this method raises. */
     numberOfTaps?: number
-    taps?: Spectrum[]
+    tapEntries?: TapEntry[]
     /** The saved peaks — authoritative, never re-derived. Omit to leave `loadedPeaks` unchanged. */
-    loadedPeaks?: Peak[] | null
-    overrides?: Map<number, string>
-    annotationOffsets?: Map<number, [number, number]>
-    selection?: { ids: Set<number>; frequencies: number[]; userModified: boolean }
+    loadedPeaks?: ResonantPeak[] | null
+    overrides?: Map<string, string>
+    annotationOffsets?: Map<string, [number, number]>
+    selection?: { ids: Set<string>; frequencies: number[]; userModified: boolean }
   }): void {
     this.isLoadingMeasurement = true
     this.frozenMagnitudes = snapshot.magnitudes
     this.frozenFrequencies = snapshot.frequencies
-    // Phase 3: per-tap peaks found ONCE from the saved per-tap spectrum at the -100 floor and durable
-    // thereafter. findPeaks is deterministic + the golden is frozen, so this equals the file's saved
-    // per-tap peaks (which the web restores as spectra, not peaks).
-    this.tapEntries = (snapshot.taps ?? []).map((sp, i) => ({
-      tapIndex: i + 1,
-      spectrum: sp,
-      peaks: findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR }),
-    }))
-    this.capturedTaps = [] // a loaded measurement has no raw taps (Swift doesn't restore them) — keeps
-    this.analysisAnnounced = false // the "Analysis complete" guard off so load shows "Loaded measurement (frozen)"
+    this.tapEntries = snapshot.tapEntries ?? [] // restored as saved — peaks and selection included (Swift)
+    this.capturedTaps = [] // a loaded measurement has no raw taps (Swift doesn't restore them)
     // Tear down any in-progress capture the load interrupts (e.g. a plate sequence abandoned mid-phase),
     // mirroring Swift loadMeasurement (SpectrumCapture:724-728 + materialTapPhase = .complete). Without
     // this, an interrupted material capture leaves currentTapCount/isDetecting/materialTapPhase stale, so
@@ -699,18 +692,23 @@ export class TapToneAnalyzer {
     // afterwards (as App used to) wipes the banner the load is about to raise.
     if (snapshot.numberOfTaps != null) this.setNumberOfTaps(snapshot.numberOfTaps)
     // AFTER the completion assignment and the tap-count restore, both of whose hooks clear this
-    // flag — the ordering Swift has between MeasMgmt:709, :784 and :834 (#17 F40).
+    // flag — the ordering Swift has between MeasMgmt:709, :784 and :834.
     this.showLoadedSettingsWarning = true
     // A single measurement is now displayed — and any overlay it interrupted is gone. Swift
-    // MeasMgmt:562, Python :476. Set here, not by the caller: the view used to clear the
-    // comparison at each load site by hand, twice over on the guitar path (#17 F24).
+    // MeasMgmt:562, Python :476. Set here, not by the caller, so every load clears the comparison.
     // Through enterFrozen, so the freeze — including disarming the device — happens in ONE place.
-    // Duplicating it here is what let the disarm go missing when it moved off the view.
     this.enterFrozen()
     this.setStatusMessage(LOADED_STATUS)
     // The peaks and the state keyed to them land together with the spectrum above — that pairing is
     // the whole point of doing this in one method.
-    if (snapshot.loadedPeaks !== undefined) this.loadedPeaks = snapshot.loadedPeaks
+    if (snapshot.loadedPeaks !== undefined) {
+      // The saved peaks ARE the durable set (Swift `allPeaks = measurement.peaks`), kept as the
+      // authoritative reference too (`loadedMeasurementPeaks`), and classified (`reclassifyPeaks`).
+      this.loadedPeaks = snapshot.loadedPeaks
+      this.peaks = snapshot.loadedPeaks ?? []
+      this.reclassifyPeaks(this.guitarType)
+      this.refreshDisplayedPeaks()
+    }
     if (snapshot.overrides) this.overrides = new Map(snapshot.overrides)
     if (snapshot.annotationOffsets) this.annotationOffsets = new Map(snapshot.annotationOffsets)
     if (snapshot.selection) {
@@ -730,14 +728,13 @@ export class TapToneAnalyzer {
   }
 
   /** Clear the frozen result (New Tap / measurement-type switch / play-file / comparison / load-reset):
-   *  drop the frozen spectrum, the per-tap display spectra, the raw tap accumulation, and completion.
+   *  drop the frozen spectrum, the per-tap entries, the raw tap accumulation, and completion.
    *  Mirrors Swift startTapSequence's result reset (frozen + tapEntries + capturedTaps + complete). */
   clearResult(): void {
     this.frozenMagnitudes = []
     this.frozenFrequencies = []
     this.tapEntries = []
     this.capturedTaps = []
-    this.analysisAnnounced = false
     // A blank-slate reset (New Tap / type-switch / play-file / cancel) drops per-peak state, mirroring
     // the view's old fresh-capture reset. The remap in applyFrozenPeakState then carries an empty map,
     // so a freshly-captured measurement starts with no overrides. Load restores AFTER (restoreOverrides),
@@ -788,95 +785,104 @@ export class TapToneAnalyzer {
     )
   }
 
-  /** Recompute the guitar peaks + their mode classification from the current analysis settings.
-   *  Mirrors Swift `recalculateFrozenPeaksIfNeeded`: material has no guitar peaks; a loaded
-   *  measurement's saved peaks are authoritative (FILTER by threshold, never re-run findPeaks); a
-   *  live/frozen guitar spectrum runs findPeaks. The web's analysis settings live in the persisted
-   *  settings store, so they are passed in per recompute (App drives this on any of them changing —
-   *  the web's equivalent of TapDisplaySettings.didSet). 3c §10 P1. */
-  recalculatePeaks(p: {
-    material: boolean
-    /** The current live-FFT spectrum, so peaks track it while waiting/detecting (null once frozen). */
-    liveSpectrum: Spectrum | null
-    guitarType: GuitarTypeName
-    minHz: number
-    maxHz: number
-  }): void {
-    // Loading guard. `loadMeasurement` applies the spectrum, the peaks and the per-peak state as one
-    // step; until it finishes there is no coherent measurement to recalculate against, and running
-    // here would re-detect on a spectrum whose peaks have not landed yet — minting fresh ids and
-    // wiping the overrides, offsets and selection being restored. Mirrors Swift
-    // `guard !isLoadingMeasurement else { return }` / Python's `if is_loading_measurement: return`.
-    if (this.isLoadingMeasurement) return
-    // Phase 1: detection stores the FULL peak set, found at the fixed -100 dB floor — Peak Min is NOT
-    // an input here (it moved to a display selector in App, so a slider tick no longer re-mints peaks
-    // or destroys per-peak state). Mirrors Swift `allPeaks` found via `peakMinOverride: peakDetectionFloor`.
-    let peaks: Peak[]
-    let reminted = false // did this branch mint FRESH ids (findPeaks)? then per-peak state must be carried
-    if (p.material) {
-      peaks = [] // peaks are guitar-only; material uses matPeaks
-    } else if (this.loadedPeaks) {
-      // Read from the analyzer, not from a caller argument: the peaks and the frozen spectrum are
-      // set together in loadMeasurement, so this branch cannot be entered with one but not the other.
-      peaks = this.loadedPeaks // the authoritative FULL set; Peak Min projects them for display
-    } else {
-      // Peaks follow the DISPLAYED spectrum: the frozen result once complete, otherwise the live
-      // spectrum while waiting/detecting — so the list + annotations update on each live FFT frame,
-      // mirroring Swift analyzeMagnitudes running continuously during detection.
-      const frozen = this.frozenMagnitudes.length > 0
-      const mags = frozen ? this.frozenMagnitudes : p.liveSpectrum?.magnitudesDb
-      const freqs = frozen ? this.frozenFrequencies : p.liveSpectrum?.frequencies
-      peaks =
-        mags && freqs && mags.length > 0
-          ? findPeaks(mags, freqs, {
-              guitarType: p.guitarType,
-              minHz: p.minHz,
-              maxHz: p.maxHz,
-              peakMinOverride: PEAK_DETECTION_FLOOR,
-            })
-          : []
-      reminted = true // findPeaks assigns fresh ids on every call
+  /** The guitar type the analyzer classifies under — the measurement type when it is a guitar, else
+   *  Generic. The web's reading of Swift `TapDisplaySettings.guitarType`. */
+  private get guitarType(): GuitarTypeName {
+    return isGuitarType(this.measurementType) ? this.measurementType : 'generic'
+  }
+
+  /** FFT-frame entry point: the device hands each live spectrum here. Mirrors Swift `onFftFrame`. */
+  onFftFrame(magnitudes: number[], frequencies: number[]): void {
+    this.analyzeMagnitudes(magnitudes, frequencies)
+  }
+
+  /** Live peaks from one FFT frame, while a sequence is running (detecting, paused, or a capture window
+   *  filling) and not complete: found at the Peak Min threshold, all selected, classified. A complete
+   *  measurement's peaks are never overwritten here. Mirrors Swift `analyzeMagnitudes`, guitar path; the
+   *  web shows no live material peaks (Swift finds them against an adaptive median threshold). */
+  analyzeMagnitudes(magnitudes: number[], frequencies: number[]): void {
+    if (!(this.isDetecting || this.isDetectionPaused || this.gatedCaptureActive) || this.isMeasurementComplete) return
+    if (!this.isGuitar) {
+      // Material: no live peaks on the web (its result is matPeaks), so the set is empty.
+      if (this.peaks.length > 0) {
+        this.peaks = []
+        this.modeByPeak = new Map()
+        this.refreshDisplayedPeaks()
+        this.notify()
+      }
+      return
     }
-    const oldPeaks = this.peaks
+    const peaks = findPeaks(magnitudes, frequencies, { peakMinThreshold: this._peakMinThreshold })
     this.peaks = peaks
-    this.modeByPeak = classifyAll(peaks, p.guitarType)
-    this.refreshDisplayedPeaks() // the projection follows the durable set (Swift allPeaks.didSet)
-    // Carry per-peak state across a re-mint (Re-analyze, guitar-type/range change, a re-run while
-    // frozen). The loaded/material branches keep STABLE ids (same peak objects), so their per-peak
-    // state needs no remap — only the findPeaks branch mints new ids. Mirrors Swift calling
-    // applyFrozenPeakState only where UUIDs change. RA carries overrides; RB/RC add offsets + selection.
-    //
-    // Empty-peaks guard. When detection yields nothing — every peak below the floor, an empty or
-    // flat spectrum — the carry-forward is SKIPPED, so `selectedPeakIds` is left alone rather than
-    // being rebuilt as empty. The selection is a fact about the measurement, not about what the
-    // detector just managed to find: lowering the threshold again must bring back the peaks the
-    // user chose, not an empty set. Mirrors Swift `guard !peaks.isEmpty else { … return }` and
-    // Python's `if not peaks: … return`, both of which return before applyFrozenPeakState.
-    if (reminted && peaks.length > 0) this.applyFrozenPeakState(oldPeaks, peaks, p.guitarType)
-    // Phase 3: per-tap entry peaks are NO LONGER re-derived here. They are found ONCE when the entry is
-    // built (processMultipleTaps / loadMeasurement) at the -100 floor and are durable — nothing may
-    // re-derive them, least of all a display control. (This was the web's `recalculateTapEntryPeaks`
-    // equivalent; deleted, mirroring Swift 11689b6. Do not reintroduce it as a "missing" recompute.)
-    // Guitar completion string — set ONCE at completion, matching Swift/Python (which set it in the guitar
-    // processing path, not in the peak recalc — so N is FROZEN at completion, unaffected by later Peak-Min
-    // slider moves). The web computes peaks here (App-driven), so the first post-completion recalc announces
-    // (analysisAnnounced latch) and later recalcs leave the status alone. Only a freshly-captured, complete
-    // guitar result: a loaded measurement has no capturedTaps, so it keeps its "Loaded measurement (frozen)".
-    if (!p.material && this.isMeasurementComplete && this.capturedTaps.length > 0 && !this.analysisAnnounced) {
-      this.setStatusMessage(
-        `Analysis complete! ${peaks.length} peaks identified (from ${this.capturedTaps.length} averaged taps).`,
-      )
-      this.analysisAnnounced = true
-    }
+    // Auto-select every newly detected peak so visibility mode "selected" shows everything by default.
+    this.selectedPeakIds = new Set(peaks.map((p) => p.id))
+    this.modeByPeak = classifyAll(peaks, this.guitarType)
+    this.refreshDisplayedPeaks()
     this.notify()
   }
 
-  // ── Per-peak mode overrides (RA — moved off the view's frequency-keyed useAnnotations) ────────────
+  /** Re-run the frozen-spectrum peak analysis — reached only through Re-analyze ({@link reanalyzePeaks}).
+   *  A loaded measurement's saved peaks are authoritative (stored whole, never re-detected); otherwise the
+   *  FULL set is re-detected at the floor and per-peak state carried across by frequency. Mirrors Swift
+   *  `recalculateFrozenPeaksIfNeeded`. */
+  recalculateFrozenPeaksIfNeeded(): void {
+    // Loading guard. `loadMeasurement` applies the spectrum, the peaks and the per-peak state as one
+    // step; until it finishes there is no coherent measurement to recalculate against. Mirrors Swift
+    // `guard !isLoadingMeasurement else { return }` / Python's `if is_loading_measurement: return`.
+    if (this.isLoadingMeasurement) return
+    if (!this.isMeasurementComplete || this.frozenFrequencies.length === 0 || this.frozenMagnitudes.length === 0) return
+    const guitarType = this.guitarType
+    if (this.loadedPeaks) {
+      // Loaded-measurement path: the saved peaks are the durable set, stored whole; ids are stable, so
+      // no per-peak state needs carrying.
+      this.peaks = this.loadedPeaks
+      this.modeByPeak = classifyAll(this.peaks, guitarType)
+      this.refreshDisplayedPeaks()
+      this.notify()
+      return
+    }
+    // Live-tap path: detect the FULL set (floor -100) on the frozen spectrum; Peak Min only projects it.
+    const oldPeaks = this.peaks
+    const peaks = findPeaks(this.frozenMagnitudes, this.frozenFrequencies, {
+      minHz: ANALYSIS_MIN_HZ,
+      maxHz: ANALYSIS_MAX_HZ,
+      peakMinOverride: PEAK_DETECTION_FLOOR,
+    })
+    this.peaks = peaks
+    this.modeByPeak = classifyAll(peaks, guitarType)
+    this.refreshDisplayedPeaks()
+    // Nothing detected at all: leave the per-peak state alone, so the selection survives (Swift returns
+    // before applyFrozenPeakState; Python likewise).
+    if (peaks.length > 0) this.applyFrozenPeakState(oldPeaks, peaks, guitarType)
+    // Per-tap entries are deliberately NOT recomputed here: each is detected once, at capture, and is
+    // durable (Swift removed `recalculateTapEntryPeaks` for the same reason).
+    this.notify()
+  }
+
+  /** Re-analyze: drop the loaded peaks and any manual selection, then re-detect the frozen spectrum's
+   *  peaks. The stored ring-out is untouched. Mirrors Swift `reanalyzePeaks()` / Python
+   *  `reanalyze_peaks()`. No-op without a frozen spectrum. */
+  reanalyzePeaks(): void {
+    if (!this.isMeasurementComplete || this.frozenFrequencies.length === 0 || this.frozenMagnitudes.length === 0) return
+    this.loadedPeaks = null
+    this.userModifiedSelection = false
+    this.selectedPeakFrequencies = []
+    this.modeByPeak = new Map()
+    this.recalculateFrozenPeaksIfNeeded()
+  }
+
+  /** Re-classify the durable peaks under the current guitar type (no detection). Mirrors Swift
+   *  `reclassifyPeaks`. */
+  reclassifyPeaks(guitarType: GuitarTypeName): void {
+    this.modeByPeak = classifyAll(this.peaks, guitarType)
+  }
+
+  // ── Per-peak mode overrides (id-keyed) ───────────────────────────────────────────────────────────
 
   /** Assign a manual mode-label override to a peak (mirrors Swift `setModeOverride`). The label is the
    *  display string (a predefined mode name or a freeform label). Overriding an already-SELECTED peak into
    *  a single-holder mode displaces the previous definitive holder (see enforceDefinitiveModeUniqueness). */
-  setModeOverride(id: number, label: string): void {
+  setModeOverride(id: string, label: string): void {
     // Reassign a fresh Map (never mutate in place): the snapshot exposes this reference, and App memos
     // keyed on `overrides` identity (overriddenPeakIds → displayPeaks → chart layers) must see the change.
     this.overrides = new Map(this.overrides).set(id, label)
@@ -887,7 +893,7 @@ export class TapToneAnalyzer {
   }
 
   /** Clear a peak's override, reverting it to its auto-classified mode (Swift `resetModeOverride`). */
-  resetModeOverride(id: number): void {
+  resetModeOverride(id: string): void {
     if (!this.overrides.has(id)) return
     const next = new Map(this.overrides)
     next.delete(id)
@@ -897,22 +903,22 @@ export class TapToneAnalyzer {
 
   /** Replace the whole override map from a loaded measurement (id-keyed to the loaded peaks). The load
    *  path calls this AFTER `loadMeasurement`; the loaded peaks keep stable ids, so no remap follows. */
-  restoreOverrides(map: Map<number, string>): void {
+  restoreOverrides(map: Map<string, string>): void {
     this.overrides = new Map(map)
     this.notify()
   }
 
-  // ── Dragged annotation offsets (RB — one id-keyed store for guitar + material, mirrors Swift/Python) ─
+  // ── Dragged annotation offsets (one id-keyed store for guitar + material, mirrors Swift/Python) ──────
 
   /** Set a peak's dragged annotation-label position (absolute [Hz, dB]). Fresh Map for memo identity.
    *  Mirrors Swift `updateAnnotationOffset` / Python `update_annotation_offset`. */
-  updateAnnotationOffset(id: number, pos: [number, number]): void {
+  updateAnnotationOffset(id: string, pos: [number, number]): void {
     this.annotationOffsets = new Map(this.annotationOffsets).set(id, pos)
     this.notify()
   }
 
   /** Clear one peak's dragged offset (Swift `resetAnnotationOffset`). */
-  resetAnnotationOffset(id: number): void {
+  resetAnnotationOffset(id: string): void {
     if (!this.annotationOffsets.has(id)) return
     const next = new Map(this.annotationOffsets)
     next.delete(id)
@@ -929,25 +935,19 @@ export class TapToneAnalyzer {
 
   /** Replace the whole offset map from a loaded measurement (id-keyed). Guitar loaded peaks and restored
    *  material peaks both keep stable ids, so no remap follows. */
-  restoreOffsets(map: Map<number, [number, number]>): void {
+  restoreOffsets(map: Map<string, [number, number]>): void {
     this.annotationOffsets = new Map(map)
     this.notify()
   }
 
-  /** Assign a stored id to a freshly detected material (L/C/FLC) peak so its dragged offset can live in
-   *  the shared id-keyed store. Fresh id per store (Swift mints a new UUID per capture). */
-  private identifyMaterialPeak(p: DetectedMaterialPeak | null): MaterialPeak | null {
-    return p ? { ...p, id: this.nextMaterialPeakId++ } : null
-  }
-
   /** Carry per-peak state across a peak RE-MINT (findPeaks assigns fresh ids), the web equivalent of
    *  Swift `applyFrozenPeakState`. Snapshots the old state BY FREQUENCY from the DURABLE old set (never
-   *  a display projection — this is the Swift 178/184 fix), then re-attaches it to the new peaks by
-   *  ±REMAP_TOLERANCE_HZ proximity. RA carries overrides; RB adds offsets; RC adds selection. Called
+   *  a display projection), then re-attaches it — overrides, offsets and selection — to the new peaks by
+   *  ±REMAP_TOLERANCE_HZ proximity. Called
    *  only on the findPeaks branch (loaded/material keep stable ids). `guitarType` is passed in (not read
    *  from `measurementType`) because recalc's layout-effect can run before the type-sync effect. Notify
    *  is left to the caller. */
-  private applyFrozenPeakState(oldPeaks: Peak[], newPeaks: Peak[], guitarType: GuitarTypeName): void {
+  private applyFrozenPeakState(oldPeaks: ResonantPeak[], newPeaks: ResonantPeak[], guitarType: GuitarTypeName): void {
     if (this.overrides.size > 0) {
       // Snapshot {frequency → label} from the OLD durable peaks, then remap onto the new ids.
       const byFreq: Array<{ frequency: number; label: string }> = []
@@ -955,7 +955,7 @@ export class TapToneAnalyzer {
         const old = oldPeaks.find((q) => q.id === id)
         if (old) byFreq.push({ frequency: old.frequency, label })
       }
-      const remapped = new Map<number, string>()
+      const remapped = new Map<string, string>()
       for (const np of newPeaks) {
         const match = byFreq.find((o) => Math.abs(o.frequency - np.frequency) <= REMAP_TOLERANCE_HZ)
         if (match) remapped.set(np.id, match.label)
@@ -970,7 +970,7 @@ export class TapToneAnalyzer {
         const old = oldPeaks.find((q) => q.id === id)
         if (old) byFreq.push({ frequency: old.frequency, pos })
       }
-      const remapped = new Map<number, [number, number]>()
+      const remapped = new Map<string, [number, number]>()
       for (const np of newPeaks) {
         const match = byFreq.find((o) => Math.abs(o.frequency - np.frequency) <= REMAP_TOLERANCE_HZ)
         if (match) remapped.set(np.id, match.pos)
@@ -986,7 +986,7 @@ export class TapToneAnalyzer {
         this.selectedPeakFrequencies.length > 0
           ? this.selectedPeakFrequencies
           : oldPeaks.filter((q) => this.selectedPeakIds.has(q.id)).map((q) => q.frequency)
-      const carriedIds = new Set<number>()
+      const carriedIds = new Set<string>()
       const carriedFreqs: number[] = []
       for (const oldFreq of prevFreqs) {
         const closest = newPeaks
@@ -1020,6 +1020,23 @@ export class TapToneAnalyzer {
       : this.peaks
   }
 
+  /** The identified per-phase peaks (L, then C, then FLC) found so far in a material measurement, in phase
+   *  order — a material measurement's peaks. The chart, annotations, results, save and PDF read them through
+   *  here. Empty for guitar. Mirrors Swift `materialIdentifiedPeaks` / Python `material_identified_peaks`. */
+  get materialIdentifiedPeaks(): ResonantPeak[] {
+    if (this.isGuitar) return []
+    return [this.selectedLongitudinalPeak, this.selectedCrossPeak, this.selectedFlcPeak].filter(
+      (p): p is ResonantPeak => p != null,
+    )
+  }
+
+  /** Drop the three identified material peaks (a new sequence, a reset). */
+  private clearMaterialPeaks(): void {
+    this.selectedLongitudinalPeak = null
+    this.selectedCrossPeak = null
+    this.selectedFlcPeak = null
+  }
+
   /** Set the Peak Min display threshold and publish the new projection. The persisted value lives in
    *  the settings store; App mirrors it in here on change, the web's equivalent of Swift reading
    *  `TapDisplaySettings.peakMinThreshold` into the analyzer. */
@@ -1028,16 +1045,16 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  // ── Peak selection (RC — moved off the view; concrete state, full-Swift paradigm) ─────────────────
+  // ── Peak selection (concrete state, full-Swift paradigm) ─────────────────────────────────────────
 
   /** The selected peaks over the DURABLE set (Swift `selectedPeaks`). */
-  get selectedPeaks(): Peak[] {
+  get selectedPeaks(): ResonantPeak[] {
     return this.peaks.filter((p) => this.selectedPeakIds.has(p.id))
   }
 
   /** One peak per named mode — the strongest `classifyAll` assigns to that mode — over `peaks`.
    *  Mirrors Swift `guitarModeSelectedPeakIDs(from:)`. `guitarType` passed in (see applyFrozenPeakState). */
-  guitarModeSelectedPeakIds(peaks: Peak[], guitarType: GuitarTypeName): Set<number> {
+  guitarModeSelectedPeakIds(peaks: ResonantPeak[], guitarType: GuitarTypeName): Set<string> {
     return new Set([...resolvedModePeaks(peaks, guitarType).values()].map((p) => p.id))
   }
 
@@ -1045,16 +1062,16 @@ export class TapToneAnalyzer {
    *  present override resolves to its mode — a FREEFORM label to `'unknown'`, NOT the auto mode — otherwise
    *  the auto classification. The selection invariant resolves modes through this, never the override-blind
    *  `modeByPeak`. */
-  effectiveMode(id: number): ResolvedMode {
+  effectiveMode(id: string): ResolvedMode {
     return resolveEffectiveMode(this.overrides.get(id), this.modeByPeak.get(id) ?? 'unknown')
   }
 
   /** The DEFINITIVE peak for a mode — the *selected* peak whose *effective* (override-aware) mode is that
    *  mode, strongest wins. Deselecting or relabelling a peak removes it here exactly as on screen. Mirrors
-   *  Swift analyzer `getPeak(for:)`. (Phase 5's invariant means normally ≤1 candidate; `max` guards a
-   *  transient double-selection.) */
-  definitivePeak(mode: ResolvedMode): Peak | undefined {
-    let best: Peak | undefined
+   *  Swift analyzer `getPeak(for:)`. (Definitive-mode uniqueness means normally ≤1 candidate; `max`
+   *  guards a transient double-selection.) */
+  getPeak(mode: ResolvedMode): ResonantPeak | undefined {
+    let best: ResonantPeak | undefined
     for (const p of this.selectedPeaks) {
       if (this.effectiveMode(p.id) === mode && (!best || p.magnitude > best.magnitude)) best = p
     }
@@ -1065,17 +1082,17 @@ export class TapToneAnalyzer {
    *  renamed/deselected Top drops the ratio, matching every other surface). Mirrors Swift
    *  `calculateTapToneRatio`. */
   tapToneRatio(): number | null {
-    const air = this.definitivePeak('air')
-    const top = this.definitivePeak('top')
+    const air = this.getPeak('air')
+    const top = this.getPeak('top')
     return air && top && air.frequency > 0 ? top.frequency / air.frequency : null
   }
 
   /** The definitive Air / Top / Back for the multi-tap Averaged row, each with an override flag so an
-   *  overridden value can be marked (italic + " *"). Mirrors Swift `definitiveModeInfo` — `definitivePeak`
+   *  overridden value can be marked (italic + " *"). Mirrors Swift `definitiveModeInfo` — `getPeak`
    *  per mode + `hasManualOverride` (= the peak carries any override). */
   definitiveModeInfo(): DefinitiveModeInfo {
     const of = (mode: ResolvedMode): DefinitiveMode | null => {
-      const p = this.definitivePeak(mode)
+      const p = this.getPeak(mode)
       return p ? { frequency: p.frequency, isOverride: this.overrides.has(p.id) } : null
     }
     return { air: of('air'), top: of('top'), back: of('back') }
@@ -1086,7 +1103,7 @@ export class TapToneAnalyzer {
    *  selection — never reclassifies, never promotes. Guitar-only; a no-op unless `id` is selected and its
    *  effective mode is single-holder. Notify is left to the caller. Mirrors Swift
    *  `enforceDefinitiveModeUniqueness(preferring:)`. */
-  enforceDefinitiveModeUniqueness(id: number): void {
+  enforceDefinitiveModeUniqueness(id: string): void {
     if (!this.isGuitar || !this.selectedPeakIds.has(id)) return
     if (!this.peaks.some((p) => p.id === id)) return
     const mode = this.effectiveMode(id)
@@ -1104,7 +1121,7 @@ export class TapToneAnalyzer {
 
   /** Toggle one peak's selection (Swift `togglePeakSelection`). On SELECT, enforce the
    *  one-definitive-per-Air/Top/Back invariant (only the select branch can break it). User-modifies. */
-  togglePeakSelection(id: number): void {
+  togglePeakSelection(id: string): void {
     const next = new Set(this.selectedPeakIds)
     const wasSelected = next.has(id)
     if (wasSelected) next.delete(id)
@@ -1134,20 +1151,19 @@ export class TapToneAnalyzer {
   /** A guitar-subtype change (e.g. Classical → Flamenco) as a CLEAN SLATE for the new type: the type
    *  changes what each mode BAND means, so manual labels — made against the OLD bands — are dropped and
    *  selection reverts to auto for the new type. Dragged offsets are kept (peaks are unchanged; position
-   *  is orthogonal to mode). `modeByPeak` is reclassified by the subsequent `recalculatePeaks` for the
-   *  new type; the fresh auto-selection here is computed via `guitarModeSelectedPeakIds`, which
-   *  self-classifies over the new type, so it is correct before `modeByPeak` is rebuilt. Mirrors Swift
+   *  is orthogonal to mode); `modeByPeak` is reclassified for the new type — no re-detection. Mirrors Swift
    *  `reclassifyForGuitarTypeChange` (peakModeOverrides=[:] → reclassifyPeaks → resetToAutoSelection) /
    *  Python `reclassify_for_guitar_type_change`. Deliberately NOT the wand (`resetToAutoSelection`
    *  alone), which keeps labels. */
   reclassifyForGuitarTypeChange(guitarType: GuitarTypeName): void {
     this.overrides = new Map()
+    this.reclassifyPeaks(guitarType)
     this.resetToAutoSelection(guitarType)
   }
 
   /** Restore selection from a loaded measurement (ids keyed to the loaded peaks, + the frequency cache
    *  and the manual/auto flag). Loaded peaks keep stable ids, so no remap follows. */
-  restoreSelection(ids: Set<number>, freqs: number[], userModified: boolean): void {
+  restoreSelection(ids: Set<string>, freqs: number[], userModified: boolean): void {
     this.selectedPeakIds = new Set(ids)
     this.selectedPeakFrequencies = [...freqs]
     this.userModifiedSelection = userModified
@@ -1157,19 +1173,18 @@ export class TapToneAnalyzer {
   /** Toggle the highlighted peak (clicking its chart dot or its results row): same id → clear, else set.
    *  Mirrors Swift's macOS dot `.onTapGesture` toggle and the results-row tap (both toggle). Transient
    *  view state — not selection, not persisted. */
-  toggleHighlightedPeak(id: number): void {
+  toggleHighlightedPeak(id: string): void {
     this.highlightedPeakId = this.highlightedPeakId === id ? null : id
     this.notify()
   }
 
   // ── Material (plate/brace) phase machine (mirrors Swift TapToneAnalyzer+SpectrumCapture) ──────────
   // The analyzer holds a REFERENCE to the device (Swift's TapToneAnalyzer owns fftAnalyzer); its
-  // lifecycle stays in useAudioEngine until C5. Material transitions arm/checkpoint it and read its
-  // calibration + playingFile. 3c-C3 (orchestration + state up, bridged — the device still averages
-  // each phase's taps + finds the peak, emitting onMaterialCapture; C3b moves that up).
+  // lifecycle stays in useAudioEngine. Material transitions arm/checkpoint it and read its
+  // calibration + playingFile.
   private device: RealtimeFFTAnalyzer | null = null
-  // Raw gated taps accumulated for the CURRENT material phase (6-TEST 3c-C3b — the device now delivers
-  // each per-tap spectrum raw; the analyzer averages them + findDominantPeak at phase completion).
+  // Raw gated taps accumulated for the CURRENT material phase; the analyzer averages them +
+  // findDominantPeak at phase completion.
   private materialBuffer: Spectrum[] = []
 
   /** Set the audio device this analyzer drives (useAudioEngine calls this on creation). As Swift's
@@ -1181,6 +1196,34 @@ export class TapToneAnalyzer {
     if (device) device.preMicRestartHandler = () => this.flushGatedCaptureOnFileEnd()
   }
 
+  /** Play a decoded audio file through the live pipeline — the Play File action. Plays with the
+   *  calibration given for the file, or with none: the microphone the file was recorded with is unknown,
+   *  so the live input's calibration never applies to it. Arms a fresh tap sequence, then plays the file;
+   *  the calibration in effect before is restored when playback ends (the returned promise resolves then).
+   *  App calls this; so do the file-playback regressions, which therefore run the path users take.
+   *  Mirrors Swift `TapToneAnalyzer.playFile(url:calibrationURL:completion:)`.
+   *
+   *  The warm-up is decided by the MEASUREMENT TYPE, not by "is this a file". Guitar skips it: an
+   *  externally recorded file may put the tap inside the first 0.5 s, and guitar uses the absolute
+   *  threshold, never the noise floor. Material (plate/brace) runs it: it is the only mode on the
+   *  relative noise-floor detector, and the warm-up is what establishes that floor. A saved session WAV
+   *  always contains its warm-up.
+   *
+   *  `startTapSequence` runs BEFORE the file starts, as in Swift, so the analyzer is fully reset before
+   *  any file audio flows. */
+  async playFile(samples: Float32Array, sampleRate: number, calibration: Calibration | null): Promise<void> {
+    const device = this.device
+    if (!device) return
+    const previousCalibration = device.activeCalibration
+    device.setCalibration(calibration)
+    this.startTapSequence({ skipWarmup: this.isGuitar })
+    try {
+      await device.playFile(samples, sampleRate)
+    } finally {
+      device.setCalibration(previousCalibration)
+    }
+  }
+
   /** Mirror the plate FLC-measurement setting (App drives it from the settings store). */
   setMeasureFlc(v: boolean): void {
     this.measureFlc = v
@@ -1188,7 +1231,7 @@ export class TapToneAnalyzer {
 
   /** Build the gated search for a material phase: its frequency range and peak-selection rule. The
    *  calibration is not part of it — the gated transform applies the active calibration itself, at
-   *  the moment of the capture, as Swift and Python do (#17 F49). */
+   *  the moment of the capture, as Swift and Python do. */
   private matSearch(phase: MaterialPhaseName): MaterialSearch {
     // Swift `finishGatedFFTCapture`'s per-phase search window, by measurement type and phase.
     if (this.measurementType === 'brace') {
@@ -1217,8 +1260,6 @@ export class TapToneAnalyzer {
     this.finishSessionRecording(label)
   }
 
-  /** Begin a fresh L→C→FLC capture. `arm` false for file playback (playFile arms phase L on the device;
-   *  the analyzer then auto-advances L→C→FLC as taps arrive — 3c-C4 Option C). */
   /** Review → advance to the next phase (Accept). */
   acceptMaterial(): void {
     const phase = this.materialTapPhase
@@ -1227,7 +1268,7 @@ export class TapToneAnalyzer {
       this.materialBuffer = []
       this.checkpointSession() // C phase start (so a redo can drop it)
       this.armMaterialPhase(this.matSearch('cross'), this.inputLevelDb, this.device?.audioTime ?? 0)
-      this.setStatusMessage(this.materialArmPrompt()) // phase is capturingC — one source (#17 F37)
+      this.setStatusMessage(this.materialArmPrompt()) // phase is capturingC — one source
       this.notify()
     } else if (phase === 'reviewingC') {
       if (this.measureFlc) {
@@ -1237,16 +1278,16 @@ export class TapToneAnalyzer {
         this.materialTapPhase = 'waitingForFlcTap'
         this.materialBuffer = []
         this.checkpointSession() // FLC phase start (so a redo can drop it)
-        this.setStatusMessage(this.materialArmPrompt()) // phase is waitingForFlcTap (#17 F37)
+        this.setStatusMessage(this.materialArmPrompt()) // phase is waitingForFlcTap
         this.notify()
-        // The hold: `tapCooldown` of AUDIO (#19). It cannot be cancelled, like Swift's — cancelled or
+        // The hold: `tapCooldown` of AUDIO. It cannot be cancelled, like Swift's — cancelled or
         // restarted meanwhile (Cancel / New Tap / type change), the phase has moved on and it does nothing.
         this.afterAudio(this.tapCooldown, () => {
           if (this.materialTapPhase !== 'waitingForFlcTap') return
           this.materialTapPhase = 'capturingFlc'
           // Anchored on the chunk that made the hold due — its level and its audio time.
           this.armMaterialPhase(this.matSearch('flc'), this.lastChunkLevelDb, this.lastAudioTime)
-          this.setStatusMessage(this.materialArmPrompt()) // phase is capturingFlc (#17 F37)
+          this.setStatusMessage(this.materialArmPrompt()) // phase is capturingFlc
           this.notify()
         })
       } else {
@@ -1270,15 +1311,22 @@ export class TapToneAnalyzer {
     const phase = this.materialTapPhase
     this.redoSession() // drop the rejected phase's audio from the session WAV
     this.materialBuffer = []
+    // Clear the redone phase's spectrum and identified peak, as Swift's redoCurrentPhase does.
     if (phase === 'reviewingL') {
+      this.matSpectra = { ...this.matSpectra, longitudinal: null }
+      this.selectedLongitudinalPeak = null
       this.materialTapPhase = 'capturingL'
       this.armMaterialPhase(this.matSearch('longitudinal'), this.inputLevelDb, this.device?.audioTime ?? 0)
       this.setStatusMessage('Ready for fL tap — tap again')
     } else if (phase === 'reviewingC') {
+      this.matSpectra = { ...this.matSpectra, cross: null }
+      this.selectedCrossPeak = null
       this.materialTapPhase = 'capturingC'
       this.armMaterialPhase(this.matSearch('cross'), this.inputLevelDb, this.device?.audioTime ?? 0)
       this.setStatusMessage('Ready for fC tap — tap again')
     } else if (phase === 'reviewingFlc') {
+      this.matSpectra = { ...this.matSpectra, flc: null }
+      this.selectedFlcPeak = null
       this.materialTapPhase = 'capturingFlc'
       this.armMaterialPhase(this.matSearch('flc'), this.inputLevelDb, this.device?.audioTime ?? 0)
       this.setStatusMessage('Ready for fLC tap — tap again')
@@ -1290,11 +1338,11 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  /** Device onMaterialTap: one raw gated tap for the current phase (3c-C4 Option C — the analyzer owns the
-   *  per-tap validity gate + count + re-arm + phase advance, mirroring Swift `finishGatedFFTCapture` +
-   *  `handle{L,C,Flc}GatedProgress`; the device is now just a gated-FFT emitter that re-arms on command).
+  /** One gated tap's spectrum for the current phase. The analyzer owns the per-tap validity gate +
+   *  count + re-arm + phase advance, mirroring Swift `finishGatedFFTCapture` +
+   *  `handle{L,C,Flc}GatedProgress`.
    *  Runs the per-tap `findDominantPeak` validity check: a tap with no in-band resonance is rejected
-   *  (EG-1: "No resonance detected — tap again", re-arm the same phase, no count). A valid tap is buffered
+   *  ("No resonance detected — tap again", re-arm the same phase, no count). A valid tap is buffered
    *  and counted; when the phase's tap count is reached, its taps are averaged + the peak found on the
    *  average, then the phase advances (review when live; auto-advance to the next phase when playing). */
   recordMaterialTap(spectrum: Spectrum): void {
@@ -1308,7 +1356,7 @@ export class TapToneAnalyzer {
       search.maxHz,
       search.preferLowestSignificant,
     )
-    // EG-1: no detectable resonance in the phase band → reject the tap and re-arm the SAME phase (no
+    // No detectable resonance in the phase band → reject the tap and re-arm the SAME phase (no
     // count, no buffer). Mirrors Swift/Python `finishGatedFFTCapture`'s `dominantPeak == nil` branch.
     if (peak == null) {
       this.setStatusMessage('No resonance detected — tap again')
@@ -1330,7 +1378,7 @@ export class TapToneAnalyzer {
       return
     }
     // Phase complete: average the phase's taps + read the dominant peak off the AVERAGED spectrum (the
-    // stored result value — value-preserving vs the C3b phase-end averaging; REG-B1/P1/P2).
+    // stored result value, pinned by REG-B1/P1/P2).
     const avg = averageSpectra(this.materialBuffer)
     const avgPeak = this.findDominantPeak(
       avg.magnitudesDb,
@@ -1346,14 +1394,13 @@ export class TapToneAnalyzer {
 
   /** Store a completed phase's averaged spectrum + peak, then advance: to review when live (the user
    *  Accepts/Redos), or auto-advance to the next phase when playing a file (arming it — the analyzer owns
-   *  the L→C→FLC auto-advance, Swift `isPlayingFile`). Sets the phase's status string. 3c-C4 Option C. */
-  private advanceAfterPhase(ph: MaterialPhaseName, avg: Spectrum, avgPeak: DetectedMaterialPeak | null): void {
+   *  the L→C→FLC auto-advance, Swift `isPlayingFile`). Sets the phase's status string. */
+  private advanceAfterPhase(ph: MaterialPhaseName, avg: Spectrum, avgPeak: ResonantPeak | null): void {
     const playing = this.device?.playingFile ?? false
-    // Mint the stored id once for this phase's peak (RB) so its dragged offset has a stable key.
-    const stored = this.identifyMaterialPeak(avgPeak)
+    const stored = avgPeak // a fresh peak (its own id) per phase, as Swift's findDominantPeak returns
     if (ph === 'longitudinal') {
       this.matSpectra = { ...this.matSpectra, longitudinal: avg }
-      this.matPeaks = { ...this.matPeaks, longitudinal: stored }
+      this.selectedLongitudinalPeak = stored
       if (this.measurementType === 'brace') {
         this.materialTapPhase = 'complete'
         this.isMeasurementComplete = true // Swift brace complete sets isMeasurementComplete (SpectrumCapture:1217)
@@ -1369,7 +1416,7 @@ export class TapToneAnalyzer {
       }
     } else if (ph === 'cross') {
       this.matSpectra = { ...this.matSpectra, cross: avg }
-      this.matPeaks = { ...this.matPeaks, cross: stored }
+      this.selectedCrossPeak = stored
       if (playing) {
         if (this.measureFlc) {
           this.materialTapPhase = 'capturingFlc'
@@ -1386,7 +1433,7 @@ export class TapToneAnalyzer {
       }
     } else {
       this.matSpectra = { ...this.matSpectra, flc: avg }
-      this.matPeaks = { ...this.matPeaks, flc: stored }
+      this.selectedFlcPeak = stored
       if (playing) {
         this.materialTapPhase = 'complete'
         this.isMeasurementComplete = true
@@ -1401,11 +1448,10 @@ export class TapToneAnalyzer {
   /** Back to notStarted + cleared (measurement-type change, cancel). */
   resetMaterial(): void {
     this.materialTapPhase = 'notStarted'
-    this.matPeaks = EMPTY_MAT_PEAKS
+    this.clearMaterialPeaks()
     this.matSpectra = EMPTY_MAT_SPECTRA
     this.materialBuffer = []
-    this.annotationOffsets = new Map() // drop dragged material labels (RB)
-    this.nextMaterialPeakId = 0
+    this.annotationOffsets = new Map() // drop dragged material labels
     this.isMeasurementComplete = false // clearing the material measurement clears its completion flag
     this.cancelSessionRecording() // abandon any partial session WAV
     this.notify()
@@ -1417,15 +1463,24 @@ export class TapToneAnalyzer {
    *  seed: a load must show the measurement's OWN dimensions, not the current Settings defaults.
    *  Swift gets this from loadMeasurement holding the flag across the whole restore; the web load is
    *  orchestrated from App, so the window is held here, around the assignment that triggers didSet. */
-  restoreMaterial(m: { matSpectra: MatSpectra; matPeaks: MaterialPeaks; materialInputs: MaterialMeasurementInputs | null; numberOfTaps?: number }): void {
+  restoreMaterial(m: {
+    matSpectra: MatSpectra
+    selectedLongitudinalPeak: ResonantPeak | null
+    selectedCrossPeak: ResonantPeak | null
+    selectedFlcPeak: ResonantPeak | null
+    materialInputs: MaterialMeasurementInputs | null
+    numberOfTaps?: number
+  }): void {
     this.isLoadingMeasurement = true
     try {
       this.matSpectra = m.matSpectra
-      this.matPeaks = m.matPeaks
+      this.selectedLongitudinalPeak = m.selectedLongitudinalPeak
+      this.selectedCrossPeak = m.selectedCrossPeak
+      this.selectedFlcPeak = m.selectedFlcPeak
       this.materialInputs = m.materialInputs // Store B ← the file's own dims, never Settings
       this.materialTapPhase = 'complete'
       this.isMeasurementComplete = true // a loaded material measurement is complete (Swift loadMeasurement)
-      // The file's tap count BEFORE the raise — its hook clears the warning (#17 F40).
+      // The file's tap count BEFORE the raise — its hook clears the warning.
       if (m.numberOfTaps != null) this.setNumberOfTaps(m.numberOfTaps)
       this.showLoadedSettingsWarning = true // after both clearing hooks have run
       this.disarmDetection() // a loaded result is frozen — see enterFrozen
@@ -1442,13 +1497,8 @@ export class TapToneAnalyzer {
     // The tap threshold is ANALYZER state, as in Swift (`@Published var tapDetectionThreshold`) and
     // Python (the `tap_detection_threshold` property) — `detectTap` reads it. The natives get it
     // from TapDisplaySettings inside the model; the web has no analyzer-visible global, so App
-    // mirrors it in here, the same way measurementType and measureFlc arrive.
-    //
-    // Without this line the detector read a field nothing ever wrote. #17 F30 moved detection from
-    // the engine onto the analyzer; the engine had been reading `config.tapDetectionThreshold`,
-    // which App pushed on every slider move, and the move left the threshold behind. The slider
-    // kept writing settings and the engine config, both now unread by the detector, which sat at
-    // its -40 dB default for guitar AND as the base for material's relative rule.
+    // mirrors it in here, the same way measurementType and measureFlc arrive. This line is the
+    // detector's only source for the slider's value; the engine config is not read for detection.
     this.tapDetectionThreshold = s.tapDetectionThreshold
   }
 
@@ -1463,10 +1513,8 @@ export class TapToneAnalyzer {
   // @parity state/tap-detection  tests=test/tap-decisions,test/status-message
   // Swift keeps all of this on the analyzer: TapToneAnalyzer+TapDetection (the detector) and
   // +SpectrumCapture (the pre-roll ring, the capture window, the completion paths). The engine is
-  // the microphone, the FFT primitive and the watchdogs — nothing more. Web had put the detector
-  // and the capture on the engine, which is the root of several findings recorded under #17 F30:
-  // arming as a refusable request, isDetecting as a mirror rather than state, and status strings
-  // the web analyzer had no site to set. This is that line moved back (#17 F30).
+  // the microphone, the FFT primitive and the watchdogs — nothing more. The web draws the same line:
+  // arming, detection state and the status strings all live here, on the analyzer.
 
   /** Hysteresis below the rising threshold; the latch only clears here. Swift `hysteresisMargin`. */
   readonly hysteresisMargin = 3.0
@@ -1475,10 +1523,10 @@ export class TapToneAnalyzer {
   /** Detection warm-up, in seconds of AUDIO. Swift `warmupPeriod`. */
   readonly warmupPeriod = 0.5
   /** The rest after a capture before detection re-arms, and the hold before the FLC phase arms, in
-   *  seconds of AUDIO (#19). Swift `tapCooldown`. */
+   *  seconds of AUDIO. Swift `tapCooldown`. */
   readonly tapCooldown = 0.5
   /** After the LAST guitar tap, "All taps captured. Processing..." shows for this much AUDIO before
-   *  the taps are averaged (#19). Swift `captureWindow`. */
+   *  the taps are averaged. Swift `captureWindow`. */
   readonly captureWindow = 0.2
   /** Consecutive above-threshold chunks required to confirm a tap. */
   readonly confirmChunks = 2
@@ -1488,34 +1536,32 @@ export class TapToneAnalyzer {
   /** Absolute detection threshold (dBFS). Owned here, as Swift owns it; App pushes the setting. */
   /** The tap-detection threshold in dBFS, mirrored in from settings by `setSettings`. Read by
    *  `detectTap` — absolute for guitar, the base of the relative rule for material. Swift and
-   *  Python hold the same value on the analyzer (#17 F30/F40). */
+   *  Python hold the same value on the analyzer. */
   tapDetectionThreshold = -40
 
   /** A gated capture window is filling. Swift `gatedCaptureActive`. */
   gatedCaptureActive = false
 
-  // ── Hysteresis (OUT-4) — mirrors Swift/Python `isAboveThreshold` ────────────────────────────────
+  // ── Hysteresis — mirrors Swift/Python `isAboveThreshold` ────────────────────────────────────────
   // A LATCH, and the gate on counting: it goes true when a tap is CONFIRMED and clears only at the
   // lower FALLING threshold, so the ring-out decay envelope cannot re-trigger a tap on its way down.
   // While it is up nothing counts, which is what makes the hysteresis real rather than advisory.
   //
-  // It used to share that job with a separate `prevAbove` edge flag — the latch raised on the first
-  // above-rising chunk, the firing gated on the edge — and because the edge cleared at RISING while
-  // the latch cleared at FALLING, a ring-out in the 3 dB between them re-armed the detector. One
-  // flag now, as in Swift and Python (#17). The web had no hysteresis at all before OUT-4; Swift and
-  // Python have carried `hysteresisMargin = 3.0` all along.
+  // One flag does both jobs, as in Swift and Python: with a separate edge flag clearing at RISING
+  // while the latch clears at FALLING, a ring-out in the 3 dB between them would re-arm the detector.
+  // The margin is `hysteresisMargin` (3.0 dB), the same in all three editions.
 
-  // ── Noise-floor EMA (OUT-4) — mirrors Swift/Python `noiseFloorEstimate` ─────────────────────────
+  // ── Noise-floor EMA — mirrors Swift/Python `noiseFloorEstimate` ─────────────────────────────────
   // Material (plate/brace) detects RELATIVE to the tracked ambient floor, not against a fixed dBFS
   // level. The rule reduces to `rising = max(threshold, noiseFloor + 10 dB)` — i.e. it is the absolute
   // threshold with a FLOOR under it, so it only differs once the room gets loud. That is what keeps
   // detection working when ambient noise is elevated; a fixed threshold simply saturates (the level
   // never drops below it, so no rising edge can ever be confirmed) and the app goes deaf.
-  // Guitar stays absolute. See Development/OUT-4-DETECTION-SPEC.md.
+  // Guitar stays absolute.
 
-  // ── Detection warm-up (OUT-4) — mirrors Swift/Python `warmupStartAudioTime` ─────────────────────
+  // ── Detection warm-up — mirrors Swift/Python `warmupStartAudioTime` ─────────────────────────────
   // Value of the AUDIO clock when the sequence armed; detection is suppressed for WARMUP_SECONDS of
-  // AUDIO after it. SILENT — it never writes a status message (that was OUT-1). Its real job is to
+  // AUDIO after it. SILENT — it never writes a status message. Its real job is to
   // let the noise-floor EMA converge before the first tap is judged, and to re-anchor the floor to
   // real audio at exit. Measured on the audio clock, never the wall clock: the warm-up must cover the
   // first 0.5 s of AUDIO however long setup took. `null` = not armed / warm-up skipped.
@@ -1526,9 +1572,9 @@ export class TapToneAnalyzer {
   private inputLevelDb = -100
   /** The audio clock as the analyzer has seen it: the audio time of the latest chunk to reach
    *  detection, recorded on every chunk before any guard. The tap-lifecycle timers run on THIS clock,
-   *  not the wall clock (#19): file playback advances audio at "real time + processing time", so a
-   *  wall-clock delay covered a different stretch of audio on a slower run and late captures in a
-   *  sequence moved. Swift `lastAudioTime`. */
+   *  not the wall clock: file playback advances audio at "real time + processing time", so a
+   *  wall-clock delay would cover a different stretch of audio on a slower run and move late captures
+   *  in a sequence. Swift `lastAudioTime`. */
   lastAudioTime = 0
   /** The level of that chunk — a re-arm that falls due re-anchors the latch from it. Swift
    *  `lastChunkLevelDB`. */
@@ -1536,7 +1582,7 @@ export class TapToneAnalyzer {
   /** Tap-lifecycle actions waiting on the audio clock — see `afterAudio`. Swift `pendingAudioActions`. */
   private pendingAudioActions: { due: number; releasedAtFileEnd: boolean; action: () => void }[] = []
   /** The WALL time (`performance.now()`) at which the latest chunk reached `processAudioFrame` — what the
-   *  capture safety timeout measures its silence from (#19). Swift `lastChunkWallTime`. */
+   *  capture safety timeout measures its silence from. Swift `lastChunkWallTime`. */
   private lastChunkWallTime = 0
   /** Identity of the current gated capture, so a stale safety timeout does nothing. Swift `gatedCaptureID`. */
   private gatedCaptureId = 0
@@ -1553,7 +1599,9 @@ export class TapToneAnalyzer {
   readonly decayTrackingDuration = 3.0
   /** Swift `isTrackingDecay`. */
   isTrackingDecay = false
-  private noiseFloorEstimate = -60
+  /** The EMA-tracked input noise floor (dBFS) the relative detector rises from. Swift/Python
+   *  `noiseFloorEstimate` — readable, as there (the noisy-plate regression checks it converged). */
+  noiseFloorEstimate = -60
   private justExitedWarmup = false
   private warmupStartAudioTime: number | null = null
 
@@ -1602,7 +1650,7 @@ export class TapToneAnalyzer {
     this.sessionRate = this.device?.sampleRate ?? 48000
     this.sessionActive = true
     this.sessionRecording = true
-    this.sessionPreRollActive = true // bound the pre-first-tap audio to ~2 s (§6)
+    this.sessionPreRollActive = true // bound the pre-first-tap audio to ~2 s
   }
 
   /** Mark a phase boundary (SAMPLE count) so a later redo can truncate the rejected phase's audio
@@ -1618,12 +1666,12 @@ export class TapToneAnalyzer {
     if (cp < this.sessionSamples.length) {
       this.sessionSamples.length = cp
       // Redoing the FIRST phase empties the buffer back to the pre-first-tap state, so re-arm the
-      // bounded pre-roll (§6). Later phases keep the latch frozen. Mirrors Swift redoCurrentPhase.
+      // bounded pre-roll. Later phases keep the latch frozen. Mirrors Swift redoCurrentPhase.
       if (cp === 0) this.sessionPreRollActive = true
     }
   }
 
-  /** Append one chunk to the session WAV buffer and maintain the bounded pre-roll (§6).
+  /** Append one chunk to the session WAV buffer and maintain the bounded pre-roll.
    *
    *  Before the first tap (sessionPreRollActive): keep only the last ~2 s — the tap is always in
    *  the tail, so trimming the head never eats it; this just discards accumulated idle. The first
@@ -1635,8 +1683,7 @@ export class TapToneAnalyzer {
     if (!this.sessionPreRollActive) return // frozen after the first tap → fully live
     if (this.gatedCaptureActive) {
       // The first tap has started — freeze the pre-roll. The latch is owned HERE, as in Swift and
-      // Python (`if gatedCaptureActive { sessionPreRollActive = false }`); it used to be cleared in
-      // the capture start (then `beginCapture`) instead, a second owner of one rule (#17 F47).
+      // Python (`if gatedCaptureActive { sessionPreRollActive = false }`), so one rule has one owner.
       this.sessionPreRollActive = false
     } else {
       const excess = this.sessionSamples.length - this.sessionPreRollSamples
@@ -1677,7 +1724,7 @@ export class TapToneAnalyzer {
 
   /** The audio pipeline hands every chunk here: the analyzer keeps the pre-roll, judges the level
    *  and fills the capture window. Swift's analyzer does the same from its FFT subscriber and the
-   *  audio-queue level-crossing handler (#17 F30). */
+   *  audio-queue level-crossing handler. */
   processAudioFrame(samples: Float32Array, levelDb: number, audioTime: number): void {
     this.inputLevelDb = levelDb
     const rate = this.device?.sampleRate ?? this.captureSampleRate
@@ -1687,10 +1734,10 @@ export class TapToneAnalyzer {
     if (this.gatedCaptureActive) this.feedCapture(samples)
     // The chunk reaches detection AFTER its samples fed the capture — as in Swift, where a filled
     // capture's finish is queued on the main thread ahead of the same chunk's level. So a finish sees
-    // the audio clock at the end of the previous chunk, in every edition (#19).
+    // the audio clock at the end of the previous chunk, in every edition.
     //
     // Advance the analyzer's audio clock and run any lifecycle action this chunk makes due — before
-    // the guards, since a re-arm is what turns detection back on (#19). A chunk that made an action
+    // the guards, since a re-arm is what turns detection back on. A chunk that made an action
     // due is not also detected on: a re-arm has just re-anchored the latch from it. Swift
     // `onRmsLevelChanged`.
     this.lastAudioTime = audioTime
@@ -1708,11 +1755,11 @@ export class TapToneAnalyzer {
     this.trackDecayFast(levelDb, audioTime)
   }
 
-  // ── Audio-clock lifecycle timers (#19) — Swift afterAudio / runDueAudioActions ───────────────────
+  // ── Audio-clock lifecycle timers — Swift afterAudio / runDueAudioActions ─────────────────────────
 
   /** Schedule `action` once the audio clock has advanced `delay` seconds past `lastAudioTime`. The tap
    *  lifecycle's delays — the rest before re-arming, the FLC hold, the capture window — run on this
-   *  clock, never the wall clock (#19). The action runs from `processAudioFrame`, on the first chunk
+   *  clock, never the wall clock. The action runs from `processAudioFrame`, on the first chunk
    *  whose audio time reaches the due time. Like Swift's, it cannot be cancelled; each action guards
    *  itself. `releasedAtFileEnd`: run it at once when file playback ends, if still pending — with no
    *  more audio the clock stops, and the capture window's processing would otherwise never run. A
@@ -1750,9 +1797,9 @@ export class TapToneAnalyzer {
 
   /** File playback has ended: finish any capture the file stopped filling — zero-padded to the window,
    *  as guitar OR material — then release what the ended audio clock can no longer make due (the
-   *  capture window's processing, #19). Called by the engine at file end (its `preMicRestartHandler`),
-   *  as Swift's and Python's are; the web used to be flushed by the view, and dropped a partial
-   *  MATERIAL capture. Swift `flushGatedCaptureOnFileEnd`. */
+   *  capture window's processing). Called by the engine at file end (its `preMicRestartHandler`),
+   *  as Swift's and Python's are, so a partial capture of either kind is kept. Swift
+   *  `flushGatedCaptureOnFileEnd`. */
   flushGatedCaptureOnFileEnd(): void {
     try {
       if (!this.gatedCaptureActive) return
@@ -1791,7 +1838,7 @@ export class TapToneAnalyzer {
   }
 
   /** Point the capture at a material phase's search range — the buffers only. How detection then
-   *  resumes is the caller's: the natives arm a material phase in three different shapes (#19). */
+   *  resumes is the caller's: the natives arm a material phase in three different shapes. */
   private prepareMaterialCapture(search: MaterialSearch): void {
     if (this.preroll.length === 0) this.resizeCaptureBuffers(this.device?.sampleRate ?? this.captureSampleRate)
     this.captureKind = 'material'
@@ -1811,8 +1858,7 @@ export class TapToneAnalyzer {
 
   /** Arm a phase at a user transition — Accept, Redo — or when the FLC hold ends: the latch from the
    *  given level and the warm-up restarted at the given audio time; the noise floor is left alone.
-   *  Swift acceptCurrentPhase / redoCurrentPhase and the FLC hold's closure. (The web used to reset
-   *  the noise floor here too — #19.) */
+   *  Swift acceptCurrentPhase / redoCurrentPhase and the FLC hold's closure. */
   private armMaterialPhase(search: MaterialSearch, levelDb: number, warmupAt: number): void {
     this.prepareMaterialCapture(search)
     this.isAboveThreshold = levelDb > this.tapDetectionThreshold - this.hysteresisMargin
@@ -1823,8 +1869,7 @@ export class TapToneAnalyzer {
 
   /** File playback's auto-advance to the next phase: listening at once, the latch ABOVE, so the last
    *  tap's ring-out must fall before anything counts; no warm-up, the noise floor left alone. Swift's
-   *  file-playback L → C / C → FLC advance. (The web used to restart the warm-up and reset the floor —
-   *  #19.) */
+   *  file-playback L → C / C → FLC advance. */
   private autoAdvanceMaterialPhase(search: MaterialSearch): void {
     this.prepareMaterialCapture(search)
     this.isAboveThreshold = true
@@ -1833,8 +1878,7 @@ export class TapToneAnalyzer {
 
   /** Between taps of one plate/brace phase, and after a rejected tap: rest `tapCooldown` of AUDIO,
    *  then re-arm from the chunk that made the rest due. The warm-up and the noise floor are NOT
-   *  restarted. Swift `reEnableDetectionForNextPlateTap` (#19; the web used to re-arm at once and
-   *  restart the warm-up). */
+   *  restarted. Swift `reEnableDetectionForNextPlateTap`. */
   private reEnableDetectionForNextPlateTap(): void {
     this.afterAudio(this.tapCooldown, () => {
       this.reArmFromCurrentChunk()
@@ -1861,10 +1905,8 @@ export class TapToneAnalyzer {
   resumeTapDetection(): void {
     if (this.detectionState !== 'paused') return
     // Swift `resumeTapDetection`: the warm-up restarts from now and the latch goes down; the noise floor
-    // and the sync flag are left as they were. (This went through `armWarmup`, which also reset the floor
-    // to -60 and, in guitar file playback, skipped the warm-up and latched above — #17 F50 item 13.) The
-    // tap counter restarts too, so a chunk counted before the pause cannot help confirm a tap after it —
-    // which Swift and Python now do as well.
+    // and the sync flag are left as they were. The tap counter restarts too, so a chunk counted before
+    // the pause cannot help confirm a tap after it, as in Swift and Python.
     this.warmupStartAudioTime = this.device?.audioTime ?? 0
     this.isAboveThreshold = false
     this.consecutive = 0
@@ -1892,7 +1934,7 @@ export class TapToneAnalyzer {
 
   private detectTap(levelDb: number, audioTime: number): void {
     // Plate and brace detect relative to the noise floor — decided by the measurement type, as Swift's
-    // `detectTap` does (#17 F50).
+    // `detectTap` does.
     const useRelative = this.measurementType === 'plate' || this.measurementType === 'brace'
     const threshold = this.tapDetectionThreshold
 
@@ -1920,7 +1962,7 @@ export class TapToneAnalyzer {
       falling = threshold - this.hysteresisMargin
     }
 
-    // 3a. Warm-up — SILENT (it never writes a status message; that was OUT-1). Suppresses detection
+    // 3a. Warm-up — SILENT (it never writes a status message). Suppresses detection
     //     while the EMA converges, measured on the AUDIO clock against this chunk's timestamp.
     if (this.warmupStartAudioTime !== null && audioTime - this.warmupStartAudioTime < this.warmupPeriod) {
       this.justExitedWarmup = true // the NEXT frame is the first after warm-up
@@ -1947,14 +1989,9 @@ export class TapToneAnalyzer {
     //     this.confirmChunks consecutive above-rising chunks, which rejects brief noise bumps.
     // `isAboveThreshold` is BOTH the hysteresis latch and the gate on counting, exactly as in Swift
     // and Python: while it is up, nothing counts and nothing can fire, so the signal must fall below
-    // `falling` before another tap is possible.
-    //
-    // This used to raise the latch on the FIRST above-`rising` frame and gate firing on a separate
-    // `prevAbove` edge, which cleared as soon as the level dipped below `rising`. Between taps of a
-    // multi-tap sequence — capture finished, signal not yet settled — a ring-out that decayed past
-    // `rising` but never reached `falling` therefore re-armed the detector, and its next swing up
-    // was taken as the following tap: the sequence finished early with a decay averaged in place of
-    // a strike. Three dB of margin is a narrow window, which is why no run-review ever hit it (#17).
+    // `falling` before another tap is possible. So between taps of a multi-tap sequence — capture
+    // finished, signal not yet settled — a ring-out that decays past `rising` but never reaches
+    // `falling` cannot re-arm the detector and have its next swing up taken as the following tap.
     if (this.isAboveThreshold) {
       if (levelDb <= falling) {
         this.isAboveThreshold = false
@@ -1980,9 +2017,8 @@ export class TapToneAnalyzer {
   // @parity dsp/decay tests=test/decay-tracking
   // Swift TapToneAnalyzer+DecayTracking / Python tap_tone_analyzer_decay_tracking. After a guitar tap
   // the per-chunk broadband level (the same dB detection sees) is recorded against AUDIO time; the
-  // ring-out is the time from the post-tap peak down to peak − `decayThreshold`. It lived in the
-  // engine (a `DecayTracker` started from the engine's own clock); it is on the analyzer now, as in the
-  // natives, and started from the confirming chunk's audio time (#17 F50).
+  // ring-out is the time from the post-tap peak down to peak − `decayThreshold`. It is on the analyzer,
+  // as in the natives, and starts from the confirming chunk's audio time.
 
   /** Start a fresh ring-out window for a tap confirmed at `tapAudioTime`, seeded with the peak-held
    *  level. Swift `startDecayTracking(tapAudioTime:)`. */
@@ -2034,20 +2070,18 @@ export class TapToneAnalyzer {
     this.justExitedWarmup = false
     // Mirrors Swift startTapSequence's `isAboveThreshold = skipWarmup`. With the warm-up running,
     // the post-warm-up sync frame sets the latch from the first real level; when it is SKIPPED there
-    // is no such frame, so the detector starts latched and a tap needs a genuine fall first. This is
-    // what `prevAbove = true` used to do at each arm site.
+    // is no such frame, so the detector starts latched and a tap needs a genuine fall first.
     this.isAboveThreshold = skip
     // Seed the floor from the current input level, as Swift's startTapSequence does; the warm-up's EMA
     // converges it and the warm-up's exit re-anchors it. -100 when the warm-up is skipped (guitar file
-    // playback), where the floor is never read. (This seeded a fixed -60 — #17 F50 item 13.)
+    // playback), where the floor is never read.
     this.noiseFloorEstimate = skip ? -100 : this.inputLevelDb
   }
 
   /** A confirmed tap: detection goes off first — it stays off through the capture and the rest — then
    *  the tap is routed by capture kind. Swift `handleTapDetection(magnitudes:frequencies:time:audioTime:)`:
    *  a guitar tap starts the ring-out at its audio time, shows "capturing", and opens the guitar capture;
-   *  a plate/brace tap goes to `handlePlateTapDetection`. (The web did all of this inside `detectTap`,
-   *  with one `beginCapture` for both kinds and no phase check — #17 F50 item 7.) */
+   *  a plate/brace tap goes to `handlePlateTapDetection`. */
   private handleTapDetection(audioTime: number): void {
     this.detectionState = 'idle'
     if (!this.isGuitar) {
@@ -2096,7 +2130,7 @@ export class TapToneAnalyzer {
    *  Swift `startGatedCapture(phase:)`, with its safety timeout: once NO audio has arrived for 2 s, finish
    *  whatever arrived, or with nothing, say so and rest before re-arming (T6). On the WALL clock, since it
    *  exists for when the audio STOPS, and measured from the LAST chunk, so it never fires while audio is
-   *  merely slow (#19). */
+   *  merely slow. */
   private startGatedCapture(phase: MaterialTapPhase): void {
     // A capture already filling absorbs the tap — Swift guards the same re-entry, comparing capture ids
     // because its window can start on the audio queue and finish before the main thread runs.
@@ -2174,9 +2208,9 @@ export class TapToneAnalyzer {
   // ── The gated capture's alignment and peak selection ──────────────────────────────────────────
   // @parity dsp/gated-capture tests=test/file-playback,test/tap-decisions
   // @parity dsp/gated-fft tests=test/gated-fft
-  // Swift keeps these on the analyzer (TapToneAnalyzer statics and +SpectrumCapture), as does Python; the
-  // web had them as free functions and module constants in src/dsp/gatedCapture.ts (#17 F50 item 2).
-  // The gated TRANSFORM is the engine's `computeGatedFFT`, as Swift's is its FFT analyzer's.
+  // Swift keeps these on the analyzer (TapToneAnalyzer statics and +SpectrumCapture), as does Python,
+  // and so does the web. The gated TRANSFORM is the engine's `computeGatedFFT`, as Swift's is its FFT
+  // analyzer's.
 
   /** The material capture window, in seconds — longer than `gatedFFTWindowDuration` so the aligner has
    *  room to find the onset. Swift `gatedCaptureDuration`. */
@@ -2269,7 +2303,7 @@ export class TapToneAnalyzer {
     minHz: number,
     maxHz: number,
     preferLowestSignificant = false,
-  ): DetectedMaterialPeak | null {
+  ): ResonantPeak | null {
     const n = magnitudesDb.length
     if (n !== frequencies.length || n <= 10) return null
     const startIdx = frequencies.findIndex((f) => f >= minHz)
@@ -2327,12 +2361,20 @@ export class TapToneAnalyzer {
 
     const { frequency, magnitude } = parabolicInterpolate(magnitudesDb, frequencies, best.index)
     const { quality, bandwidth } = calculateQ(magnitudesDb, frequencies, best.index, magnitude)
-    return { frequency, magnitude, quality, bandwidth }
+    return makeResonantPeak({
+      frequency,
+      magnitude,
+      quality,
+      bandwidth,
+      pitchNote: this.pitchCalculator.note(frequency),
+      pitchCents: this.pitchCalculator.cents(frequency),
+      pitchFrequency: this.pitchCalculator.freq0(frequency),
+    })
   }
 
   /** A material (plate/brace) gated capture is complete: compute its gated spectrum and record the tap
    *  for `phase`. Mirrors Swift/Python `finishGatedFFTCapture(samples:sampleRate:phase:)` — public, as
-   *  there, so tests drive the same production path the audio does (#17 F45). The analyzer owns the
+   *  there, so tests drive the same production path the audio does. The analyzer owns the
    *  per-tap validity gate, the tap count, the re-arm and the L→C→FLC advance (recordMaterialTap). */
   finishGatedFFTCapture(samples: Float32Array, sampleRate: number, phase: MaterialTapPhase): void {
     // Align to the sample-level onset, then the calibrated gated transform — Swift's
@@ -2355,12 +2397,10 @@ export class TapToneAnalyzer {
    *  tap — then rest through the tap cooldown and re-arm, or, after the last tap, average.
    *
    *  Mirrors Swift/Python `finishGuitarGatedCapture(samples:sampleRate:)` — public, with the same job
-   *  and the same timing (#17 F45). The web used to do this inside `finishCapture` and re-arm
-   *  IMMEDIATELY, relying on the hysteresis latch alone, where both natives stop detecting for
-   *  `tapCooldown` (0.5 s) and then re-anchor the latch from the current level; and it averaged the
-   *  taps at once, where both natives show "All taps captured. Processing..." for `captureWindow`
-   *  (0.2 s) first. Both waits are wall-clock timers, as in the natives — #19 moves all three editions
-   *  to audio time together.
+   *  and the same timing: before the next tap, detection stops for `tapCooldown` (0.5 s) and then
+   *  re-anchors the latch from the current level; after the last tap, "All taps captured.
+   *  Processing..." shows for `captureWindow` (0.2 s) before the taps are averaged. Both waits run on
+   *  the audio clock.
    *
    *  The capture window is aligned to the sample-level tap onset so chunk-boundary differences (live
    *  vs file playback) don't shift the FFT input. */
@@ -2387,12 +2427,12 @@ export class TapToneAnalyzer {
     this.finishSessionRecording(`Guitar_${total}tap`) // write the continuous session WAV (dump-gated)
     this.setStatusMessage('All taps captured. Processing...')
     this.notify()
-    // `captureWindow` of AUDIO (#19). Released at file end: when the last capture ends with the file,
+    // `captureWindow` of AUDIO. Released at file end: when the last capture ends with the file,
     // the audio clock stops and would never make it due.
     this.afterAudio(this.captureWindow, () => this.processMultipleTaps(), true)
   }
 
-  /** Re-arm guitar detection after the rest: `tapCooldown` of AUDIO (#19), then the latch is
+  /** Re-arm guitar detection after the rest: `tapCooldown` of AUDIO, then the latch is
    *  re-anchored from the chunk that made the rest due. After each captured tap of a multi-tap
    *  sequence, and when a capture timed out with no audio. Swift `scheduleGuitarReEnable`. */
   private scheduleGuitarReEnable(): void {
@@ -2463,7 +2503,10 @@ export class TapToneAnalyzer {
         highlightedPeakId: this.highlightedPeakId,
         canReanalyze: this.canReanalyze,
         matSpectra: this.matSpectra,
-        matPeaks: this.matPeaks,
+        selectedLongitudinalPeak: this.selectedLongitudinalPeak,
+        selectedCrossPeak: this.selectedCrossPeak,
+        selectedFlcPeak: this.selectedFlcPeak,
+        materialIdentifiedPeaks: this.materialIdentifiedPeaks,
         gatedCaptureActive: this.gatedCaptureActive,
         materialInputs: this.materialInputs,
         displayMode: this.displayMode,
@@ -2578,7 +2621,7 @@ export class TapToneAnalyzer {
   // Every real status write goes through setStatusMessage: it stashes `latestRealStatus` and displays
   // the message UNLESS clipping is active (then the warning stays pinned). setClipping swaps the display
   // to the warning and, when it clears, restores `latestRealStatus`. Callers notify (setStatusMessage
-  // does not) so multi-field transitions render once. 3c-C4 D3.
+  // does not) so multi-field transitions render once.
   private setStatusMessage(msg: string): void {
     this.latestRealStatus = msg
     this.applyStatusOverrides()
@@ -2609,9 +2652,8 @@ export class TapToneAnalyzer {
   }
 
   /** The device forwards its dead-input watchdog here (Swift `fftAnalyzer.$inputAppearsDead` sink /
-   *  Python `_set_input_appears_dead`). The engine has detected and retried a silent input since the
-   *  watchdog landed; until now nothing read the flag, so web alone told the user nothing while both
-   *  natives showed the warning (#17 F37). */
+   *  Python `_set_input_appears_dead`). Raises the "no audio input" warning over the status while the
+   *  engine reports a silent input, and restores the status when it clears, as both natives do. */
   setInputAppearsDead(dead: boolean): void {
     if (dead === this.inputAppearsDead) return
     this.inputAppearsDead = dead
@@ -2621,7 +2663,7 @@ export class TapToneAnalyzer {
 
   /** The user acknowledged the microphone warning — it has been read, so it ends here. Mirrors
    *  Swift, where the alert's OK button and its binding both clear `microphoneWarning`, and Python's
-   *  `_on_microphone_warning_changed` clearing after the modal (#17 F41). */
+   *  `_on_microphone_warning_changed` clearing after the modal. */
   clearMicrophoneWarning(): void {
     if (this.microphoneWarning === null) return
     this.microphoneWarning = null
@@ -2645,9 +2687,9 @@ export class TapToneAnalyzer {
    *  single source for these strings.
    *
    *  Three callers, which is the point: `startTapSequence` (which sets the phase before the status),
-   *  the phase advances in `acceptMaterial`, and `restingPrompt()`. They used to hold two sets of
-   *  literals, so a resume or a tap-count change could reword the instruction the user was
-   *  following. Mirrors Swift `materialArmPrompt()` and Python `_material_arm_prompt()` (#17 F37).
+   *  the phase advances in `acceptMaterial`, and `restingPrompt()` — so a resume or a tap-count
+   *  change cannot reword the instruction the user is following. Mirrors Swift `materialArmPrompt()`
+   *  and Python `_material_arm_prompt()`.
    *
    *  The fL branch is count-aware, because that is the phase whose prompt names the tap count and
    *  the only phase where the Taps stepper is still unlocked. */
@@ -2670,18 +2712,15 @@ export class TapToneAnalyzer {
 
   /** The status to restore when a device-change settle ends, or `null` to leave it alone.
    *
-   *  The settle used to CHOOSE between two strings, which is wrong in both directions: mid-sequence
-   *  it said "Tap the guitar 3 times…" when a tap was already captured, and on a finished
-   *  measurement it said "Tap 1/1 captured. Tap again..." — instructing the user to tap again on a
-   *  sequence that was done, quoting an N that went stale the moment the tap count changed. The
-   *  status is a function of state, so derive it rather than guessing — and say nothing where the
-   *  status is a RESULT announcement rather than a live prompt, because a completed or loaded
-   *  measurement's status ("Analysis complete! N peaks…", "Loaded measurement (frozen)") is not
-   *  re-derivable and must not be thrown away. Mirrors Swift statusAfterSettle() and Python
-   *  _status_after_settle() (#17 F33). */
+   *  A live prompt is a function of state, so it is derived rather than chosen from fixed strings —
+   *  a mid-sequence prompt then counts the taps already captured, and a finished measurement is
+   *  never told to tap again. Nothing is returned where the status is a RESULT announcement rather
+   *  than a live prompt, because a completed or loaded measurement's status ("Analysis complete! N
+   *  peaks…", "Loaded measurement (frozen)") is not re-derivable and must not be thrown away.
+   *  Mirrors Swift statusAfterSettle() and Python _status_after_settle(). */
   /** The status to show when a settle ends, given what it said before the settle began. The whole
    *  decision in one pure function, so every edition can pin it. Mirrors Swift
-   *  restoredStatus(before:) and Python _restored_status() (#17 F33). */
+   *  restoredStatus(before:) and Python _restored_status(). */
   restoredStatus(before: string): string {
     return this.statusAfterSettle() ?? before
   }
@@ -2715,7 +2754,7 @@ export class TapToneAnalyzer {
   /** Material completion string: plate without FLC shows fL + fC; otherwise a generic complete. */
   private materialCompleteString(): string {
     if (this.measurementType !== 'brace' && !this.measureFlc) {
-      return `Complete — fL: ${fHz(this.matPeaks.longitudinal)} Hz, fC: ${fHz(this.matPeaks.cross)} Hz`
+      return `Complete — fL: ${fHz(this.selectedLongitudinalPeak)} Hz, fC: ${fHz(this.selectedCrossPeak)} Hz`
     }
     return 'Complete - check Results'
   }
@@ -2724,24 +2763,21 @@ export class TapToneAnalyzer {
   setNumberOfTaps(n: number): void {
     this.numberOfTaps = n
     // A tap-count change while armed and waiting for the first tap refreshes the prompt ("Tap the
-    // guitar N times…"), mirroring Swift numberOfTaps.didSet. (No-op mid-capture / when complete.)
-    // The `!isMeasurementComplete` term this used to carry was a third spelling of one predicate —
-    // completion sets detectionState to idle in all three editions, so isDetecting already covers
-    // it, and three spellings is how the guards came to differ in the first place (#17 F36).
+    // guitar N times…"), mirroring Swift numberOfTaps.didSet. (No-op mid-capture / when complete:
+    // completion sets detectionState to idle in all three editions, so isDetecting covers it.)
     if (this.isDetecting && this.currentTapCount === 0) {
       this.setStatusMessage(this.restingPrompt())
     }
     // The user changed Taps, so the loaded measurement's settings no longer describe what is on
-    // screen. Mirrors Swift numberOfTaps.didSet and Python set_tap_num (#17 F40).
+    // screen. Mirrors Swift numberOfTaps.didSet and Python set_tap_num.
     this.showLoadedSettingsWarning = false
     this.notify()
   }
 
   /** The user changed a setting the loaded measurement also carries, so its banner no longer
    *  applies. Swift and Python do this inside `tapDetectionThreshold`'s setter, which they can
-   *  because the threshold is analyzer state there; on the web it lives in `settings`, so the view
-   *  reports the change instead. That the web's threshold is not analyzer state is a SEPARATE
-   *  divergence, deliberately not folded in here (#17 F40). */
+   *  because the threshold is analyzer state there; on the web the slider writes `settings`, so the
+   *  view reports the change instead. */
   noteLoadedSettingsDeviation(): void {
     if (!this.showLoadedSettingsWarning) return
     this.showLoadedSettingsWarning = false
@@ -2783,23 +2819,26 @@ export class TapToneAnalyzer {
    *  the resting prompt (Swift route-change status). The device layer drives both edges. */
   handleDeviceChange(settling: boolean): void {
     // Readiness follows the settle, as it does in Swift (`isReadyForDetection`, false for
-    // fftSettleTime) and Python. New Tap is disabled while the input is reinitialising; the field
-    // was declared here and never written until #17 F32, so web showed no disable at all.
+    // fftSettleTime) and Python. New Tap is disabled while the input is reinitialising.
     this.isReadyForDetection = !settling
     if (settling) {
       // Remember what the status said BEFORE the transient replaces it. statusAfterSettle() returns
       // null for the states whose status is a result announcement rather than a prompt, and "leave
-      // it alone" has to mean restoring THIS — not leaving the transient up forever, which is what
-      // it meant on the first pass (#17 F33). Guarded so a repeated settling edge cannot capture
-      // the transient itself.
-      // `latestRealStatus`, NOT `statusMessage`: the latter is the OVERRIDE-RESOLVED string, so a
-      // route change while the input was clipping or dead preserved the warning sentinel and fed it
-      // back through setStatusMessage() as the real status — after which clearing the condition
-      // restored the warning. The override layer re-resolves on its own (#17 F37).
+      // it alone" means restoring THIS, not leaving the transient up. Guarded so a repeated settling
+      // edge cannot capture the transient itself.
+      // `latestRealStatus`, NOT `statusMessage`: the latter is the OVERRIDE-RESOLVED string, and
+      // feeding a clipping or dead-input warning back through setStatusMessage() as the real status
+      // would restore the warning after its condition cleared. The override layer re-resolves on its own.
       if (this.statusBeforeSettle === null) this.statusBeforeSettle = this.latestRealStatus
       // Blank the chart only if a LIVE spectrum is on screen — a completed or loaded measurement
-      // keeps its result, exactly as in Swift/Python (#17 F35).
-      if (!this.isMeasurementComplete && this.displayMode !== 'comparison') this.isSettling = true
+      // keeps its result, exactly as in Swift/Python.
+      if (!this.isMeasurementComplete && this.displayMode !== 'comparison') {
+        this.isSettling = true
+        // Clear the peak annotations so they don't float on a blank chart during the settle (Swift).
+        this.peaks = []
+        this.modeByPeak = new Map()
+        this.refreshDisplayedPeaks()
+      }
       this.setStatusMessage('Audio device changed - reinitializing...')
     } else {
       this.isSettling = false
@@ -2833,45 +2872,50 @@ export interface TapToneSnapshot {
   isGuitar: boolean
   /** Frozen guitar result (averaged capture or loaded measurement); null while live/not complete. */
   frozenSpectrum: Spectrum | null
-  /** Per-tap entries (spectrum + peaks) for the multi-tap comparison view ([] unless a multi-tap result). */
+  /** Per-tap entries (snapshot + peaks + auto-selection) for the multi-tap comparison view ([] unless a multi-tap result). */
   tapEntries: TapEntry[]
   /** The DURABLE guitar peak set, found at the -100 dB floor — what selection and the save path read. */
-  peaks: Peak[]
+  peaks: ResonantPeak[]
   /** A loaded measurement's authoritative saved peaks, or null for a live capture. Analyzer-owned so
    *  it can never be seen out of step with the frozen spectrum. */
-  loadedPeaks: Peak[] | null
+  loadedPeaks: ResonantPeak[] | null
   /** The Peak-Min display projection of `peaks` (material passes through unfiltered). What the peak
    *  list, the chart dots and the live ratio read. Never the set to save. */
-  peaksAbovePeakMin: Peak[]
+  peaksAbovePeakMin: ResonantPeak[]
   /** The Peak Min display threshold the projection was computed at. */
   peakMinThreshold: number
   /** Mode classification for `peaks`, keyed by peak id. */
-  modeByPeak: Map<number, ResolvedMode>
-  /** Manual mode-label overrides, keyed by peak `id` (RA — analyzer-owned, was the view's freq map). */
-  overrides: Map<number, string>
-  /** Dragged annotation-label positions, keyed by peak `id` (RB — one store for guitar + material). */
-  annotationOffsets: Map<number, [number, number]>
-  /** The definitive-peak selection, by peak `id` (RC — concrete analyzer state). */
-  selectedPeakIds: Set<number>
+  modeByPeak: Map<string, ResolvedMode>
+  /** Manual mode-label overrides, keyed by peak `id` (analyzer-owned). */
+  overrides: Map<string, string>
+  /** Dragged annotation-label positions, keyed by peak `id` (one store for guitar + material). */
+  annotationOffsets: Map<string, [number, number]>
+  /** The definitive-peak selection, by peak `id` (concrete analyzer state). */
+  selectedPeakIds: Set<string>
   /** Whether the selection was hand-modified since the last auto-select (drives the wand's enabled state). */
   userModifiedSelection: boolean
   /** The highlighted peak id (chart-dot ↔ results-row cross-highlight), or null. Transient view state. */
-  highlightedPeakId: number | null
+  highlightedPeakId: string | null
   /** Whether the Re-analyze button is offered (any complete guitar measurement with a frozen
    *  spectrum; never material). See `TapToneAnalyzer.canReanalyze` for why it is not a dirty flag. */
   canReanalyze: boolean
   /** Material (plate/brace) per-phase result spectra. */
   matSpectra: MatSpectra
-  /** Material (plate/brace) per-phase located peaks. */
-  matPeaks: MaterialPeaks
+  /** The identified peak of each material phase (Swift selectedLongitudinalPeak / Cross / Flc). */
+  selectedLongitudinalPeak: ResonantPeak | null
+  selectedCrossPeak: ResonantPeak | null
+  selectedFlcPeak: ResonantPeak | null
+  /** The identified peaks found so far, in phase order — a material measurement's peaks (Swift
+   *  `materialIdentifiedPeaks`); empty for guitar. */
+  materialIdentifiedPeaks: ResonantPeak[]
   /** A gated capture window is filling — the status bar's "capturing" distinction. Swift
    *  `gatedCaptureActive`. */
   gatedCaptureActive: boolean
   /** Store B — the current material measurement's own dimensions; `null` for guitar and before a
-   *  material measurement completes. Seeded at the completion transition (#17 F26). */
+   *  material measurement completes. Seeded at the completion transition. */
   materialInputs: MaterialMeasurementInputs | null
-  /** What the spectrum is showing: live input, one frozen measurement, or an overlay.
-   *  Three states in one value, so "frozen AND comparison" cannot be represented (#17 F24). */
+  /** What the spectrum is showing: live input or the measurement's frozen result ('live'), or an
+   *  overlay ('comparison'). One value, so "frozen AND comparison" cannot be represented. */
   displayMode: DisplayMode
   /** Saved measurements currently overlaid; empty unless `displayMode` is 'comparison'. */
   comparisonEntries: ComparisonEntryModel[]
@@ -2881,8 +2925,6 @@ export interface TapToneSnapshot {
   isSavedMeasurementComparison: boolean
   /** The imperative status-bar message (set at every transition; clipping override applied). */
   statusMessage: string
-  /** The device engine state (idle/listening/capturing/paused) mirrored on the analyzer — the single
-   *  source for the status-bar className + the capturing/waiting distinction (3c-C5). */
   /** Input clipping (drives the threshold-slider red zone; the status override reads the private field). */
   isClipping: boolean
   /** Input delivering chunks with no signal — the dead-input watchdog's user-visible state. */

@@ -128,7 +128,7 @@ export interface RenderOpts {
   dotRectsOut?: DotHit[]
   /** The highlighted peak id (dot ↔ results-row cross-highlight) — its dot renders as a red star
    *  (mirrors Swift's macOS highlighted `star.fill`). Live chart only; omit for exports. */
-  highlightedPeakId?: number | null
+  highlightedPeakId?: string | null
   /** Live pointer crosshair (CSS px). Always-on hover readout; mirrors Python fft_canvas
    *  `_on_mouse_moved` / Swift desktop crosshair. Omitted for exports (no crosshair in PNG/PDF). */
   crosshair?: { x: number; y: number } | null
@@ -284,7 +284,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
   // Draw the primary (live/frozen) spectrum FIRST, then any overlays on top — matching Swift's
   // SpectrumView (primary line + materialSpectra together). Material capture paints the live base under
-  // the captured-phase overlays; comparison/multi-tap pass spectrum=null so only overlays draw (EG-2).
+  // the captured-phase overlays; comparison/multi-tap pass spectrum=null so only overlays draw.
   if (spectrum) drawCurve(spectrum.frequencies, spectrum.magnitudesDb, th.curve)
   for (const ov of overlays) drawCurve(ov.frequencies, ov.magnitudesDb, ov.color)
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { measurementWarning, guitarTapFilename } from '../src/measurement/fromLive'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 
-// Phase 4c — load-time provenance warning + import/export. The warning tiering mirrors
+// Load-time provenance warning + import/export. The warning tiering mirrors
 // Swift loadMeasurement / Python load_measurement: recorded mic ≠ current input → name
 // warning; same mic but calibration and/or sample rate differ → "different …" warning.
 

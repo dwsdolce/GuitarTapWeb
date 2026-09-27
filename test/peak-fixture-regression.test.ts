@@ -1,6 +1,6 @@
 // @parity test/peaks
 //
-// D3 + D5 + D6 of Development/PEAK-FINDING-DUPLICATE-PEAKS.md.
+// The duplicate-peak defect: fixture regressions.
 //
 // Port of PeakFixtureRegressionTests.swift. Replays real captured spectra through
 // findPeaks and pins the result against a golden baseline.
@@ -22,10 +22,11 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { findPeaks, type Peak } from '../src/dsp/peaks'
+import { findPeaks } from '../src/dsp/peaks'
 import { classifyAll, resolvedModePeaks } from '../src/dsp/classify'
 import { base64ToFloats } from '../src/measurement/base64'
 import type { GuitarTypeName } from '../src/dsp/guitarModes'
+import type { ResonantPeak } from '../src/measurement/types'
 
 const FIXTURE_DIR = join(__dirname, 'fixtures')
 const MIN_HZ = 30
@@ -121,7 +122,7 @@ describe('D3/D5 — fixture regression', () => {
     if (peaks.length !== want!.peakCount) return
 
     // Compare in frequency order so ordering changes don't masquerade as value changes.
-    const got: Peak[] = [...peaks].sort((a, b) => a.frequency - b.frequency)
+    const got: ResonantPeak[] = [...peaks].sort((a, b) => a.frequency - b.frequency)
     const exp = [...want!.peaks].sort((a, b) => a.frequency - b.frequency)
 
     for (let i = 0; i < got.length; i++) {

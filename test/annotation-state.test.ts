@@ -23,40 +23,40 @@ import { describe, it, expect } from 'vitest'
 import { buildGuitarMarkers } from '../src/presentation/measurementImage'
 import { reportPeaks } from '../src/presentation/spectrumExport'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import type { Peak } from '../src/dsp/peaks'
 import type { ResolvedMode } from '../src/dsp/classify'
+import type { ResonantPeak } from '../src/measurement/types'
 
 /** Three peaks, ids 1..3 — mirrors the 3-peak fixture the Swift/Python D4–D6 tests use. */
-const PEAKS: Peak[] = [
-  { id: 1, frequency: 97.4, magnitude: -63.2, quality: 10, bandwidth: 9.74 },
-  { id: 2, frequency: 197.4, magnitude: -41.5, quality: 10, bandwidth: 19.74 },
-  { id: 3, frequency: 239.6, magnitude: -54.5, quality: 10, bandwidth: 23.96 },
+const PEAKS: ResonantPeak[] = [
+  { id: '1', frequency: 97.4, magnitude: -63.2, quality: 10, bandwidth: 9.74, timestamp: '2026-09-25T00:00:00Z' },
+  { id: '2', frequency: 197.4, magnitude: -41.5, quality: 10, bandwidth: 19.74, timestamp: '2026-09-25T00:00:00Z' },
+  { id: '3', frequency: 239.6, magnitude: -54.5, quality: 10, bandwidth: 23.96, timestamp: '2026-09-25T00:00:00Z' },
 ]
 
-const MODES = new Map<number, ResolvedMode>([
-  [1, 'air'],
-  [2, 'top'],
-  [3, 'back'],
+const MODES = new Map<string, ResolvedMode>([
+  ['1', 'air'],
+  ['2', 'top'],
+  ['3', 'back'],
 ])
 
-const build = (mode: 'all' | 'selected' | 'none', selected: number[]) =>
+const build = (mode: 'all' | 'selected' | 'none', selected: string[]) =>
   buildGuitarMarkers(PEAKS, MODES, new Set(selected), new Map(), mode, undefined)
 
 /** The visible set = what the chart dots and the report summarise. */
-const visible = (mode: 'all' | 'selected' | 'none', selected: number[]) =>
+const visible = (mode: 'all' | 'selected' | 'none', selected: string[]) =>
   reportPeaks(build(mode, selected)).map((m) => m.frequency)
 
 describe('annotation-state — visiblePeaks rule (3-way parity)', () => {
   it("D4 — mode 'all' → every peak is visible", () => {
-    expect(visible('all', [2])).toEqual([97.4, 197.4, 239.6])
+    expect(visible('all', ['2'])).toEqual([97.4, 197.4, 239.6])
   })
 
   it("D5 — mode 'selected' → only the selected peaks are visible", () => {
-    expect(visible('selected', [1, 3])).toEqual([97.4, 239.6])
+    expect(visible('selected', ['1', '3'])).toEqual([97.4, 239.6])
   })
 
   it("D6 — mode 'none' → nothing is visible", () => {
-    expect(visible('none', [1, 2, 3])).toEqual([])
+    expect(visible('none', ['1', '2', '3'])).toEqual([])
   })
 
   it("D5b — 'selected' with nothing selected → nothing visible (not a fallback to all)", () => {
@@ -68,7 +68,7 @@ describe('annotation-state — visiblePeaks rule (3-way parity)', () => {
 describe('annotation-state — the report is about the visible peaks (regression)', () => {
   it('reports the selected count, not the detected count', () => {
     // The shipped bug: header read "Detected Peaks: <all>" (47 vs Swift's 6).
-    const markers = build('selected', [2])
+    const markers = build('selected', ['2'])
     expect(markers).toHaveLength(3) // markers still carry every peak…
     expect(reportPeaks(markers)).toHaveLength(1) // …but the report is about the selected one
   })
@@ -76,11 +76,11 @@ describe('annotation-state — the report is about the visible peaks (regression
   it('keeps selected peaks that sit OUTSIDE the plotted range', () => {
     // Swift lists all selected peaks (e.g. 409/622/994 Hz under a 75–350 Hz view). The old
     // `.slice(0, 8)`-of-all-peaks summary dropped exactly these while including unselected ones.
-    const wide: Peak[] = [...PEAKS, { id: 4, frequency: 994.5, magnitude: -68.6, quality: 10, bandwidth: 99.45 }]
+    const wide: ResonantPeak[] = [...PEAKS, { id: '4', frequency: 994.5, magnitude: -68.6, quality: 10, bandwidth: 99.45, timestamp: '2026-09-25T00:00:00Z' }]
     const markers = buildGuitarMarkers(
       wide,
-      new Map<number, ResolvedMode>([...MODES, [4, 'unknown']]),
-      new Set([1, 4]),
+      new Map<string, ResolvedMode>([...MODES, ['4', 'unknown']]),
+      new Set(['1', '4']),
       new Map(),
       'selected',
       undefined,
@@ -91,7 +91,7 @@ describe('annotation-state — the report is about the visible peaks (regression
   it('marks exactly the selected peaks as annotated — badges + report follow this flag', () => {
     // `annotated` drives the BADGE layer (Swift visiblePeaks) and the report summary. The chart
     // DOT layer is NOT gated on it (Swift Layer 1 allPeaksInRange dots every in-range peak).
-    const markers = build('selected', [1, 3])
+    const markers = build('selected', ['1', '3'])
     expect(markers.map((m) => m.annotated)).toEqual([true, false, true])
   })
 })
@@ -103,9 +103,9 @@ describe('annotation-state — the report is about the visible peaks (regression
 // the OVERRIDE-AWARE path (analyzer.effectiveMode / Swift peakMode(for:)). Mirrors Swift
 // AnnotationStateTests DefinitiveModeUniqueness. The auto modes are set directly for full control.
 // ---------------------------------------------------------------------------
-const p = (id: number): Peak => ({ id, frequency: id, magnitude: -30, quality: 10, bandwidth: 5 })
+const p = (id: string): ResonantPeak => ({ id, frequency: Number(id), magnitude: -30, quality: 10, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' })
 /** An analyzer in a guitar type with the given peaks + auto classification, nothing selected. */
-const analyzerWith = (autoModes: [number, ResolvedMode][]): TapToneAnalyzer => {
+const analyzerWith = (autoModes: [string, ResolvedMode][]): TapToneAnalyzer => {
   const a = new TapToneAnalyzer()
   a.measurementType = 'classical' // any guitar type → isGuitar true
   a.peaks = autoModes.map(([id]) => p(id))
@@ -115,57 +115,57 @@ const analyzerWith = (autoModes: [number, ResolvedMode][]): TapToneAnalyzer => {
 
 describe('annotation-state — DefinitiveModeUniqueness (selection invariant)', () => {
   it('assigning + selecting a second Top displaces the first; the displaced peak stays classified Top', () => {
-    const a = analyzerWith([[1, 'top'], [2, 'dipole']])
-    a.togglePeakSelection(1) // the auto-Top is definitive
-    expect(a.selectedPeakIds).toEqual(new Set([1]))
-    a.setModeOverride(2, 'Top') // assign peak 2 to Top — but it isn't selected, so nothing changes yet
-    expect(a.selectedPeakIds).toEqual(new Set([1]))
-    a.togglePeakSelection(2) // select the new Top → the previous holder is deselected
-    expect(a.selectedPeakIds).toEqual(new Set([2]))
-    expect(a.modeByPeak.get(1)).toBe('top') // deselect ≠ relabel — peak 1 is still classified Top
+    const a = analyzerWith([['1', 'top'], ['2', 'dipole']])
+    a.togglePeakSelection('1') // the auto-Top is definitive
+    expect(a.selectedPeakIds).toEqual(new Set(['1']))
+    a.setModeOverride('2', 'Top') // assign peak 2 to Top — but it isn't selected, so nothing changes yet
+    expect(a.selectedPeakIds).toEqual(new Set(['1']))
+    a.togglePeakSelection('2') // select the new Top → the previous holder is deselected
+    expect(a.selectedPeakIds).toEqual(new Set(['2']))
+    expect(a.modeByPeak.get('1')).toBe('top') // deselect ≠ relabel — peak 1 is still classified Top
   })
 
   it('Dipole allows several selected peaks (only Air/Top/Back are single-holder)', () => {
-    const a = analyzerWith([[1, 'dipole'], [2, 'dipole']])
-    a.togglePeakSelection(1)
-    a.togglePeakSelection(2) // enforce runs but Dipole is not single-holder → no displacement
-    expect(a.selectedPeakIds).toEqual(new Set([1, 2]))
+    const a = analyzerWith([['1', 'dipole'], ['2', 'dipole']])
+    a.togglePeakSelection('1')
+    a.togglePeakSelection('2') // enforce runs but Dipole is not single-holder → no displacement
+    expect(a.selectedPeakIds).toEqual(new Set(['1', '2']))
   })
 
   it('overriding an ALREADY-SELECTED peak into Top displaces the previous Top holder', () => {
-    const a = analyzerWith([[1, 'top'], [2, 'back']])
-    a.togglePeakSelection(1) // definitive Top
-    a.togglePeakSelection(2) // definitive Back — different mode, both stay
-    expect(a.selectedPeakIds).toEqual(new Set([1, 2]))
-    a.setModeOverride(2, 'Top') // peak 2 (selected) becomes Top → displaces peak 1
-    expect(a.selectedPeakIds).toEqual(new Set([2]))
+    const a = analyzerWith([['1', 'top'], ['2', 'back']])
+    a.togglePeakSelection('1') // definitive Top
+    a.togglePeakSelection('2') // definitive Back — different mode, both stay
+    expect(a.selectedPeakIds).toEqual(new Set(['1', '2']))
+    a.setModeOverride('2', 'Top') // peak 2 (selected) becomes Top → displaces peak 1
+    expect(a.selectedPeakIds).toEqual(new Set(['2']))
   })
 
   it('overriding an UNSELECTED peak into Top changes no selection', () => {
-    const a = analyzerWith([[1, 'top'], [2, 'back']])
-    a.togglePeakSelection(1)
-    a.setModeOverride(2, 'Top') // peak 2 not selected → enforce is a no-op
-    expect(a.selectedPeakIds).toEqual(new Set([1]))
+    const a = analyzerWith([['1', 'top'], ['2', 'back']])
+    a.togglePeakSelection('1')
+    a.setModeOverride('2', 'Top') // peak 2 not selected → enforce is a no-op
+    expect(a.selectedPeakIds).toEqual(new Set(['1']))
   })
 
   it('overriding the definitive Top AWAY leaves Top holderless — nothing auto-promotes', () => {
-    const a = analyzerWith([[1, 'top'], [2, 'top']]) // peak 2 is another Top candidate, unselected
-    a.togglePeakSelection(1) // peak 1 is the definitive Top
-    a.setModeOverride(1, 'Back') // move the definitive Top away to Back
-    expect(a.selectedPeakIds).toEqual(new Set([1])) // still selected, just no longer Top
-    expect(a.effectiveMode(1)).toBe('back')
+    const a = analyzerWith([['1', 'top'], ['2', 'top']]) // peak 2 is another Top candidate, unselected
+    a.togglePeakSelection('1') // peak 1 is the definitive Top
+    a.setModeOverride('1', 'Back') // move the definitive Top away to Back
+    expect(a.selectedPeakIds).toEqual(new Set(['1'])) // still selected, just no longer Top
+    expect(a.effectiveMode('1')).toBe('back')
     expect([...a.selectedPeakIds].some((id) => a.effectiveMode(id) === 'top')).toBe(false) // Top holderless
-    expect(a.selectedPeakIds.has(2)).toBe(false) // peak 2 was NOT promoted
+    expect(a.selectedPeakIds.has('2')).toBe(false) // peak 2 was NOT promoted
   })
 
   it('Select None clears the selection but leaves classification intact', () => {
-    const a = analyzerWith([[1, 'top'], [2, 'back']])
-    a.togglePeakSelection(1)
-    a.togglePeakSelection(2)
+    const a = analyzerWith([['1', 'top'], ['2', 'back']])
+    a.togglePeakSelection('1')
+    a.togglePeakSelection('2')
     a.selectNoPeaks()
     expect(a.selectedPeakIds.size).toBe(0)
-    expect(a.modeByPeak.get(1)).toBe('top')
-    expect(a.modeByPeak.get(2)).toBe('back')
+    expect(a.modeByPeak.get('1')).toBe('top')
+    expect(a.modeByPeak.get('2')).toBe('back')
   })
 })
 
@@ -174,9 +174,9 @@ describe('annotation-state — DefinitiveModeUniqueness (selection invariant)', 
 // strongest wins. Renaming or deselecting the Top drops the ratio, matching every other surface. Mirrors
 // Swift analyzer getPeak(for:) / calculateTapToneRatio (DefinitivePeakAndRatio).
 // ---------------------------------------------------------------------------
-const gpeak = (id: number, frequency: number, magnitude: number): Peak => ({ id, frequency, magnitude, quality: 10, bandwidth: 5 })
+const gpeak = (id: string, frequency: number, magnitude: number): ResonantPeak => ({ id, frequency, magnitude, quality: 10, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' })
 /** Analyzer with [id, autoMode, frequency, magnitude] peaks (guitar), nothing selected. */
-const ratioAnalyzer = (specs: [number, ResolvedMode, number, number][]): TapToneAnalyzer => {
+const ratioAnalyzer = (specs: [string, ResolvedMode, number, number][]): TapToneAnalyzer => {
   const a = new TapToneAnalyzer()
   a.measurementType = 'classical'
   a.peaks = specs.map(([id, , freq, mag]) => gpeak(id, freq, mag))
@@ -186,44 +186,44 @@ const ratioAnalyzer = (specs: [number, ResolvedMode, number, number][]): TapTone
 
 describe('annotation-state — definitive peak + tap-tone ratio', () => {
   it('the definitive Top is the SELECTED holder, not the strongest peak of that mode', () => {
-    const a = ratioAnalyzer([[1, 'air', 100, -20], [2, 'top', 200, -20], [3, 'top', 210, -50]])
-    a.restoreSelection(new Set([1, 3]), [100, 210], true) // select Air + the WEAK Top (id 3)
-    expect(a.definitivePeak('top')?.frequency).toBe(210) // not 200, the stronger unselected Top
+    const a = ratioAnalyzer([['1', 'air', 100, -20], ['2', 'top', 200, -20], ['3', 'top', 210, -50]])
+    a.restoreSelection(new Set(['1', '3']), [100, 210], true) // select Air + the WEAK Top (id 3)
+    expect(a.getPeak('top')?.frequency).toBe(210) // not 200, the stronger unselected Top
     expect(a.tapToneRatio()).toBeCloseTo(210 / 100, 5)
   })
 
   it('renaming the Top to a freeform label drops the ratio (no definitive Top)', () => {
-    const a = ratioAnalyzer([[1, 'air', 100, -20], [2, 'top', 200, -20]])
-    a.restoreSelection(new Set([1, 2]), [100, 200], true)
+    const a = ratioAnalyzer([['1', 'air', 100, -20], ['2', 'top', 200, -20]])
+    a.restoreSelection(new Set(['1', '2']), [100, 200], true)
     expect(a.tapToneRatio()).toBeCloseTo(2.0, 5)
-    a.setModeOverride(2, 'Wolf note') // freeform → effectiveMode 'unknown', not Top
-    expect(a.definitivePeak('top')).toBeUndefined()
+    a.setModeOverride('2', 'Wolf note') // freeform → effectiveMode 'unknown', not Top
+    expect(a.getPeak('top')).toBeUndefined()
     expect(a.tapToneRatio()).toBeNull()
   })
 
   it('deselecting the Top drops the ratio', () => {
-    const a = ratioAnalyzer([[1, 'air', 100, -20], [2, 'top', 200, -20]])
-    a.restoreSelection(new Set([1, 2]), [100, 200], true)
+    const a = ratioAnalyzer([['1', 'air', 100, -20], ['2', 'top', 200, -20]])
+    a.restoreSelection(new Set(['1', '2']), [100, 200], true)
     expect(a.tapToneRatio()).not.toBeNull()
-    a.togglePeakSelection(2) // deselect the Top
+    a.togglePeakSelection('2') // deselect the Top
     expect(a.tapToneRatio()).toBeNull()
   })
 
   it('overriding a selected non-Top peak TO Top retargets the ratio onto it', () => {
-    const a = ratioAnalyzer([[1, 'air', 100, -20], [2, 'top', 200, -20], [3, 'dipole', 400, -20]])
-    a.restoreSelection(new Set([1, 3]), [100, 400], true) // Air + Dipole selected; no Top selected
-    expect(a.definitivePeak('top')).toBeUndefined()
+    const a = ratioAnalyzer([['1', 'air', 100, -20], ['2', 'top', 200, -20], ['3', 'dipole', 400, -20]])
+    a.restoreSelection(new Set(['1', '3']), [100, 400], true) // Air + Dipole selected; no Top selected
+    expect(a.getPeak('top')).toBeUndefined()
     expect(a.tapToneRatio()).toBeNull()
-    a.setModeOverride(3, 'Top') // retarget the selected Dipole → Top
-    expect(a.definitivePeak('top')?.frequency).toBe(400)
+    a.setModeOverride('3', 'Top') // retarget the selected Dipole → Top
+    expect(a.getPeak('top')?.frequency).toBe(400)
     expect(a.tapToneRatio()).toBeCloseTo(400 / 100, 5)
   })
 })
 
 describe('annotation-state — definitiveModeInfo (multi-tap Averaged row)', () => {
   it('reports the definitive Air/Top/Back with an isOverride flag', () => {
-    const a = ratioAnalyzer([[1, 'air', 90, -20], [2, 'top', 200, -20]])
-    a.restoreSelection(new Set([1, 2]), [90, 200], true)
+    const a = ratioAnalyzer([['1', 'air', 90, -20], ['2', 'top', 200, -20]])
+    a.restoreSelection(new Set(['1', '2']), [90, 200], true)
     const info = a.definitiveModeInfo()
     expect(info.air).toEqual({ frequency: 90, isOverride: false })
     expect(info.top).toEqual({ frequency: 200, isOverride: false })
@@ -231,24 +231,24 @@ describe('annotation-state — definitiveModeInfo (multi-tap Averaged row)', () 
   })
 
   it('marks an overridden Averaged value and retargets it onto the overridden peak', () => {
-    const a = ratioAnalyzer([[1, 'air', 90, -20], [2, 'dipole', 380, -20]])
-    a.restoreSelection(new Set([1, 2]), [90, 380], true)
-    a.setModeOverride(2, 'Top') // assign the selected Dipole peak to Top
+    const a = ratioAnalyzer([['1', 'air', 90, -20], ['2', 'dipole', 380, -20]])
+    a.restoreSelection(new Set(['1', '2']), [90, 380], true)
+    a.setModeOverride('2', 'Top') // assign the selected Dipole peak to Top
     expect(a.definitiveModeInfo().top).toEqual({ frequency: 380, isOverride: true })
   })
 })
 
 // ---------------------------------------------------------------------------
-// Phase 7 triggers — clean-slate guitar-type change + a new tap sequence clears ALL per-peak state.
+// Clean-slate triggers — a guitar-type change and a new tap sequence each clear ALL per-peak state.
 // Twins of Swift AnnotationStateTests Phase7Triggers / Python test_annotation_state.py TestPhase7Triggers.
 // ---------------------------------------------------------------------------
-describe('annotation-state — Phase 7 triggers', () => {
+describe('annotation-state — clean-slate triggers', () => {
   it('reclassifyForGuitarTypeChange is a clean slate: overrides cleared, selection reset to auto for the new type', () => {
     // Air 90 + Top 180 in the classical bands (top-only, clear of the back band that starts at 190), so
     // the fresh auto-selection is a real {air, top}, not a vacuous empty match.
-    const a = ratioAnalyzer([[1, 'air', 90, -20], [2, 'top', 180, -20]])
-    a.restoreSelection(new Set([2]), [180], true) // a hand-edited selection (only the Top)
-    a.setModeOverride(1, 'Wolf note') // a manual label made under the OLD type
+    const a = ratioAnalyzer([['1', 'air', 90, -20], ['2', 'top', 180, -20]])
+    a.restoreSelection(new Set(['2']), [180], true) // a hand-edited selection (only the Top)
+    a.setModeOverride('1', 'Wolf note') // a manual label made under the OLD type
     expect(a.overrides.size).toBe(1)
     expect(a.userModifiedSelection).toBe(true)
 
@@ -261,11 +261,27 @@ describe('annotation-state — Phase 7 triggers', () => {
     expect(a.selectedPeakIds).toEqual(expected) // fresh auto-selection for the new type
   })
 
+
+  it('reclassifyForGuitarTypeChange re-classifies the peaks for the new type', () => {
+    // The SAME peaks under the new type's bands (no re-detection). 160 Hz is below the Classical Top band
+    // (170–230) and inside the Acoustic one (150–210). Mirrors Swift
+    // reclassifyForGuitarTypeChange_reclassifiesThePeaks / Python.
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'classical'
+    a.peaks = [gpeak('1', 100, -25), gpeak('2', 160, -20)]
+    a.reclassifyPeaks('classical')
+    expect(a.modeByPeak.get('2')).not.toBe('top') // precondition: 160 Hz is not Top on a classical
+
+    a.measurementType = 'acoustic'
+    a.reclassifyForGuitarTypeChange('acoustic')
+
+    expect(a.modeByPeak.get('2')).toBe('top') // re-classified under the new type's bands
+  })
   it('startTapSequence clears ALL per-peak state (nothing leaks into the next capture)', () => {
-    const a = ratioAnalyzer([[1, 'air', 90, -20], [2, 'top', 200, -20]])
-    a.restoreSelection(new Set([1, 2]), [90, 200], true)
-    a.setModeOverride(2, 'Wolf note')
-    a.updateAnnotationOffset(1, [5, 5])
+    const a = ratioAnalyzer([['1', 'air', 90, -20], ['2', 'top', 200, -20]])
+    a.restoreSelection(new Set(['1', '2']), [90, 200], true)
+    a.setModeOverride('2', 'Wolf note')
+    a.updateAnnotationOffset('1', [5, 5])
     expect(a.selectedPeakIds.size).toBeGreaterThan(0) // precondition: state present
     expect(a.overrides.size).toBeGreaterThan(0)
 
@@ -279,25 +295,22 @@ describe('annotation-state — Phase 7 triggers', () => {
   })
 })
 // ---------------------------------------------------------------------------
-// A peak the analyzer has no classification for has NO mode — it is not guessed at.
-//
-// Swift and Python used to fall back to classifying the peak ALONE
-// (`GuitarMode.classifyAll([peak])`). One peak cannot compete for a band, and the Generic Top
-// (140-260 Hz) and Back (180-300 Hz) ranges overlap, so that fallback returned `top` for anything
-// between 180 and 260 Hz — including a plate/brace peak, which has no guitar mode at all. A real
-// brace fL at 220 Hz reported Top. The web never guessed; both native editions now match it.
-// Removed 2026-09-20. See docs/FROZEN-RECALC-TEST-PARITY.md in the hub.
+// A peak the analyzer has no classification for has NO mode — it is not guessed at. A peak
+// classified ALONE (`classifyAll([peak])`) cannot compete for a band, and the Generic Top
+// (140-260 Hz) and Back (180-300 Hz) ranges overlap, so it would come out `top` anywhere between
+// 180 and 260 Hz — including a plate/brace peak, which has no guitar mode at all. Mirrors Swift
+// and Python.
 // ---------------------------------------------------------------------------
 describe('annotation-state — an unclassified peak has no mode', () => {
   it('a peak absent from modeByPeak resolves to unknown, even inside the Top/Back overlap', () => {
     const a = new TapToneAnalyzer()
     // 220 Hz is in BOTH the Generic Top and Back ranges — the band where classifying a lone peak
-    // cannot arbitrate, and where the old native fallback always answered "top".
-    expect(a.effectiveMode(4242)).toBe('unknown')
+    // cannot arbitrate.
+    expect(a.effectiveMode('4242')).toBe('unknown')
   })
 
   it('a completed MATERIAL capture leaves its peak unclassified', () => {
-    // The real case the native fallback mis-answered: material peaks have no guitar mode.
+    // Material peaks have no guitar mode.
     // Twin of Swift completedMaterialCapture_leavesItsPeakUnclassified / Python D7c.
     const a = new TapToneAnalyzer()
     a.measurementType = 'brace'
@@ -309,12 +322,12 @@ describe('annotation-state — an unclassified peak has no mode', () => {
     for (let i = 0; i < 2048; i++) {
       const f = i * binWidth
       freqs.push(f)
-      const d = f - 220 // inside the Generic Top/Back overlap, where the old fallback said "top"
+      const d = f - 220 // inside the Generic Top/Back overlap
       mags.push(Math.max(-100, -30 + (-d * d) / (2 * (5 / 2.355) ** 2)))
     }
     a.recordMaterialTap({ magnitudesDb: mags, frequencies: freqs })
 
-    const fL = a.matPeaks.longitudinal
+    const fL = a.selectedLongitudinalPeak
     expect(fL).not.toBeNull()
     expect(a.effectiveMode(fL!.id)).toBe('unknown') // never a guitar mode
   })
