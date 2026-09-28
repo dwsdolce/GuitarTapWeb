@@ -109,7 +109,7 @@ export function useAudioEngine({
   const onSelectDevice = useCallback(
     async (deviceId: string) => {
       try {
-        await engineRef.current?.chooseInputDevice(deviceId)
+        await engineRef.current?.setInputDevice(deviceId)
       } catch (e) {
         setError(`Couldn't switch input: ${e instanceof Error ? e.message : String(e)}`)
         setErrorKind('other')

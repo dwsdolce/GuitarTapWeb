@@ -1,18 +1,20 @@
 // @parity test/mic-selection
 //
-// Which input device the engine uses and which it saves: the rule acquireInputToUse (MS1–MS3), the
-// engine driven through chooseInputDevice, setInputDevice and the hardware-change handler (MS6–MS10),
-// a measurement load switching to its recorded microphone (MS14–MS17), and choosing a calibration for
-// the selected input (MS18–MS20).
+// Which input device the engine uses and what it saves: the start-up rule acquireInputToUse (MS1–MS3),
+// the engine driven through setInputDevice and the hardware-change handler (MS6–MS11), a measurement
+// load switching to its recorded microphone (MS14–MS17), and choosing a calibration for the selected
+// input (MS18–MS20), and the thresholds a load restores (MS21).
 //
-// The rule: the saved choice when it is present, otherwise the browser's default input (the system
-// default). Only a choice — picked in Settings, or plugged in while the app runs — is saved; the
-// startup selection and a fallback are not.
+// The rules: at start, the saved device when it is present, otherwise the browser's default input (the
+// system default); a device connected while running is selected; the input in use disappearing selects
+// the default. Every selection is saved, so what Settings shows is what the next start uses.
 //
 // The same list, ids and devices as Swift MicSelectionTests and Python test_mic_selection.py, except:
 //   MS4, MS5 — the browser resolves the default input itself; there is no first-device step.
-//   MS11     — covered by MS14: setInputDevice is the load's switch.
 //   MS12, MS13 — Python only (which PortAudio default is the system default).
+//   MS21     — the web's settings are App's store: the analyzer hands App the loaded settings
+//              (`loadedSettings`) and App saves them, so the test checks what the load hands over.
+//   MS22     — no counterpart: the analyzer holds no threshold setting of its own.
 //
 // The browser's media devices are replaced by a fake: a set of connected inputs and a default.
 
@@ -32,6 +34,7 @@ import type { TapToneMeasurementModel } from '../src/measurement'
 const BUILT_IN = 'macbook-mic'
 const BLACK_HOLE = 'blackhole-2ch'
 const UMIK = 'umik-1'
+const USB2 = 'usb-mic-2'
 
 /** The fake browser: which inputs are connected, and which is the default. */
 const media = { connected: [] as string[], defaultId: null as string | null }
@@ -65,13 +68,15 @@ async function enumerateDevices(): Promise<MediaDeviceInfo[]> {
 
 /** The engine's private members these tests drive. */
 interface EngineInternals {
-  switchToInputToUse(): Promise<void>
+  acquireInputToUse(): Promise<MediaStream>
+  applyStream(stream: MediaStream): Promise<string | null>
+  selectInput(deviceId: string | null): void
   refreshAvailableInputDevices(): Promise<void>
   handleDeviceChange(): Promise<void>
 }
 
-/** A running engine (a fake audio graph) on the input the rule selects, as at start, with `saved` as
- *  the saved choice (null: nothing saved). */
+/** A running engine (a fake audio graph) on the input start() selects, with `saved` as the saved device
+ *  (null: nothing saved). */
 async function makeSUT(saved: string | null, connected: string[], defaultId: string): Promise<RealtimeFFTAnalyzer> {
   setSavedInputDeviceId(saved)
   media.connected = connected
@@ -83,7 +88,7 @@ async function makeSUT(saved: string | null, connected: string[], defaultId: str
     node: {},
   })
   const internals = engine as unknown as EngineInternals
-  await internals.switchToInputToUse()
+  internals.selectInput(await internals.applyStream(await internals.acquireInputToUse()))
   await internals.refreshAvailableInputDevices()
   return engine
 }
@@ -131,40 +136,47 @@ describe('the rule', () => {
 })
 
 describe('the engine: what is selected, and what is saved', () => {
-  it('MS6: the startup selection is not saved', async () => {
+  it('MS6: the start-up selection is saved: nothing saved, the default is selected and saved', async () => {
     const engine = await makeSUT(null, [BLACK_HOLE, BUILT_IN], BUILT_IN)
     expect(engine.inputDeviceId).toBe(BUILT_IN)
-    expect(getSavedInputDeviceId()).toBeNull()
+    expect(getSavedInputDeviceId()).toBe(BUILT_IN)
   })
 
-  it('MS7: a device the user chooses is selected and saved', async () => {
+  it('MS7: a device selected in Settings is selected and saved', async () => {
     const engine = await makeSUT(BUILT_IN, [BUILT_IN, UMIK], BUILT_IN)
-    await engine.chooseInputDevice(UMIK)
+    await engine.setInputDevice(UMIK)
     expect(engine.inputDeviceId).toBe(UMIK)
     expect(getSavedInputDeviceId()).toBe(UMIK)
   })
 
-  it('MS8: a device plugged in while running is switched to and saved', async () => {
+  it('MS8: a device plugged in while running is selected and saved', async () => {
     const engine = await makeSUT(BUILT_IN, [BUILT_IN], BUILT_IN)
     await devicesChange(engine, [BUILT_IN, UMIK])
     expect(engine.inputDeviceId).toBe(UMIK)
     expect(getSavedInputDeviceId()).toBe(UMIK)
   })
 
-  it('MS9: the saved device unplugged — the default for the session; it stays the saved choice', async () => {
+  it('MS9: the input in use unplugged (or dropping out) — the default, selected and saved', async () => {
     const engine = await makeSUT(UMIK, [BUILT_IN, UMIK], BUILT_IN)
     expect(engine.inputDeviceId).toBe(UMIK)
     await devicesChange(engine, [BUILT_IN])
     expect(engine.inputDeviceId).toBe(BUILT_IN)
-    expect(getSavedInputDeviceId()).toBe(UMIK)
+    expect(getSavedInputDeviceId()).toBe(BUILT_IN)
   })
 
-  it('MS10: a session-only device unplugged — back to the saved device, which is present', async () => {
-    const engine = await makeSUT(BUILT_IN, [BUILT_IN, BLACK_HOLE, UMIK], BLACK_HOLE)
-    await engine.setInputDevice(UMIK)
-    await devicesChange(engine, [BUILT_IN, BLACK_HOLE])
+  it('MS10: the input in use unplugged falls to the default, not to another connected USB mic', async () => {
+    const engine = await makeSUT(USB2, [BUILT_IN, UMIK, USB2], BUILT_IN)
+    expect(engine.inputDeviceId).toBe(USB2)
+    await devicesChange(engine, [BUILT_IN, UMIK])
     expect(engine.inputDeviceId).toBe(BUILT_IN)
     expect(getSavedInputDeviceId()).toBe(BUILT_IN)
+  })
+
+  it("MS11: a measurement load's switch to its recorded microphone (setInputDevice) is saved", async () => {
+    const engine = await makeSUT(BUILT_IN, [BUILT_IN, UMIK], BUILT_IN)
+    void engine.setInputDevice(UMIK)
+    expect(engine.inputDeviceId).toBe(UMIK)
+    expect(getSavedInputDeviceId()).toBe(UMIK)
   })
 })
 
@@ -203,6 +215,7 @@ describe('loading a measurement recorded with another connected microphone', () 
     expect(engine.activeCalibration?.name).toBe('Built-in room')
     sut.loadMeasurement(measurement({ microphoneName: UMIK, microphoneUID: UMIK }))
     expect(engine.inputDeviceId).toBe(UMIK)
+    expect(getSavedInputDeviceId()).toBe(UMIK)
   })
 
   it("MS15: the calibration check reads the recorded microphone's calibration (none) — no warning", async () => {
@@ -241,9 +254,9 @@ describe('choosing a calibration', () => {
     engine.chooseCalibration(room)
     expect(calibrationIdForDevice(BUILT_IN)).toBe(room.id)
     expect(getActiveCalibrationId()).toBe(room.id)
-    await engine.chooseInputDevice(UMIK)
+    await engine.setInputDevice(UMIK)
     expect(engine.activeCalibration).toBeNull()
-    await engine.chooseInputDevice(BUILT_IN)
+    await engine.setInputDevice(BUILT_IN)
     expect(engine.activeCalibration?.name).toBe('Room')
   })
 
@@ -253,8 +266,8 @@ describe('choosing a calibration', () => {
     engine.chooseCalibration(null)
     expect(calibrationIdForDevice(BUILT_IN)).toBeNull()
     expect(getActiveCalibrationId()).toBeNull()
-    await engine.chooseInputDevice(UMIK)
-    await engine.chooseInputDevice(BUILT_IN)
+    await engine.setInputDevice(UMIK)
+    await engine.setInputDevice(BUILT_IN)
     expect(engine.activeCalibration).toBeNull()
   })
 
@@ -266,3 +279,31 @@ describe('choosing a calibration', () => {
     expect(getActiveCalibrationId()).toBeNull()
   })
 })
+
+describe('a load restores settings as the user setting them would', () => {
+  it('MS21: a load hands App the thresholds it restores, to save as the settings', () => {
+    const sut = new TapToneAnalyzer()
+    sut.loadMeasurement({
+      id: 'M1',
+      timestamp: '2026-01-01T00:00:00Z',
+      peaks: [],
+      measurementName: 'Loaded',
+      tapDetectionThreshold: -30,
+      peakMinThreshold: -50,
+      spectrumSnapshot: {
+        frequencies: [100, 200],
+        magnitudes: [-50, -40],
+        minFreq: 75,
+        maxFreq: 350,
+        minDB: -100,
+        maxDB: 0,
+        isLogarithmic: false,
+        measurementType: 'Classical Guitar',
+        guitarType: 'Classical',
+      },
+    })
+    expect(sut.loadedSettings?.tapDetectionThreshold).toBe(-30)
+    expect(sut.loadedSettings?.peakMinThreshold).toBe(-50)
+  })
+})
+

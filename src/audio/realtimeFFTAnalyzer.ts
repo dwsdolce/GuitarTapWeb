@@ -422,10 +422,9 @@ export class RealtimeFFTAnalyzer {
     }
   }
 
-  /** Acquire the input to use: the saved choice when it can be opened, otherwise the browser's
-   *  default input (the system default). Used at start and when the active input is unplugged; it
-   *  saves nothing. A saved id also goes stale across sessions (Safari rotates input deviceIds for
-   *  privacy). Swift `inputDeviceToUse(in:savedUID:systemDefaultUID:)`. */
+  /** Acquire the input to use at start: the saved device when it can be opened, otherwise the
+   *  browser's default input (the system default). A saved id also goes stale across sessions (Safari
+   *  rotates input deviceIds for privacy). Swift `inputDeviceToUse(in:savedUID:systemDefaultUID:)`. */
   private acquireInputToUse(): Promise<MediaStream> {
     return this.acquireStream(getSavedInputDeviceId())
   }
@@ -480,17 +479,20 @@ export class RealtimeFFTAnalyzer {
     return track.getSettings().deviceId ?? requestedDeviceId ?? null
   }
 
-  /** Select `deviceId` as the input and load its calibration — the device's own, or none. Swift
-   *  `selectedInputDevice` and its didSet (`setCalibrationWithoutSavingDeviceMapping`). */
+  /** Select `deviceId` as the input, save it, and load its calibration — the device's own, or none.
+   *  Every selection is saved — a Settings choice, a device plugged in, a fallback, the start-up
+   *  selection and a loaded measurement's microphone — so what Settings shows is what the next start
+   *  uses. Swift `selectedInputDevice` and its didSet. */
   private selectInput(deviceId: string | null): void {
     this.inputDeviceId = deviceId
+    if (deviceId) setSavedInputDeviceId(deviceId)
     this.reloadDeviceCalibration()
   }
 
   /** Apply `cal` (null: no calibration) as the user's choice and save it — as the last chosen (the
    *  global active id) and for the selected input, so it loads whenever that input is selected.
    *  Swift assigning `activeCalibration`, whose didSet saves both. A device's own calibration
-   *  loading on a switch (selectInput) and a file playback's (setCalibration) save nothing. */
+   *  loading on a switch (selectInput) and a file playback's (setCalibration) save no calibration. */
   chooseCalibration(cal: StoredCalibration | null): void {
     setActiveCalibrationId(cal?.id ?? null)
     if (this.inputDeviceId) setCalibrationForDevice(this.inputDeviceId, cal?.id ?? null)
@@ -511,15 +513,12 @@ export class RealtimeFFTAnalyzer {
     this.callbacks.onDeviceStateChanged?.()
   }
 
-  /** Switch to the input to use (acquireInputToUse) and select it — at an unplug, not saved. */
-  private async switchToInputToUse(): Promise<void> {
-    this.selectInput(await this.applyStream(await this.acquireInputToUse()))
-  }
-
-  /** Switch the live input to `deviceId` for this session; it is not saved (a loaded measurement's
-   *  microphone). The input and its calibration are selected before the first await, so a caller
-   *  that does not wait reads them at once; the stream follows. If the stream cannot be opened the
-   *  previous input is selected again and the error is thrown. Swift `setInputDevice(_:)`. */
+  /** Switch the live input to `deviceId` — a Settings choice, a device plugged in, or a loaded
+   *  measurement's microphone — and save it (selectInput). The input and its calibration are selected
+   *  before the first await, so a caller that does not wait reads them at once; the stream follows.
+   *  If the stream cannot be opened the previous input is selected again and the error is thrown. No
+   *  default fallback — the picker caller surfaces any error. Swift `setInputDevice(_:)` / assigning
+   *  `selectedInputDevice`. */
   async setInputDevice(deviceId: string): Promise<void> {
     if (!this.context || !this.node) return
     const previous = this.inputDeviceId
@@ -532,20 +531,9 @@ export class RealtimeFFTAnalyzer {
     }
   }
 
-  /** Switch the live input to `deviceId` as the user's choice and save it, so it is used at the next
-   *  start whenever it is present. Used for a device picked in Settings and a device plugged in while
-   *  the app runs. No default fallback — the picker caller surfaces any error. Swift
-   *  `chooseInputDevice(_:)`. */
-  async chooseInputDevice(deviceId: string): Promise<void> {
-    if (!this.context || !this.node) return
-    await this.setInputDevice(deviceId)
-    setSavedInputDeviceId(deviceId)
-  }
-
   /** Hardware-change handler (mic attached / unplugged), mirroring Swift `applyInputDeviceList`:
-   *   • a NEW device appeared → chooseInputDevice: the user plugged it in, so it is switched to and saved;
-   *   • the ACTIVE device was unplugged → acquireInputToUse (the saved choice if present, else the
-   *     default input), not saved — a microphone that drops out stays the saved choice;
+   *   • a NEW device appeared → setInputDevice: it is switched to (and saved);
+   *   • the ACTIVE device was unplugged → the browser's default input (and saved);
    *  then fire onInputChanged so the per-device calibration is reloaded for the now-active device.
    *  Bound field so add/removeEventListener match. */
   private handleDeviceChange = async (): Promise<void> => {
@@ -556,9 +544,9 @@ export class RealtimeFFTAnalyzer {
     const attached = ids.find((id) => !prev.includes(id))
     try {
       if (prev.length && attached) {
-        await this.chooseInputDevice(attached)
+        await this.setInputDevice(attached)
       } else if (this.inputDeviceId && !ids.includes(this.inputDeviceId)) {
-        await this.switchToInputToUse()
+        this.selectInput(await this.applyStream(await this.acquireStream(null)))
       } else {
         return // the selected input is unaffected
       }
