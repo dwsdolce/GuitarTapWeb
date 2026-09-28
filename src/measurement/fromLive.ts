@@ -162,69 +162,6 @@ export function measurementTypeName(m: TapToneMeasurementModel): string {
   return t != null ? MEASUREMENT_SHORT_NAME[t] : '—'
 }
 
-/** The current capture setup, for the load-time provenance check. */
-export interface CaptureSetup {
-  microphoneName?: string
-  sampleRate?: number | null
-  /** The CURRENTLY loaded calibration, or `undefined` when none is. **Required on purpose** —
-   *  a required key whose value may be undefined, so a caller that forgets it is a COMPILE
-   *  ERROR rather than a silent "no calibration now". It is compared against the recorded
-   *  name, so omitting it made every calibrated measurement warn on load. A unit test cannot
-   *  guard this: `measurementWarning` was always correct — only its callers were wrong. */
-  calibrationName: string | undefined
-}
-
-/** Tiered load-time warning, mirroring Swift `loadMeasurement` / Python `load_measurement`
- *  (the sample-rate epic): if the recorded microphone isn't the current input → name
- *  warning; if it's the same mic but the calibration and/or sample rate differ → a
- *  "recorded with a different …" warning; otherwise null. "Current mic" is the live
- *  `track.label` (the web has no stable device UID — see normMic below).
- *
- *  CALLERS MUST PASS THE CURRENT `calibrationName`. It is compared against the recorded one,
- *  so omitting it reads as "no calibration now" and every calibrated measurement warns on
- *  load — which is exactly what happened while this doc-comment still claimed the web had no
- *  calibration (it gained one later; the load call sites were never updated). Pinned by
- *  test/measurement-warning.test.ts. */
-export function measurementWarning(m: TapToneMeasurementModel, current: CaptureSetup): string | null {
-  const recorded = m.microphoneName
-  if (!recorded) return null
-
-  // SAFE normalisation only — trim, collapse whitespace, lowercase. Deliberately NOT stripping
-  // parentheticals: Windows Chrome names USB inputs "Microphone (Umik-1  Gain: 18dB)", so dropping
-  // the parenthetical destroyed the device identity (everything collapsed to "microphone") and made
-  // every cross-platform load warn. It could also collapse two genuinely DIFFERENT mics onto the
-  // same token — suppressing a warning that should fire, which is the harmful direction.
-  //
-  // We no longer try to prove two labels are the same physical device: platform naming is outside
-  // our control and unverifiable (Swift stores "Umik-1  Gain: 18dB", Windows reports
-  // "Microphone (Umik-1  Gain: 18dB)" for the same mic). An exact match still correctly silences
-  // the common same-platform reload; anything else is reported as UNKNOWN, not as a wrong mic.
-  const normMic = (s: string): string => s.replace(/\s+/g, ' ').trim().toLowerCase()
-  const matched = current.microphoneName != null && normMic(recorded) === normMic(current.microphoneName)
-  if (!matched) {
-    const cur = current.microphoneName ? `; currently using '${current.microphoneName}'` : ''
-    // Report UNKNOWN, not "wrong mic": the same physical device is named differently per platform,
-    // and we cannot verify identity from a display label. Impact is stated so the reader can judge —
-    // peak FREQUENCIES (the primary output, and the derived values built on them) are essentially
-    // mic-independent; levels, the tap trigger, peak SELECTION in marginal ranges, and faint peaks
-    // are not. Mirrors the Swift/Python wording for the same situation.
-    return `Recorded with '${recorded}'${cur}. Guitar Tap can't tell whether these are the same microphone. Peak frequencies should be comparable; input levels, the tap threshold, and faint peaks (such as FLC) may differ.`
-  }
-
-  const diffs: string[] = []
-  if ((m.calibrationName ?? null) !== (current.calibrationName ?? null)) diffs.push('calibration')
-  if (
-    m.sampleRate != null &&
-    current.sampleRate != null &&
-    Math.round(m.sampleRate) !== Math.round(current.sampleRate)
-  ) {
-    diffs.push('sample rate')
-  }
-  return diffs.length
-    ? `This measurement was recorded with a different ${diffs.join(' and ')}. A newly captured tap may not match the saved result.`
-    : null
-}
-
 /** Filesystem-safe `.guitartap` base name, mirroring Swift `baseFilename`:
  *  `<measurement-name-slug>-<unix timestamp>`. */
 export function guitarTapFilename(m: TapToneMeasurementModel): string {

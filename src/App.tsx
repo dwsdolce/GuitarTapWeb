@@ -24,7 +24,7 @@ import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
-import { buildComparisonEntries, buildComparisonMeasurement, comparisonEntryModeFreqs, comparisonAxisRange, colorComponentsToCss, measurementToLive, measurementToLiveMaterial, measurementWarning } from './measurement/fromLive'
+import { buildComparisonEntries, buildComparisonMeasurement, comparisonEntryModeFreqs, comparisonAxisRange, colorComponentsToCss, measurementToLive, measurementToLiveMaterial } from './measurement/fromLive'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { importMeasurements, saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
@@ -116,7 +116,6 @@ export default function App() {
   const [loadedView, setLoadedView] = useState<ChartView | null>(null)
   // Mirror of the applied calibration for matSearch + save provenance (read from stable refs).
   // Owned here (shared handle); the audio engine hook resolves + writes it.
-  const calibrationRef = useRef<Calibration | null>(null)
 
   // The lifecycle-state owner (mirrors Swift/Python TapToneAnalyzer). App reads its immutable snapshot
   // via useSyncExternalStore; the device + the handlers below drive it.
@@ -363,13 +362,12 @@ export default function App() {
     engineMetrics,
     pauseTap,
     resumeTap,
-    refreshDevices,
     onSelectDevice,
     onImportCalibration,
     onSelectCalibration,
     onDeleteCalibration,
     retry,
-  } = useAudioEngine({ engineRef, calibrationRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onStarted: armForCurrentType, analyzer })
+  } = useAudioEngine({ engineRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onStarted: armForCurrentType, analyzer })
 
   // Play a recorded WAV through the live pipeline (Swift openAudioFile). The calibration is the one the
   // user gives for the file, or none — never the live input's.
@@ -396,12 +394,6 @@ export default function App() {
       setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
     }
   }, [analyzer, setError, setLoadedPeaks])
-
-  // Re-enumerate inputs whenever the Settings dialog opens, so a freshly-plugged
-  // microphone shows up in the device picker without a reload.
-  useEffect(() => {
-    if (showSettings && running) void refreshDevices()
-  }, [showSettings, running, refreshDevices])
 
   /** Everything a fresh measurement must drop from the previously LOADED one, whatever the mode.
    *

@@ -175,6 +175,7 @@ describe('the import message', () => {
   const withMic = (mic?: string): TapToneMeasurementModel => ({
     ...minimal(),
     microphoneName: mic,
+    microphoneUID: mic && `${mic}-uid`,
     spectrumSnapshot: {
       magnitudes: [-60, -60], frequencies: [100, 200],
       minFreq: 50, maxFreq: 500, minDB: -100, maxDB: 0, isLogarithmic: false,

@@ -2,11 +2,12 @@
 // Python's tap_tone_analyzer (the audio *model* layer). Owns the engine instance lifecycle
 // (auto-start on mount, stop on unmount), the live telemetry state (running / level / spectrum /
 // engine state / clipping / multi-tap progress / FFT metrics / sample rate / device label / error),
-// and the audio-input + calibration subsystem (device list/switch, calibration import/select/delete
-// with device-specific resolution).
+// and the calibration store's picker actions (import/select/delete). The engine owns the input
+// devices — their list, the selection, what is saved and each device's calibration — and this hook
+// mirrors that state for React whenever the engine reports a change.
 //
-// `engineRef` and `calibrationRef` are owned by App (shared handles: the material session arms the
-// engine; build/save read the calibration) and passed in — this hook populates them. The
+// `engineRef` is owned by App (a shared handle: the material session arms the engine) and passed
+// in — this hook populates it. The
 // capture-result callbacks (guitar tap, material phase, raw-audio dump) are passed in stable so the
 // engine's once-registered callbacks never capture stale closures.
 
@@ -15,23 +16,16 @@ import type { MutableRefObject } from 'react'
 import { RealtimeFFTAnalyzer, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
 import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 import type { Spectrum } from '../dsp/guitarFFT'
-import type { Calibration } from '../dsp/calibration'
 import {
   listCalibrations,
   saveCalibration,
   deleteCalibration as deleteStoredCalibration,
-  setActiveCalibrationId,
-  setCalibrationForDevice,
-  resolveActiveCalibration,
-  getSavedInputDeviceId,
-  setSavedInputDeviceId,
   type StoredCalibration,
 } from '../measurement/calibrationStore'
 import { parseCalibration } from '../dsp/calibration'
 
 interface UseAudioEngineArgs {
   engineRef: MutableRefObject<RealtimeFFTAnalyzer | null>
-  calibrationRef: MutableRefObject<Calibration | null>
   /** Tap-detection threshold for the engine's initial config. */
   tapThresholdRef: MutableRefObject<number>
   /** "Dump Capture Audio" diagnostic flag for the engine's initial config (gates session recording). */
@@ -71,18 +65,14 @@ export interface AudioEngineModel {
   retry: () => void
   pauseTap: () => void
   resumeTap: () => void
-  refreshDevices: () => Promise<void>
   onSelectDevice: (deviceId: string) => Promise<void>
   onImportCalibration: (file: File) => Promise<void>
   onSelectCalibration: (id: string | null) => void
   onDeleteCalibration: (id: string) => void
-  /** Resolve + apply the calibration for a device (device-specific → global → none). */
-  applyCalibrationForDevice: (deviceId: string | null) => void
 }
 
 export function useAudioEngine({
   engineRef,
-  calibrationRef,
   tapThresholdRef,
   onStarted,
   analyzer,
@@ -105,42 +95,27 @@ export function useAudioEngine({
   const deviceChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
 
-  // Resolve the calibration for a device (device-specific → global → none) and apply it to the
-  // engine + UI + the refs read by matSearch/save. Mirrors RealtimeFFTAnalyzer's auto-apply.
-  const applyCalibrationForDevice = useCallback(
-    (deviceId: string | null) => {
-      const cal = resolveActiveCalibration(deviceId)
-      calibrationRef.current = cal
-      setActiveCalId(cal?.id ?? null)
-      engineRef.current?.setCalibration(cal)
-    },
-    [calibrationRef, engineRef],
-  )
-
-  const refreshDevices = useCallback(async () => {
-    const list = await engineRef.current?.listInputs()
-    if (list) setInputDevices(list)
+  // Mirror the engine's input state — the device list, the selected input and its calibration.
+  const syncDeviceState = useCallback(() => {
+    const engine = engineRef.current
+    if (!engine) return
+    setInputDevices(engine.availableInputDevices)
+    setCurrentDeviceId(engine.inputDeviceId)
+    setDeviceLabel(engine.deviceLabel)
+    setAudioSettings(engine.audioSettings)
+    setActiveCalId((engine.activeCalibration as StoredCalibration | null)?.id ?? null)
   }, [engineRef])
 
   const onSelectDevice = useCallback(
     async (deviceId: string) => {
       try {
-        await engineRef.current?.setInputDevice(deviceId)
+        await engineRef.current?.chooseInputDevice(deviceId)
       } catch (e) {
         setError(`Couldn't switch input: ${e instanceof Error ? e.message : String(e)}`)
         setErrorKind('other')
-        return
       }
-      const id = engineRef.current?.inputDeviceId ?? deviceId
-      setSavedInputDeviceId(id)
-      setCurrentDeviceId(id)
-      setDeviceLabel(engineRef.current?.deviceLabel ?? '')
-      setSampleRate(engineRef.current?.sampleRate ?? null)
-      setAudioSettings(engineRef.current?.audioSettings ?? null)
-      applyCalibrationForDevice(id)
-      void refreshDevices()
     },
-    [engineRef, applyCalibrationForDevice, refreshDevices],
+    [engineRef],
   )
 
   const onImportCalibration = useCallback(
@@ -150,33 +125,29 @@ export function useAudioEngine({
         if (cal.points.length === 0) throw new Error('No calibration data points found in the file.')
         const stored = saveCalibration(cal)
         setCalibrations(listCalibrations())
-        setActiveCalibrationId(stored.id) // global active
-        if (currentDeviceId) setCalibrationForDevice(currentDeviceId, stored.id) // remember for this mic
-        applyCalibrationForDevice(currentDeviceId)
+        engineRef.current?.chooseCalibration(stored) // activate the newly imported calibration
       } catch (e) {
         setError(`Couldn't import calibration: ${e instanceof Error ? e.message : String(e)}`)
         setErrorKind('other')
       }
     },
-    [applyCalibrationForDevice, currentDeviceId],
+    [engineRef],
   )
 
   const onSelectCalibration = useCallback(
     (id: string | null) => {
-      setActiveCalibrationId(id)
-      if (currentDeviceId) setCalibrationForDevice(currentDeviceId, id)
-      applyCalibrationForDevice(currentDeviceId)
+      engineRef.current?.chooseCalibration(listCalibrations().find((c) => c.id === id) ?? null)
     },
-    [applyCalibrationForDevice, currentDeviceId],
+    [engineRef],
   )
 
   const onDeleteCalibration = useCallback(
     (id: string) => {
       deleteStoredCalibration(id)
       setCalibrations(listCalibrations())
-      applyCalibrationForDevice(currentDeviceId)
+      engineRef.current?.reloadDeviceCalibration()
     },
-    [applyCalibrationForDevice, currentDeviceId],
+    [engineRef],
   )
 
   const start = useCallback(async () => {
@@ -200,15 +171,9 @@ export function useAudioEngine({
         // (which drives the threshold-slider red zone), from one source. Swift `$isClipping` sink.
         onClipping: (c) => analyzer.setClipping(c),
         onMetrics: setEngineMetrics,
-        // A mic was attached (auto-selected) or the active one was unplugged (fell back): re-sync the
-        // device + RELOAD that device's calibration (None if it has none). Mirrors Swift's didSet.
-        onInputChanged: (deviceId) => {
-          setCurrentDeviceId(deviceId)
-          setDeviceLabel(engineRef.current?.deviceLabel ?? '')
-          setAudioSettings(engineRef.current?.audioSettings ?? null)
-          if (deviceId) setSavedInputDeviceId(deviceId) // remember the now-active device (Swift persists it)
-          applyCalibrationForDevice(deviceId)
-          void refreshDevices()
+        onDeviceStateChanged: syncDeviceState,
+        // The hardware changed the input (a mic attached and selected, or the active one unplugged).
+        onInputChanged: () => {
           // Briefly surface "Audio device changed - reinitializing…" then restore the resting prompt
           // (mirrors Swift route change). The analyzer owns the status field.
           analyzer.handleDeviceChange(true)
@@ -228,7 +193,7 @@ export function useAudioEngine({
     engine.onInputAppearsDeadChange = (dead) => analyzer.setInputAppearsDead(dead)
     analyzer.setDevice(engine) // the analyzer holds the device to orchestrate material
     try {
-      await engine.start(getSavedInputDeviceId())
+      await engine.start()
       // Remount / StrictMode guard: start() is async, so if this component was torn down mid-start the
       // cleanup already nulled engineRef and a second start() may have created a replacement. This
       // engine is orphaned — stop it (so its mic worklet doesn't keep feeding the pipeline as a ghost
@@ -239,12 +204,8 @@ export function useAudioEngine({
         return
       }
       setSampleRate(engine.sampleRate)
-      setAudioSettings(engine.audioSettings)
-      setDeviceLabel(engine.deviceLabel)
-      setCurrentDeviceId(engine.inputDeviceId)
+      syncDeviceState()
       setRunning(true)
-      applyCalibrationForDevice(engine.inputDeviceId) // auto-apply the device's calibration
-      void refreshDevices() // labels are available now that permission is granted
       onStarted() // arm a fresh sequence for the current type (guitar or material) — one branch
     } catch (e) {
       // Categorize for the native-style alert: a blocked/denied mic → "Microphone Access
@@ -254,7 +215,7 @@ export function useAudioEngine({
       setErrorKind(denied ? 'permission' : 'engine')
       engineRef.current = null
     }
-  }, [analyzer, engineRef, tapThresholdRef, dumpCaptureRef, onStarted, applyCalibrationForDevice, refreshDevices])
+  }, [analyzer, engineRef, tapThresholdRef, dumpCaptureRef, onStarted, syncDeviceState])
 
   // Start listening automatically — GuitarTap has no Start button; the only
   // browser-mandated gate is the mic permission prompt itself.
@@ -289,11 +250,9 @@ export function useAudioEngine({
     retry: start,
     pauseTap,
     resumeTap,
-    refreshDevices,
     onSelectDevice,
     onImportCalibration,
     onSelectCalibration,
     onDeleteCalibration,
-    applyCalibrationForDevice,
   }
 }

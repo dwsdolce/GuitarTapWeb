@@ -22,7 +22,7 @@ import type { GuitarTypeName } from '../dsp/guitarModes'
 import { makeResonantPeak, TapEntry, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapToneMeasurementModel } from '../measurement/types'
 import { newId } from '../measurement/newId'
 import { Pitch } from '../dsp/pitch'
-import { buildGuitarMeasurement, buildMaterialMeasurement, comparisonAxisRange, GUITAR_TYPE_RAW, measurementToLive, measurementToLiveMaterial, measurementWarning } from '../measurement/fromLive'
+import { buildGuitarMeasurement, buildMaterialMeasurement, comparisonAxisRange, GUITAR_TYPE_RAW, measurementToLive, measurementToLiveMaterial } from '../measurement/fromLive'
 import { saveMeasurement as storeMeasurement } from '../measurement/store'
 import type { ChartView } from '../presentation/chartTypes'
 import { dftAnalRect, GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
@@ -681,14 +681,39 @@ export class TapToneAnalyzer {
       calibrationName: m.calibrationName ?? null,
       sampleRate: m.sampleRate ?? null,
     }
-    // Load-time provenance: the microphone, calibration and sample rate this was recorded with,
-    // against what is connected now. The device carries all three, so the model can ask it — the
-    // check used to sit in App because only App could see them.
-    this.microphoneWarning = measurementWarning(m, {
-      microphoneName: this.device?.deviceLabel,
-      sampleRate: this.device?.sampleRate ?? null,
-      calibrationName: this.device?.activeCalibration?.name,
-    })
+    // Select the recorded microphone if it is connected; warn if it is not. The id is tried first
+    // (a measurement made in this browser); then the name, so a measurement from another edition —
+    // a CoreAudio UID, or Python's "Name:SampleRate" fingerprint — still resolves. Swift
+    // `loadMeasurement(_:)`.
+    const device = this.device
+    if (m.microphoneUID) {
+      const name = m.microphoneName ?? m.microphoneUID
+      const available = device?.availableInputDevices ?? []
+      const match =
+        available.find((d) => d.deviceId === m.microphoneUID) ??
+        available.find((d) => d.label === m.microphoneName)
+      if (match && device) {
+        // Connected — switch to it for this session; its calibration is selected with it, before
+        // the check below reads it. The stream follows.
+        if (device.inputDeviceId !== match.deviceId) {
+          device.setInputDevice(match.deviceId).catch(() => {
+            /* the previous input stays selected */
+          })
+        }
+        // Same microphone — but flag a calibration or sample-rate difference, since a newly
+        // captured tap would then not match this saved measurement.
+        const diffs: string[] = []
+        if ((m.calibrationName ?? null) !== (device.activeCalibration?.name ?? null)) diffs.push('calibration')
+        if (m.sampleRate != null && Math.round(m.sampleRate) !== Math.round(device.sampleRate)) diffs.push('sample rate')
+        this.microphoneWarning = diffs.length
+          ? `This measurement was recorded with a different ${diffs.join(' and ')}. A newly captured tap may not match the saved result.`
+          : null
+      } else {
+        // UNKNOWN, not "unplugged": a no-match can equally mean the device is attached under a
+        // different name on this platform.
+        this.microphoneWarning = `Recorded with '${name}'. No connected microphone matches that name — it may be unplugged, or attached under a different name on this platform. Peak frequencies should still be comparable; input levels, the tap threshold, and faint peaks (such as FLC) may differ.`
+      }
+    }
     this.notify()
   }
 

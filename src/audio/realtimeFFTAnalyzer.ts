@@ -3,6 +3,14 @@ import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, wa
 import { dftAnalRect, GUITAR_FFT_SIZE, spectrumPeak, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { fftInPlace } from '../dsp/fft'
+import {
+  getSavedInputDeviceId,
+  resolveActiveCalibration,
+  setActiveCalibrationId,
+  setCalibrationForDevice,
+  setSavedInputDeviceId,
+  type StoredCalibration,
+} from '../measurement/calibrationStore'
 
 /** Output of {@link RealtimeFFTAnalyzer.computeGatedFFT}: a one-sided dBFS magnitude spectrum + its bin
  *  frequencies. */
@@ -44,9 +52,12 @@ export interface RealtimeFFTAnalyzerCallbacks {
    *  measurement ("Guitar_8tap" / "Plate_LC" / "Plate_LCF" / "Brace"). Mirrors Swift finishSessionRecording. */
   /** Live-FFT performance, emitted once per continuous spectrum (FFTAnalysisMetricsView). */
   onMetrics?: (m: EngineMetrics) => void
-  /** The active input device changed on its own (a mic was attached → auto-selected, or the active
-   *  mic was unplugged → fell back). The caller re-syncs device state + reloads the per-device
-   *  calibration for `deviceId`. Mirrors Swift's CoreAudio device-change → selectedInputDevice.didSet. */
+  /** The input device list, the selected input or its calibration changed; the view re-reads them.
+   *  Swift: the views observing @Published availableInputDevices / selectedInputDevice /
+   *  activeCalibration. */
+  onDeviceStateChanged?: () => void
+  /** The hardware changed the input (a mic was attached → selected, or the active mic was unplugged →
+   *  fell back): the caller shows the route-change settle. Swift's route-change restart. */
   onInputChanged?: (deviceId: string | null) => void
 }
 
@@ -134,10 +145,11 @@ export class RealtimeFFTAnalyzer {
    *  capture here. Swift `preMicRestartHandler`. */
   preMicRestartHandler: (() => void) | null = null
 
-  /** deviceId of the active input (for the device picker + per-device calibration mapping). */
+  /** deviceId of the selected input (Swift `selectedInputDevice`); set only by selectInput. */
   inputDeviceId: string | null = null
-  /** Last-enumerated input deviceIds — baseline for detecting attach (new id) vs detach (id gone). */
-  private knownDevices: string[] = []
+  /** The connected inputs (Swift `availableInputDevices`), listed at start and on every hardware
+   *  change — also the baseline for telling an attach (new id) from a detach (id gone). */
+  availableInputDevices: { deviceId: string; label: string }[] = []
 
   // Active mic calibration, applied to the continuous and guitar-capture spectra and, inside
   // computeGatedFFT, to the material gated spectrum at the moment it is computed. guitarCorr caches
@@ -410,10 +422,16 @@ export class RealtimeFFTAnalyzer {
     }
   }
 
+  /** Acquire the input to use: the saved choice when it can be opened, otherwise the browser's
+   *  default input (the system default). Used at start and when the active input is unplugged; it
+   *  saves nothing. A saved id also goes stale across sessions (Safari rotates input deviceIds for
+   *  privacy). Swift `inputDeviceToUse(in:savedUID:systemDefaultUID:)`. */
+  private acquireInputToUse(): Promise<MediaStream> {
+    return this.acquireStream(getSavedInputDeviceId())
+  }
+
   /** Acquire a mic stream for `deviceId`, falling back to the DEFAULT input when an exact
-   *  deviceId can't be satisfied — a saved id goes stale across sessions (Safari rotates input
-   *  deviceIds for privacy) or when the device is unplugged. Without this, auto-start would fail
-   *  with OverconstrainedError ("Invalid constraint") instead of just using the default mic. */
+   *  deviceId can't be satisfied (the device is not connected, or the id is stale). */
   private async acquireStream(deviceId?: string | null): Promise<MediaStream> {
     try {
       return await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) })
@@ -440,9 +458,10 @@ export class RealtimeFFTAnalyzer {
   }
 
   /** Swap the live source to `stream`, keeping the same AudioContext/worklet (so the sample rate
-   *  and DSP state survive). Updates inputDeviceId/label/settings from the new track. */
-  private async applyStream(stream: MediaStream, requestedDeviceId?: string | null): Promise<void> {
-    if (!this.context || !this.node) return
+   *  and DSP state survive). Updates the label and settings from the new track and returns its
+   *  deviceId; selecting the input is selectInput's. */
+  private async applyStream(stream: MediaStream, requestedDeviceId?: string | null): Promise<string | null> {
+    if (!this.context || !this.node) return null
     const track = stream.getAudioTracks()[0]!
     this.watchTrack(track)
     try {
@@ -457,39 +476,96 @@ export class RealtimeFFTAnalyzer {
     this.source.connect(this.node)
     this.audioSettings = track.getSettings() ?? null
     this.deviceLabel = track.label ?? ''
-    this.inputDeviceId = track.getSettings().deviceId ?? requestedDeviceId ?? null
+    this.callbacks.onDeviceStateChanged?.()
+    return track.getSettings().deviceId ?? requestedDeviceId ?? null
   }
 
-  /** Switch the live input to `deviceId` (explicit user choice — no default fallback; the picker
-   *  caller surfaces any error). The web equivalent of RealtimeFFTAnalyzer.setInputDevice. */
+  /** Select `deviceId` as the input and load its calibration — the device's own, or none. Swift
+   *  `selectedInputDevice` and its didSet (`setCalibrationWithoutSavingDeviceMapping`). */
+  private selectInput(deviceId: string | null): void {
+    this.inputDeviceId = deviceId
+    this.reloadDeviceCalibration()
+  }
+
+  /** Apply `cal` (null: no calibration) as the user's choice and save it — as the last chosen (the
+   *  global active id) and for the selected input, so it loads whenever that input is selected.
+   *  Swift assigning `activeCalibration`, whose didSet saves both. A device's own calibration
+   *  loading on a switch (selectInput) and a file playback's (setCalibration) save nothing. */
+  chooseCalibration(cal: StoredCalibration | null): void {
+    setActiveCalibrationId(cal?.id ?? null)
+    if (this.inputDeviceId) setCalibrationForDevice(this.inputDeviceId, cal?.id ?? null)
+    this.setCalibration(cal)
+    this.callbacks.onDeviceStateChanged?.()
+  }
+
+  /** Apply the selected input's calibration from the store (after a selection, or after a stored
+   *  calibration is deleted). */
+  reloadDeviceCalibration(): void {
+    this.setCalibration(resolveActiveCalibration(this.inputDeviceId))
+    this.callbacks.onDeviceStateChanged?.()
+  }
+
+  /** Refresh `availableInputDevices` from the browser. */
+  private async refreshAvailableInputDevices(): Promise<void> {
+    this.availableInputDevices = await this.listInputs()
+    this.callbacks.onDeviceStateChanged?.()
+  }
+
+  /** Switch to the input to use (acquireInputToUse) and select it — at an unplug, not saved. */
+  private async switchToInputToUse(): Promise<void> {
+    this.selectInput(await this.applyStream(await this.acquireInputToUse()))
+  }
+
+  /** Switch the live input to `deviceId` for this session; it is not saved (a loaded measurement's
+   *  microphone). The input and its calibration are selected before the first await, so a caller
+   *  that does not wait reads them at once; the stream follows. If the stream cannot be opened the
+   *  previous input is selected again and the error is thrown. Swift `setInputDevice(_:)`. */
   async setInputDevice(deviceId: string): Promise<void> {
     if (!this.context || !this.node) return
-    await this.applyStream(await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) }), deviceId)
+    const previous = this.inputDeviceId
+    this.selectInput(deviceId)
+    try {
+      await this.applyStream(await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) }), deviceId)
+    } catch (e) {
+      this.selectInput(previous)
+      throw e
+    }
   }
 
-  /** Hardware-change handler (mic attached / unplugged), mirroring Swift's CoreAudio device listener:
-   *   • a NEW device appeared → auto-select it (Swift switches to the first newly-connected device);
-   *   • the ACTIVE device was unplugged → fall back to the default input;
+  /** Switch the live input to `deviceId` as the user's choice and save it, so it is used at the next
+   *  start whenever it is present. Used for a device picked in Settings and a device plugged in while
+   *  the app runs. No default fallback — the picker caller surfaces any error. Swift
+   *  `chooseInputDevice(_:)`. */
+  async chooseInputDevice(deviceId: string): Promise<void> {
+    if (!this.context || !this.node) return
+    await this.setInputDevice(deviceId)
+    setSavedInputDeviceId(deviceId)
+  }
+
+  /** Hardware-change handler (mic attached / unplugged), mirroring Swift `applyInputDeviceList`:
+   *   • a NEW device appeared → chooseInputDevice: the user plugged it in, so it is switched to and saved;
+   *   • the ACTIVE device was unplugged → acquireInputToUse (the saved choice if present, else the
+   *     default input), not saved — a microphone that drops out stays the saved choice;
    *  then fire onInputChanged so the per-device calibration is reloaded for the now-active device.
    *  Bound field so add/removeEventListener match. */
   private handleDeviceChange = async (): Promise<void> => {
     if (!this.context || !this.node) return
-    const ids = (await this.listInputs()).map((d) => d.deviceId)
-    const prev = this.knownDevices
-    this.knownDevices = ids
+    const prev = this.availableInputDevices.map((d) => d.deviceId)
+    await this.refreshAvailableInputDevices()
+    const ids = this.availableInputDevices.map((d) => d.deviceId)
     const attached = ids.find((id) => !prev.includes(id))
     try {
       if (prev.length && attached) {
-        await this.applyStream(await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(attached) }), attached)
+        await this.chooseInputDevice(attached)
       } else if (this.inputDeviceId && !ids.includes(this.inputDeviceId)) {
-        await this.applyStream(await this.acquireStream(null)) // active mic gone → default
+        await this.switchToInputToUse()
       } else {
-        this.callbacks.onInputChanged?.(this.inputDeviceId) // unrelated change — just resync the picker
-        return
+        return // the selected input is unaffected
       }
     } catch {
       try {
-        await this.applyStream(await this.acquireStream(null)) // chosen device failed → last-resort default
+        // The input could not be opened — the browser's default, as a last resort.
+        this.selectInput(await this.applyStream(await this.acquireStream(null)))
       } catch {
         return /* mic fully unavailable */
       }
@@ -497,7 +573,7 @@ export class RealtimeFFTAnalyzer {
     this.callbacks.onInputChanged?.(this.inputDeviceId)
   }
 
-  async start(deviceId?: string | null): Promise<void> {
+  async start(): Promise<void> {
     if (this.context) return
     // Don't force a rate: browsers expose no device "nominal" rate (no constraint →
     // system default; getCapabilities → device MAX), so we let the OS decide. The rate
@@ -506,7 +582,7 @@ export class RealtimeFFTAnalyzer {
     // actual ctx.sampleRate — there is no forced/expected rate. (Provenance is
     // recorded per measurement; a load-time warning compares a saved measurement's
     // recorded rate against the current one — see measurement/fromLive.ts.)
-    this.stream = await this.acquireStream(deviceId) // exact saved device, else default (Safari stale ids)
+    this.stream = await this.acquireInputToUse()
     const track = this.stream.getAudioTracks()[0]!
     this.watchTrack(track)
     // Re-assert processing-off; some UAs only honor applyConstraints.
@@ -517,7 +593,6 @@ export class RealtimeFFTAnalyzer {
     }
     this.audioSettings = track.getSettings() ?? null
     this.deviceLabel = track.label ?? ''
-    this.inputDeviceId = track.getSettings().deviceId ?? deviceId ?? null
     const ctx = new AudioContext()
     this.context = ctx
     this.sampleRate = ctx.sampleRate
@@ -539,8 +614,10 @@ export class RealtimeFFTAnalyzer {
     // useAudioEngine's onStarted) so guitar and material go through one branch — mirrors
     // Swift/Python start() → startTapSequence(). start() no longer self-arms guitar.
 
-    // Baseline the device list + watch for hot-plug changes (attach → auto-select, unplug → fall back).
-    this.knownDevices = (await this.listInputs()).map((d) => d.deviceId)
+    // The input is selected (its calibration loads); list the inputs as the baseline for hot-plug
+    // changes, and watch for them (attach → select and save, unplug → fall back).
+    this.selectInput(track.getSettings().deviceId ?? null)
+    await this.refreshAvailableInputDevices()
     navigator.mediaDevices.addEventListener('devicechange', this.handleDeviceChange)
 
     this.startBufferWatchdog()
@@ -646,7 +723,8 @@ export class RealtimeFFTAnalyzer {
     try {
       // Re-acquire the current input (exact device, else default) and reconnect the
       // source to the existing worklet node — the context/worklet survive.
-      await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId)
+      const reacquired = await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId)
+      if (reacquired !== this.inputDeviceId) this.selectInput(reacquired) // it fell back to the default
       this.lastChunkTime = performance.now() // give the fresh stream a grace window
       // NOT lastSignalTime: it means "signal was last OBSERVED", and re-acquiring a stream observes
       // nothing. Stamping it here would make the next tick read 'healthy', clearing the warning and
@@ -898,7 +976,7 @@ export class RealtimeFFTAnalyzer {
   async stop(): Promise<void> {
     this.stopBufferWatchdog()
     navigator.mediaDevices.removeEventListener('devicechange', this.handleDeviceChange)
-    this.knownDevices = []
+    this.availableInputDevices = []
     this.removeGestureResume?.()
     this.node?.disconnect()
     this.source?.disconnect()
