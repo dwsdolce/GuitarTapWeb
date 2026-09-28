@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
-import { RealtimeFFTAnalyzer, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
+import { RealtimeFFTAnalyzer, failedOpenMessage, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
 import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 import type { Spectrum } from '../dsp/guitarFFT'
 import {
@@ -50,11 +50,11 @@ export interface AudioEngineModel {
   error: string | null
   /** What kind of error, so the UI shows the right native-style alert title:
    *  'permission' → "Microphone Access Required", else → "Audio Engine Error". */
-  errorKind: 'permission' | 'engine' | 'other' | null
+  errorKind: 'permission' | 'engine' | 'other' | 'microphone' | null
   setError: (e: string | null) => void
   /** Set alongside `setError` so a non-audio failure (e.g. an export error) shows the neutral
    *  "Error" alert with a plain OK, not "Audio Engine Error" with a bogus Retry. */
-  setErrorKind: (k: 'permission' | 'engine' | 'other' | null) => void
+  setErrorKind: (k: 'permission' | 'engine' | 'other' | 'microphone' | null) => void
   inputDevices: { deviceId: string; label: string }[]
   currentDeviceId: string | null
   calibrations: StoredCalibration[]
@@ -85,7 +85,7 @@ export function useAudioEngine({
   const [audioSettings, setAudioSettings] = useState<MediaTrackSettings | null>(null)
   const [deviceLabel, setDeviceLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [errorKind, setErrorKind] = useState<'permission' | 'engine' | 'other' | null>(null)
+  const [errorKind, setErrorKind] = useState<'permission' | 'engine' | 'other' | 'microphone' | null>(null)
   const [inputDevices, setInputDevices] = useState<{ deviceId: string; label: string }[]>([])
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null)
   const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
@@ -110,9 +110,11 @@ export function useAudioEngine({
     async (deviceId: string) => {
       try {
         await engineRef.current?.setInputDevice(deviceId)
-      } catch (e) {
-        setError(`Couldn't switch input: ${e instanceof Error ? e.message : String(e)}`)
-        setErrorKind('other')
+      } catch {
+        // Not selected, not saved: the previous input is still in use.
+        const label = engineRef.current?.availableInputDevices.find((d) => d.deviceId === deviceId)?.label ?? deviceId
+        setError(failedOpenMessage(label))
+        setErrorKind('microphone')
       }
     },
     [engineRef],
@@ -172,6 +174,11 @@ export function useAudioEngine({
         onClipping: (c) => analyzer.setClipping(c),
         onMetrics: setEngineMetrics,
         onDeviceStateChanged: syncDeviceState,
+        // A device plugged in while running could not be opened; the previous input is kept.
+        onInputOpenFailed: (message) => {
+          setError(message)
+          setErrorKind('microphone')
+        },
         // The hardware changed the input (a mic attached and selected, or the active one unplugged).
         onInputChanged: () => {
           // Briefly surface "Audio device changed - reinitializing…" then restore the resting prompt

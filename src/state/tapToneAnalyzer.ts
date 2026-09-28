@@ -26,7 +26,7 @@ import { buildGuitarMeasurement, buildMaterialMeasurement, comparisonAxisRange, 
 import { saveMeasurement as storeMeasurement } from '../measurement/store'
 import type { ChartView } from '../presentation/chartTypes'
 import { dftAnalRect, GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
-import { RealtimeFFTAnalyzer, type MaterialSearch, type MaterialPhaseName, type EngineState } from '../audio/realtimeFFTAnalyzer'
+import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type MaterialPhaseName, type EngineState } from '../audio/realtimeFFTAnalyzer'
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
 import { isGuitarType, defaultDisplayRange, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, type MeasurementType, type Settings } from '../settings'
@@ -697,7 +697,9 @@ export class TapToneAnalyzer {
         // the check below reads it. The stream follows.
         if (device.inputDeviceId !== match.deviceId) {
           device.setInputDevice(match.deviceId).catch(() => {
-            /* the previous input stays selected */
+            // It could not be opened: setInputDevice kept the previous input, and the load says so.
+            this.microphoneWarning = failedOpenMessage(match.label)
+            this.notify()
           })
         }
         // Same microphone — but flag a calibration or sample-rate difference, since a newly

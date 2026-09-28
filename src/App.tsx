@@ -1425,6 +1425,8 @@ export default function App() {
             const permission = errorKind === 'permission'
             const title = permission
               ? 'Microphone Access Required'
+              : errorKind === 'microphone'
+              ? 'Microphone Unavailable'
               : errorKind === 'other'
               ? 'Error'
               : 'Audio Engine Error'
@@ -1432,7 +1434,7 @@ export default function App() {
               ? 'GuitarTap needs microphone access to analyse tap tones. Please allow microphone access for this site in your browser settings, then retry.'
               : error
             const buttons =
-              errorKind === 'other'
+              errorKind === 'other' || errorKind === 'microphone'
                 ? [{ label: 'OK', primary: true, onClick: () => setError(null) }]
                 : [
                     { label: 'Retry', primary: true, onClick: () => { setError(null); void retry() } },

@@ -59,6 +59,15 @@ export interface RealtimeFFTAnalyzerCallbacks {
   /** The hardware changed the input (a mic was attached → selected, or the active mic was unplugged →
    *  fell back): the caller shows the route-change settle. Swift's route-change restart. */
   onInputChanged?: (deviceId: string | null) => void
+  /** A device plugged in while running could not be opened; the previous input is kept. The caller
+   *  shows `message` in an alert. Swift `inputDeviceOpenFailure`. */
+  onInputOpenFailed?: (message: string) => void
+}
+
+/** The message shown when an input device cannot be opened. Swift
+ *  `RealtimeFFTAnalyzer.failedOpenMessage(for:)`. */
+export function failedOpenMessage(name: string): string {
+  return `Could not open the microphone '${name}'. The previous input is still in use — please check the microphone.`
 }
 
 /** Live-FFT performance counters (mirrors FFTAnalysisMetricsView's Performance section). */
@@ -532,7 +541,8 @@ export class RealtimeFFTAnalyzer {
   }
 
   /** Hardware-change handler (mic attached / unplugged), mirroring Swift `applyInputDeviceList`:
-   *   • a NEW device appeared → setInputDevice: it is switched to (and saved);
+   *   • a NEW device appeared → setInputDevice: it is switched to (and saved); if it cannot be opened
+   *     the previous input is kept and onInputOpenFailed reports it;
    *   • the ACTIVE device was unplugged → the browser's default input (and saved);
    *  then fire onInputChanged so the per-device calibration is reloaded for the now-active device.
    *  Bound field so add/removeEventListener match. */
@@ -542,21 +552,23 @@ export class RealtimeFFTAnalyzer {
     await this.refreshAvailableInputDevices()
     const ids = this.availableInputDevices.map((d) => d.deviceId)
     const attached = ids.find((id) => !prev.includes(id))
-    try {
-      if (prev.length && attached) {
-        await this.setInputDevice(attached)
-      } else if (this.inputDeviceId && !ids.includes(this.inputDeviceId)) {
-        this.selectInput(await this.applyStream(await this.acquireStream(null)))
-      } else {
-        return // the selected input is unaffected
-      }
-    } catch {
+    if (prev.length && attached) {
       try {
-        // The input could not be opened — the browser's default, as a last resort.
-        this.selectInput(await this.applyStream(await this.acquireStream(null)))
+        await this.setInputDevice(attached)
       } catch {
-        return /* mic fully unavailable */
+        // Not selected, not saved: setInputDevice kept the previous input (its stream untouched).
+        const label = this.availableInputDevices.find((d) => d.deviceId === attached)?.label ?? attached
+        this.callbacks.onInputOpenFailed?.(failedOpenMessage(label))
+        return
       }
+      this.callbacks.onInputChanged?.(this.inputDeviceId)
+      return
+    }
+    if (!this.inputDeviceId || ids.includes(this.inputDeviceId)) return // the selected input is unaffected
+    try {
+      this.selectInput(await this.applyStream(await this.acquireStream(null)))
+    } catch {
+      return /* mic fully unavailable */
     }
     this.callbacks.onInputChanged?.(this.inputDeviceId)
   }

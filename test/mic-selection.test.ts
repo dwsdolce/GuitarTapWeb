@@ -3,7 +3,8 @@
 // Which input device the engine uses and what it saves: the start-up rule acquireInputToUse (MS1–MS3),
 // the engine driven through setInputDevice and the hardware-change handler (MS6–MS11), a measurement
 // load switching to its recorded microphone (MS14–MS17), and choosing a calibration for the selected
-// input (MS18–MS20), and the thresholds a load restores (MS21).
+// input (MS18–MS20), the thresholds a load restores (MS21), and a device that cannot be opened
+// (MS23–MS25).
 //
 // The rules: at start, the saved device when it is present, otherwise the browser's default input (the
 // system default); a device connected while running is selected; the input in use disappearing selects
@@ -19,7 +20,7 @@
 // The browser's media devices are replaced by a fake: a set of connected inputs and a default.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
+import { RealtimeFFTAnalyzer, failedOpenMessage } from '../src/audio/realtimeFFTAnalyzer'
 import {
   calibrationIdForDevice,
   getActiveCalibrationId,
@@ -37,7 +38,7 @@ const UMIK = 'umik-1'
 const USB2 = 'usb-mic-2'
 
 /** The fake browser: which inputs are connected, and which is the default. */
-const media = { connected: [] as string[], defaultId: null as string | null }
+const media = { connected: [] as string[], defaultId: null as string | null, failing: [] as string[] }
 
 function fakeStream(deviceId: string): MediaStream {
   const track = {
@@ -55,6 +56,7 @@ function fakeStream(deviceId: string): MediaStream {
 async function getUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream> {
   const exact = ((constraints.audio as MediaTrackConstraints).deviceId as { exact?: string } | undefined)?.exact
   if (exact) {
+    if (media.failing.includes(exact)) throw Object.assign(new Error('cannot open'), { name: 'NotReadableError' })
     if (!media.connected.includes(exact)) throw Object.assign(new Error('not connected'), { name: 'OverconstrainedError' })
     return fakeStream(exact)
   }
@@ -77,11 +79,17 @@ interface EngineInternals {
 
 /** A running engine (a fake audio graph) on the input start() selects, with `saved` as the saved device
  *  (null: nothing saved). */
-async function makeSUT(saved: string | null, connected: string[], defaultId: string): Promise<RealtimeFFTAnalyzer> {
+async function makeSUT(
+  saved: string | null,
+  connected: string[],
+  defaultId: string,
+  callbacks: ConstructorParameters<typeof RealtimeFFTAnalyzer>[0] = {},
+): Promise<RealtimeFFTAnalyzer> {
   setSavedInputDeviceId(saved)
   media.connected = connected
   media.defaultId = defaultId
-  const engine = new RealtimeFFTAnalyzer()
+  media.failing = []
+  const engine = new RealtimeFFTAnalyzer(callbacks)
   const sourceNode = { connect: () => {}, disconnect: () => {} }
   Object.assign(engine as unknown as Record<string, unknown>, {
     context: { createMediaStreamSource: () => sourceNode },
@@ -304,6 +312,56 @@ describe('a load restores settings as the user setting them would', () => {
     })
     expect(sut.loadedSettings?.tapDetectionThreshold).toBe(-30)
     expect(sut.loadedSettings?.peakMinThreshold).toBe(-50)
+  })
+})
+
+describe('a device that cannot be opened', () => {
+  it('MS23: a switch whose device cannot be opened leaves the previous device selected and saved', async () => {
+    const engine = await makeSUT(BUILT_IN, [BUILT_IN, UMIK], BUILT_IN)
+    media.failing = [UMIK]
+    await expect(engine.setInputDevice(UMIK)).rejects.toThrow()
+    expect(engine.inputDeviceId).toBe(BUILT_IN)
+    expect(getSavedInputDeviceId()).toBe(BUILT_IN)
+  })
+
+  it('MS24: a device plugged in that cannot be opened keeps the previous input and is reported', async () => {
+    const reported: string[] = []
+    const engine = await makeSUT(BUILT_IN, [BUILT_IN], BUILT_IN, { onInputOpenFailed: (m) => reported.push(m) })
+    media.failing = [UMIK]
+    await devicesChange(engine, [BUILT_IN, UMIK])
+    expect(engine.inputDeviceId).toBe(BUILT_IN)
+    expect(getSavedInputDeviceId()).toBe(BUILT_IN)
+    expect(reported).toEqual([failedOpenMessage(UMIK)])
+  })
+
+  it('MS25: a load whose recorded microphone cannot be opened keeps the input and says so', async () => {
+    const engine = await makeSUT(BUILT_IN, [BUILT_IN, UMIK], BUILT_IN)
+    const sut = new TapToneAnalyzer()
+    sut.setDevice(engine)
+    media.failing = [UMIK]
+    sut.loadMeasurement({
+      id: 'M1',
+      timestamp: '2026-01-01T00:00:00Z',
+      peaks: [],
+      measurementName: 'Loaded',
+      microphoneName: UMIK,
+      microphoneUID: UMIK,
+      spectrumSnapshot: {
+        frequencies: [100, 200],
+        magnitudes: [-50, -40],
+        minFreq: 75,
+        maxFreq: 350,
+        minDB: -100,
+        maxDB: 0,
+        isLogarithmic: false,
+        measurementType: 'Classical Guitar',
+        guitarType: 'Classical',
+      },
+    })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(engine.inputDeviceId).toBe(BUILT_IN)
+    expect(getSavedInputDeviceId()).toBe(BUILT_IN)
+    expect(sut.microphoneWarning).toBe(failedOpenMessage(UMIK))
   })
 })
 
