@@ -29,7 +29,7 @@ import {
   setCalibrationForDevice,
   setSavedInputDeviceId,
 } from '../src/measurement/calibrationStore'
-import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import { TapToneAnalyzer, microphoneNotFoundMessage } from '../src/state/tapToneAnalyzer'
 import type { TapToneMeasurementModel } from '../src/measurement'
 
 const BUILT_IN = 'macbook-mic'
@@ -237,14 +237,18 @@ describe('loading a measurement recorded with another connected microphone', () 
     const { sut, engine } = await analyzerOnBuiltIn()
     sut.loadMeasurement(measurement({ microphoneName: 'Absent Mic', microphoneUID: 'absent-mic' }))
     expect(engine.inputDeviceId).toBe(BUILT_IN)
-    expect(sut.microphoneWarning).toContain("Recorded with 'Absent Mic'. No connected microphone matches that name")
+    expect(sut.microphoneWarningTitle).toBe('Microphone Not Found')
+    expect(sut.microphoneWarning).toBe(microphoneNotFoundMessage('Absent Mic', BUILT_IN))
+    expect(sut.microphoneWarning).toContain(`you are still using '${BUILT_IN}'`)
   })
 
   it('MS17: the recorded microphone is the current one but its calibration differs — the warning', async () => {
     const { sut } = await analyzerOnBuiltIn()
     sut.loadMeasurement(measurement({ microphoneName: BUILT_IN, microphoneUID: BUILT_IN, calibrationName: 'Other' }))
+    expect(sut.microphoneWarningTitle).toBe('Recording Setup Differs')
     expect(sut.microphoneWarning).toBe(
-      'This measurement was recorded with a different calibration. A newly captured tap may not match the saved result.',
+      "This measurement was made with a different setup from the current one:\n• Calibration: recorded with 'Other'; the current microphone uses 'Built-in room'.\n\n" +
+        'A tap captured now may not match the saved result. In a browser, the sample rate follows your output device: set the output and input to the same rate in Audio MIDI Setup (Mac) or Sound settings (Windows).',
     )
   })
 })

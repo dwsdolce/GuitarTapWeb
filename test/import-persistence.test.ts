@@ -196,7 +196,7 @@ describe('the import message', () => {
     const a = new TapToneAnalyzer()
     const message = await a.importAndLoadMeasurements(file(ABSENT_MIC), importMeasurements)
     expect(message).toContain('Successfully imported and loaded 1 measurement')
-    expect(message).toContain(`⚠️ Recorded with '${ABSENT_MIC}'`)
+    expect(message).toContain(`⚠️ This measurement was recorded with a microphone named '${ABSENT_MIC}'`)
     expect(a.microphoneWarning).toBeNull() // folded into the message, so no second dialog
   })
 

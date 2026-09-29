@@ -140,6 +140,36 @@ export interface DefinitiveModeInfo {
 }
 
 
+
+/** The load's warning when no connected input has the recorded name. Names both microphones — the
+ *  recorded one and the one in use — and says why a measurement from another computer usually cannot
+ *  find its microphone. Swift `TapToneAnalyzer.microphoneNotFoundMessage(recorded:current:)`. */
+export function microphoneNotFoundMessage(recorded: string, current: string | null): string {
+  return (
+    `This measurement was recorded with a microphone named '${recorded}'. No connected microphone has exactly that name, so the input has not been changed — you are still using '${current ?? 'no microphone'}'.\n\n` +
+    'Each computer names microphones its own way. A measurement made on another computer — especially one running a different operating system — will usually not find its microphone even when the same one is connected. If it is, choose it in Settings.\n\n' +
+    'Peak frequencies are still comparable; input levels, the tap threshold, and faint peaks (such as FLC) may differ.'
+  )
+}
+
+/** The load's warning when the recorded microphone is in use but the calibration and/or the sample
+ *  rate differs — one line for each that differs, with both values. The web's rate is the browser's,
+ *  which follows the output device, and the last sentence says so. Swift
+ *  `TapToneAnalyzer.setupDiffersMessage(calibration:sampleRate:)`. */
+export function setupDiffersMessage(
+  calibration: [string | null, string | null] | null,
+  sampleRate: [number, number] | null,
+): string {
+  const named = (n: string | null) => (n ? `'${n}'` : 'none')
+  const lines = ['This measurement was made with a different setup from the current one:']
+  if (calibration) lines.push(`• Calibration: recorded with ${named(calibration[0])}; the current microphone uses ${named(calibration[1])}.`)
+  if (sampleRate) lines.push(`• Sample rate: recorded at ${sampleRate[0]} Hz; audio is now captured at ${sampleRate[1]} Hz.`)
+  return (
+    lines.join('\n') +
+    '\n\nA tap captured now may not match the saved result. In a browser, the sample rate follows your output device: set the output and input to the same rate in Audio MIDI Setup (Mac) or Sound settings (Windows).'
+  )
+}
+
 export class TapToneAnalyzer {
   // ── Published-equivalent state (settable; the audio layer / tests mutate these directly) ──
   /** Whether the detector is listening, paused mid-sequence, or neither. One value rather than
@@ -289,6 +319,8 @@ export class TapToneAnalyzer {
    *  (Swift `@Published var microphoneWarning`). An IMPORT never sets this — only a load, which is
    *  what puts the user in front of the data. The view shows it and clears it on acknowledgement. */
   microphoneWarning: string | null = null
+  /** The title of the alert that shows `microphoneWarning`; set with it. Swift `microphoneWarningTitle`. */
+  microphoneWarningTitle = 'Microphone Not Found'
   /** Ring-out (decay) time in seconds of what is on screen: the file's when a measurement is loaded,
    *  the live ring-out's during a capture (`trackDecayFast` writes it). ONE value, as
    *  Swift `currentDecayTime` and Python `current_decay_time` — the view used to hold two and choose
@@ -692,28 +724,43 @@ export class TapToneAnalyzer {
       const match =
         available.find((d) => d.deviceId === m.microphoneUID) ??
         available.find((d) => d.label === m.microphoneName)
+      console.info(
+        `[analyzer] 🎤 Load: recorded microphone '${name}' (uid ${m.microphoneUID}) — ` +
+          (match
+            ? `matched '${match.label}' by ${match.deviceId === m.microphoneUID ? 'id' : 'name'}; the input is ${device?.inputDeviceId === match.deviceId ? 'already it' : `'${device?.inputDeviceId}' — switching`}`
+            : `no connected input matches (${available.map((d) => `'${d.label}'`).join(', ') || 'none listed'})`) +
+          `; recorded rate ${m.sampleRate ?? 'none'} Hz, current rate ${device?.sampleRate ?? 'none'} Hz` +
+          ` (the browser's audio rate — it follows the output device), track rate ${device?.audioSettings?.sampleRate ?? 'unknown'} Hz`,
+      )
       if (match && device) {
         // Connected — switch to it for this session; its calibration is selected with it, before
         // the check below reads it. The stream follows.
         if (device.inputDeviceId !== match.deviceId) {
           device.setInputDevice(match.deviceId).catch(() => {
             // It could not be opened: setInputDevice kept the previous input, and the load says so.
+            this.microphoneWarningTitle = 'Microphone Unavailable'
             this.microphoneWarning = failedOpenMessage(match.label)
             this.notify()
           })
         }
         // Same microphone — but flag a calibration or sample-rate difference, since a newly
         // captured tap would then not match this saved measurement.
-        const diffs: string[] = []
-        if ((m.calibrationName ?? null) !== (device.activeCalibration?.name ?? null)) diffs.push('calibration')
-        if (m.sampleRate != null && Math.round(m.sampleRate) !== Math.round(device.sampleRate)) diffs.push('sample rate')
-        this.microphoneWarning = diffs.length
-          ? `This measurement was recorded with a different ${diffs.join(' and ')}. A newly captured tap may not match the saved result.`
-          : null
+        const currentCalibration = device.activeCalibration?.name ?? null
+        const calibrationDiffers = (m.calibrationName ?? null) !== currentCalibration
+        const rateDiffers = m.sampleRate != null && Math.round(m.sampleRate) !== Math.round(device.sampleRate)
+        this.microphoneWarningTitle = 'Recording Setup Differs'
+        this.microphoneWarning =
+          calibrationDiffers || rateDiffers
+            ? setupDiffersMessage(
+                calibrationDiffers ? [m.calibrationName ?? null, currentCalibration] : null,
+                rateDiffers ? [Math.round(m.sampleRate!), Math.round(device.sampleRate)] : null,
+              )
+            : null
       } else {
         // UNKNOWN, not "unplugged": a no-match can equally mean the device is attached under a
-        // different name on this platform.
-        this.microphoneWarning = `Recorded with '${name}'. No connected microphone matches that name — it may be unplugged, or attached under a different name on this platform. Peak frequencies should still be comparable; input levels, the tap threshold, and faint peaks (such as FLC) may differ.`
+        // different name on this platform; the message says both.
+        this.microphoneWarningTitle = 'Microphone Not Found'
+        this.microphoneWarning = microphoneNotFoundMessage(name, device ? device.deviceLabel || null : null)
       }
     }
     this.notify()
@@ -2701,6 +2748,7 @@ export class TapToneAnalyzer {
         loadedAxisRange: this.loadedAxisRange,
         loadedSettings: this.loadedSettings,
         microphoneWarning: this.microphoneWarning,
+        microphoneWarningTitle: this.microphoneWarningTitle,
         currentDecayTime: this.currentDecayTime,
       })
     }
@@ -3126,6 +3174,8 @@ export interface TapToneSnapshot {
   loadedSettings: Partial<Settings> | null
   /** The loaded measurement's microphone is missing, or its calibration / sample rate differs. */
   microphoneWarning: string | null
+  /** The title of the alert that shows `microphoneWarning`. */
+  microphoneWarningTitle: string
   /** Ring-out of what is on screen — the file's when loaded, the live tracker's during a capture. */
   currentDecayTime: number | null
 }

@@ -1444,7 +1444,7 @@ export default function App() {
           })()
         : loadWarning && (
             <AlertModal
-              title="Microphone Not Connected"
+              title={snapshot.microphoneWarningTitle}
               message={loadWarning}
               buttons={[{ label: 'OK', primary: true, onClick: () => analyzer.clearMicrophoneWarning() }]}
               onDismiss={() => analyzer.clearMicrophoneWarning()}

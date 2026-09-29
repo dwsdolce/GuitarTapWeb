@@ -495,7 +495,17 @@ export class RealtimeFFTAnalyzer {
   private selectInput(deviceId: string | null): void {
     this.inputDeviceId = deviceId
     if (deviceId) setSavedInputDeviceId(deviceId)
+    const listed = this.availableInputDevices.find((d) => d.deviceId === deviceId)
+    console.info(
+      `[engine] 🎤 Selected: ${listed ? `'${listed.label}'` : 'a device not in the list'} (id ${deviceId ?? 'none'}; ` +
+        `the stream's track reports ${this.stream?.getAudioTracks()[0]?.getSettings().deviceId ?? 'none'})`,
+    )
     this.reloadDeviceCalibration()
+  }
+
+  /** The label of the listed input `deviceId`, or the id itself. */
+  private labelOf(deviceId: string | null | undefined): string {
+    return this.availableInputDevices.find((d) => d.deviceId === deviceId)?.label ?? String(deviceId)
   }
 
   /** Apply `cal` (null: no calibration) as the user's choice and save it — as the last chosen (the
@@ -519,6 +529,8 @@ export class RealtimeFFTAnalyzer {
   /** Refresh `availableInputDevices` from the browser. */
   private async refreshAvailableInputDevices(): Promise<void> {
     this.availableInputDevices = await this.listInputs()
+    for (const d of this.availableInputDevices) console.info(`[engine] 🎤 Found input device: '${d.label}' (id ${d.deviceId})`)
+    console.info(`[engine] 🎤 Found ${this.availableInputDevices.length} audio input device(s) total`)
     this.callbacks.onDeviceStateChanged?.()
   }
 
@@ -531,10 +543,13 @@ export class RealtimeFFTAnalyzer {
   async setInputDevice(deviceId: string): Promise<void> {
     if (!this.context || !this.node) return
     const previous = this.inputDeviceId
+    console.info(`[engine] 🎤 Switching to '${this.labelOf(deviceId)}'`)
     this.selectInput(deviceId)
     try {
-      await this.applyStream(await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) }), deviceId)
+      const opened = await this.applyStream(await navigator.mediaDevices.getUserMedia({ audio: this.baseAudio(deviceId) }), deviceId)
+      console.info(`[engine] 🎤 Opened '${this.labelOf(deviceId)}' (the track reports id ${opened ?? 'none'})`)
     } catch (e) {
+      console.warn(`[engine] ❌ Could not open '${this.labelOf(deviceId)}' (${e instanceof Error ? e.name : String(e)}) — keeping '${this.labelOf(previous)}'`)
       this.selectInput(previous)
       throw e
     }
@@ -553,6 +568,7 @@ export class RealtimeFFTAnalyzer {
     const ids = this.availableInputDevices.map((d) => d.deviceId)
     const attached = ids.find((id) => !prev.includes(id))
     if (prev.length && attached) {
+      console.info(`[engine] 🎤 New device connected: '${this.labelOf(attached)}'`)
       try {
         await this.setInputDevice(attached)
       } catch {
@@ -565,6 +581,7 @@ export class RealtimeFFTAnalyzer {
       return
     }
     if (!this.inputDeviceId || ids.includes(this.inputDeviceId)) return // the selected input is unaffected
+    console.info(`[engine] 🎤 The input in use (id ${this.inputDeviceId}) disconnected — switching to the default input`)
     try {
       this.selectInput(await this.applyStream(await this.acquireStream(null)))
     } catch {
@@ -582,6 +599,8 @@ export class RealtimeFFTAnalyzer {
     // actual ctx.sampleRate — there is no forced/expected rate. (Provenance is
     // recorded per measurement; a load-time warning compares a saved measurement's
     // recorded rate against the current one — see measurement/fromLive.ts.)
+    const savedId = getSavedInputDeviceId()
+    console.info(`[engine] 🎤 Starting — saved input id ${savedId ?? 'none'}`)
     this.stream = await this.acquireInputToUse()
     const track = this.stream.getAudioTracks()[0]!
     this.watchTrack(track)
