@@ -198,4 +198,32 @@ describe('StateNotification', () => {
     a.resumeTapDetection()
     expect(a.statusMessage).toBe('Rotate 90° and tap for fC')
   })
+
+  // N13: a settling edge DURING a settle must not capture the transient as the pre-settle status.
+  // The burst is what a user does — unplug and replug faster than the settle — and an unguarded
+  // capture stores 'Audio device changed - reinitializing...' AS the real status. Every state whose
+  // status is not re-derivable (N4's completed measurement, N9's material phase instruction) then
+  // has the transient put back on top of itself, where it stays until the next tap writes over it.
+  // Found in the #24 run-review on Windows in brace mode, where both natives had it; web is guarded
+  // on both halves — `statusBeforeSettle === null` here and `clearTimeout` in useAudioEngine — and
+  // this pins the half that lives in the model.
+  it('N13 — a settling edge during a settle does not capture the transient', () => {
+    const a = sut()
+    a.measurementType = 'brace'
+    a.setNumberOfTaps(1)
+    a.startTapSequence({ arm: false })   // the production path to the material arm prompt
+    a.detectionState = 'listening'
+    expect(a.statusMessage).toBe('Ready for fL tap')   // precondition
+
+    a.handleDeviceChange(true)   // unplug
+    a.handleDeviceChange(true)   // replug, inside the settle
+
+    expect(a.statusMessage).toBe('Audio device changed - reinitializing...')
+    expect((a as unknown as { statusBeforeSettle: string | null }).statusBeforeSettle)
+      .toBe('Ready for fL tap')
+
+    a.handleDeviceChange(false)
+
+    expect(a.statusMessage).toBe('Ready for fL tap')
+  })
 })
