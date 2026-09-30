@@ -425,9 +425,10 @@ export class RealtimeFFTAnalyzer {
       noiseSuppression: false,
       autoGainControl: false,
       ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-      // Chrome legacy goog flags — belt-and-suspenders to kill input processing.
+      // Chrome legacy goog flags — belt-and-suspenders to kill input processing. voiceIsolation
+      // (newer Chrome; not yet in the DOM typings) turns off the OS voice isolation; others ignore it.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ...({ googAutoGainControl: false, googNoiseSuppression: false, googEchoCancellation: false } as any),
+      ...({ googAutoGainControl: false, googNoiseSuppression: false, googEchoCancellation: false, voiceIsolation: false } as any),
     }
   }
 
