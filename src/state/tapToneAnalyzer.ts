@@ -354,6 +354,9 @@ export class TapToneAnalyzer {
   private isClipping = false
   /** Input delivering chunks that carry no signal — outranks clipping in the status override. */
   private inputAppearsDead = false
+  /** The file name of the last capture audio handed to the browser as a download; null when none
+   *  is shown. */
+  private captureAudioSaved: string | null = null
   // The device owns the guitar detection loop, so the guitar status strings derive from these transitions
   // (the web equivalent of Swift's TapToneAnalyzer+TapDetection setting statusMessage in the loop).
 
@@ -450,6 +453,7 @@ export class TapToneAnalyzer {
     this.peakMagnitudeHistory = []
     this.resetDecayTracking()
     this.showingMultiTapComparison = false
+    this.captureAudioSaved = null
     // A new sequence listens to the input until playFile says otherwise, and no longer names a file.
     this.resultProvenance = null
     if (this.device) this.device.playingFileName = null
@@ -466,7 +470,7 @@ export class TapToneAnalyzer {
         // because an externally recorded file may put the tap inside the first 0.5 s and guitar
         // detects against the absolute threshold, so it never reads the noise floor.
         this.armGuitarDetection(skipWarmup)
-        this.startSessionRecording() // begin the continuous session WAV (dump-gated)
+        this.startSessionRecording() // begin the continuous session WAV
       } else {
         this.detectionState = 'listening'
       }
@@ -1859,10 +1863,10 @@ export class TapToneAnalyzer {
   }
 
   // ── Continuous session recording (Swift TapToneAnalyzer session WAV) ────────
-  /** Begin accumulating every pipeline chunk for the session WAV (no-op unless the dump setting is on).
-   *  Guitar calls this from `arm()`; live material drives it from useMaterialSession. */
+  /** Begin accumulating every pipeline chunk for the session WAV. Every sequence is recorded; the dump
+   *  setting is read when the session finishes, so turning it on mid-sequence saves that sequence
+   *  (Swift/Python). Guitar calls this from `arm()`; live material drives it from useMaterialSession. */
   startSessionRecording(): void {
-    if (!this.settings.dumpCaptureAudio) return
     this.sessionSamples = []
     this.sessionCheckpoints = [0] // first-phase truncation anchor (Swift/Python seed [0] at start)
     this.sessionRate = this.device?.sampleRate ?? 48000
@@ -1909,8 +1913,9 @@ export class TapToneAnalyzer {
     }
   }
 
-  /** Finish the session: write the accumulated audio (if any) as one WAV, then clear. Swift's analyzer
-   *  calls its own dumpCaptureWAV helper here, gated on the dump setting. */
+  /** Finish the session: if the dump setting is on, download the accumulated audio (if any) as one WAV
+   *  and name it in `captureAudioSaved`; then clear. Swift's analyzer calls its own dumpCaptureWAV
+   *  helper here, gated on the dump setting. */
   finishSessionRecording(label: string): void {
     this.sessionRecording = false
     this.sessionActive = false
@@ -1918,8 +1923,16 @@ export class TapToneAnalyzer {
     const rate = this.sessionRate
     this.sessionSamples = []
     this.sessionCheckpoints = []
-    if (samples.length === 0) return
-    dumpCaptureWav(new Float32Array(samples), rate, `session_${label}`)
+    if (samples.length === 0 || !this.settings.dumpCaptureAudio) return
+    this.captureAudioSaved = dumpCaptureWav(new Float32Array(samples), rate, `session_${label}`)
+    this.notify()
+  }
+
+  /** The user dismissed the "Capture audio saved" notice. */
+  dismissCaptureAudioSaved(): void {
+    if (this.captureAudioSaved === null) return
+    this.captureAudioSaved = null
+    this.notify()
   }
 
   /** Abandon the session without writing (cancel / measurement-type change / New Tap of a fresh kind). */
@@ -2742,6 +2755,7 @@ export class TapToneAnalyzer {
         statusMessage: this.statusMessage,
         isClipping: this.isClipping,
         inputAppearsDead: this.inputAppearsDead,
+        captureAudioSaved: this.captureAudioSaved,
         showLoadedSettingsWarning: this.showLoadedSettingsWarning,
         loadedMeasurementName: this.loadedMeasurementName,
         loadedNotes: this.loadedNotes,
@@ -3164,6 +3178,9 @@ export interface TapToneSnapshot {
   isClipping: boolean
   /** Input delivering chunks with no signal — the dead-input watchdog's user-visible state. */
   inputAppearsDead: boolean
+  /** The file name of the last capture audio handed to the browser as a download (Dump Capture
+   *  Audio), for the "saved" notice; null when none is shown. A new sequence clears it. */
+  captureAudioSaved: string | null
   /** A loaded measurement's Threshold/Taps are in force — drives the loaded-settings banner. */
   showLoadedSettingsWarning: boolean
   /** What the loaded measurement left on the model — Swift's `loaded*` published properties. Null

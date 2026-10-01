@@ -95,14 +95,11 @@ export interface RealtimeFFTAnalyzerConfig {
   tapDetectionThreshold: number
   /** Number of taps to average (1–10). */
   numberOfTaps: number
-  /** "Dump Capture Audio" diagnostic on — gates continuous session recording (no buffer cost when off). */
-  dumpCaptureAudio: boolean
 }
 
 const DEFAULT_CONFIG: RealtimeFFTAnalyzerConfig = {
   tapDetectionThreshold: -40,
   numberOfTaps: 1,
-  dumpCaptureAudio: false,
 }
 
 const CLIP_HOLD_SECONDS = 1.5

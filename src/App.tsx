@@ -29,7 +29,7 @@ import { ComparisonResultsView, type ComparisonRow } from './components/Comparis
 import { importMeasurements, saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
 import { parseCalibration, type Calibration } from './dsp/calibration'
-import { decodeWav, encodeWavFloat32 } from './dsp/wav'
+import { decodeWav } from './dsp/wav'
 import { exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
 import { expandedToInclude } from './presentation/displayRange'
 import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData, multiTapPdfData } from './presentation/measurementImage'
@@ -58,21 +58,6 @@ const MAT_FLC_COLOR = '#b07ad8'
 
 const isReviewing = (p: MatPhase) => p === 'reviewingL' || p === 'reviewingC' || p === 'reviewingFlc'
 
-
-// "Dump Capture Audio" diagnostic: encode a captured buffer to a 32-bit-float WAV and silently
-// download it (the browser equivalent of Swift's write to ~/Documents/GuitarTap — no save dialog,
-// since it fires per tap/phase). Filename mirrors Swift's `web_<label>_<ISO8601-dashes>.wav`.
-function dumpCaptureWav(samples: Float32Array, sampleRate: number, label: string): void {
-  // Integer-second ISO, ":" → "-", matching Swift/Python (drop the milliseconds toISOString adds).
-  const ts = new Date().toISOString().replace(/\.\d+Z$/, 'Z').replace(/:/g, '-')
-  const blob = new Blob([encodeWavFloat32(samples, sampleRate).buffer as ArrayBuffer], { type: 'audio/wav' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `web_${label}_${ts}.wav`
-  a.click()
-  URL.revokeObjectURL(url)
-}
 
 // Hover-tip text mirrored verbatim from Swift `HintText` (Views/Utilities/Extensions.swift) so the
 // web tooltips match the desktop app. Shown via the `title` attribute (desktop hover; no-op on touch,
@@ -209,13 +194,6 @@ export default function App() {
   measRef.current = settings.measurementType
   const tapThresholdRef = useRef(settings.tapDetectionThreshold)
   tapThresholdRef.current = settings.tapDetectionThreshold
-  const dumpAudioRef = useRef(settings.dumpCaptureAudio)
-  dumpAudioRef.current = settings.dumpCaptureAudio
-  // Keep the engine's dump flag in sync so it (de)activates continuous session recording on the next
-  // measurement (the engine gates session accumulation on this to avoid buffering when the diagnostic is off).
-  useEffect(() => {
-    engineRef.current?.setConfig({ dumpCaptureAudio: settings.dumpCaptureAudio })
-  }, [settings.dumpCaptureAudio])
 
   // The audio engine handle (constructed in `start`) — declared early so the material session
   // can arm it. The analyzer owns the plate/brace phase machine: App reads the phase +
@@ -367,7 +345,7 @@ export default function App() {
     onSelectCalibration,
     onDeleteCalibration,
     retry,
-  } = useAudioEngine({ engineRef, tapThresholdRef, dumpCaptureRef: dumpAudioRef, onStarted: armForCurrentType, analyzer })
+  } = useAudioEngine({ engineRef, tapThresholdRef, onStarted: armForCurrentType, analyzer })
 
   // Play a recorded WAV through the live pipeline (Swift openAudioFile). The calibration is the one the
   // user gives for the file, or none — never the live input's.
@@ -1370,6 +1348,14 @@ export default function App() {
         <div className="loaded-settings-banner" role="status">
           ⚠ Settings from loaded measurement — Threshold: {Math.round(settings.tapDetectionThreshold)} dB · Taps:{' '}
           {numberOfTaps}
+        </div>
+      )}
+      {snapshot.captureAudioSaved && (
+        <div className="capture-audio-saved" role="status">
+          <span>Capture audio saved: {snapshot.captureAudioSaved} (Downloads)</span>
+          <button type="button" aria-label="Dismiss" onClick={() => analyzer.dismissCaptureAudioSaved()}>
+            ×
+          </button>
         </div>
       )}
       <div className={`statusbar state-${engineState}`}>

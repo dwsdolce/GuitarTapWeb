@@ -28,8 +28,6 @@ interface UseAudioEngineArgs {
   engineRef: MutableRefObject<RealtimeFFTAnalyzer | null>
   /** Tap-detection threshold for the engine's initial config. */
   tapThresholdRef: MutableRefObject<number>
-  /** "Dump Capture Audio" diagnostic flag for the engine's initial config (gates session recording). */
-  dumpCaptureRef: MutableRefObject<boolean>
   /** The guitar tap sequence finished — App averages the analyzer's accumulated taps into the frozen
    *  result (unless a comparison is frozen) and clears the loaded-measurement state. STABLE. */
   /** Continuous session WAV for the Dump-Capture-Audio diagnostic (one per measurement). STABLE. */
@@ -76,7 +74,6 @@ export function useAudioEngine({
   tapThresholdRef,
   onStarted,
   analyzer,
-  dumpCaptureRef,
 }: UseAudioEngineArgs): AudioEngineModel {
   const [running, setRunning] = useState(false)
   const [level, setLevel] = useState(-100)
@@ -190,7 +187,7 @@ export function useAudioEngine({
           deviceChangeTimer.current = setTimeout(() => analyzer.handleDeviceChange(false), 3000)
         },
       },
-      { tapDetectionThreshold: tapThresholdRef.current, dumpCaptureAudio: dumpCaptureRef.current },
+      { tapDetectionThreshold: tapThresholdRef.current },
     )
     engineRef.current = engine
     // The dead-input watchdog's user-visible half: the engine detects a silent input, warns to the
@@ -222,7 +219,7 @@ export function useAudioEngine({
       setErrorKind(denied ? 'permission' : 'engine')
       engineRef.current = null
     }
-  }, [analyzer, engineRef, tapThresholdRef, dumpCaptureRef, onStarted, syncDeviceState])
+  }, [analyzer, engineRef, tapThresholdRef, onStarted, syncDeviceState])
 
   // Start listening automatically — GuitarTap has no Start button; the only
   // browser-mandated gate is the mic permission prompt itself.

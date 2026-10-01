@@ -7,6 +7,7 @@ const dumped: { samples: Float32Array; rate: number; label: string }[] = []
 vi.mock('../src/measurement/dumpWav', () => ({
   dumpCaptureWav: (samples: Float32Array, rate: number, label: string) => {
     dumped.push({ samples, rate, label })
+    return `web_${label}.wav`
   },
 }))
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
@@ -49,7 +50,7 @@ const TOL = oracle.tolerances as { freqHz: number; magDb: number; q: number }
 
 // 6f: continuous session recording (Swift finishSessionRecording). When the dump-capture diagnostic
 // is on, a guitar measurement emits ONE session WAV labeled "Guitar_<n>tap" covering every chunk that
-// flowed through the pipeline (arm → final tap). Off (default), nothing is buffered or emitted.
+// flowed through the pipeline (arm → final tap). Off (default), nothing is emitted.
 async function playGuitarSession(
   reg: { fixture: string; calibration: string | null; settings: RegSettings },
   dumpCaptureAudio: boolean,
