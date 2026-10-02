@@ -26,6 +26,7 @@ import { formattedAsFrequency } from './frequencyFormat'
 // self-contained, so that failure mode can't occur. Do NOT switch this back to a dynamic import.
 // jsPDF's own optional html2canvas/dompurify deps stay lazy and are never fetched (we use only core drawing).
 import { jsPDF } from 'jspdf'
+import { FieldPrecision } from '../precision'
 
 export interface PdfPeakRow {
   frequency: number
@@ -406,8 +407,8 @@ function drawPeaks(cur: Cur, data: PdfReportData) {
     ensure(cur, 14)
     font(doc, 10, 'normal')
     setColor(doc, PRIMARY)
-    doc.text(`${p.frequency.toFixed(1)} Hz`, cFreq + 4, cur.y)
-    doc.text(`${p.magnitude.toFixed(1)} dB`, cMag, cur.y)
+    doc.text(`${FieldPrecision.string(p.frequency, FieldPrecision.peakFrequencyHz)} Hz`, cFreq + 4, cur.y)
+    doc.text(`${FieldPrecision.string(p.magnitude, FieldPrecision.peakMagnitudeDB)} dB`, cMag, cur.y)
     doc.text(p.note || '–', cNote, cur.y)
     if (isGuitar) {
       font(doc, 10, p.isOverride ? 'italic' : 'normal')
@@ -417,7 +418,7 @@ function drawPeaks(cur: Cur, data: PdfReportData) {
     } else {
       font(doc, 10, 'normal')
       setColor(doc, PRIMARY)
-      doc.text(p.quality.toFixed(1), cMode, cur.y)
+      doc.text(FieldPrecision.string(p.quality, FieldPrecision.qFactor), cMode, cur.y)
       setColor(doc, p.roleColor ? hexToRgb(p.roleColor) : SECONDARY)
       doc.text(p.role || '–', cMode + 70, cur.y)
     }
@@ -432,7 +433,7 @@ function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
   if (a.decayTime != null) {
     boxes.push({
       title: 'Ring-Out Time',
-      value: `${a.decayTime.toFixed(2)} s`,
+      value: `${FieldPrecision.string(a.decayTime, FieldPrecision.decayTimeS)} s`,
       subtitle: 'Time to decay 15 dB',
       detail: a.decayQuality ?? '',
       detailColor: a.decayColor ? hexToRgb(a.decayColor) : SECONDARY,
@@ -442,7 +443,7 @@ function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
   if (a.tapToneRatio != null) {
     boxes.push({
       title: 'Tap Tone Ratio',
-      value: `${a.tapToneRatio.toFixed(2)} : 1`,
+      value: `${FieldPrecision.string(a.tapToneRatio, FieldPrecision.decayRatio)} : 1`,
       subtitle: 'Top / Air',
       detail: a.ratioQuality ?? '',
       detailColor: a.ratioColor ? hexToRgb(a.ratioColor) : SECONDARY,
@@ -810,7 +811,7 @@ function drawComparisonTable(cur: Cur, comp: PdfComparison) {
     const freqs = [row.air, row.top, row.back]
     freqs.forEach((f, i) => {
       setColor(doc, f != null ? PRIMARY : SECONDARY)
-      doc.text(f != null ? `${f.toFixed(1)} Hz` : '—', modeX[i]! + COL_W - 6, cur.y, { align: 'right' })
+      doc.text(f != null ? `${FieldPrecision.string(f, FieldPrecision.peakFrequencyHz)} Hz` : '—', modeX[i]! + COL_W - 6, cur.y, { align: 'right' })
     })
     cur.y += 14
   }

@@ -4,6 +4,7 @@
  * Air / Top / Back mode frequencies. Reuses the multi-tap table styling.
  */
 // @parity view/comparison-results
+import { FieldPrecision } from '../precision'
 
 /** One compared spectrum's row: label + dot color + resolved Air/Top/Back frequencies (Hz). */
 export interface ComparisonRow {
@@ -14,7 +15,7 @@ export interface ComparisonRow {
   back: number | null
 }
 
-const hz = (n: number | null) => (n != null ? `${n.toFixed(1)} Hz` : '—')
+const hz = (n: number | null) => (n != null ? `${FieldPrecision.string(n, FieldPrecision.peakFrequencyHz)} Hz` : '—')
 
 /** Renders the Air/Top/Back comparison grid, one row per {@link ComparisonRow}. */
 export function ComparisonResultsView({ rows }: { rows: ComparisonRow[] }) {

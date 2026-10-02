@@ -22,6 +22,14 @@ describe('FieldPrecision — precision table', () => {
     expect(FieldPrecision.speedOfSoundMS).toBe(0)
     expect(FieldPrecision.densityGPerCm3).toBe(3)
     expect(FieldPrecision.decayRatio).toBe(2)
+    expect(FieldPrecision.bandwidthHz).toBe(1)
+    expect(FieldPrecision.shearModulusGPa).toBe(3)
+    expect(FieldPrecision.specificModulus).toBe(1)
+    expect(FieldPrecision.radiationRatio).toBe(1)
+    expect(FieldPrecision.crossLongRatio).toBe(3)
+    expect(FieldPrecision.longCrossRatio).toBe(1)
+    expect(FieldPrecision.goreThicknessMM).toBe(2)
+    expect(FieldPrecision.decayTimeS).toBe(2)
   })
 })
 
@@ -69,12 +77,12 @@ describe('FieldPrecision.rounded — half away from zero', () => {
     expect(FieldPrecision.rounded(-0.5, 0)).toBe(-1)
   })
   it('rounds to the field precision', () => {
-    expect(FieldPrecision.rounded(29.356, 2)).toBeCloseTo(29.36, 5)
-    expect(FieldPrecision.rounded(29.354, 2)).toBeCloseTo(29.35, 5)
-    expect(FieldPrecision.rounded(29.35, 2)).toBeCloseTo(29.35, 5)
+    expect(Math.abs(FieldPrecision.rounded(29.356, 2) - (29.36))).toBeLessThan(1e-5)
+    expect(Math.abs(FieldPrecision.rounded(29.354, 2) - (29.35))).toBeLessThan(1e-5)
+    expect(Math.abs(FieldPrecision.rounded(29.35, 2) - (29.35))).toBeLessThan(1e-5)
   })
   it('rounds negatives away from zero', () => {
-    expect(FieldPrecision.rounded(-29.356, 2)).toBeCloseTo(-29.36, 5)
+    expect(Math.abs(FieldPrecision.rounded(-29.356, 2) - (-29.36))).toBeLessThan(1e-5)
   })
 })
 
@@ -87,6 +95,15 @@ describe('FieldPrecision.string — display formatting', () => {
   })
   it('rounds for display', () => {
     expect(FieldPrecision.string(2.678, 2)).toBe('2.68')
+  })
+  // An exact tie rounds to even, as C's `%.Nf` does (`toFixed` rounds it up).
+  it('rounds an exact tie to even', () => {
+    expect(FieldPrecision.string(2.5, 0)).toBe('2')
+    expect(FieldPrecision.string(0.125, 2)).toBe('0.12')
+  })
+  // The value is shown as Swift's 32-bit `Float`: 0.15 is 0.150000006 there, so it reads "0.2".
+  it('formats the 32-bit value', () => {
+    expect(FieldPrecision.string(0.15, 1)).toBe('0.2')
   })
   // A silent input's peak is -∞ dB: it reads "-∞" (as Swift's status bar draws it), not "-Infinity".
   it('infinity reads as a symbol', () => {

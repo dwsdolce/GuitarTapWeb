@@ -7,6 +7,7 @@
  */
 
 import { FieldPrecision } from '../precision'
+import { formattedAsFrequency, formattedAsWholeHertz } from '../presentation/frequencyFormat'
 
 /** The metric values displayed by {@link MetricsPanel} (nullable outside guitar/live mode). */
 export interface Metrics {
@@ -43,8 +44,7 @@ export interface MetricsPanelProps {
 const DASH = '—'
 
 function freq(hz: number | null): string {
-  if (hz == null) return DASH
-  return hz >= 1000 ? `${(hz / 1000).toFixed(2)} kHz` : `${hz.toFixed(1)} Hz`
+  return hz == null ? DASH : formattedAsFrequency(hz)
 }
 
 function MetricRow({ label, value, subtitle }: { label: string; value: string; subtitle: string }) {
@@ -89,10 +89,10 @@ export function MetricsPanel({ metrics: m, onClose }: MetricsPanelProps) {
             />
             <MetricRow
               label="Sample Rate"
-              value={m.sampleRate ? `${Math.round(m.sampleRate).toLocaleString()} Hz` : DASH}
+              value={m.sampleRate ? formattedAsWholeHertz(m.sampleRate) : DASH}
               subtitle="Hardware capture rate"
             />
-            <MetricRow label="Bandwidth" value={freq(m.bandwidth)} subtitle="0 Hz to Nyquist" />
+            <MetricRow label="Bandwidth" value={m.bandwidth != null ? formattedAsWholeHertz(m.bandwidth) : DASH} subtitle="0 Hz to Nyquist" />
             <MetricRow
               label="Sample Length"
               value={m.sampleLengthSeconds != null ? `${m.sampleLengthSeconds.toFixed(2)} s` : DASH}
@@ -100,7 +100,7 @@ export function MetricsPanel({ metrics: m, onClose }: MetricsPanelProps) {
             />
             <MetricRow
               label="Frame Rate"
-              value={m.frameRate != null ? `${m.frameRate.toFixed(1)} Hz` : DASH}
+              value={freq(m.frameRate)}
               subtitle="FFT calculations/sec"
             />
           </section>

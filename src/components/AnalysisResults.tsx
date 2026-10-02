@@ -13,6 +13,7 @@ import {
   tapToneRatioQualityColor,
 } from '../dsp/analysisQuality'
 import type { GuitarTypeName } from '../dsp/guitarModes'
+import { FieldPrecision } from '../precision'
 
 function Column({
   caption,
@@ -76,7 +77,7 @@ export function AnalysisResults({
     <div className="analysis-bar">
       <Column
         caption="Ring-Out"
-        value={decayTime != null ? `${decayTime.toFixed(2)}s` : null}
+        value={decayTime != null ? `${FieldPrecision.string(decayTime, FieldPrecision.decayTimeS)}s` : null}
         placeholder="Waiting…"
         quality={decayTime != null ? decayQuality(decayTime, guitarType) : ''}
         qualityColor={decayTime != null ? decayQualityColor(decayTime, guitarType) : ''}
@@ -85,7 +86,7 @@ export function AnalysisResults({
       <div className="analysis-divider" />
       <Column
         caption="Tap Ratio"
-        value={ratio != null ? `${ratio.toFixed(2)}:1` : null}
+        value={ratio != null ? `${FieldPrecision.string(ratio, FieldPrecision.decayRatio)}:1` : null}
         placeholder="Need Air & Top"
         quality={ratio != null ? tapToneRatioQuality(ratio) : ''}
         qualityColor={ratio != null ? tapToneRatioQualityColor(ratio) : ''}

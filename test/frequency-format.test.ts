@@ -1,9 +1,10 @@
 // @parity test/frequency-format
 //
 // A frequency for display (one decimal, kHz from 1000 Hz) and the range line above the guitar peak
-// list built from it. Mirrors Swift FrequencyFormatTests.
+// list built from it, and a sample rate or bandwidth in whole hertz grouped by the locale. Mirrors Swift
+// FrequencyFormatTests.
 import { describe, it, expect } from 'vitest'
-import { displayRangeLabel, formattedAsFrequency } from '../src/presentation/frequencyFormat'
+import { displayRangeLabel, formattedAsFrequency, formattedAsWholeHertz } from '../src/presentation/frequencyFormat'
 
 describe('frequency format', () => {
   it('below 1 kHz is Hz with one decimal', () => {
@@ -27,5 +28,15 @@ describe('frequency format', () => {
 
   it('the range label crossing 1 kHz mixes units', () => {
     expect(displayRangeLabel(800, 1200)).toBe('Showing 800.0 Hz - 1.2 kHz')
+  })
+
+  it('whole hertz groups by the locale', () => {
+    expect(formattedAsWholeHertz(48000, 'en-US')).toBe('48,000 Hz')
+    expect(formattedAsWholeHertz(22050, 'en-US')).toBe('22,050 Hz')
+    expect(formattedAsWholeHertz(48000, 'de-DE')).toBe('48.000 Hz')
+  })
+
+  it('whole hertz rounds to the nearest hertz', () => {
+    expect(formattedAsWholeHertz(44100.4, 'en-US')).toBe('44,100 Hz')
   })
 })

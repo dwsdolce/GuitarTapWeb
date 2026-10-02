@@ -6,6 +6,7 @@ import type { ResolvedMode } from '../dsp/classify'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
 import { formatDisplayDate } from '../format/date'
 import type { ResonantPeak } from '../measurement/types'
+import { FieldPrecision } from '../precision'
 
 // Read-only measurement inspector — mirrors Swift MeasurementDetailView / Python
 // MeasurementDetailDialog. Opened from the Measurements ⋯ menu ("View Details"). A
@@ -134,13 +135,13 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
                             <span className="detail-peak-mode" style={{ color: labelColor(label) }}>
                               {label}
                             </span>
-                            <span className="detail-peak-freq">{p.frequency.toFixed(1)} Hz</span>
+                            <span className="detail-peak-freq">{FieldPrecision.string(p.frequency, FieldPrecision.peakFrequencyHz)} Hz</span>
                             {pitch && <span className="detail-peak-pitch">{pitch}</span>}
                           </div>
                           <div className="detail-peak-line2">
-                            <span>Q: {p.quality.toFixed(1)}</span>
-                            <span>BW: {p.bandwidth.toFixed(1)} Hz</span>
-                            <span style={{ color: magnitudeColor(p.magnitude) }}>{p.magnitude.toFixed(1)} dB</span>
+                            <span>Q: {FieldPrecision.string(p.quality, FieldPrecision.qFactor)}</span>
+                            <span>BW: {FieldPrecision.string(p.bandwidth, FieldPrecision.bandwidthHz)} Hz</span>
+                            <span style={{ color: magnitudeColor(p.magnitude) }}>{FieldPrecision.string(p.magnitude, FieldPrecision.peakMagnitudeDB)} dB</span>
                           </div>
                         </div>
                       </div>

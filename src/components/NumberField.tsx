@@ -6,8 +6,9 @@
 // A STRING buffer backs the input so an in-progress decimal ("4." → "4.8" → "4.85") survives keystroke to
 // keystroke; binding straight to the numeric value rounds "4." back to 4 and erases the dot (the field
 // would be integer-only). An over-precise keystroke is rejected (decimalsWithin); the parsed number
-// commits live for recompute; on blur the buffer re-syncs to the canonical value.
-import { useEffect, useRef, useState } from 'react'
+// commits live for recompute. The buffer is filled with the value at its precision whenever the value
+// differs from the number the field reads (Swift `MaterialDimensionsEditor.seedField`).
+import { useEffect, useState } from 'react'
 import { FieldPrecision } from '../precision'
 
 export function NumberField({
@@ -23,12 +24,12 @@ export function NumberField({
   onChange: (v: number) => void
   decimals: number
 }) {
-  const [text, setText] = useState<string>(() => String(value))
-  const focused = useRef(false)
-  // Re-sync from the external value when NOT mid-edit (Reset, Cancel-revert, load / capture-complete).
+  const [text, setText] = useState<string>(() => FieldPrecision.string(value, decimals))
+  // A value from elsewhere (Reset, Cancel-revert, a load, a completed capture) refills the field; the
+  // field's own edits already equal it, so typing is never overwritten.
   useEffect(() => {
-    if (!focused.current) setText(String(value))
-  }, [value])
+    setText((current) => (Number(current) === value ? current : FieldPrecision.string(value, decimals)))
+  }, [value, decimals])
   return (
     <label className="set-field">
       <span>{label}</span>
@@ -37,8 +38,6 @@ export function NumberField({
           type="text"
           inputMode="decimal"
           value={text}
-          onFocus={() => { focused.current = true }}
-          onBlur={() => { focused.current = false; setText(String(value)) }}
           onChange={(e) => {
             const s = e.target.value
             if (!FieldPrecision.decimalsWithin(s, decimals)) return // reject over-precise keystroke (revert)

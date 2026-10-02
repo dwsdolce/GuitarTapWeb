@@ -42,7 +42,7 @@ function SampleDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasurem
       <NumberField label="Width" unit="mm" value={inputs.widthMm} decimals={P.linearDimensionMM} onChange={(v) => set({ widthMm: v })} />
       <NumberField label="Thickness" unit="mm" value={inputs.thicknessMm} decimals={P.linearDimensionMM} onChange={(v) => set({ thicknessMm: v })} />
       <NumberField label="Mass" unit="g" value={inputs.massG} decimals={P.massG} onChange={(v) => set({ massG: v })} />
-      <Row label="Calculated Density" value={`${f3(densityGPerCm3(materialDimensions(inputs)))} g/cm³`} />
+      <Row label="Calculated Density" value={`${FieldPrecision.string(densityGPerCm3(materialDimensions(inputs)), FieldPrecision.densityGPerCm3)} g/cm³`} />
     </div>
   )
 }
@@ -74,10 +74,6 @@ function BodyDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasuremen
   )
 }
 
-const f0 = (n: number) => Math.round(n).toString()
-const f1 = (n: number) => n.toFixed(1)
-const f2 = (n: number) => n.toFixed(2)
-const f3 = (n: number) => n.toFixed(3)
 
 // Wood-quality → colour comes from the single scheme-qualified table in presentation/qualityColors.
 // The app chrome is dark today, so this names 'dark' explicitly. When the theme work lands (STATUS
@@ -104,8 +100,8 @@ function PeakRow({ peak, role, showCross, showFlc }: { peak: ResonantPeak | null
     <div className={`mat-peak-row${found ? '' : ' pending'}`}>
       <span className="mat-peak-star">{found ? '★' : '☆'}</span>
       <span className="mat-peak-info">
-        <span className="mat-peak-freq">{peak ? `${f1(peak.frequency)} Hz` : '—'}</span>
-        <span className="mat-peak-mag">{peak ? `${f1(peak.magnitude)} dB` : '—'}</span>
+        <span className="mat-peak-freq">{peak ? `${FieldPrecision.string(peak.frequency, FieldPrecision.peakFrequencyHz)} Hz` : '—'}</span>
+        <span className="mat-peak-mag">{peak ? `${FieldPrecision.string(peak.magnitude, FieldPrecision.peakMagnitudeDB)} dB` : '—'}</span>
       </span>
       <span className="mat-badges">
         {badge('L', '#0a84ff')}
@@ -222,18 +218,18 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
         <SampleDimensionsEditor inputs={matInputs} onChange={onInputsChange} />
         <div className="mat-section">
           <h3>Brace Properties</h3>
-          <Row label="Speed of Sound" value={`${f0(cL)} m/s`} />
-          <Row label="Young's Modulus (E)" value={`${f2(eL)} GPa`} />
+          <Row label="Speed of Sound" value={`${FieldPrecision.string(cL, FieldPrecision.speedOfSoundMS)} m/s`} />
+          <Row label="Young's Modulus (E)" value={`${FieldPrecision.string(eL, FieldPrecision.youngsModulusGPa)} GPa`} />
           <div className="mat-specmod">
             <div className="mat-specmod-title">Specific Modulus (E/ρ)</div>
             <div className="mat-specmod-value" style={{ color: QUALITY_COLOR[qL] }}>
-              {f1(smL)} <em>GPa/(g/cm³)</em>
+              {FieldPrecision.string(smL, FieldPrecision.specificModulus)} <em>GPa/(g/cm³)</em>
             </div>
             <div className="mat-specmod-quality" style={{ color: QUALITY_COLOR[qL] }}>
               {qL}
             </div>
           </div>
-          <Row label="Radiation Ratio (R)" value={f1(rL)} />
+          <Row label="Radiation Ratio (R)" value={FieldPrecision.string(rL, FieldPrecision.radiationRatio)} />
         </div>
         {process}
       </div>
@@ -275,7 +271,7 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
         <div className="mat-section mat-gore">
           <h3>Gore Target Thickness</h3>
           <div className="mat-gore-thickness">
-            {f2(target)} <em>mm</em>
+            {FieldPrecision.string(target, FieldPrecision.goreThicknessMM)} <em>mm</em>
           </div>
         </div>
       )}
@@ -286,18 +282,18 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
         <div className="mat-prop-block">
           <div className="mat-prop-title">Speed of Sound</div>
           <div className="mat-lc">
-            <span>L: {f0(cL)} m/s</span>
-            <span>C: {f0(cC)} m/s</span>
+            <span>L: {FieldPrecision.string(cL, FieldPrecision.speedOfSoundMS)} m/s</span>
+            <span>C: {FieldPrecision.string(cC, FieldPrecision.speedOfSoundMS)} m/s</span>
           </div>
         </div>
 
         <div className="mat-prop-block">
           <div className="mat-prop-title">Young's Modulus (E)</div>
           <div className="mat-lc">
-            <span>L: {f2(eL)} GPa</span>
-            <span>C: {f2(eC)} GPa</span>
+            <span>L: {FieldPrecision.string(eL, FieldPrecision.youngsModulusGPa)} GPa</span>
+            <span>C: {FieldPrecision.string(eC, FieldPrecision.youngsModulusGPa)} GPa</span>
           </div>
-          {shearPa != null && <div className="mat-lc-sub">GLC (Shear): {f3(shearPa / 1e9)} GPa</div>}
+          {shearPa != null && <div className="mat-lc-sub">GLC (Shear): {FieldPrecision.string(shearPa / 1e9, FieldPrecision.shearModulusGPa)} GPa</div>}
         </div>
 
         <div className="mat-specmod">
@@ -306,7 +302,7 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
             <div>
               <div className="mat-specmod-label">Longitudinal:</div>
               <div className="mat-specmod-value" style={{ color: QUALITY_COLOR[qL] }}>
-                {f1(smL)} <em>GPa/(g/cm³)</em>
+                {FieldPrecision.string(smL, FieldPrecision.specificModulus)} <em>GPa/(g/cm³)</em>
               </div>
               <div className="mat-specmod-quality" style={{ color: QUALITY_COLOR[qL] }}>
                 {qL}
@@ -315,7 +311,7 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
             <div className="mat-specmod-right">
               <div className="mat-specmod-label">Cross-grain:</div>
               <div className="mat-specmod-value" style={{ color: QUALITY_COLOR[qC] }}>
-                {f1(smC)} <em>GPa/(g/cm³)</em>
+                {FieldPrecision.string(smC, FieldPrecision.specificModulus)} <em>GPa/(g/cm³)</em>
               </div>
               <div className="mat-specmod-quality" style={{ color: QUALITY_COLOR[qC] }}>
                 {qC}
@@ -327,21 +323,21 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
         <div className="mat-prop-block">
           <div className="mat-prop-title">Radiation Ratio (R)</div>
           <div className="mat-lc">
-            <span>L: {f1(rL)}</span>
-            <span>C: {f1(rC)}</span>
+            <span>L: {FieldPrecision.string(rL, FieldPrecision.radiationRatio)}</span>
+            <span>C: {FieldPrecision.string(rC, FieldPrecision.radiationRatio)}</span>
           </div>
         </div>
 
         <div className="mat-row">
           <span className="mat-label">Cross/Long Ratio</span>
           <span className="mat-value">
-            {f3(crossLong)} <em className="mat-hint">(typical: 0.04–0.08)</em>
+            {FieldPrecision.string(crossLong, FieldPrecision.crossLongRatio)} <em className="mat-hint">(typical: 0.04–0.08)</em>
           </span>
         </div>
         <div className="mat-row">
           <span className="mat-label">Long/Cross Ratio</span>
           <span className="mat-value">
-            {f1(longCross)} <em className="mat-hint">(typical: 12–25)</em>
+            {FieldPrecision.string(longCross, FieldPrecision.longCrossRatio)} <em className="mat-hint">(typical: 12–25)</em>
           </span>
         </div>
 

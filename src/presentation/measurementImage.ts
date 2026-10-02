@@ -29,10 +29,6 @@ const ROLE_L = '#0a84ff'
 const ROLE_C = '#ff9f0a'
 const ROLE_FLC = '#bf5af2'
 
-const f0 = (n: number) => Math.round(n).toString()
-const f1 = (n: number) => n.toFixed(1)
-const f2 = (n: number) => n.toFixed(2)
-const f3 = (n: number) => n.toFixed(3)
 
 /** Styled guitar peak markers (dot color + mode label + pitch + override/annotation) — the SAME
  *  mapping the live view uses, so the on-screen chart and exported image agree. */
@@ -319,7 +315,7 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     { label: 'Width', value: `${FieldPrecision.string(dims.widthMm, FieldPrecision.linearDimensionMM)} mm` },
     { label: 'Thickness', value: `${FieldPrecision.string(dims.thicknessMm, FieldPrecision.linearDimensionMM)} mm` },
     { label: 'Mass', value: `${FieldPrecision.string(dims.massG, FieldPrecision.massG)} g` },
-    { label: 'Density', value: `${f3(rhoGcm3)} g/cm³` },
+    { label: 'Density', value: `${FieldPrecision.string(rhoGcm3, FieldPrecision.densityGPerCm3)} g/cm³` },
   ]
 
   let analysis: PdfMaterialAnalysis
@@ -336,10 +332,10 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
       body: null,
       dimensions,
       props: [
-        { label: 'Speed of Sound', value: `${f0(cL)} m/s` },
-        { label: "Young's Modulus (E)", value: `${f2(eL)} GPa` },
-        { label: 'Specific Modulus', value: f1(smL), color: QUALITY_COLOR[qL], hint: `(${qL})` },
-        { label: 'Radiation Ratio', value: f1(rL) },
+        { label: 'Speed of Sound', value: `${FieldPrecision.string(cL, FieldPrecision.speedOfSoundMS)} m/s` },
+        { label: "Young's Modulus (E)", value: `${FieldPrecision.string(eL, FieldPrecision.youngsModulusGPa)} GPa` },
+        { label: 'Specific Modulus', value: FieldPrecision.string(smL, FieldPrecision.specificModulus), color: QUALITY_COLOR[qL], hint: `(${qL})` },
+        { label: 'Radiation Ratio', value: FieldPrecision.string(rL, FieldPrecision.radiationRatio) },
       ],
       ratios: [],
       overall: { value: qL, color: QUALITY_COLOR[qL] },
@@ -364,13 +360,13 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     const crossLong = crossLongRatio(eL, eC)
     const longCross = longCrossRatio(eL, eC)
     const presetName = STIFFNESS_RAW_NAME[mi.stiffnessPreset]
-    const fvsLine = mi.stiffnessPreset === 'custom' ? `f_vs = ${f0(fvs)} (custom)` : `f_vs = ${f0(fvs)} (${presetName})`
+    const fvsLine = mi.stiffnessPreset === 'custom' ? `f_vs = ${FieldPrecision.string(fvs, FieldPrecision.stiffness)} (custom)` : `f_vs = ${FieldPrecision.string(fvs, FieldPrecision.stiffness)} (${presetName})`
 
     analysis = {
       title: 'Plate Properties',
       // Gore Target Thickness = just the number now (Swift goreThicknessPDFSection). Body inputs + f_vs
       // move to the Body Dimensions block; GLC moves among the Plate Properties moduli.
-      gore: target != null ? { thickness: `${f2(target)} mm` } : null,
+      gore: target != null ? { thickness: `${FieldPrecision.string(target, FieldPrecision.goreThicknessMM)} mm` } : null,
       body: {
         dims: [
           { label: 'Body Length (a)', value: `${FieldPrecision.string(mi.bodyLengthMm, FieldPrecision.bodyDimensionMM)} mm` },
@@ -380,25 +376,25 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
       },
       dimensions,
       props: [
-        { label: 'Speed of Sound (L)', value: `${f0(cL)} m/s` },
-        { label: 'Speed of Sound (C)', value: `${f0(cC)} m/s` },
-        { label: "Young's Modulus (L)", value: `${f2(eL)} GPa` },
-        { label: "Young's Modulus (C)", value: `${f2(eC)} GPa` },
-        { label: 'Specific Modulus (L)', value: f1(smL), color: QUALITY_COLOR[qL], hint: `(${qL})` },
-        { label: 'Specific Modulus (C)', value: f1(smC), color: QUALITY_COLOR[qC], hint: `(${qC})` },
-        { label: 'Radiation Ratio (L)', value: f1(rL) },
-        { label: 'Radiation Ratio (C)', value: f1(rC) },
+        { label: 'Speed of Sound (L)', value: `${FieldPrecision.string(cL, FieldPrecision.speedOfSoundMS)} m/s` },
+        { label: 'Speed of Sound (C)', value: `${FieldPrecision.string(cC, FieldPrecision.speedOfSoundMS)} m/s` },
+        { label: "Young's Modulus (L)", value: `${FieldPrecision.string(eL, FieldPrecision.youngsModulusGPa)} GPa` },
+        { label: "Young's Modulus (C)", value: `${FieldPrecision.string(eC, FieldPrecision.youngsModulusGPa)} GPa` },
+        { label: 'Specific Modulus (L)', value: FieldPrecision.string(smL, FieldPrecision.specificModulus), color: QUALITY_COLOR[qL], hint: `(${qL})` },
+        { label: 'Specific Modulus (C)', value: FieldPrecision.string(smC, FieldPrecision.specificModulus), color: QUALITY_COLOR[qC], hint: `(${qC})` },
+        { label: 'Radiation Ratio (L)', value: FieldPrecision.string(rL, FieldPrecision.radiationRatio) },
+        { label: 'Radiation Ratio (C)', value: FieldPrecision.string(rC, FieldPrecision.radiationRatio) },
       ],
       // Full-width GLC row after the two-column block — Swift PDFReportGenerator.swift:822-831:
       //   if let glc = props.goreShearModulus { platePropRow("GLC (Shear Modulus)", …) }
       //   else { Text("GLC assumed 0 — fLC tap not performed").italic() }
-      glc: shearPa != null ? { label: 'GLC (Shear Modulus)', value: `${f3(shearPa / 1e9)} GPa` } : null,
+      glc: shearPa != null ? { label: 'GLC (Shear Modulus)', value: `${FieldPrecision.string(shearPa / 1e9, FieldPrecision.shearModulusGPa)} GPa` } : null,
       glcNote: shearPa == null ? 'GLC assumed 0 — fLC tap not performed' : null,
       // `note`, not `hint`: Swift puts the typical range on its OWN line beneath the ratio, italic
       // and WITHOUT parentheses (PDFReportGenerator.swift:837-856) — not inline after the value.
       ratios: [
-        { label: 'Cross/Long Ratio', value: f3(crossLong), note: 'typical: 0.04–0.08' },
-        { label: 'Long/Cross Ratio', value: f1(longCross), note: 'typical: 12–25' },
+        { label: 'Cross/Long Ratio', value: FieldPrecision.string(crossLong, FieldPrecision.crossLongRatio), note: 'typical: 0.04–0.08' },
+        { label: 'Long/Cross Ratio', value: FieldPrecision.string(longCross, FieldPrecision.longCrossRatio), note: 'typical: 12–25' },
       ],
       overall: { value: overall, color: QUALITY_COLOR[overall] },
     }

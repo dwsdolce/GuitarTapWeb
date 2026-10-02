@@ -4,6 +4,7 @@ import type { ResolvedMode } from '../dsp/classify'
 import { MODE_COLOR, MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, USER_MODE_COLOR, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS, magnitudeColor } from '../presentation/modeColors'
 import { WindIcon, ArrowUpDownIcon, SquareFilledIcon, DipoleIcon, CircleDashedIcon, WaveformIcon, HelpIcon, TagIcon } from './icons'
 import type { ResonantPeak } from '../measurement/types'
+import { FieldPrecision } from '../precision'
 
 // One resonant-peak card, mirroring Swift CombinedPeakModeRowView:
 //   [star] [mode glyph + in-range check] [mode label · freq / pitch / Q · BW · mag]
@@ -169,7 +170,7 @@ export function PeakCard({
             </optgroup>
             <option value={CUSTOM}>Custom…</option>
           </select>
-          <span className="freq">{peak.frequency.toFixed(1)} Hz</span>
+          <span className="freq">{FieldPrecision.string(peak.frequency, FieldPrecision.peakFrequencyHz)} Hz</span>
         </div>
 
         {note && (
@@ -181,13 +182,13 @@ export function PeakCard({
 
         <div className="row details">
           <span className="kv">
-            Q: <b>{peak.quality.toFixed(1)}</b>
+            Q: <b>{FieldPrecision.string(peak.quality, FieldPrecision.qFactor)}</b>
           </span>
           <span className="kv">
-            BW: <b>{peak.bandwidth.toFixed(1)} Hz</b>
+            BW: <b>{FieldPrecision.string(peak.bandwidth, FieldPrecision.bandwidthHz)} Hz</b>
           </span>
           <span className="mag" style={{ color: magnitudeColor(peak.magnitude) }}>
-            {peak.magnitude.toFixed(1)} dB
+            {FieldPrecision.string(peak.magnitude, FieldPrecision.peakMagnitudeDB)} dB
           </span>
         </div>
       </div>

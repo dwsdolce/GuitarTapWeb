@@ -1381,7 +1381,7 @@ export default function App() {
         {running && (
           <span className="sb-peak">
             {metrics.peakFrequency != null && metrics.peakMagnitude != null
-              ? `Peak: ${FieldPrecision.string(metrics.peakMagnitude, FieldPrecision.peakMagnitudeDB)} dB @ ${metrics.peakFrequency.toFixed(1)} Hz`
+              ? `Peak: ${FieldPrecision.string(metrics.peakMagnitude, FieldPrecision.peakMagnitudeDB)} dB @ ${FieldPrecision.string(metrics.peakFrequency, FieldPrecision.peakFrequencyHz)} Hz`
               : 'Starting...'}
           </span>
         )}

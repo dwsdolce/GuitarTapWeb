@@ -2,6 +2,7 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { NumberField } from './NumberField'
 import { FieldPrecision } from '../precision'
+import { formattedAsWholeHertz } from '../presentation/frequencyFormat'
 import type { StoredCalibration } from '../measurement/calibrationStore'
 import { densityGPerCm3, type Dimensions } from '../dsp/material'
 import { modeBands } from '../dsp/guitarModes'
@@ -268,7 +269,7 @@ export function SettingsPanel({
               </select>
             </label>
             <div className="set-readout">
-              Sample rate <b>{sampleRate ? `${(sampleRate / 1000).toFixed(1)} kHz` : '—'}</b>
+              Sample rate <b>{sampleRate ? formattedAsWholeHertz(sampleRate) : '—'}</b>
             </div>
             <label className="set-field">
               <span>Calibration</span>
@@ -356,7 +357,7 @@ export function SettingsPanel({
                 <NumberField label="Thickness" unit="mm" value={d.plateThickness} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ plateThickness: v })} />
                 <NumberField label="Mass" unit="g" value={d.plateMass} decimals={FieldPrecision.massG} onChange={(v) => patch({ plateMass: v })} />
                 <div className="set-readout">
-                  Density <b>{densityGPerCm3(plateDims).toFixed(3)}</b> g/cm³
+                  Density <b>{FieldPrecision.string(densityGPerCm3(plateDims), FieldPrecision.densityGPerCm3)}</b> g/cm³
                 </div>
 
                 <label className="set-field check">
@@ -405,7 +406,7 @@ export function SettingsPanel({
                 <p className="set-desc">Brace height when lying flat — this is the t dimension in the stiffness formula</p>
                 <NumberField label="Mass" unit="g" value={d.braceMass} decimals={FieldPrecision.massG} onChange={(v) => patch({ braceMass: v })} />
                 <div className="set-readout">
-                  Density <b>{densityGPerCm3(braceDims).toFixed(3)}</b> g/cm³
+                  Density <b>{FieldPrecision.string(densityGPerCm3(braceDims), FieldPrecision.densityGPerCm3)}</b> g/cm³
                 </div>
               </>
             )}

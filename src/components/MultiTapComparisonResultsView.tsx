@@ -17,6 +17,7 @@
 // @parity view/multi-tap-results
 
 import type { DefinitiveMode, DefinitiveModeInfo } from '../state/tapToneAnalyzer'
+import { FieldPrecision } from '../precision'
 
 /** Resolved Air / Top / Back peak frequencies (Hz) for one row; `null` when no peak was found. */
 export interface TapModeFreqs {
@@ -43,7 +44,7 @@ export const MULTITAP_PALETTE = ['#0a84ff', '#ff9f0a', '#30d158', '#bf5af2', '#4
 /** Averaged-row indicator color — gold; mirrors Swift `TapToneAnalyzer.multiTapAvgColor` = `Color(1.0, 0.85, 0.0)`. */
 export const MULTITAP_AVG_COLOR = '#ffd900'
 
-const hz = (n: number | null) => (n != null ? `${n.toFixed(1)} Hz` : '—')
+const hz = (n: number | null) => (n != null ? `${FieldPrecision.string(n, FieldPrecision.peakFrequencyHz)} Hz` : '—')
 
 function FreqCells({ m }: { m: TapModeFreqs }) {
   return (
@@ -63,7 +64,7 @@ function AvgFreqCells({ m }: { m: DefinitiveModeInfo }) {
       <span className="mt-cell mt-empty">—</span>
     ) : (
       <span className={`mt-cell${v.isOverride ? ' mt-override' : ''}`}>
-        {v.frequency.toFixed(1)} Hz{v.isOverride ? ' *' : ''}
+        {FieldPrecision.string(v.frequency, FieldPrecision.peakFrequencyHz)} Hz{v.isOverride ? ' *' : ''}
       </span>
     )
   return (

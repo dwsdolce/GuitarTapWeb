@@ -32,6 +32,7 @@ import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type Mater
 import { isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, type MeasurementType, type Settings } from '../settings'
 import { materialInputsFromSettings, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { dumpCaptureWav } from '../measurement/dumpWav'
+import { FieldPrecision } from '../precision'
 
 /** The tap detector's state. Mirrors Swift `DetectionState` (DetectionState.swift) and Python
  *  `DetectionState` (models/detection_state.py).
@@ -76,7 +77,7 @@ const CLIPPING_WARNING = '⚠ Input clipping — reduce mic gain'
 const DEAD_INPUT_WARNING = '⚠ No audio input — check the microphone connection'
 
 /** A material phase peak's frequency, 1 dp, or '?' when none — for the status-bar review/complete strings. */
-const fHz = (p: { frequency: number } | null): string => (p ? p.frequency.toFixed(1) : '?')
+const fHz = (p: { frequency: number } | null): string => (p ? FieldPrecision.string(p.frequency, FieldPrecision.peakFrequencyHz) : '?')
 /**
  * What the main spectrum display is currently showing — the authoritative mode gate.
  *

@@ -21,6 +21,7 @@ import { exportSpectrumPng } from '../presentation/spectrumExport'
 import { measurementToImageOpts, measurementToPdfData, multiTapPdfData } from '../presentation/measurementImage'
 import { exportPdfReport, exportMultiTapPdfReport } from '../presentation/pdfReport'
 import { saveFile } from '../saveFile'
+import { FieldPrecision } from '../precision'
 
 export interface MeasurementsPanelProps {
   onClose: () => void
@@ -42,8 +43,8 @@ export interface MeasurementsPanelProps {
 function metaLine(m: TapToneMeasurementModel): string {
   const parts = [`${m.peaks.length} peaks`]
   const ratio = measurementTapToneRatio(m)
-  if (ratio != null) parts.push(`Ratio: ${ratio.toFixed(2)}`)
-  if (m.decayTime != null) parts.push(`Decay: ${m.decayTime.toFixed(2)}s`)
+  if (ratio != null) parts.push(`Ratio: ${FieldPrecision.string(ratio, FieldPrecision.decayRatio)}`)
+  if (m.decayTime != null) parts.push(`Decay: ${FieldPrecision.string(m.decayTime, FieldPrecision.decayTimeS)}s`)
   return parts.join(' • ')
 }
 

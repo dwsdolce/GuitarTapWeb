@@ -10,6 +10,7 @@ import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_COLOR, MODE_LABEL } from './modeColors'
 import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect, DotHit } from './chartTypes'
 import { formattedAsFrequency } from './frequencyFormat'
+import { FieldPrecision } from '../precision'
 
 /** Fill a `points`-pointed star centred at (cx, cy) between `outerR` and `innerR`. Used for the
  *  highlighted peak dot (mirrors Swift's `star.fill`). */
@@ -406,7 +407,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
 
     // Readout label: frequency (colored) over magnitude (gray), boxed, kept inside the plot.
     const freqStr = formattedAsFrequency(dispHz)
-    const dbStr = `${dispDb.toFixed(1)} dB`
+    const dbStr = `${FieldPrecision.string(dispDb, FieldPrecision.peakMagnitudeDB)} dB`
     ctx.font = '600 12px system-ui, sans-serif'
     const tw = Math.max(ctx.measureText(freqStr).width, ctx.measureText(dbStr).width)
     const padX = 6
@@ -459,7 +460,7 @@ function drawBadge(
     lines.push({ text: `♪ ${m.note} ${c >= 0 ? '+' : ''}${c} ¢`, color: PITCH, font: '600 11px system-ui, sans-serif' })
   }
   lines.push({ text: formattedAsFrequency(m.frequency), color: fg, font: '500 11px system-ui, sans-serif' })
-  lines.push({ text: `${m.magnitude.toFixed(1)} dB`, color: sub, font: '11px system-ui, sans-serif' })
+  lines.push({ text: `${FieldPrecision.string(m.magnitude, FieldPrecision.peakMagnitudeDB)} dB`, color: sub, font: '11px system-ui, sans-serif' })
 
   let boxW = 0
   for (const ln of lines) {

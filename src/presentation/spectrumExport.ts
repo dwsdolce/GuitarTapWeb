@@ -10,6 +10,7 @@ import { renderSpectrum, LIGHT_CHART, hexA, type ChartTheme } from './spectrumRe
 import { type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_COLOR, MODE_DISPLAY_NAME } from './modeColors'
 import { saveFile } from '../saveFile'
+import { FieldPrecision } from '../precision'
 
 export interface SpectrumImageOpts {
   /** Chart title (e.g. "FFT Peaks — Contreras Classical"). */
@@ -140,7 +141,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
       // with a trailing " *" (m.label + m.color are already override-aware from buildGuitarMarkers).
       const modeText = (m.label ?? '') + (m.isOverride ? ' *' : '')
       const modeFont = FONT(12, m.isOverride ? 'italic' : '')
-      const lines = [`${m.frequency.toFixed(1)} Hz`, modeText, `${m.magnitude.toFixed(1)} dB`]
+      const lines = [`${FieldPrecision.string(m.frequency, FieldPrecision.peakFrequencyHz)} Hz`, modeText, `${FieldPrecision.string(m.magnitude, FieldPrecision.peakMagnitudeDB)} dB`]
       ctx.font = FONT(13, 'bold')
       let cw = ctx.measureText(lines[0]!).width
       ctx.font = modeFont
