@@ -1,6 +1,7 @@
+// @parity view/pdf-report tests=test/pdf-report
 // Single-page PDF tap-tone report — a web port of Swift's PDFReportGenerator /
 // PDFReportContentView (GuitarTap/Views/Utilities/PDFReportGenerator.swift). The page is
-// US Letter (612×792 pt, 36 pt margins). Sections stack top-down exactly as in Swift:
+// US Letter wide (612 pt, 36 pt margins), as tall as its content. Sections stack top-down as in Swift:
 // header · accent bar · metadata · embedded spectrum image · peaks table · analysis
 // (guitar boxes / plate · brace properties) · tap instructions · footer.
 //
@@ -10,15 +11,15 @@
 // labels/colors) — this module is pure layout, mirroring how Swift's PDFReportData is
 // built before the view renders it.
 //
-// LAYOUT NOTE: every draw routine threads a single mutable `Cur` cursor ({doc, y}); all
-// helpers advance `cur.y` directly. There is no second copy of the y-position, so sections
-// can never overdraw each other. `ensure(cur, h)` paginates when `h` more points won't fit
-// ABOVE the reserved footer band, so content never collides with the footer.
+// LAYOUT NOTE: every draw routine threads a single mutable `Cur` cursor ({doc, y}), where `y` is the
+// top of the next element; all helpers advance `cur.y` directly. There is no second copy of the
+// y-position, so sections can never overdraw each other.
 
 import type { SpectrumImageOpts } from './spectrumExport'
 import { renderSpectrumToCanvas } from './spectrumExport'
 import { saveFile } from '../saveFile'
 import { formattedAsFrequency } from './frequencyFormat'
+import { formatDisplayDate } from '../format/date'
 // jsPDF is imported STATICALLY (not `await import('jspdf')`) on purpose. A lazy chunk goes missing for
 // a client running a stale service-worker shell after a deploy: the old shell requests a jsPDF chunk
 // the new build renamed, the fetch fails ("Importing a module script failed"), and PDF export silently
@@ -119,26 +120,23 @@ export interface PdfReportData {
 }
 
 // ── Page geometry (points) ──────────────────────────────────────────────────
-// The page is US Letter WIDTH (612 pt) with a VARIABLE height: like Swift's ImageRenderer
-// ("the natural height of the view determines the PDF page height", PDFReportGenerator.swift:300),
-// each report renders onto ONE page grown to fit its content — no mid-report pagination. Height is
-// found with a two-pass render (measure into a tall throwaway page, then emit at the measured size).
+// The page is US Letter WIDTH (612 pt) with a VARIABLE height: like Swift's ImageRenderer, each report
+// renders onto ONE page grown to fit its content. Height is found with a two-pass render (measure into
+// a tall throwaway page, then emit at the measured size).
 const PAGE_W = 612
 const MARGIN = 36
 const CONTENT_W = PAGE_W - MARGIN * 2
 const L = MARGIN
 const R = PAGE_W - MARGIN
-const FOOTER_RESERVE = 30 // band at the page bottom kept clear for the footer
-// Throwaway measuring page — tall enough that no real report paginates within it (PDF max is 14400 pt).
+// Throwaway measuring page — taller than any report (PDF max is 14400 pt).
 const MEASURE_H = 14400
+// Swift's footer below the content: Spacer 16, rule 1, Spacer 8, 9 pt text, then the bottom margin.
+const FOOTER_H = 16 + 1 + 8 + 9
 
-/** Page height that fits `contentBottom` plus the footer band below it. */
+/** Page height that fits `contentBottom` plus the footer below it. */
 function pageHeightFor(contentBottom: number): number {
-  return Math.ceil(contentBottom + MARGIN + 20)
+  return contentBottom + FOOTER_H + MARGIN
 }
-// Plot height (px) for the embedded spectrum image — shorter than the standalone PNG's 660 so the
-// embedded image is ~280pt tall (vs ~360), freeing ~70pt and keeping the analysis on page 1.
-const PDF_CHART_HEIGHT = 460
 
 // ── Colors (RGB) ──────────────────────────────────────────────────────────────
 type RGB = [number, number, number]
@@ -166,48 +164,68 @@ function cssToRgb(color: string): RGB {
 
 type Doc = jsPDF
 
-/** The single mutable layout cursor threaded through every draw routine. `pageH` is the current
- *  page's height (variable — see the geometry note); `grow` (single-page reports) makes `ensure`
- *  never paginate, since the page is sized to fit the whole report. */
+/** The single mutable layout cursor threaded through every draw routine: `y` is the TOP of the next
+ *  element, as in a SwiftUI VStack. */
 interface Cur {
   doc: Doc
   y: number
-  pageH: number
-  grow?: boolean
 }
 
-// ── Layout primitives (all advance cur.y) ─────────────────────────────────────
+// ── Layout primitives ─────────────────────────────────────────────────────────
+// Swift lays out each Text by its line box: in Helvetica a line is exactly its font size tall, with
+// the baseline 0.77 × the size below its top, and a wrapped line steps by the font size. Every drawer
+// below places text by the TOP of its line box, and advances by the sizes and spacings of Swift's
+// stacks, so the lines land where Swift's do.
+const ASCENT = 0.77
+
 const font = (doc: Doc, size: number, style: 'normal' | 'bold' | 'italic' = 'normal') => {
   doc.setFont('helvetica', style)
   doc.setFontSize(size)
 }
 const setColor = (doc: Doc, c: RGB) => doc.setTextColor(c[0], c[1], c[2])
 
-/** Paginate if `h` more points won't fit above the footer band; returns true on a page break.
- *  In `grow` mode the page is sized to the whole report (measured first), so this never breaks. */
-function ensure(cur: Cur, h: number): boolean {
-  if (cur.grow) return false
-  if (cur.y + h > cur.pageH - MARGIN - FOOTER_RESERVE) {
-    cur.doc.addPage()
-    cur.y = MARGIN
-    return true
-  }
-  return false
+/** Draw text (one line or wrapped lines) whose first line box's top is at `top`, in the current font. */
+function textAt(doc: Doc, text: string | string[], x: number, top: number, opts?: { align?: 'right' }) {
+  doc.text(text, x, top + ASCENT * doc.getFontSize(), opts)
 }
 
+/** Wrap `text` to `width` in the current font as Swift's Text wraps: line by line, except that the
+ *  last line never holds a single word when the line above can spare one — Apple's push-out
+ *  line-break strategy, which avoids an orphan word. */
+function wrapLines(doc: Doc, text: string, width: number): string[] {
+  const lines = (doc.splitTextToSize(text, width) as string[]).map((l) => l.trim())
+  const n = lines.length
+  if (n > 1 && !/\s/.test(lines[n - 1]!)) {
+    const prev = lines[n - 2]!
+    const cut = prev.lastIndexOf(' ')
+    const moved = cut > 0 ? `${prev.slice(cut + 1)} ${lines[n - 1]}` : ''
+    if (moved && doc.getTextWidth(moved) <= width) {
+      lines[n - 2] = prev.slice(0, cut)
+      lines[n - 1] = moved
+    }
+  }
+  return lines
+}
+
+/** Swift's sectionDivider: a 1 pt rule at `cur.y`. */
 function divider(cur: Cur) {
-  cur.doc.setDrawColor(DIVIDER[0], DIVIDER[1], DIVIDER[2])
-  cur.doc.setLineWidth(0.75)
-  cur.doc.line(L, cur.y, R, cur.y)
+  cur.doc.setFillColor(DIVIDER[0], DIVIDER[1], DIVIDER[2])
+  cur.doc.rect(L, cur.y, CONTENT_W, 1, 'F')
 }
 
 type JsPdfCtor = typeof jsPDF
 
+/** A document whose wrapped lines step by the font size, as Swift's do. */
+function newDoc(JsPDF: JsPdfCtor, pageH: number): Doc {
+  const doc = new JsPDF({ unit: 'pt', format: [PAGE_W, pageH] })
+  doc.setLineHeightFactor(1)
+  return doc
+}
+
 /** Dry-render `data` into a throwaway tall page to measure its natural content height, then return
  *  the page height that fits it (Swift's auto-height page, done as a two-pass in jsPDF). */
 function measureHeight(JsPDF: JsPdfCtor, data: PdfReportData): number {
-  const probe = new JsPDF({ unit: 'pt', format: [PAGE_W, MEASURE_H] })
-  const cur: Cur = { doc: probe, y: MARGIN, pageH: MEASURE_H, grow: true }
+  const cur: Cur = { doc: newDoc(JsPDF, MEASURE_H), y: MARGIN }
   renderReportContent(cur, data)
   return pageHeightFor(cur.y)
 }
@@ -215,9 +233,9 @@ function measureHeight(JsPDF: JsPdfCtor, data: PdfReportData): number {
 /** Render the report to a PDF Blob — a single page grown to fit the content (mirrors Swift). */
 export async function generatePdfReport(data: PdfReportData): Promise<Blob> {
   const pageH = measureHeight(jsPDF, data)
-  const doc = new jsPDF({ unit: 'pt', format: [PAGE_W, pageH] })
-  renderReportContent({ doc, y: MARGIN, pageH, grow: true }, data)
-  drawFooters(doc, data.timestamp, [pageH])
+  const doc = newDoc(jsPDF, pageH)
+  renderReportContent({ doc, y: MARGIN }, data)
+  drawFooters(doc, [pageH])
   return doc.output('blob')
 }
 
@@ -227,73 +245,82 @@ export async function generatePdfReport(data: PdfReportData): Promise<Blob> {
 export async function generateMultiTapPdfReport(averaged: PdfReportData, comparison: PdfReportData): Promise<Blob> {
   const h1 = measureHeight(jsPDF, averaged)
   const h2 = measureHeight(jsPDF, comparison)
-  const doc = new jsPDF({ unit: 'pt', format: [PAGE_W, h1] })
-  renderReportContent({ doc, y: MARGIN, pageH: h1, grow: true }, averaged) // page 1 — averaged result
+  const doc = newDoc(jsPDF, h1)
+  renderReportContent({ doc, y: MARGIN }, averaged) // page 1 — averaged result
   doc.addPage([PAGE_W, h2])
-  renderReportContent({ doc, y: MARGIN, pageH: h2, grow: true }, comparison) // page 2 — per-tap comparison
-  drawFooters(doc, averaged.timestamp, [h1, h2])
+  renderReportContent({ doc, y: MARGIN }, comparison) // page 2 — per-tap comparison
+  drawFooters(doc, [h1, h2])
   return doc.output('blob')
 }
 
-/** The footer band on every page (divider + "Generated by …" + timestamp), placed relative to each
+/** The footer on every page (rule + "Generated by …" + the time of generation), placed from each
  *  page's own height (pages can differ — multi-tap). */
-function drawFooters(doc: Doc, timestamp: string, pageHeights: number[]) {
+function drawFooters(doc: Doc, pageHeights: number[]) {
+  // The time the report is generated, as Swift's footer.
+  const generatedAt = formatDisplayDate(new Date().toISOString())
   const pages = doc.getNumberOfPages()
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p)
     const ph = pageHeights[p - 1] ?? pageHeights[pageHeights.length - 1] ?? MEASURE_H
-    const fy = ph - MARGIN + 6
-    doc.setDrawColor(DIVIDER[0], DIVIDER[1], DIVIDER[2])
-    doc.setLineWidth(0.75)
-    doc.line(L, fy - 12, R, fy - 12)
+    const textTop = ph - MARGIN - 9
+    doc.setFillColor(DIVIDER[0], DIVIDER[1], DIVIDER[2])
+    doc.rect(L, textTop - 8 - 1, CONTENT_W, 1, 'F')
     font(doc, 9, 'normal')
     setColor(doc, SECONDARY)
-    doc.text(`Generated by GuitarTap Web ${__APP_VERSION__} (${__APP_BUILD__})`, L, fy)
-    doc.text(timestamp, R, fy, { align: 'right' })
+    textAt(doc, `Generated by GuitarTap Web ${__APP_VERSION__} (${__APP_BUILD__})`, L, textTop)
+    textAt(doc, generatedAt, R, textTop, { align: 'right' })
   }
 }
 
-/** Render one report's content (header → sections) onto the current page of `doc`, paginating as
- *  needed. The footer is applied separately (drawFooters) so multi-page / multi-report docs share
- *  one consistent footer pass. */
+/** Render one report's content (header → sections) onto the current page of `doc`. The footer is
+ *  applied separately (drawFooters) so multi-page docs share one footer pass. */
 function renderReportContent(cur: Cur, data: PdfReportData) {
   const { doc } = cur
 
   // ── Header ──────────────────────────────────────────────────────────────
+  // Swift: HStack(top) { VStack(spacing 2) { title 22 bold, subtitle 13 }, date 11 } + 8 below.
+  const isComparison = data.kind === 'comparison'
   font(doc, 22, 'bold')
   setColor(doc, ACCENT)
-  doc.text('GuitarTap', L, cur.y + 16)
+  textAt(doc, 'GuitarTap', L, cur.y)
   font(doc, 13, 'normal')
   setColor(doc, SECONDARY)
-  doc.text('Tap Tone Analysis Report', L, cur.y + 32)
+  textAt(doc, isComparison ? 'Comparison Report' : 'Tap Tone Analysis Report', L, cur.y + 22 + 2)
   font(doc, 11, 'normal')
-  doc.text(data.timestamp, R, cur.y + 14, { align: 'right' })
-  cur.y += 44
+  textAt(doc, data.timestamp, R, cur.y, { align: 'right' })
+  cur.y += 22 + 2 + 13 + 8
 
-  // accent bar
+  // Accent bar: 3 pt, 12 below.
   doc.setFillColor(ACCENT[0], ACCENT[1], ACCENT[2])
   doc.rect(L, cur.y, CONTENT_W, 3, 'F')
-  cur.y += 15
+  cur.y += 3 + 12
 
   // ── Metadata ──────────────────────────────────────────────────────────────
+  // Swift: VStack(spacing 4) of HStack(top, spacing 6) { label 11 bold in a fixed-width frame, value
+  // 11 }. The label frame is 120 pt on the measurement report and 100 pt on the comparison report.
+  const labelW = isComparison ? 100 : 120
+  let firstMeta = true
   const metaRow = (label: string, value: string) => {
+    if (!firstMeta) cur.y += 4
+    firstMeta = false
     font(doc, 11, 'bold')
     setColor(doc, SECONDARY)
-    doc.text(label + ':', L, cur.y)
+    textAt(doc, label + ':', L, cur.y)
     font(doc, 11, 'normal')
     setColor(doc, PRIMARY)
-    const lines = doc.splitTextToSize(value, CONTENT_W - 124) as string[]
-    doc.text(lines, L + 124, cur.y)
-    cur.y += Math.max(1, lines.length) * 14
+    const lines = wrapLines(doc, value, CONTENT_W - labelW - 6)
+    textAt(doc, lines, L + labelW + 6, cur.y)
+    cur.y += Math.max(1, lines.length) * 11
   }
-  const isComparison = data.kind === 'comparison'
-  if (data.measurementName?.trim()) metaRow('Measurement Name', data.measurementName.trim())
   if (isComparison) {
+    if (data.measurementName?.trim()) metaRow('Comparison', data.measurementName.trim())
+    if (data.notes?.trim()) metaRow('Notes', data.notes.trim())
     metaRow('Spectra', `${data.comparison?.spectraCount ?? 0} spectra compared`)
   } else {
+    if (data.measurementName?.trim()) metaRow('Measurement Name', data.measurementName.trim())
     metaRow('Type', data.measurementTypeName)
+    if (data.notes?.trim()) metaRow('Notes', data.notes.trim())
   }
-  if (data.notes?.trim()) metaRow('Notes', data.notes.trim())
   // Swift's PDF uses formattedAsFrequency here; the chart's "Range:" line uses a different formatter
   // (`fmt()` in spectrumExport.ts), as Swift's ExportableSpectrumChart does.
   metaRow('Frequency Range', `${formattedAsFrequency(data.freqRange.min)} – ${formattedAsFrequency(data.freqRange.max)}`)
@@ -302,45 +329,39 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
     const calSuffix = data.calibrationName ? ` · calibrated (${data.calibrationName})` : ' · uncalibrated'
     metaRow('Microphone', (data.microphoneName || 'unknown') + calSuffix)
   }
-  cur.y += 8
+  cur.y += 14
 
   // ── Spectrum image ────────────────────────────────────────────────────────
+  // Swift: VStack(spacing 6) { "Frequency Spectrum" 12 bold, the export image at the content width }.
   font(doc, 12, 'bold')
   setColor(doc, SECONDARY)
-  doc.text('Frequency Spectrum', L, cur.y)
-  cur.y += 8
-  // Compact plot height for the embedded image: the standalone PNG uses the full 660px, but a fixed
-  // Letter page has far less vertical room than Swift's auto-grown page, so a shorter image keeps the
-  // averaged report (peaks + Analysis Results) on a single page instead of spilling to a second.
-  const canvas = renderSpectrumToCanvas({ ...data.image, chartHeight: PDF_CHART_HEIGHT })
-  // Dark matte around the chart, mirroring Swift (PDFReportGenerator.swift:405-410):
-  //     .background(Color(white: 0.05)).cornerRadius(6)
+  textAt(doc, 'Frequency Spectrum', L, cur.y)
+  cur.y += 12 + 6
+  // The same image Export Spectrum makes, at the content width — its height follows the export's
+  // proportions, as Swift's does.
+  const canvas = renderSpectrumToCanvas(data.image)
+  const frameH = (CONTENT_W * canvas.height) / canvas.width
+  // Dark matte around the chart, mirroring Swift's `.background(Color(white: 0.05)).cornerRadius(6)`.
   // It marks where the captured spectrum ends and the report begins. On Swift the frame is not a
-  // stroke at all — its chart PNG carries transparent padding (hence the DeviceGray alpha mask in
-  // its PDF) and the near-black background shows THROUGH it. The web's canvas is opaque white, so
-  // the same look is drawn deliberately: a #0D0D0D rounded rect with the chart inset into it.
+  // stroke at all — its chart PNG carries transparent padding and the near-black background shows
+  // THROUGH it. The web's canvas is opaque white, so the same look is drawn deliberately: a #0D0D0D
+  // rounded rect the size of Swift's image, with the chart inset into it.
   const MATTE = 5
-  const innerW = CONTENT_W - MATTE * 2
-  const imgH = (innerW * canvas.height) / canvas.width
-  const matteH = imgH + MATTE * 2
-  ensure(cur, matteH + 8)
+  const innerH = frameH - MATTE * 2
+  const innerW = (innerH * canvas.width) / canvas.height
   doc.setFillColor(13, 13, 13) // Color(white: 0.05)
-  doc.roundedRect(L, cur.y, CONTENT_W, matteH, 6, 6, 'F')
+  doc.roundedRect(L, cur.y, CONTENT_W, frameH, 6, 6, 'F')
   // ⚠ The trailing 'MEDIUM' is load-bearing. jsPDF's `compression` argument defaults to 'NONE',
   // which stores the chart as a RAW RGB bitmap — the PNG compression paid for in toDataURL is
-  // decoded and thrown away. Measured on a plate report: the image stream was 3,489,840 bytes,
-  // exactly 1480 × 786 × 3, making the PDF 3.50 MB against Swift's 0.61 MB and Python's 0.62 MB —
-  // and Swift's image is 6.96 MP to the web's 1.16 MP, i.e. six times bigger yet seven times
-  // smaller on disk. Flate is lossless (pixels are bit-identical), and it takes the report to
-  // ~0.13 MB. FAST gives 26.9×, MEDIUM 31.1×, SLOW 31.7× — MEDIUM is the knee of the curve.
-  // The `undefined` is the optional `alias` slot; compression is the 8th parameter.
-  doc.addImage(canvas.toDataURL('image/png'), 'PNG', L + MATTE, cur.y + MATTE, innerW, imgH, undefined, 'MEDIUM')
-  cur.y += matteH + 14
+  // decoded and thrown away (a plate report measured 3.50 MB against Swift's 0.61 MB and Python's
+  // 0.62 MB). Flate is lossless (pixels are bit-identical); FAST gives 26.9×, MEDIUM 31.1×, SLOW
+  // 31.7× — MEDIUM is the knee of the curve. The `undefined` is the optional `alias` slot;
+  // compression is the 8th parameter.
+  doc.addImage(canvas.toDataURL('image/png'), 'PNG', L + (CONTENT_W - innerW) / 2, cur.y + MATTE, innerW, innerH, undefined, 'MEDIUM')
+  cur.y += frameH + 14
 
-  // divider
-  ensure(cur, 20)
   divider(cur)
-  cur.y += 14
+  cur.y += 1 + 14
 
   if (isComparison && data.comparison) {
     // ── Peak Mode Comparison table (replaces peaks/analysis/tap) ─────────────
@@ -364,68 +385,77 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
 
 // ── Section drawers ───────────────────────────────────────────────────────────
 
+/** Swift `peaksSection`: VStack(spacing 6) { "Detected Peaks" 13 bold, the header (10 bold, padded 3
+ *  vertically and 6 horizontally, 2 below), then one row per peak (10, padded 2 / 6) }. */
 function drawPeaks(cur: Cur, data: PdfReportData) {
   const { doc } = cur
   const isGuitar = data.kind === 'guitar'
 
-  ensure(cur, 40)
   font(doc, 13, 'bold')
   setColor(doc, PRIMARY)
-  doc.text('Detected Peaks', L, cur.y)
-  cur.y += 16
+  textAt(doc, 'Detected Peaks', L, cur.y)
+  cur.y += 13 + 6
 
   if (!data.peaks.length) {
     font(doc, 11, 'normal')
     setColor(doc, SECONDARY)
-    doc.text('No peaks detected in this measurement.', L, cur.y)
-    cur.y += 12
+    textAt(doc, 'No peaks detected in this measurement.', L, cur.y)
+    cur.y += 11
     return
   }
 
-  const cFreq = L
-  const cMag = L + 90
-  const cNote = L + 170
-  const cMode = L + 250
+  // Swift's column frames: 90 · 80 · 80, then Mode (guitar) or Q Factor 70 + Role, inside 6 pt padding.
+  const cFreq = L + 6
+  const cMag = cFreq + 90
+  const cNote = cMag + 80
+  const cMode = cNote + 80
+  const cRole = cMode + 70
 
   // Header pill
   doc.setFillColor(PILL_BG[0], PILL_BG[1], PILL_BG[2])
-  doc.roundedRect(L, cur.y - 10, CONTENT_W, 16, 3, 3, 'F')
+  doc.roundedRect(L, cur.y, CONTENT_W, 3 + 10 + 3, 4, 4, 'F')
   font(doc, 10, 'bold')
   setColor(doc, SECONDARY)
-  doc.text('Frequency', cFreq + 4, cur.y)
-  doc.text('Magnitude', cMag, cur.y)
-  doc.text('Note', cNote, cur.y)
+  const headTop = cur.y + 3
+  textAt(doc, 'Frequency', cFreq, headTop)
+  textAt(doc, 'Magnitude', cMag, headTop)
+  textAt(doc, 'Note', cNote, headTop)
   if (isGuitar) {
-    doc.text('Mode', cMode, cur.y)
+    textAt(doc, 'Mode', cMode, headTop)
   } else {
-    doc.text('Q Factor', cMode, cur.y)
-    doc.text('Role', cMode + 70, cur.y)
+    textAt(doc, 'Q Factor', cMode, headTop)
+    textAt(doc, 'Role', cRole, headTop)
   }
-  cur.y += 16
+  cur.y += 16 + 2
 
   for (const p of data.peaks) {
-    ensure(cur, 14)
+    cur.y += 6
+    const top = cur.y + 2
     font(doc, 10, 'normal')
     setColor(doc, PRIMARY)
-    doc.text(`${FieldPrecision.string(p.frequency, FieldPrecision.peakFrequencyHz)} Hz`, cFreq + 4, cur.y)
-    doc.text(`${FieldPrecision.string(p.magnitude, FieldPrecision.peakMagnitudeDB)} dB`, cMag, cur.y)
-    doc.text(p.note || '–', cNote, cur.y)
+    textAt(doc, `${FieldPrecision.string(p.frequency, FieldPrecision.peakFrequencyHz)} Hz`, cFreq, top)
+    textAt(doc, `${FieldPrecision.string(p.magnitude, FieldPrecision.peakMagnitudeDB)} dB`, cMag, top)
+    textAt(doc, p.note || '–', cNote, top)
     if (isGuitar) {
       font(doc, 10, p.isOverride ? 'italic' : 'normal')
       setColor(doc, p.modeColor ? hexToRgb(p.modeColor) : SECONDARY)
       // Overridden mode: italic + trailing " *" — the one convention used everywhere.
-      doc.text((p.modeLabel || '–') + (p.isOverride ? ' *' : ''), cMode, cur.y)
+      textAt(doc, (p.modeLabel || '–') + (p.isOverride ? ' *' : ''), cMode, top)
     } else {
       font(doc, 10, 'normal')
       setColor(doc, PRIMARY)
-      doc.text(FieldPrecision.string(p.quality, FieldPrecision.qFactor), cMode, cur.y)
+      textAt(doc, FieldPrecision.string(p.quality, FieldPrecision.qFactor), cMode, top)
       setColor(doc, p.roleColor ? hexToRgb(p.roleColor) : SECONDARY)
-      doc.text(p.role || '–', cMode + 70, cur.y)
+      textAt(doc, p.role || '–', cRole, top)
     }
-    cur.y += 14
+    cur.y += 2 + 10 + 2
   }
 }
 
+/** Swift `guitarAnalysisSection`: VStack(spacing 10) { "Analysis Results" 13 bold, HStack(top,
+ *  spacing 16) of boxes }. Each box (`analysisBox`, padded 10) is HStack(top) { VStack(spacing 2)
+ *  { title 10 bold, value 18 bold, subtitle 9 }, VStack(trailing, spacing 2) { detail 10,
+ *  detailSubtitle 9, hint 9 italic } }. */
 function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
   const { doc } = cur
 
@@ -437,7 +467,7 @@ function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
       subtitle: 'Time to decay 15 dB',
       detail: a.decayQuality ?? '',
       detailColor: a.decayColor ? hexToRgb(a.decayColor) : SECONDARY,
-      detailSubtitle: 'Sustain quality', // under the quality label, mirroring Swift analysisBox
+      detailSubtitle: 'Sustain quality',
     })
   }
   if (a.tapToneRatio != null) {
@@ -451,185 +481,165 @@ function drawGuitarAnalysis(cur: Cur, a: PdfGuitarAnalysis) {
     })
   }
 
-  ensure(cur, 80)
   font(doc, 13, 'bold')
   setColor(doc, PRIMARY)
-  doc.text('Analysis Results', L, cur.y)
-  cur.y += 14
+  textAt(doc, 'Analysis Results', L, cur.y)
+  cur.y += 13 + 10
 
-  if (!boxes.length) {
-    font(doc, 10, 'italic')
-    setColor(doc, SECONDARY)
-    doc.text('No analysis values available.', L, cur.y)
-    cur.y += 12
-    return
-  }
+  // No ring-out time and no ratio: the heading alone, as Swift's empty HStack.
+  if (!boxes.length) return
 
   const gap = 16
   const boxW = (CONTENT_W - (boxes.length - 1) * gap) / boxes.length
-  const boxH = 54
-  const top = cur.y
+  const PAD = 10
+  // The left column sets the height: title 10 + 2 + value 18 + 2 + subtitle 9.
+  const boxH = PAD + 10 + 2 + 18 + 2 + 9 + PAD
+  const c = cur.y + PAD
   boxes.forEach((b, i) => {
     const x = L + i * (boxW + gap)
+    const right = x + boxW - PAD
     doc.setFillColor(BOX_BG[0], BOX_BG[1], BOX_BG[2])
-    doc.roundedRect(x, top, boxW, boxH, 5, 5, 'F')
+    doc.roundedRect(x, cur.y, boxW, boxH, 6, 6, 'F')
     font(doc, 10, 'bold')
     setColor(doc, SECONDARY)
-    doc.text(b.title, x + 10, top + 16)
+    textAt(doc, b.title, x + PAD, c)
     font(doc, 18, 'bold')
     setColor(doc, PRIMARY)
-    doc.text(b.value, x + 10, top + 34)
+    textAt(doc, b.value, x + PAD, c + 10 + 2)
     font(doc, 9, 'normal')
     setColor(doc, SECONDARY)
-    doc.text(b.subtitle, x + 10, top + 47)
-    font(doc, 10, 'bold')
+    textAt(doc, b.subtitle, x + PAD, c + 10 + 2 + 18 + 2)
+    font(doc, 10, 'normal')
     setColor(doc, b.detailColor)
-    doc.text(b.detail, x + boxW - 10, top + 16, { align: 'right' })
-    // Right column stacks under the quality label: a plain subtitle (Swift detailSubtitle), then an
-    // italic hint — mirroring the SwiftUI VStack (detail → detailSubtitle → hint).
+    textAt(doc, b.detail, right, c, { align: 'right' })
+    let rightTop = c + 10 + 2
     if (b.detailSubtitle) {
       font(doc, 9, 'normal')
       setColor(doc, SECONDARY)
-      doc.text(b.detailSubtitle, x + boxW - 10, top + 30, { align: 'right' })
+      textAt(doc, b.detailSubtitle, right, rightTop, { align: 'right' })
+      rightTop += 9 + 2
     }
     if (b.hint) {
       font(doc, 9, 'italic')
       setColor(doc, SECONDARY)
-      doc.text(b.hint, x + boxW - 10, top + (b.detailSubtitle ? 42 : 30), { align: 'right' })
+      textAt(doc, b.hint, right, rightTop, { align: 'right' })
     }
   })
-  cur.y = top + boxH
+  cur.y += boxH
 }
 
+/** Swift `analysisSection` for plate / brace: Sample Dimensions, then (plate) Body Dimensions and
+ *  the Gore target, then the Plate / Brace Properties — each block separated by Spacer 14 · divider ·
+ *  Spacer 14. */
 function drawMaterialAnalysis(cur: Cur, a: PdfMaterialAnalysis) {
   const { doc } = cur
-
-  // Section order mirrors Swift `analysisSection` (PDFReportGenerator.swift:673-706) and the Results
-  // panel: Sample Dimensions → Body Dimensions (plate) → Gore target (just the number, plate) →
-  // Plate/Brace Properties (with GLC among the moduli). Dividers sit BETWEEN the blocks. fL/fC/fLC are
-  // inputs shown in the Detected Peaks table, NOT repeated as a frequency band here.
-
-  // Sample dimensions — THREE columns in a grey box, heading inside the box
-  // (Swift dimensionsSubsection:914-941): Length | Width | Thickness / Mass | Density.
-  if (a.dimensions.length) {
-    threeColBox(cur, a.dimensions, 'Sample Dimensions')
-    cur.y += 8
+  const separator = () => {
+    cur.y += 14
+    divider(cur)
+    cur.y += 1 + 14
   }
 
-  // Body Dimensions (plate only) — body a/b two-up, Panel Stiffness on its own full-width line
-  // (Swift plateBodyDimensionsPDFSection:945-970).
+  threeColBox(cur, a.dimensions, 'Sample Dimensions')
+  separator()
+
+  // Plate only. Swift keeps the separator after the Gore target even when there is no target.
   if (a.body) {
-    divider(cur)
-    cur.y += 14
     drawBodyDimensions(cur, a.body)
-    cur.y += 8
+    separator()
+    if (a.gore) drawGoreThickness(cur, a.gore.thickness)
+    separator()
   }
 
-  // Gore Target Thickness (plate only) — just the number, in an accent-tinted box
-  // (Swift goreThicknessPDFSection:975-997).
-  if (a.gore) {
-    divider(cur)
-    cur.y += 14
-    drawGoreThickness(cur, a.gore.thickness)
-    cur.y += 8
-  }
-
-  // Properties title (Swift plateSection/braceSection heading) after a divider from the blocks above.
-  divider(cur)
-  cur.y += 14
+  // Swift plateSection / braceSection: VStack(spacing 10) { title 13 bold, the two property columns,
+  // [GLC row], [ratios], Overall Quality }.
   font(doc, 13, 'bold')
   setColor(doc, PRIMARY)
-  doc.text(a.title, L, cur.y)
-  cur.y += 18
+  textAt(doc, a.title, L, cur.y)
+  cur.y += 13 + 10
 
   // Property rows (two columns) — COLUMN-major, matching Swift's two side-by-side VStacks.
   // Plate (8): L | Speed of Sound (L), Speed of Sound (C), Young's Modulus (L), Young's Modulus (C)
   //            R | Specific Modulus (L), Specific Modulus (C), Radiation Ratio (L), Radiation Ratio (C)
   // Brace (4): L | Speed of Sound, Young's Modulus (E)   R | Specific Modulus, Radiation Ratio
-  // The array order already matches Swift (measurementImage.ts); only the fill was wrong.
   twoColRows(cur, a.props, 'column')
 
-  // GLC (Shear Modulus) — FULL-WIDTH row after the two-column block, before the ratios
-  // (Swift PDFReportGenerator.swift:825-834). Plate only; the web omitted it entirely, so GLC
-  // appeared only inside the Gore box.
+  // GLC (Shear Modulus) — a full-width row after the two columns (plate only).
   if (a.glc) {
-    cur.y += 4
-    ensure(cur, 14)
+    cur.y += 10
     propAt(cur, a.glc, L)
-    cur.y += 14
+    cur.y += 10
   } else if (a.glcNote) {
-    cur.y += 4
-    ensure(cur, 14)
+    cur.y += 10
     font(doc, 10, 'italic')
     setColor(doc, SECONDARY)
-    doc.text(a.glcNote, L, cur.y)
-    cur.y += 14
+    textAt(doc, a.glcNote, L, cur.y)
+    cur.y += 10
   }
 
-  // Ratios (plate) — Swift is also two side-by-side VStacks here
-  // (PDFReportGenerator.swift:837-856), so 'column' is the structural match. With exactly two
-  // ratios both fills render identically; 'column' keeps it correct if a third is ever added.
+  // Ratios (plate) — two side-by-side VStack(spacing 2) { row, typical-range note }.
   if (a.ratios.length) {
-    cur.y += 4
+    cur.y += 10
     twoColRows(cur, a.ratios, 'column')
   }
 
-  // Overall quality pill
+  // Overall Quality — HStack { label 10 bold, value 13 bold } padded 8, the label centred on the value.
   cur.y += 10
-  ensure(cur, 24)
+  const PAD = 8
   doc.setFillColor(BOX_BG[0], BOX_BG[1], BOX_BG[2])
-  doc.roundedRect(L, cur.y - 12, CONTENT_W, 20, 4, 4, 'F')
+  doc.roundedRect(L, cur.y, CONTENT_W, PAD + 13 + PAD, 4, 4, 'F')
   font(doc, 10, 'bold')
   setColor(doc, SECONDARY)
-  doc.text('Overall Quality:', L + 8, cur.y + 1)
+  textAt(doc, 'Overall Quality:', L + PAD, cur.y + PAD + (13 - 10) / 2)
+  const labelW = doc.getTextWidth('Overall Quality:') + 8
   font(doc, 13, 'bold')
   setColor(doc, hexToRgb(a.overall.color))
-  doc.text(a.overall.value, L + 110, cur.y + 1)
-  cur.y += 16
+  textAt(doc, a.overall.value, L + PAD + labelW, cur.y + PAD)
+  cur.y += PAD + 13 + PAD
 }
 
-/** Body Dimensions block (plate) — grey box with heading, body a/b two-up, then Panel Stiffness on
- *  its own full-width line. Mirrors Swift `plateBodyDimensionsPDFSection` (PDFReportGenerator.swift:945). */
+/** Swift `plateBodyDimensionsPDFSection`: VStack(spacing 4) { heading 10 bold, body a / b two-up,
+ *  Panel Stiffness on its own line }, padded 6 in a grey box. */
 function drawBodyDimensions(cur: Cur, body: { dims: PdfMaterialProp[]; stiffness: PdfMaterialProp }) {
   const { doc } = cur
-  const colW = CONTENT_W / 2
-  const boxH = 12 + 12 + 2 * 14 // heading + body-dims row + Panel Stiffness row
-  ensure(cur, boxH + 6)
+  const PAD = 6
+  const colW = (CONTENT_W - PAD * 2) / 2
+  const boxH = PAD + 10 + 4 + 10 + 4 + 10 + PAD
   doc.setFillColor(BOX_BG[0], BOX_BG[1], BOX_BG[2])
-  doc.roundedRect(L, cur.y - 10, CONTENT_W, boxH, 4, 4, 'F')
+  doc.roundedRect(L, cur.y, CONTENT_W, boxH, 4, 4, 'F')
+  const top = cur.y
+  cur.y += PAD
   font(doc, 10, 'bold')
   setColor(doc, SECONDARY)
-  doc.text('Body Dimensions', L + 6, cur.y)
-  cur.y += 14
-  body.dims.forEach((row, i) => propAt(cur, row, L + 6 + i * colW))
-  cur.y += 14
-  propAt(cur, body.stiffness, L + 6) // Panel Stiffness — own line (the preset label is long)
-  cur.y += 16
+  textAt(doc, 'Body Dimensions', L + PAD, cur.y)
+  cur.y += 10 + 4
+  body.dims.forEach((row, i) => propAt(cur, row, L + PAD + i * colW))
+  cur.y += 10 + 4
+  propAt(cur, body.stiffness, L + PAD) // Panel Stiffness — own line (the preset label is long)
+  cur.y = top + boxH
 }
 
-/** Gore Target Thickness result (plate) — just the number, in an accent-tinted box. Mirrors Swift
- *  `goreThicknessPDFSection` (PDFReportGenerator.swift:975); inputs live in Body Dimensions, GLC among moduli. */
+/** Swift `goreThicknessPDFSection`: VStack(spacing 4) { heading 10 bold, the thickness 16 bold },
+ *  padded 6 in an accent-tinted box. */
 function drawGoreThickness(cur: Cur, thickness: string) {
   const { doc } = cur
-  const boxH = 12 + 12 + 18 // heading + big number
-  ensure(cur, boxH + 6)
+  const PAD = 6
+  const boxH = PAD + 10 + 4 + 16 + PAD
   doc.setFillColor(GORE_BG[0], GORE_BG[1], GORE_BG[2])
-  doc.roundedRect(L, cur.y - 10, CONTENT_W, boxH, 4, 4, 'F')
+  doc.roundedRect(L, cur.y, CONTENT_W, boxH, 4, 4, 'F')
   font(doc, 10, 'bold')
   setColor(doc, SECONDARY)
-  doc.text('Gore Target Thickness', L + 6, cur.y)
-  cur.y += 18
+  textAt(doc, 'Gore Target Thickness', L + PAD, cur.y + PAD)
   font(doc, 16, 'bold')
   setColor(doc, ACCENT)
-  doc.text(thickness, L + 6, cur.y)
-  cur.y += 10
+  textAt(doc, thickness, L + PAD, cur.y + PAD + 10 + 4)
+  cur.y += boxH
 }
 
 /** How a two-column block is filled.
  *
  *  - `'column'` — **down then across**: the first half of `rows` fills the LEFT column, the second
  *    half the RIGHT. This is Swift's layout, which it gets structurally from two side-by-side
- *    `VStack`s (`PDFReportGenerator.swift:796-823` plate, `:893-910` brace).
+ *    `VStack`s.
  *  - `'row'` — **across then down**: `rows[i]` left, `rows[i+1]` right.
  *
  *  Passed explicitly by every caller — no default. The callers genuinely need different fills, and a
@@ -638,66 +648,56 @@ function drawGoreThickness(cur: Cur, thickness: string) {
  */
 type ColFill = 'column' | 'row'
 
-/** Draw one label/value pair at `x`, label in secondary + value in bold — mirrors Swift
- *  `platePropRow` (`PDFReportGenerator.swift:1001-1009`: label `.secondary`, value `.semibold`). */
+/** Draw one label/value row (10 pt) with its top at `cur.y` — Swift `platePropRow`: HStack(spacing 6)
+ *  { label secondary, value bold }; `specificModulusRow` adds the 9 pt quality, centred on the row. */
 function propAt(cur: Cur, row: PdfMaterialProp, x: number) {
   const { doc } = cur
   font(doc, 10, 'normal')
   setColor(doc, SECONDARY)
-  doc.text(row.label + ':', x, cur.y)
-  const labelW = doc.getTextWidth(row.label + ': ')
+  textAt(doc, row.label + ':', x, cur.y)
+  const labelW = doc.getTextWidth(row.label + ':') + 6
   font(doc, 10, 'bold')
   setColor(doc, row.color ? hexToRgb(row.color) : PRIMARY)
-  doc.text(row.value, x + labelW, cur.y)
+  textAt(doc, row.value, x + labelW, cur.y)
   if (row.hint) {
-    const vW = doc.getTextWidth(row.value + ' ')
-    // 9pt, the ROW'S colour, UPRIGHT — Swift specificModulusRow:1020-1022. Was grey + italic.
+    const vW = doc.getTextWidth(row.value) + 6
+    // 9pt, the ROW'S colour, UPRIGHT.
     font(doc, 9, 'normal')
     setColor(doc, row.color ? hexToRgb(row.color) : PRIMARY)
-    doc.text(row.hint, x + labelW + vW, cur.y)
+    textAt(doc, row.hint, x + labelW + vW, cur.y + (10 - 9) / 2)
   }
 }
 
-/** Render label/value props in THREE equal columns inside a grey rounded box, advancing cur.y.
- *
- *  Mirrors Swift's `dimensionsSubsection` (`PDFReportGenerator.swift:929-956`) and the plate/brace
- *  frequencies row (`:778-793` / `:851-861`): equal-width columns filled LEFT→RIGHT, wrapped in
- *  `.padding(6).background(Color.gray.opacity(0.06)).cornerRadius(4)`.
- *
- *  The web previously drew both blocks as 2 columns of plain text with no box — which is why
- *  Thickness fell to a second line and Density was pushed onto page 2, splitting the block across a
- *  page break.
- */
-function threeColBoxHeight(rows: PdfMaterialProp[], heading?: string): number {
-  return 12 + (heading ? 12 : 0) + Math.ceil(rows.length / 3) * 14
-}
-
-function threeColBox(cur: Cur, rows: PdfMaterialProp[], heading?: string) {
+/** Swift `dimensionsSubsection`: VStack(spacing 4) { heading 10 bold, rows of three equal columns
+ *  filled LEFT→RIGHT }, padded 6 in a grey box. */
+function threeColBox(cur: Cur, rows: PdfMaterialProp[], heading: string) {
   const { doc } = cur
-  const colW = CONTENT_W / 3
+  const PAD = 6
+  const colW = (CONTENT_W - PAD * 2) / 3
   const lines = Math.ceil(rows.length / 3)
-  const boxH = threeColBoxHeight(rows, heading)
-  ensure(cur, boxH + 6)
+  const boxH = PAD + 10 + lines * (4 + 10) + PAD
   doc.setFillColor(BOX_BG[0], BOX_BG[1], BOX_BG[2])
-  doc.roundedRect(L, cur.y - 10, CONTENT_W, boxH, 4, 4, 'F')
-  if (heading) {
-    font(doc, 10, 'bold')
-    setColor(doc, SECONDARY)
-    doc.text(heading, L + 6, cur.y)
-    cur.y += 14
-  }
+  doc.roundedRect(L, cur.y, CONTENT_W, boxH, 4, 4, 'F')
+  const top = cur.y
+  cur.y += PAD
+  font(doc, 10, 'bold')
+  setColor(doc, SECONDARY)
+  textAt(doc, heading, L + PAD, cur.y)
+  cur.y += 10
   for (let r = 0; r < lines; r++) {
+    cur.y += 4
     for (let c = 0; c < 3; c++) {
       const row = rows[r * 3 + c]
-      if (!row) continue
-      propAt(cur, row, L + 6 + c * colW)
+      if (row) propAt(cur, row, L + PAD + c * colW)
     }
-    cur.y += 14
+    cur.y += 10
   }
-  cur.y += 2
+  cur.y = top + boxH
 }
 
-/** Render label/value props in two columns, advancing cur.y row by row.
+/** Render label/value props in two columns, advancing cur.y row by row (rows 10 pt, 6 apart, as
+ *  Swift's VStack(spacing: 6)). A row whose props carry a `note` stacks it beneath, 2 pt below, in
+ *  9 pt italic — Swift's ratios VStack(spacing: 2).
  *
  *  ⚠ The `fill` argument is load-bearing. Swift builds its two-column property blocks as two
  *  side-by-side VStacks, i.e. **column-major**; this function filled **row-major**, so the same
@@ -721,99 +721,103 @@ function twoColRows(cur: Cur, rows: PdfMaterialProp[], fill: ColFill) {
   const half = fill === 'column' ? Math.ceil(rows.length / 2) : 0
   const rowCount = fill === 'column' ? half : Math.ceil(rows.length / 2)
   for (let r = 0; r < rowCount; r++) {
+    if (r) cur.y += 6
     const pair = [0, 1].map((c) => (fill === 'column' ? rows[r + c * half] : rows[r * 2 + c]))
-    const hasNote = pair.some((row) => row?.note)
-    ensure(cur, hasNote ? 24 : 14)
     for (let c = 0; c < 2; c++) {
       const row = pair[c]
       if (row) propAt(cur, row, L + c * colW)
     }
-    cur.y += 14
-    // Sub-line under the row — Swift stacks it in a VStack(spacing: 2) beneath the prop row
-    // (PDFReportGenerator.swift:837-856), 9pt secondary italic, no parentheses.
-    if (hasNote) {
+    cur.y += 10
+    if (pair.some((row) => row?.note)) {
+      cur.y += 2
       for (let c = 0; c < 2; c++) {
         const note = pair[c]?.note
         if (!note) continue
         font(doc, 9, 'italic')
         setColor(doc, SECONDARY)
-        doc.text(note, L + c * colW, cur.y - 3)
+        textAt(doc, note, L + c * colW, cur.y)
       }
       cur.y += 9
     }
   }
 }
 
+/** Swift `tapInstructionsSection`: VStack(spacing 6) { divider, Spacer 6, heading 10 bold, one row
+ *  per tap, foot 9 italic }, then Spacer 14. A row is HStack(top, spacing 6) { 7 pt dot 2 below the
+ *  top, VStack(spacing 1) { title 10 bold, detail 9 (wrapping) } }. */
 function drawTapInstructions(cur: Cur, ti: PdfTapInstructions) {
   const { doc } = cur
-  cur.y += 14
-  ensure(cur, 30)
   divider(cur)
-  cur.y += 14
+  cur.y += 1 + 6 + 6 + 6
   font(doc, 10, 'bold')
   setColor(doc, PRIMARY)
-  doc.text(ti.heading, L, cur.y)
-  cur.y += 14
+  textAt(doc, ti.heading, L, cur.y)
+  cur.y += 10
+  const textX = L + 7 + 6
   for (const s of ti.steps) {
-    ensure(cur, 34)
+    cur.y += 6
     const col = hexToRgb(s.color)
     doc.setFillColor(col[0], col[1], col[2])
-    doc.circle(L + 4, cur.y - 3, 3, 'F')
+    doc.circle(L + 3.5, cur.y + 2 + 3.5, 3.5, 'F')
     font(doc, 10, 'bold')
     setColor(doc, PRIMARY)
-    doc.text(s.title, L + 14, cur.y)
-    cur.y += 12
+    textAt(doc, s.title, textX, cur.y)
+    cur.y += 10 + 1
     font(doc, 9, 'normal')
     setColor(doc, SECONDARY)
-    const lines = doc.splitTextToSize(s.detail, CONTENT_W - 14) as string[]
-    doc.text(lines, L + 14, cur.y)
-    cur.y += lines.length * 11 + 4
+    const lines = wrapLines(doc, s.detail, R - textX)
+    textAt(doc, lines, textX, cur.y)
+    cur.y += lines.length * 9
   }
-  ensure(cur, 14)
+  cur.y += 6
   font(doc, 9, 'italic')
   setColor(doc, SECONDARY)
-  doc.text(ti.foot, L, cur.y)
-  cur.y += 14
+  textAt(doc, ti.foot, L, cur.y)
+  cur.y += 9 + 14
 }
 
 /** "Peak Mode Comparison" table — one row per overlaid spectrum (Spectrum · Air · Top · Back).
- *  Mirrors Swift ComparisonPDFReportContentView.peakModeTableSection. */
+ *  Mirrors Swift ComparisonPDFReportContentView.peakModeTableSection: VStack(spacing 6) { title 13
+ *  bold, header (10 bold, padded 4 vertically), rows (10, padded 4, top-aligned) }; each frequency
+ *  column is 90 pt, right-aligned, with 6 pt after it; the spectrum column takes the rest, padded 6. */
 function drawComparisonTable(cur: Cur, comp: PdfComparison) {
   const { doc } = cur
-  const COL_W = 90
-  const modeX = [R - COL_W * 3, R - COL_W * 2, R - COL_W] // right edges of Spectrum / Air / Top blocks
-  const labelMax = modeX[0]! - L - 18 // dot + gap before the first mode column
+  const COL = 90 + 6
+  const right = [R - 6 - COL * 2, R - 6 - COL, R - 6] // right edges of the Air / Top / Back text
+  const labelX = L + 6 + 8 + 5 // padding, dot, spacing
+  const labelMax = R - COL * 3 - 6 - labelX
 
-  ensure(cur, 40)
   font(doc, 13, 'bold')
   setColor(doc, PRIMARY)
-  doc.text('Peak Mode Comparison', L, cur.y)
-  cur.y += 16
+  textAt(doc, 'Peak Mode Comparison', L, cur.y)
+  cur.y += 13 + 6
 
   // Header pill
   doc.setFillColor(PILL_BG[0], PILL_BG[1], PILL_BG[2])
-  doc.roundedRect(L, cur.y - 10, CONTENT_W, 16, 3, 3, 'F')
+  doc.roundedRect(L, cur.y, CONTENT_W, 4 + 10 + 4, 4, 4, 'F')
   font(doc, 10, 'bold')
   setColor(doc, SECONDARY)
-  doc.text('Spectrum', L + 6, cur.y)
-  ;['Air', 'Top', 'Back'].forEach((lbl, i) => doc.text(lbl, modeX[i]! + COL_W - 6, cur.y, { align: 'right' }))
-  cur.y += 16
+  textAt(doc, 'Spectrum', L + 6, cur.y + 4)
+  ;['Air', 'Top', 'Back'].forEach((lbl, i) => textAt(doc, lbl, right[i]!, cur.y + 4, { align: 'right' }))
+  cur.y += 4 + 10 + 4
 
   for (const row of comp.rows) {
-    ensure(cur, 14)
+    cur.y += 6
+    const top = cur.y + 4
     const c = cssToRgb(row.color)
     doc.setFillColor(c[0], c[1], c[2])
-    doc.circle(L + 5, cur.y - 3, 4, 'F')
+    doc.circle(L + 6 + 4, top + 5, 4, 'F')
     font(doc, 10, 'normal')
     setColor(doc, PRIMARY)
-    const label = (doc.splitTextToSize(row.label, labelMax) as string[])[0] ?? row.label
-    doc.text(label, L + 14, cur.y)
+    // A long name wraps rather than being cut; the dot and the values stay level with its first line.
+    const label = wrapLines(doc, row.label, labelMax)
+    textAt(doc, label, labelX, top)
     const freqs = [row.air, row.top, row.back]
     freqs.forEach((f, i) => {
       setColor(doc, f != null ? PRIMARY : SECONDARY)
-      doc.text(f != null ? `${FieldPrecision.string(f, FieldPrecision.peakFrequencyHz)} Hz` : '—', modeX[i]! + COL_W - 6, cur.y, { align: 'right' })
+      textAt(doc, f != null ? `${FieldPrecision.string(f, FieldPrecision.peakFrequencyHz)} Hz` : '—', right[i]!, top, { align: 'right' })
     })
-    cur.y += 14
+    cur.y += 4 + 10 * label.length + 4
   }
 }
 

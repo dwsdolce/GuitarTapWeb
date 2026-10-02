@@ -18,8 +18,7 @@ import { serializeGuitarTapFile, type TapToneMeasurementModel } from '../measure
 import { MeasurementDetail } from './MeasurementDetail'
 import { menuPlacement } from './menuPlacement'
 import { exportSpectrumPng } from '../presentation/spectrumExport'
-import { measurementToImageOpts, measurementToPdfData, multiTapPdfData } from '../presentation/measurementImage'
-import { exportPdfReport, exportMultiTapPdfReport } from '../presentation/pdfReport'
+import { measurementToImageOpts, reportForMeasurement } from '../presentation/measurementImage'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
 
@@ -238,17 +237,8 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: Meas
   const exportPdf = async (m: TapToneMeasurementModel) => {
     setMenuId(null)
     try {
-      const ts = Math.floor((Date.parse(m.timestamp) || 0) / 1000)
-      const filename = `${exportStem(m.measurementName, ts, 'report')}.pdf`
-      // A multi-tap guitar measurement gets the two-page report (averaged + per-tap comparison),
-      // mirroring Swift generateMultiTapReport. Gated on tapEntries — plate/brace never store them,
-      // so this is guitar-only. The live "Export PDF Report" (App.tsx) already does this; the saved-
-      // measurement export path here did not, so a saved multi-tap PDF was missing its second page.
-      if (m.tapEntries && m.tapEntries.length > 1) {
-        await exportMultiTapPdfReport(multiTapPdfData(m), filename)
-      } else {
-        await exportPdfReport(measurementToPdfData(m), filename)
-      }
+      const report = await reportForMeasurement(m)
+      await saveFile(report.blob, `${report.basename}.pdf`, { description: 'PDF report', mime: 'application/pdf', ext: '.pdf' })
     } catch (err) {
       setImportError(`Couldn't export PDF: ${err instanceof Error ? err.message : String(err)}`)
     }

@@ -1,3 +1,4 @@
+// @parity view/spectrum-export tests=test/spectrum-export
 // Spectrum REPORT image — a white-background composite (header · chart · peak-summary · mode legend)
 // matching Swift's ExportableSpectrumChart. The CHART itself is drawn by the SAME `renderSpectrum`
 // the on-screen view uses (light theme here), so the displayed graph and the exported image can't
@@ -9,6 +10,7 @@ import type { PeakMarker, SpectrumOverlay, ChartView } from './chartTypes'
 import { renderSpectrum, LIGHT_CHART, hexA, type ChartTheme } from './spectrumRender'
 import { type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_COLOR, MODE_DISPLAY_NAME } from './modeColors'
+import { withPixelsPerInch } from './pngPixelsPerInch'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
 
@@ -22,12 +24,10 @@ export interface SpectrumImageOpts {
   measurementTypeName?: string
   guitarType?: GuitarTypeName
   date?: string
-  width?: number
-  /** Plot height (px) inside the composite. Default 660 (full-size PNG). The PDF passes a smaller
-   *  value so the embedded image is shorter — fixed Letter pages have less vertical room than
-   *  Swift's auto-grown page, so the report stays compact enough to keep the analysis on page 1. */
-  chartHeight?: number
 }
+
+/** Pixels per point, as Swift's ImageRenderer(scale: 2.0). */
+const PIXEL_SCALE = 2
 
 const FONT = (s: number, w = '') => `${w ? w + ' ' : ''}${s}px system-ui, sans-serif`
 const th: ChartTheme = LIGHT_CHART
@@ -56,7 +56,10 @@ export function reportPeaks(markers: PeakMarker[]): PeakMarker[] {
 
 /** Render the full white report image to an off-screen canvas (PNG export + PDF embed). */
 export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasElement {
-  const W = opts.width ?? 1480
+  // A fixed size, whatever the on-screen chart's: Swift renders its export at 1464 × 1069 pt (a
+  // 1400 × 800 chart frame with its header and legend), 119 pt taller with the peak summary. The
+  // bands below add up to the same, so the PNG and the PDF's embedded image have Swift's proportions.
+  const W = 1464
   const PAD = 28
   const { minHz, maxHz, minDb, maxDb } = opts.view
   const overlays = opts.overlays ?? []
@@ -64,15 +67,18 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   const visible = reportPeaks(markers)
 
   const headerH = 116
-  const chartH = opts.chartHeight ?? 660 // renderSpectrum lays out title + plot + axis titles within this
-  const summaryH = visible.length ? 110 : 0
+  const chartH = 853 // renderSpectrum lays out title + plot + axis titles within this
+  const summaryH = visible.length ? 119 : 0
   const legendH = 44
   const H = PAD + headerH + chartH + summaryH + legendH + PAD
 
+  // Drawn at 2x, as Swift's ImageRenderer(scale: 2.0): the canvas holds 2928 × 2376 pixels (2138 without
+  // the summary) for the layout below in points.
   const canvas = document.createElement('canvas')
-  canvas.width = W
-  canvas.height = H
+  canvas.width = W * PIXEL_SCALE
+  canvas.height = H * PIXEL_SCALE
   const ctx = canvas.getContext('2d')!
+  ctx.scale(PIXEL_SCALE, PIXEL_SCALE)
   ctx.fillStyle = '#ffffff'
   ctx.fillRect(0, 0, W, H)
   ctx.textBaseline = 'alphabetic'
@@ -207,10 +213,18 @@ function fmt(hz: number): string {
   return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k Hz` : `${hz.toFixed(0)} Hz`
 }
 
-/** Save the composed spectrum report image as a PNG (Chromium "Save As…" dialog / download fallback). */
-export async function exportSpectrumPng(opts: SpectrumImageOpts, filename: string): Promise<void> {
+/** The spectrum report image as a PNG file, as Swift's export writes it: 2x pixels stating 144 pixels per
+ *  inch, so a viewer that honours the figure shows it at its point size. */
+export async function spectrumPng(opts: SpectrumImageOpts): Promise<Uint8Array<ArrayBuffer> | null> {
   const canvas = renderSpectrumToCanvas(opts)
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) return
-  await saveFile(blob, filename, { description: 'PNG image', mime: 'image/png', ext: '.png' })
+  if (!blob) return null
+  return withPixelsPerInch(new Uint8Array(await blob.arrayBuffer()), 72 * PIXEL_SCALE)
+}
+
+/** Save the composed spectrum report image as a PNG (Chromium "Save As…" dialog / download fallback). */
+export async function exportSpectrumPng(opts: SpectrumImageOpts, filename: string): Promise<void> {
+  const png = await spectrumPng(opts)
+  if (!png) return
+  await saveFile(new Blob([png], { type: 'image/png' }), filename, { description: 'PNG image', mime: 'image/png', ext: '.png' })
 }

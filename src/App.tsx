@@ -727,7 +727,7 @@ export default function App() {
     // Multi-tap guitar measurements always produce the two-page report (averaged + per-tap
     // comparison), mirroring Swift exportMultiTapPDFReport (gated on tapEntries, not the on-screen toggle).
     try {
-      if (m.tapEntries && m.tapEntries.length > 1) {
+      if (m.tapEntries && m.tapEntries.length > 0) {
         await exportMultiTapPdfReport(multiTapPdfData(m), filename)
       } else {
         await exportPdfReport(measurementToPdfData(m), filename)

@@ -1,3 +1,4 @@
+// @parity view/pdf-report tests=test/pdf-report
 
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
@@ -11,11 +12,13 @@ import { isGuitarType, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, DEFAULT_SETTIN
 import { materialDimensions, materialStiffness } from '../measurement/materialMeasurementInputs'
 import { formatDisplayDate } from '../format/date'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import type { TapToneMeasurementModel } from '../measurement'
+import { effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
 import { MODE_DISPLAY_NAME as MODE_FULL_NAME } from './modeColors'
 import { decayQuality, decayQualityColor, tapToneRatioQuality, tapToneRatioQualityColor } from '../dsp/analysisQuality'
 import { density, densityGPerCm3, plateYoungsLongGPa, plateYoungsLongPa, plateYoungsCrossGPa, plateYoungsCrossPa, braceYoungsLongGPa, braceYoungsLongPa, speedOfSound, specificModulus, radiationRatio, crossLongRatio, longCrossRatio, goreShearPa, goreTargetThicknessMm, woodQuality, overallQuality, type Dimensions } from '../dsp/material'
 import type { PdfReportData, PdfPeakRow, PdfMaterialAnalysis, PdfMaterialProp, PdfTapInstructions } from './pdfReport'
+import { generateMultiTapPdfReport, generatePdfReport } from './pdfReport'
+import { exportStem } from '../measurement/exportFilename'
 import type { ResonantPeak } from '../measurement/types'
 
 const pitch = new Pitch(440)
@@ -220,12 +223,24 @@ export function measurementToPdfData(m: TapToneMeasurementModel): PdfReportData 
 /** Two-page PDF data for a multi-tap guitar measurement (Swift `generateMultiTapReport`): page 1 is
  *  the averaged single-measurement report, page 2 the per-tap comparison. Page 2 reuses the comparison
  *  PDF path by synthesizing comparison entries from the measurement's `tapEntries` + an "Averaged"
- *  entry — so it stays identical to a saved-comparison report. Caller gates on `m.tapEntries.length > 1`. */
+ *  entry — so it stays identical to a saved-comparison report. Callers use it for a measurement with tap entries. */
 export function multiTapPdfData(m: TapToneMeasurementModel): { averaged: PdfReportData; comparison: PdfReportData } {
   return {
     averaged: measurementToPdfData(m),
     comparison: measurementToPdfData({ ...m, comparisonEntries: multiTapComparisonEntries(m) }),
   }
+}
+
+/** A saved measurement's PDF report and its file name (without extension): a multi-tap measurement's two
+ *  pages (the averaged result, then the per-tap comparison), a comparison's report, or the single report.
+ *  What the measurement list exports. Mirrors Swift `PDFReportGenerator.report(for:)`. */
+export async function reportForMeasurement(m: TapToneMeasurementModel): Promise<{ blob: Blob; basename: string }> {
+  const basename = exportStem(m.measurementName, Math.floor((Date.parse(m.timestamp) || 0) / 1000), 'report')
+  if (m.tapEntries && m.tapEntries.length > 0) {
+    const pages = multiTapPdfData(m)
+    return { blob: await generateMultiTapPdfReport(pages.averaged, pages.comparison), basename }
+  }
+  return { blob: await generatePdfReport(measurementToPdfData(m)), basename }
 }
 
 type PdfBase = Pick<
@@ -250,7 +265,7 @@ function guitarPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData
     return {
       frequency: p.frequency,
       magnitude: p.magnitude,
-      note: pitch.note(p.frequency) ?? '–',
+      note: p.pitchNote ?? '–', // the peak's stored note, as Swift's peak table (peak.pitchNote ?? "–")
       quality: p.quality,
       modeLabel: override ?? MODE_FULL_NAME[mode],
       modeColor: modeLabelColor(mode, override),
@@ -294,20 +309,25 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
   const measureFlc = r.settingsPatch.measureFlc ?? DEFAULT_SETTINGS.measureFlc
   const showFlc = plate && measureFlc
 
-  // Peaks table — selected peaks, sorted low → high, role cell name-first (Swift peakRoleCell:559).
-  const roleRows: { peak: ResonantPeak; role: string; color: string }[] = []
-  if (r.selectedLongitudinalPeak)
-    roleRows.push({ peak: r.selectedLongitudinalPeak, role: 'Longitudinal (fL)', color: ROLE_L })
-  if (plate && r.selectedCrossPeak) roleRows.push({ peak: r.selectedCrossPeak, role: 'Cross-grain (fC)', color: ROLE_C })
-  if (showFlc && r.selectedFlcPeak) roleRows.push({ peak: r.selectedFlcPeak, role: 'Diagonal (fLC)', color: ROLE_FLC })
-  roleRows.sort((a, b) => a.peak.frequency - b.peak.frequency)
-  const peaks: PdfPeakRow[] = roleRows.map((rr) => ({
-    frequency: rr.peak.frequency,
-    magnitude: rr.peak.magnitude,
-    note: pitch.note(rr.peak.frequency) ?? '–',
-    quality: rr.peak.quality,
-    role: rr.role,
-    roleColor: rr.color,
+  // Peaks table — as Swift's report: the measurement's peaks within the frequency range, by the effective
+  // selection (a plate or brace shows all its peaks), sorted low → high; each peak's role by its id — fL,
+  // fC, fLC for a plate, fL for a brace — or "–".
+  const effective = effectiveSelectedPeakIDs(m)
+  const rolePeaks = m.peaks
+    .filter((p) => effective.has(p.id) && p.frequency >= base.freqRange.min && p.frequency <= base.freqRange.max)
+    .sort((a, b) => a.frequency - b.frequency)
+  const roleOf = (p: ResonantPeak): { role?: string; roleColor?: string } => {
+    if (p.id === m.selectedLongitudinalPeakID) return { role: 'Longitudinal (fL)', roleColor: ROLE_L }
+    if (plate && p.id === m.selectedCrossPeakID) return { role: 'Cross-grain (fC)', roleColor: ROLE_C }
+    if (plate && p.id === m.selectedFlcPeakID) return { role: 'Diagonal (fLC)', roleColor: ROLE_FLC }
+    return {}
+  }
+  const peaks: PdfPeakRow[] = rolePeaks.map((p) => ({
+    frequency: p.frequency,
+    magnitude: p.magnitude,
+    note: p.pitchNote ?? '–',
+    quality: p.quality,
+    ...roleOf(p),
   }))
 
   const dimensions: PdfMaterialProp[] = [
