@@ -29,7 +29,7 @@ import { dftAnalRect, GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
 import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type MaterialPhaseName, type EngineState } from '../audio/realtimeFFTAnalyzer'
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
-import { isGuitarType, defaultDisplayRange, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, type MeasurementType, type Settings } from '../settings'
+import { isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, type MeasurementType, type Settings } from '../settings'
 import { materialInputsFromSettings, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { dumpCaptureWav } from '../measurement/dumpWav'
 
@@ -357,6 +357,14 @@ export class TapToneAnalyzer {
   /** The file name of the last capture audio handed to the browser as a download; null when none
    *  is shown. */
   private captureAudioSaved: string | null = null
+  /** Whether the plate / brace peaks were restored by a load rather than identified by a capture. A load
+   *  shows the range it was saved with, so its peaks do not widen the chart. Set by a load before it
+   *  writes the peaks; cleared when a sequence starts. Mirrors Swift `materialPeaksFromLoad`. */
+  private materialPeaksFromLoad = false
+  /** How many sequences have started — each New Tap, Play File, Cancel or re-arm. The chart reacts to
+   *  each start (Swift's view hears each `isMeasurementComplete = false` from startTapSequence; a
+   *  snapshot can only show a change, so the web counts them). */
+  private sequenceStarts = 0
   // The device owns the guitar detection loop, so the guitar status strings derive from these transitions
   // (the web equivalent of Swift's TapToneAnalyzer+TapDetection setting statusMessage in the loop).
 
@@ -435,6 +443,7 @@ export class TapToneAnalyzer {
    *  directly, and the `arm: false` branch covers the direct/test path where no device reports back. */
   startTapSequence(opts: { arm?: boolean; skipWarmup?: boolean } = {}): void {
     const { arm = true, skipWarmup = false } = opts
+    this.sequenceStarts += 1
     // The shared reset — result data, per-peak state, completion flag, and the return to live.
     this.clearResult()
     this.currentTapCount = 0
@@ -454,6 +463,7 @@ export class TapToneAnalyzer {
     this.resetDecayTracking()
     this.showingMultiTapComparison = false
     this.captureAudioSaved = null
+    this.materialPeaksFromLoad = false
     // A new sequence listens to the input until playFile says otherwise, and no longer names a file.
     this.resultProvenance = null
     if (this.device) this.device.playingFileName = null
@@ -545,7 +555,7 @@ export class TapToneAnalyzer {
     // settings and guitar type at capture — as Swift's processMultipleTaps builds them.
     if (this.capturedTaps.length > 1) {
       const s = this.settings
-      const range = s.displayRanges[this.measurementType] ?? defaultDisplayRange(this.measurementType)
+      const range = { minHz: minFrequency(s, this.measurementType), maxHz: maxFrequency(s, this.measurementType) }
       this.tapEntries = spectra.map((sp, i) => {
         const tapPeaks = findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR })
         const modeSelected = this.guitarModeSelectedPeakIds(tapPeaks, guitarType)
@@ -1695,6 +1705,7 @@ export class TapToneAnalyzer {
     this.isLoadingMeasurement = true
     try {
       this.matSpectra = m.matSpectra
+      this.materialPeaksFromLoad = true
       this.selectedLongitudinalPeak = m.selectedLongitudinalPeak
       this.selectedCrossPeak = m.selectedCrossPeak
       this.selectedFlcPeak = m.selectedFlcPeak
@@ -2756,6 +2767,8 @@ export class TapToneAnalyzer {
         isClipping: this.isClipping,
         inputAppearsDead: this.inputAppearsDead,
         captureAudioSaved: this.captureAudioSaved,
+        materialPeaksFromLoad: this.materialPeaksFromLoad,
+        sequenceStarts: this.sequenceStarts,
         showLoadedSettingsWarning: this.showLoadedSettingsWarning,
         loadedMeasurementName: this.loadedMeasurementName,
         loadedNotes: this.loadedNotes,
@@ -3181,6 +3194,10 @@ export interface TapToneSnapshot {
   /** The file name of the last capture audio handed to the browser as a download (Dump Capture
    *  Audio), for the "saved" notice; null when none is shown. A new sequence clears it. */
   captureAudioSaved: string | null
+  /** The plate / brace peaks were restored by a load, not identified by a capture. */
+  materialPeaksFromLoad: boolean
+  /** How many sequences have started; a change is a new sequence. */
+  sequenceStarts: number
   /** A loaded measurement's Threshold/Taps are in force — drives the loaded-settings banner. */
   showLoadedSettingsWarning: boolean
   /** What the loaded measurement left on the model — Swift's `loaded*` published properties. Null

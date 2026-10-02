@@ -18,6 +18,7 @@
 import type { SpectrumImageOpts } from './spectrumExport'
 import { renderSpectrumToCanvas } from './spectrumExport'
 import { saveFile } from '../saveFile'
+import { formattedAsFrequency } from './frequencyFormat'
 // jsPDF is imported STATICALLY (not `await import('jspdf')`) on purpose. A lazy chunk goes missing for
 // a client running a stale service-worker shell after a deploy: the old shell requests a jsPDF chunk
 // the new build renamed, the fetch fails ("Importing a module script failed"), and PDF export silently
@@ -161,17 +162,6 @@ function cssToRgb(color: string): RGB {
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : hexToRgb(color)
 }
 
-/** Frequency for the report's metadata row — mirrors Swift `Float.formattedAsFrequency()`
- *  (`Extensions.swift:53`): one decimal, always.
- *
- *  ⚠ Swift deliberately uses a DIFFERENT formatter for the chart's "Range:" line
- *  (`ExportableSpectrumChart.swift:510`, zero decimals) — see `fmt()` in spectrumExport.ts. The web
- *  had the two the wrong way round: this one rounded to 0 dp ("20 Hz" vs Swift's "20.0 Hz") while the
- *  chart's used 1 dp ("20.0 Hz" vs Swift's "20 Hz"). Keep them distinct and keep each matched to its
- *  Swift counterpart. */
-function fmtFreq(hz: number): string {
-  return hz >= 1000 ? `${(hz / 1000).toFixed(1)} kHz` : `${hz.toFixed(1)} Hz`
-}
 
 type Doc = jsPDF
 
@@ -303,7 +293,9 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
     metaRow('Type', data.measurementTypeName)
   }
   if (data.notes?.trim()) metaRow('Notes', data.notes.trim())
-  metaRow('Frequency Range', `${fmtFreq(data.freqRange.min)} – ${fmtFreq(data.freqRange.max)}`)
+  // Swift's PDF uses formattedAsFrequency here; the chart's "Range:" line uses a different formatter
+  // (`fmt()` in spectrumExport.ts), as Swift's ExportableSpectrumChart does.
+  metaRow('Frequency Range', `${formattedAsFrequency(data.freqRange.min)} – ${formattedAsFrequency(data.freqRange.max)}`)
   // No recorded microphone means it is unknown (a played file, say): say so, and keep the calibration.
   if (!isComparison) {
     const calSuffix = data.calibrationName ? ` · calibrated (${data.calibrationName})` : ' · uncalibrated'

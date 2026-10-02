@@ -4,14 +4,12 @@
 // lines + top labels (guitar), the spectrum curve(s), peak dots and annotation badges. Mirrors
 // Swift's ExportableSpectrumChart / live SpectrumView layout.
 
+import { drawnIndices } from './displayRange'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_COLOR, MODE_LABEL } from './modeColors'
 import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect, DotHit } from './chartTypes'
-
-export function fmtFreq(hz: number): string {
-  return hz >= 1000 ? `${(hz / 1000).toFixed(2)} kHz` : `${hz.toFixed(1)} Hz`
-}
+import { formattedAsFrequency } from './frequencyFormat'
 
 /** Fill a `points`-pointed star centred at (cx, cy) between `outerR` and `innerR`. Used for the
  *  highlighted peak dot (mirrors Swift's `star.fill`). */
@@ -269,10 +267,10 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.strokeStyle = color
     ctx.lineWidth = 1.5
     let started = false
-    for (let i = 0; i < freqs.length; i++) {
+    // The points inside the range and the one beyond each edge; the clip cuts the crossing segments.
+    const [lo, hi] = drawnIndices(freqs, minHz, maxHz)
+    for (let i = lo; i < hi; i++) {
       const f = freqs[i]!
-      if (f < minHz) continue
-      if (f > maxHz) break
       const x = xFor(f)
       const y = yFor(mags[i]!)
       if (!started) {
@@ -407,7 +405,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.stroke()
 
     // Readout label: frequency (colored) over magnitude (gray), boxed, kept inside the plot.
-    const freqStr = dispHz >= 1000 ? `${(dispHz / 1000).toFixed(2)} kHz` : `${dispHz.toFixed(1)} Hz`
+    const freqStr = formattedAsFrequency(dispHz)
     const dbStr = `${dispDb.toFixed(1)} dB`
     ctx.font = '600 12px system-ui, sans-serif'
     const tw = Math.max(ctx.measureText(freqStr).width, ctx.measureText(dbStr).width)
@@ -460,7 +458,7 @@ function drawBadge(
     const c = Math.round(m.cents ?? 0)
     lines.push({ text: `♪ ${m.note} ${c >= 0 ? '+' : ''}${c} ¢`, color: PITCH, font: '600 11px system-ui, sans-serif' })
   }
-  lines.push({ text: fmtFreq(m.frequency), color: fg, font: '500 11px system-ui, sans-serif' })
+  lines.push({ text: formattedAsFrequency(m.frequency), color: fg, font: '500 11px system-ui, sans-serif' })
   lines.push({ text: `${m.magnitude.toFixed(1)} dB`, color: sub, font: '11px system-ui, sans-serif' })
 
   let boxW = 0

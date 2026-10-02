@@ -176,9 +176,15 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
       ]
     : [{ role: 'L', peak: peaks.longitudinal }]
 
+  // Swift materialPeakRows: the fixed slot rows during capture; once complete, the identified peaks in
+  // frequency order.
+  const rows = complete
+    ? slots.filter((sl) => sl.peak != null).sort((a, b) => a.peak!.frequency - b.peak!.frequency)
+    : slots
+
   const peakList = (
     <div className="mat-peaks">
-      {slots.map((sl) => (
+      {rows.map((sl) => (
         <PeakRow key={sl.role} peak={sl.peak} role={sl.role} showCross={plate} showFlc={showFlc} />
       ))}
     </div>

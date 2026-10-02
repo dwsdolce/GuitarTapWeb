@@ -4,6 +4,15 @@ import type { Spectrum } from '../dsp/guitarFFT'
 import { renderSpectrum, chartGeometry, DARK_CHART } from '../presentation/spectrumRender'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { PeakMarker, AnnotationRect, DotHit, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
+import { zoomedRange } from '../presentation/displayRange'
+import {
+  MIN_FREQUENCY_HZ,
+  MAX_FREQUENCY_HZ,
+  MIN_MAGNITUDE_DB,
+  MAX_MAGNITUDE_DB,
+  MIN_FREQUENCY_SPAN_HZ,
+  MIN_MAGNITUDE_SPAN_DB,
+} from '../presentation/chartLimits'
 import { RefreshIcon } from './icons'
 
 /** Props for {@link SpectrumChart} — spectrum data, axis range, overlays/markers, and interaction callbacks. */
@@ -49,12 +58,11 @@ export interface SpectrumChartProps {
   onToggleHighlight?: (id: string) => void
 }
 
-// Limits mirror SpectrumView+GestureHandlers.swift.
-const FREQ_MIN_SPAN = 50 // Hz
-const DB_MIN_SPAN = 10 // dB
-const FREQ_MAX = 5000 // maxDisplayFrequency
-const DB_FLOOR = -120
-const DB_CEIL = 20
+// The chart's limits — one set for Settings, zoom, pan and widening (presentation/chartLimits).
+const FREQ_MIN = MIN_FREQUENCY_HZ
+const FREQ_MAX = MAX_FREQUENCY_HZ
+const DB_FLOOR = MIN_MAGNITUDE_DB
+const DB_CEIL = MAX_MAGNITUDE_DB
 
 type Region = 'plot' | 'xAxis' | 'yAxis' | 'outside'
 
@@ -211,27 +219,25 @@ export function SpectrumChart({
       return { aHz: v.minHz + fx * (v.maxHz - v.minHz), aDb: v.minDb + fy * (v.maxDb - v.minDb) }
     }
     const zoomFreq = (v: ChartView, aHz: number, scale: number): Partial<ChartView> => {
-      const lo = Math.max(0, aHz - (aHz - v.minHz) / scale)
-      const hi = Math.min(FREQ_MAX, aHz + (v.maxHz - aHz) / scale)
-      return hi > lo + FREQ_MIN_SPAN ? { minHz: lo, maxHz: hi } : {}
+      const r = zoomedRange(v.minHz, v.maxHz, aHz, scale, FREQ_MIN, FREQ_MAX, MIN_FREQUENCY_SPAN_HZ)
+      return r ? { minHz: r[0], maxHz: r[1] } : {}
     }
     const zoomDb = (v: ChartView, aDb: number, scale: number): Partial<ChartView> => {
-      const lo = Math.max(DB_FLOOR, aDb - (aDb - v.minDb) / scale)
-      const hi = Math.min(DB_CEIL, aDb + (v.maxDb - aDb) / scale)
-      return hi > lo + DB_MIN_SPAN ? { minDb: lo, maxDb: hi } : {}
+      const r = zoomedRange(v.minDb, v.maxDb, aDb, scale, DB_FLOOR, DB_CEIL, MIN_MAGNITUDE_SPAN_DB)
+      return r ? { minDb: r[0], maxDb: r[1] } : {}
     }
     const panFreqBy = (v: ChartView, dHz: number): Partial<ChartView> => {
       let lo = v.minHz - dHz
       let hi = v.maxHz - dHz
-      if (lo < 0) {
-        hi -= lo
-        lo = 0
+      if (lo < FREQ_MIN) {
+        hi += FREQ_MIN - lo
+        lo = FREQ_MIN
       }
       if (hi > FREQ_MAX) {
         lo -= hi - FREQ_MAX
         hi = FREQ_MAX
       }
-      return { minHz: Math.max(0, lo), maxHz: hi }
+      return { minHz: Math.max(FREQ_MIN, lo), maxHz: hi }
     }
     const panDbBy = (v: ChartView, dDb: number): Partial<ChartView> => {
       let lo = v.minDb + dDb

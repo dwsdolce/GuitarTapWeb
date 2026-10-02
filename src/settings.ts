@@ -1,8 +1,16 @@
 // App settings, mirroring the native TapDisplaySettings. Persisted to localStorage
 // (the web equivalent of UserDefaults / @AppStorage).
-// @parity state/settings-store
+// @parity state/settings-store tests=test/settings-store
 
 import type { GuitarTypeName } from './dsp/guitarModes'
+import {
+  MIN_FREQUENCY_HZ,
+  MAX_FREQUENCY_HZ,
+  MIN_MAGNITUDE_DB,
+  MAX_MAGNITUDE_DB,
+  MIN_FREQUENCY_SPAN_HZ,
+  MIN_MAGNITUDE_SPAN_DB,
+} from './presentation/chartLimits'
 
 export type MeasurementType = GuitarTypeName | 'plate' | 'brace'
 export type StiffnessPreset = 'steelStringTop' | 'steelStringBack' | 'classicalTop' | 'classicalBack' | 'custom'
@@ -110,11 +118,11 @@ export interface Settings {
   braceWidth: number
   braceThickness: number
   braceMass: number
-  // Display Settings — the frequency range is PER measurement type (Swift keys
-  // displayMinFreq_<rawValue>; Python min_frequency_for(type)). Only types the user
-  // has customized are stored; unset types fall back to defaultDisplayRange(type).
-  // The dB range stays global, matching Swift/Python.
-  displayRanges: Partial<Record<MeasurementType, { minHz: number; maxHz: number }>>
+  // Display Settings — the frequency range is PER measurement type, each bound stored on its own
+  // (Swift keys displayMinFreq_<rawValue> / displayMaxFreq_<rawValue>). A bound that was never set
+  // reads the type's default — read and write through minFrequency / maxFrequency /
+  // setMinFrequency / setMaxFrequency. The dB range stays global, matching Swift/Python.
+  displayRanges: Partial<Record<MeasurementType, { minHz?: number; maxHz?: number }>>
   minDb: number
   maxDb: number
   // Analysis Settings
@@ -160,26 +168,87 @@ export const DEFAULT_SETTINGS: Settings = {
 // Per-measurement-type default display frequency range (Hz). Mirrors Swift
 // TapDisplaySettings.defaultMin/MaxFrequency(for:) and Python default_min/max_frequency:
 // guitar (all subtypes) 75–350, plate 20–200, brace 30–1000.
-export function defaultDisplayRange(type: MeasurementType): { minHz: number; maxHz: number } {
-  if (type === 'plate') return { minHz: 20, maxHz: 200 }
-  if (type === 'brace') return { minHz: 30, maxHz: 1000 }
-  return { minHz: 75, maxHz: 350 }
+export function defaultMinFrequency(type: MeasurementType): number {
+  if (type === 'plate') return 20
+  if (type === 'brace') return 30
+  return 75
 }
 
-// Resolve the display range for a measurement type: the user's persisted per-type
-// range if set, else the type default. Mirrors Swift minFrequency(for:)/maxFrequency(for:).
-export function displayRangeFor(s: Settings, type: MeasurementType): { minHz: number; maxHz: number } {
-  return s.displayRanges[type] ?? defaultDisplayRange(type)
+export function defaultMaxFrequency(type: MeasurementType): number {
+  if (type === 'plate') return 200
+  if (type === 'brace') return 1000
+  return 350
 }
 
-// Build a settings patch that stores (part of) a per-type display range, merging
-// with the type's current resolved range and the existing per-type map.
-export function setDisplayRangePatch(
+// The stored minimum / maximum display frequency for a measurement type, or its default when none
+// is stored. Mirrors Swift TapDisplaySettings.minFrequency(for:) / maxFrequency(for:).
+export function minFrequency(s: Settings, type: MeasurementType): number {
+  return s.displayRanges[type]?.minHz ?? defaultMinFrequency(type)
+}
+
+export function maxFrequency(s: Settings, type: MeasurementType): number {
+  return s.displayRanges[type]?.maxHz ?? defaultMaxFrequency(type)
+}
+
+// Store one bound for a measurement type, leaving the other bound and other types as they are. Stored
+// exactly, as Swift's Float (rounded to 32 bits, as a saved file is) — Save Current View's range comes
+// back as it was saved. Mirrors Swift TapDisplaySettings.setMinFrequency(_:for:) /
+// setMaxFrequency(_:for:); returns the settings patch, since settings here are an immutable value.
+export function setMinFrequency(s: Settings, value: number, type: MeasurementType): Pick<Settings, 'displayRanges'> {
+  const minHz = Math.fround(value)
+  return { displayRanges: { ...s.displayRanges, [type]: { ...s.displayRanges[type], minHz } } }
+}
+
+export function setMaxFrequency(s: Settings, value: number, type: MeasurementType): Pick<Settings, 'displayRanges'> {
+  const maxHz = Math.fround(value)
+  return { displayRanges: { ...s.displayRanges, [type]: { ...s.displayRanges[type], maxHz } } }
+}
+
+// Store the magnitude range — shared by all types — exactly, as Swift's Float. Mirrors Swift
+// TapDisplaySettings.minMagnitude / maxMagnitude.
+export function setMagnitudeRange(minDb: number, maxDb: number): Pick<Settings, 'minDb' | 'maxDb'> {
+  return { minDb: Math.fround(minDb), maxDb: Math.fround(maxDb) }
+}
+
+// Store both bounds for a measurement type (Settings' range fields, Save Current View, Reset).
+export function setFrequencyRange(
   s: Settings,
+  range: { minHz?: number; maxHz?: number },
   type: MeasurementType,
-  range: Partial<{ minHz: number; maxHz: number }>,
-): Partial<Settings> {
-  return { displayRanges: { ...s.displayRanges, [type]: { ...displayRangeFor(s, type), ...range } } }
+): Pick<Settings, 'displayRanges'> {
+  let next: Settings = s
+  if (range.minHz !== undefined) next = { ...next, ...setMinFrequency(next, range.minHz, type) }
+  if (range.maxHz !== undefined) next = { ...next, ...setMaxFrequency(next, range.maxHz, type) }
+  return { displayRanges: next.displayRanges }
+}
+
+// Validate a display frequency range entered in Settings: each bound clamped to the chart's limits
+// (1–5000 Hz), and at least 10 Hz apart; otherwise the saved range for `type`. Mirrors Swift
+// TapDisplaySettings.validateFrequencyRange(minFreq:maxFreq:).
+export function validateFrequencyRange(
+  saved: Settings,
+  minHz: number,
+  maxHz: number,
+  type: MeasurementType,
+): { minHz: number; maxHz: number } {
+  const lo = Math.max(MIN_FREQUENCY_HZ, Math.min(minHz, MAX_FREQUENCY_HZ))
+  const hi = Math.max(MIN_FREQUENCY_HZ, Math.min(maxHz, MAX_FREQUENCY_HZ))
+  if (lo < hi && hi - lo >= MIN_FREQUENCY_SPAN_HZ) return { minHz: lo, maxHz: hi }
+  return { minHz: minFrequency(saved, type), maxHz: maxFrequency(saved, type) }
+}
+
+// Validate a display magnitude range entered in Settings: each bound clamped to the chart's limits
+// (−120…20 dB), and at least 10 dB apart; otherwise the saved range. Mirrors Swift
+// TapDisplaySettings.validateMagnitudeRange(minDB:maxDB:).
+export function validateMagnitudeRange(
+  saved: Settings,
+  minDb: number,
+  maxDb: number,
+): { minDb: number; maxDb: number } {
+  const lo = Math.max(MIN_MAGNITUDE_DB, Math.min(minDb, MAX_MAGNITUDE_DB))
+  const hi = Math.max(MIN_MAGNITUDE_DB, Math.min(maxDb, MAX_MAGNITUDE_DB))
+  if (lo < hi && hi - lo >= MIN_MAGNITUDE_SPAN_DB) return { minDb: lo, maxDb: hi }
+  return { minDb: saved.minDb, maxDb: saved.maxDb }
 }
 
 // dB-axis keys for the Display "Reset" button. The frequency range is reset

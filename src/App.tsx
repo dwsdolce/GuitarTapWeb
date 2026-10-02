@@ -31,7 +31,6 @@ import { exportStem } from './measurement/exportFilename'
 import { parseCalibration, type Calibration } from './dsp/calibration'
 import { decodeWav } from './dsp/wav'
 import { exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
-import { expandedToInclude } from './presentation/displayRange'
 import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData, multiTapPdfData } from './presentation/measurementImage'
 import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfReport'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
@@ -43,8 +42,9 @@ import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
 import { modeBands, peaksInDisplayRange, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
 import { FieldPrecision } from './precision'
-import { loadSettings, saveSettings, isGuitarType, isMaterialType, displayRangeFor, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_NEXT, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
+import { loadSettings, saveSettings, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_NEXT, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
 import type { ResonantPeak } from './measurement/types'
+import { displayRangeLabel } from './presentation/frequencyFormat'
 import './App.css'
 
 const pitch = new Pitch(440)
@@ -184,7 +184,8 @@ export default function App() {
   const brace = settings.measurementType === 'brace'
   const { minDb, maxDb, showUnknownModes } = settings
   // Display frequency range resolves per measurement type (Swift minFrequency(for:)).
-  const { minHz: displayMinHz, maxHz: displayMaxHz } = displayRangeFor(settings, settings.measurementType)
+  const displayMinHz = minFrequency(settings, settings.measurementType)
+  const displayMaxHz = maxFrequency(settings, settings.measurementType)
   const peakMin = settings.peakMinThreshold
   const tapThreshold = settings.tapDetectionThreshold
 
@@ -256,15 +257,12 @@ export default function App() {
   const currentDecayTime = snapshot.currentDecayTime
 
   const updateSettings = useCallback((patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch })), [])
-  // Persist the display frequency range for a specific measurement type, merging with
-  // the existing per-type map (Swift setMinFrequency(_:for:)). Functional update so it
-  // never clobbers another type's stored range.
+  // Persist the display frequency range for a specific measurement type (Swift
+  // setMinFrequency(_:for:) / setMaxFrequency(_:for:)). Functional update so it never clobbers
+  // another type's stored range.
   const updateDisplayRange = useCallback(
-    (type: MeasurementType, range: Partial<{ minHz: number; maxHz: number }>) =>
-      setSettings((s) => ({
-        ...s,
-        displayRanges: { ...s.displayRanges, [type]: { ...displayRangeFor(s, type), ...range } },
-      })),
+    (type: MeasurementType, range: { minHz?: number; maxHz?: number }) =>
+      setSettings((s) => ({ ...s, ...setFrequencyRange(s, range, type) })),
     [],
   )
   useEffect(() => saveSettings(settings), [settings])
@@ -431,28 +429,6 @@ export default function App() {
     analyzer.setPeakMinThreshold(peakMin)
   }, [analyzer, peakMin])
 
-  // Widen the display range onto the identified material peaks, so an fL / fC / fFLC that landed
-  // outside the current axis is visible. Mirrors Swift's `.onReceive(tap.$autoSelected*PeakID)` ->
-  // `expandFreqRangeToInclude`, with the rule shared (presentation/displayRange).
-  //
-  // A plate or brace scans a wide band (brace: 100-1200 Hz) and this range is per-type and
-  // persisted, so the peak a measurement just produced can easily be off-screen without this.
-  //
-  // Expands for ALL identified peaks rather than tracking which is new: idempotent, so the settings
-  // write it triggers re-runs this effect once and then finds nothing to change. Guitar ranges are
-  // the user's analysis window and are never widened for them, matching Swift's isGuitar guard.
-  useEffect(() => {
-    if (!material) return
-    const identified = materialIdentifiedPeaks
-    if (identified.length === 0) return
-    const current = displayRangeFor(settings, settings.measurementType)
-    let { minHz, maxHz } = current
-    for (const p of identified) ({ minHz, maxHz } = expandedToInclude(p.frequency, minHz, maxHz))
-    if (minHz !== current.minHz || maxHz !== current.maxHz) {
-      updateDisplayRange(settings.measurementType, { minHz, maxHz })
-    }
-  }, [material, materialIdentifiedPeaks, settings, updateDisplayRange])
-
   const modeByPeak = snapshot.modeByPeak
 
   // The Peak-Min display projection, computed BY THE ANALYZER (Swift peaksAbovePeakMin / Python
@@ -503,19 +479,15 @@ export default function App() {
   // the analyzer, so this is a direct read of the map's keys (no frequency conversion).
   const overriddenPeakIds = useMemo(() => new Set(overrides.keys()), [overrides])
   // Results-panel list: hide unknown peaks when Show Unknown Modes is off, UNLESS the user named one
-  // (override-aware — mirrors Swift `!isUnknown`). Then filtered to the DISPLAY range (Swift
-  // TapAnalysisResultsView.sortedPeaksWithModes → [minFreq, maxFreq]); the chart's dot/badge layers
-  // apply their own per-marker range guard so a zoom can reveal out-of-band dots.
+  // (override-aware — mirrors Swift `!isUnknown`). Then filtered to the chart's live range
+  // (displayPeaksInRange, below useChartView); the chart's dot/badge layers apply their own per-marker
+  // range guard so a zoom can reveal out-of-band dots.
   const displayPeaks = useMemo(
     () =>
       showUnknownModes
         ? sortedPeaks
         : sortedPeaks.filter((p) => (modeByPeak.get(p.id) ?? 'unknown') !== 'unknown' || overriddenPeakIds.has(p.id)),
     [sortedPeaks, modeByPeak, showUnknownModes, overriddenPeakIds],
-  )
-  const displayPeaksInRange = useMemo(
-    () => displayPeaks.filter((p) => p.frequency >= displayMinHz && p.frequency <= displayMaxHz),
-    [displayPeaks, displayMinHz, displayMaxHz],
   )
   const inRangeFor = (p: ResonantPeak, mode: ResolvedMode): boolean | null => {
     if (mode === 'unknown' || mode === 'upper') return null
@@ -594,7 +566,22 @@ export default function App() {
     displaySpectrum,
     updateSettings,
     updateDisplayRange,
+    longitudinalPeak: snapshot.selectedLongitudinalPeak,
+    crossPeak: snapshot.selectedCrossPeak,
+    flcPeak: snapshot.selectedFlcPeak,
+    sequenceStarts: snapshot.sequenceStarts,
+    materialPeaksFromLoad: snapshot.materialPeaksFromLoad,
   })
+  // The guitar peak list: the peaks within the chart's live range, so zoom, pan, a load or a widening
+  // changes what is listed (Swift TapAnalysisResultsView.sortedPeaksWithModes → [minFreq, maxFreq],
+  // the view's range).
+  const displayPeaksInRange = useMemo(
+    () => displayPeaks.filter((p) => p.frequency >= view.minHz && p.frequency <= view.maxHz),
+    [displayPeaks, view.minHz, view.maxHz],
+  )
+  // Swift's results list (TapAnalysisResultsView.sortedPeaksWithModes): none in a saved-measurement
+  // comparison; a plate's or brace's every peak above Peak Min; a guitar's listed peaks.
+  const resultsListPeaks = comparison ? [] : material ? peaksAbovePeakMin : displayPeaksInRange
 
   // Chart peak layers, mirroring Swift SpectrumView+ChartContent:
   //   • dots   — EVERY peak in the visible range gets one (allPeaksInRange), mode-colored;
@@ -776,15 +763,12 @@ export default function App() {
         }
         updateSettings(patch)
       }
-      // The saved axis range: a comparison overlay adopts it as THE view; a single measurement shows
-      // it as a transient override, leaving the user's persisted per-type range untouched.
+      // The saved axis range is the loaded range — for a comparison as for a single measurement — shown
+      // without changing the user's saved per-type range, and left by a new sequence the user has not
+      // moved the chart since (Swift setLoadedAxisRange → loadedChartRange).
       const range = analyzer.loadedAxisRange
-      if (m.comparisonEntries) {
-        if (range) setView(range)
-      } else {
-        setLoadedView(range)
-        if (range && !m.longitudinalSnapshot) setView(range)
-      }
+      setLoadedView(range)
+      if (range && !m.comparisonEntries && !m.longitudinalSnapshot) setView(range)
       // The device is told the tap count the model restored.
       engineRef.current?.setConfig({ numberOfTaps: analyzer.numberOfTaps })
       setShowMeasurements(false)
@@ -796,8 +780,9 @@ export default function App() {
   const onCompare = useCallback((measurements: TapToneMeasurementModel[]) => {
     const entries = buildComparisonEntries(measurements)
     if (entries.length < 2) return
-    const range = comparisonAxisRange(entries)
-    if (range) setView(range)
+    // The union of the compared measurements' ranges, as the loaded range (Swift loadComparison →
+    // setLoadedAxisRange).
+    setLoadedView(comparisonAxisRange(entries))
     setLoadedPeaks(null)
     analyzer.clearResult() // returns to live and drops any overlay...
     analyzer.loadComparison(entries) // ...then enters comparison. Order matters: clearResult
@@ -806,7 +791,7 @@ export default function App() {
     setShowMeasurements(false)
     // Freeze the comparison: stop the always-on listener so a stray tap can't clobber it
     // (mirrors Swift displayMode == .comparison). New Tap re-arms.
-  }, [analyzer, setView, setLoadedPeaks])
+  }, [analyzer, setLoadedView, setLoadedPeaks])
 
   // Comparison chart overlays + results rows (derived from the active comparison entries).
   const comparisonOverlays = useMemo<SpectrumOverlay[]>(
@@ -1235,37 +1220,40 @@ export default function App() {
             </div>
           )}
 
-          {/* Selection controls — FIXED above the scroll (only peak cards scroll), mirroring the
-              Swift/Python header. Shown in the guitar peak view whether or not peaks exist yet (like
-              native, the header stays put while waiting); the buttons disable themselves when empty.
-              Icon-only, matching Swift: checkmark.circle (All) / xmark.circle (None) / wand.and.stars. */}
-          {!comparison && !material && !showMultiTap && (
-            <div className="results-sub">
-              <span className="range-text">
-                Showing {displayMinHz} – {displayMaxHz} Hz
-              </span>
+          {/* The range line — always shown, as Swift's results header — and the selection controls,
+              FIXED above the scroll (only peak cards scroll). The controls follow Swift's rule: shown
+              when its results list (sortedPeaksWithModes) has peaks and the per-tap table is not up;
+              Deselect All is disabled for a plate or brace, whose peaks are fixed, and Reset to Auto
+              is guitar-only. Icon-only, matching Swift: xmark.circle (None) / wand.and.stars. */}
+          <div className="results-sub">
+            <span className="range-text">
+              {displayRangeLabel(view.minHz, view.maxHz)}
+            </span>
+            {resultsListPeaks.length > 0 && !showMultiTap && (
               <div className="sel-buttons">
                 <button
                   className="btn mini icon"
                   onClick={selectNone}
-                  disabled={displayPeaks.every((p) => !selectedIds.has(p.id))}
-                  title="Deselect all peaks"
+                  disabled={material || displayPeaks.every((p) => !selectedIds.has(p.id))}
+                  title={material ? 'Peak selection is fixed during plate/brace measurements' : 'Deselect all peaks'}
                   aria-label="Deselect all peaks"
                 >
                   <CancelIcon />
                 </button>
-                <button
-                  className="btn mini icon"
-                  onClick={resetSelection}
-                  disabled={!userModified}
-                  title="Reset to automatic mode selection"
-                  aria-label="Reset to automatic mode selection"
-                >
-                  <WandIcon />
-                </button>
+                {!material && (
+                  <button
+                    className="btn mini icon"
+                    onClick={resetSelection}
+                    disabled={!userModified}
+                    title="Reset to automatic mode selection"
+                    aria-label="Reset to automatic mode selection"
+                  >
+                    <WandIcon />
+                  </button>
+                )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <div className="results-scroll">
           {comparison ? (

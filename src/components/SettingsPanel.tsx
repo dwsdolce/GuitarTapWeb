@@ -13,15 +13,23 @@ import {
   MEASUREMENT_FULL_NAME,
   MEASUREMENT_TYPES,
   STIFFNESS_LABEL,
-  defaultDisplayRange,
-  displayRangeFor,
-  setDisplayRangePatch,
+  defaultMinFrequency,
+  defaultMaxFrequency,
+  minFrequency,
+  maxFrequency,
+  setMinFrequency,
+  setMaxFrequency,
+  setFrequencyRange,
+  validateFrequencyRange,
+  validateMagnitudeRange,
+  setMagnitudeRange,
   isGuitarType,
   type MeasurementType,
   type Settings,
   type StiffnessPreset,
 } from '../settings'
 import type { ChartView } from '../presentation/chartTypes'
+import { enteredValue } from '../presentation/displayRange'
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 
 /**
@@ -116,12 +124,12 @@ function RangeField({
       <div className="set-range-title">{title}</div>
       <div className="set-range-inputs">
         <span className="set-input">
-          <input type="text" inputMode="decimal" value={min} onChange={(e) => restrictNumberInput(e, min, decimals, onMin)} />
+          <input type="text" inputMode="decimal" value={FieldPrecision.string(min, decimals)} onChange={(e) => restrictNumberInput(e, min, decimals, onMin)} />
           <em>{unit}</em>
         </span>
         <span className="set-range-dash">–</span>
         <span className="set-input">
-          <input type="text" inputMode="decimal" value={max} onChange={(e) => restrictNumberInput(e, max, decimals, onMax)} />
+          <input type="text" inputMode="decimal" value={FieldPrecision.string(max, decimals)} onChange={(e) => restrictNumberInput(e, max, decimals, onMax)} />
           <em>{unit}</em>
         </span>
       </div>
@@ -185,7 +193,8 @@ export function SettingsPanel({
   const resetDisplay = () => {
     const p: Partial<Settings> = {}
     for (const k of DISPLAY_KEYS) (p as Record<string, unknown>)[k] = DEFAULT_SETTINGS[k]
-    patch({ ...p, ...setDisplayRangePatch(d, d.measurementType, defaultDisplayRange(d.measurementType)) })
+    const type = d.measurementType
+    patch({ ...p, ...setFrequencyRange(d, { minHz: defaultMinFrequency(type), maxHz: defaultMaxFrequency(type) }, type) })
   }
 
   // Save Current View persists immediately (Swift behavior) AND reflects into the draft
@@ -193,17 +202,33 @@ export function SettingsPanel({
   const saveCurrentView = () => {
     onSaveCurrentView()
     patch({
-      ...setDisplayRangePatch(d, d.measurementType, {
-        minHz: Math.round(currentView.minHz),
-        maxHz: Math.round(currentView.maxHz),
-      }),
-      minDb: Math.round(currentView.minDb),
-      maxDb: Math.round(currentView.maxDb),
+      ...setFrequencyRange(d, {
+        minHz: currentView.minHz,
+        maxHz: currentView.maxHz,
+      }, d.measurementType),
+      ...setMagnitudeRange(currentView.minDb, currentView.maxDb),
     })
   }
 
+  // Done validates the display ranges as Swift's applySettings does: out of bounds or too narrow falls
+  // back to the saved range.
+  // A field left showing the saved value keeps that value exactly (enteredValue), as the natives do.
   const done = () => {
-    onApply(d)
+    const t = d.measurementType
+    const field = (draft: number, saved: number, decimals: number) =>
+      enteredValue(FieldPrecision.string(draft, decimals), saved, decimals) ?? saved
+    const freq = validateFrequencyRange(
+      settings,
+      field(minFrequency(d, t), minFrequency(settings, t), FieldPrecision.frequencyHz),
+      field(maxFrequency(d, t), maxFrequency(settings, t), FieldPrecision.frequencyHz),
+      t,
+    )
+    const db = validateMagnitudeRange(
+      settings,
+      field(d.minDb, settings.minDb, FieldPrecision.magnitudeDB),
+      field(d.maxDb, settings.maxDb, FieldPrecision.magnitudeDB),
+    )
+    onApply({ ...d, ...setFrequencyRange(d, freq, t), ...setMagnitudeRange(db.minDb, db.maxDb) })
     onClose()
   }
 
@@ -404,10 +429,10 @@ export function SettingsPanel({
                   title="Frequency Range"
                   description={`Frequency range shown in the spectrum chart for ${MEASUREMENT_FULL_NAME[d.measurementType]} (saved per measurement type)`}
                   unit="Hz"
-                  min={displayRangeFor(d, d.measurementType).minHz}
-                  max={displayRangeFor(d, d.measurementType).maxHz}
-                  onMin={(v) => patch(setDisplayRangePatch(d, d.measurementType, { minHz: v }))}
-                  onMax={(v) => patch(setDisplayRangePatch(d, d.measurementType, { maxHz: v }))}
+                  min={minFrequency(d, d.measurementType)}
+                  max={maxFrequency(d, d.measurementType)}
+                  onMin={(v) => patch(setMinFrequency(d, v, d.measurementType))}
+                  onMax={(v) => patch(setMaxFrequency(d, v, d.measurementType))}
                   decimals={FieldPrecision.frequencyHz}
                 />
                 <RangeField

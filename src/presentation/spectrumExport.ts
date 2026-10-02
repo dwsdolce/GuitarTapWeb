@@ -200,7 +200,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
  *
  *  ⚠ Zero decimals here, and note the unusual `"1.5k Hz"` kHz form (the `k` binds to the number, with
  *  the space before `Hz`) — that is Swift's, odd-looking but canonical. This is NOT the same formatter
- *  as the PDF metadata row's (`fmtFreq` in pdfReport.ts, one decimal, "1.5 kHz"). Swift keeps two on
+ *  as the PDF metadata row's (`formattedAsFrequency`, one decimal, "1.5 kHz"). Swift keeps two on
  *  purpose; the web had their rounding swapped. */
 function fmt(hz: number): string {
   return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k Hz` : `${hz.toFixed(0)} Hz`

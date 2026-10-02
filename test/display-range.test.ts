@@ -1,70 +1,22 @@
 // @parity test/display-range
-import { expandedToInclude, FLOOR_HZ } from '../src/presentation/displayRange'
-import { describe, it, expect } from 'vitest'
 import {
-  DEFAULT_SETTINGS,
-  defaultDisplayRange,
-  displayRangeFor,
-  setDisplayRangePatch,
-  type Settings,
-} from '../src/settings'
+  expandedToInclude,
+  widenedOnto,
+  onSettingsDone,
+  onNewMeasurement,
+  loadedAfterWidening,
+  FLOOR_HZ,
+} from '../src/presentation/displayRange'
+import { describe, it, expect } from 'vitest'
 
-// Per-measurement-type display ranges (6h). Mirrors Swift TapDisplaySettings
-// minFrequency(for:)/maxFrequency(for:) + per-type defaults, and Python's
-// min_frequency_for/max_frequency_for.
-
-describe('defaultDisplayRange — per-type factory defaults', () => {
-  it('matches the canonical Swift/Python values', () => {
-    // Guitar (all subtypes) → 75–350.
-    for (const t of ['generic', 'acoustic', 'classical', 'flamenco'] as const) {
-      expect(defaultDisplayRange(t)).toEqual({ minHz: 75, maxHz: 350 })
-    }
-    expect(defaultDisplayRange('plate')).toEqual({ minHz: 20, maxHz: 200 })
-    expect(defaultDisplayRange('brace')).toEqual({ minHz: 30, maxHz: 1000 })
-  })
-})
-
-describe('displayRangeFor — resolve stored-or-default by type', () => {
-  it('falls back to the type default when nothing is stored', () => {
-    const s = { ...DEFAULT_SETTINGS, displayRanges: {} }
-    expect(displayRangeFor(s, 'plate')).toEqual({ minHz: 20, maxHz: 200 })
-    expect(displayRangeFor(s, 'generic')).toEqual({ minHz: 75, maxHz: 350 })
-  })
-
-  it('returns the stored per-type range when present', () => {
-    const s: Settings = { ...DEFAULT_SETTINGS, displayRanges: { plate: { minHz: 15, maxHz: 180 } } }
-    expect(displayRangeFor(s, 'plate')).toEqual({ minHz: 15, maxHz: 180 })
-    // An unset type still resolves to its own default, not the stored one.
-    expect(displayRangeFor(s, 'brace')).toEqual({ minHz: 30, maxHz: 1000 })
-  })
-})
-
-describe('setDisplayRangePatch — per-type persistence without clobbering', () => {
-  it('stores one type without disturbing another', () => {
-    let s: Settings = { ...DEFAULT_SETTINGS, displayRanges: {} }
-    s = { ...s, ...setDisplayRangePatch(s, 'plate', { minHz: 18, maxHz: 190 }) }
-    s = { ...s, ...setDisplayRangePatch(s, 'brace', { minHz: 40 }) } // partial: max keeps the default
-    expect(displayRangeFor(s, 'plate')).toEqual({ minHz: 18, maxHz: 190 })
-    expect(displayRangeFor(s, 'brace')).toEqual({ minHz: 40, maxHz: 1000 })
-    // Guitar untouched.
-    expect(displayRangeFor(s, 'generic')).toEqual({ minHz: 75, maxHz: 350 })
-  })
-
-  it('merges a partial edit with the type current resolved range', () => {
-    let s: Settings = { ...DEFAULT_SETTINGS, displayRanges: {} }
-    // Editing only the max starts from the plate default (20) for the min.
-    s = { ...s, ...setDisplayRangePatch(s, 'plate', { maxHz: 250 }) }
-    expect(displayRangeFor(s, 'plate')).toEqual({ minHz: 20, maxHz: 250 })
-  })
-})
 // ---------------------------------------------------------------------------
 // The chart widens its frequency axis onto a newly identified material peak.
 //
 // A plate or brace scans a wide band (brace: 100–1200 Hz) and the display range is
 // per-measurement-type and persisted, so the fL / fC / fFLC a measurement just produced can land
-// off the edge of the chart. This is user-visible behaviour, not an implementation difference.
-//
-// Twin of Swift DisplayRangeExpansionTests / Python test_display_range_expansion.py.
+// off the edge of the chart. The chart's range widens to show it; a guitar's does not. The view
+// only applies widenedOnto to its range, so the whole decision is tested here; the analyzer's
+// announcing each peak is tested in material-peak-announcement.test.ts.
 // ---------------------------------------------------------------------------
 describe('display-range — widening onto an identified material peak', () => {
   it('a peak above the range widens the maximum with padding', () => {
@@ -88,8 +40,70 @@ describe('display-range — widening onto an identified material peak', () => {
     expect(expandedToInclude(0.5, 100, 800).minHz).toBe(FLOOR_HZ) // nothing to draw below 1 Hz
   })
 
+  it("a peak above the chart's limit widens only to the limit", () => {
+    expect(expandedToInclude(4900, 100, 800).maxHz).toBe(5000) // never beyond 5 kHz
+  })
+
   it('a peak exactly at the boundary changes nothing', () => {
     expect(expandedToInclude(800, 100, 800).maxHz).toBe(800)
     expect(expandedToInclude(100, 100, 800).minHz).toBe(100)
+  })
+})
+
+describe('display-range — the decision: plate and brace widen, guitar does not', () => {
+  it('a material peak outside the range widens it', () => {
+    for (const t of ['plate', 'brace'] as const) {
+      expect(widenedOnto(1000, t, false, 100, 800)).toEqual({ minHz: 100, maxHz: 1100 })
+    }
+  })
+
+  it('a material peak inside the range leaves it alone', () => {
+    expect(widenedOnto(400, 'plate', false, 100, 800)).toEqual({ minHz: 100, maxHz: 800 })
+  })
+
+  it('a material peak restored by a load leaves the range — a load shows the range it was saved with', () => {
+    expect(widenedOnto(1000, 'plate', true, 100, 800)).toEqual({ minHz: 100, maxHz: 800 })
+  })
+
+  it("a guitar peak outside the range leaves it alone — a guitar's range is the user's analysis window", () => {
+    for (const t of ['generic', 'acoustic', 'classical', 'flamenco'] as const) {
+      expect(widenedOnto(1000, t, false, 100, 800)).toEqual({ minHz: 100, maxHz: 800 })
+    }
+  })
+})
+
+describe("display-range — when the chart's range moves", () => {
+  const saved = { minHz: 20, maxHz: 200, minDb: -100, maxDb: 0 }
+  const loaded = { minHz: 50, maxHz: 300, minDb: -90, maxDb: -10 }
+  const zoomed = { minHz: 60, maxHz: 120, minDb: -90, maxDb: -10 }
+
+  it('Settings Done with nothing changed leaves the chart', () => {
+    expect(onSettingsDone(saved, saved, false)).toBeNull()
+  })
+  it('Settings Done with a changed frequency range moves to it', () => {
+    expect(onSettingsDone(saved, { ...saved, maxHz: 250 }, false)).toEqual(saved)
+  })
+  it('Settings Done with a changed magnitude range moves to it', () => {
+    expect(onSettingsDone(saved, { ...saved, minDb: -80 }, false)).toEqual(saved)
+  })
+  it("Settings Done with a changed type moves to its saved view", () => {
+    expect(onSettingsDone(saved, saved, true)).toEqual(saved)
+  })
+  it('a new measurement with no load leaves the chart', () => {
+    expect(onNewMeasurement(zoomed, null, saved)).toBeNull()
+  })
+  it('a new measurement while showing the load returns to the saved view', () => {
+    expect(onNewMeasurement(loaded, loaded, saved)).toEqual(saved)
+  })
+  it('a new measurement after the user moved the chart leaves it', () => {
+    expect(onNewMeasurement(zoomed, loaded, saved)).toBeNull()
+  })
+  it('widening while showing the load remembers the widened range', () => {
+    const widened = { ...loaded, maxHz: 1100 }
+    expect(loadedAfterWidening(loaded, loaded, widened)).toEqual(widened)
+  })
+  it('widening after the user moved the chart keeps the loaded range', () => {
+    const widened = { ...zoomed, maxHz: 1100 }
+    expect(loadedAfterWidening(loaded, zoomed, widened)).toEqual(loaded)
   })
 })
