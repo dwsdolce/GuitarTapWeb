@@ -296,7 +296,7 @@ export class TapToneAnalyzer {
   // Whether the plate FLC tap is measured. Swift reads TapDisplaySettings.measureFlc / Python
   // _tds.measure_flc(); the web has no analyzer-visible global, so App mirrors it via setMeasureFlc.
   measureFlc = false
-  measurementType: MeasurementType = 'classical'
+  measurementType: MeasurementType = 'generic'
   /** A measurement was just loaded and its Threshold/Taps are in force — the banner's state.
    *  MODEL state, as in Swift (`@Published var showLoadedSettingsWarning`) and Python. */
   showLoadedSettingsWarning = false

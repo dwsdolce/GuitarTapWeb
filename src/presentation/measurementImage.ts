@@ -267,10 +267,10 @@ function guitarPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData
     guitarAnalysis: {
       decayTime: decay,
       decayQuality: decay != null ? decayQuality(decay, guitarType) : undefined,
-      decayColor: decay != null ? decayQualityColor(decay, guitarType) : undefined,
+      decayColor: decay != null ? decayQualityColor(decay, guitarType).light : undefined,
       tapToneRatio: ratio,
       ratioQuality: ratio != null ? tapToneRatioQuality(ratio) : undefined,
-      ratioColor: ratio != null ? tapToneRatioQualityColor(ratio) : undefined,
+      ratioColor: ratio != null ? tapToneRatioQualityColor(ratio).light : undefined,
     },
   }
 }

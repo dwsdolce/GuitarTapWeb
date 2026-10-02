@@ -38,6 +38,27 @@ export interface ModeBand {
   hi: number
 }
 
+/** Ring-out (decay) quality thresholds, in seconds: below `veryShort` is "Very Short", … at or above
+ *  `good` is "Excellent". Mirrors Swift `GuitarType.DecayThresholds`. */
+export interface DecayThresholds {
+  veryShort: number
+  short: number
+  moderate: number
+  good: number
+}
+
+const DECAY_THRESHOLDS: Record<GuitarTypeName, DecayThresholds> = {
+  classical: { veryShort: 0.15, short: 0.35, moderate: 0.6, good: 1.0 },
+  flamenco: { veryShort: 0.08, short: 0.2, moderate: 0.35, good: 0.55 },
+  acoustic: { veryShort: 0.1, short: 0.25, moderate: 0.45, good: 0.75 },
+  generic: { veryShort: 0.1, short: 0.25, moderate: 0.45, good: 0.75 },
+}
+
+/** The ring-out quality thresholds for a guitar type. Mirrors Swift `GuitarType.decayThresholds`. */
+export function decayThresholds(type: GuitarTypeName): DecayThresholds {
+  return DECAY_THRESHOLDS[type]
+}
+
 const RANGES: Record<GuitarTypeName, ModeBand[]> = {
   classical: [
     { name: 'air', lo: 80, hi: 110 },

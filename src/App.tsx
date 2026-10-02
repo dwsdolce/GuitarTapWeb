@@ -1073,7 +1073,7 @@ export default function App() {
             fftIsRunning: running,
             isReadyForDetection: snapshot.isReadyForDetection,
             displayMode: snapshot.displayMode,
-            measurementType: material ? (brace ? 'brace' : 'plate') : 'classical',
+            measurementType: material ? (brace ? 'brace' : 'plate') : 'generic',
             materialTapPhase: matPhase,
             numberOfTaps,
             isPlayingFile: snapshot.isPlayingFile,

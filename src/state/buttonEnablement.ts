@@ -41,7 +41,7 @@ export function buttonRule(s: ButtonState): ButtonOutput {
   // go by, and a new sequence would be fed the rest of the file.
   if (s.isPlayingFile) return { pauseEnabled: false, newTapDisabled: true, cancelEnabled: true }
 
-  const type = s.measurementType ?? 'classical'
+  const type = s.measurementType ?? 'generic'
   const isGuitar = isGuitarType(type)
   const phase = s.materialTapPhase ?? 'notStarted'
   const fftIsRunning = s.fftIsRunning ?? true

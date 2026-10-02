@@ -1,32 +1,18 @@
-// Guitar tap-tone analysis quality helpers — a direct port of Swift's
-// Float.decayQuality(for:)/decayQualityColor(for:) and tapToneRatioQuality /
-// tapToneRatioQualityColor (GuitarTap/Views/Utilities/Extensions.swift) plus the
-// per-type decay thresholds (GuitarType.decayThresholds). These map a numeric decay or
-// tap-tone ratio to a qualitative label/color; the ratio VALUE itself is the definitive
-// resolver (analyzer.tapToneRatio / measurementTapToneRatio). Used by the PDF report's
-// guitar analysis section so the qualitative labels/colors match the native apps exactly.
+// The guitar tap-tone quality labels and colours: a ring-out (decay) time per guitar type, and the
+// tap-tone ratio. Mirrors Swift's Float.decayQuality(for:) / decayQualityColor(for:) /
+// tapToneRatioQuality / tapToneRatioQualityColor (Extensions.swift); the thresholds are
+// `decayThresholds` (guitarModes.ts, Swift GuitarType.decayThresholds). A colour is a palette pair; the
+// caller takes the value for its background — `dark` on screen, `light` in a PDF. A negative or NaN
+// value is in no band: "Unknown", gray.
 // @parity dsp/analysis-quality tests=test/analysis-quality
 
-import type { GuitarTypeName } from './guitarModes'
+import { decayThresholds, type GuitarTypeName } from './guitarModes'
+import { PALETTE, type ColorPair } from '../presentation/palette'
 
-interface DecayThresholds {
-  veryShort: number
-  short: number
-  moderate: number
-  good: number
-}
-
-/** Ring-out thresholds (seconds) per guitar type — Swift GuitarType.decayThresholds. */
-const DECAY_THRESHOLDS: Record<GuitarTypeName, DecayThresholds> = {
-  classical: { veryShort: 0.15, short: 0.35, moderate: 0.6, good: 1.0 },
-  flamenco: { veryShort: 0.08, short: 0.2, moderate: 0.35, good: 0.55 },
-  acoustic: { veryShort: 0.1, short: 0.25, moderate: 0.45, good: 0.75 },
-  generic: { veryShort: 0.1, short: 0.25, moderate: 0.45, good: 0.75 },
-}
-
-/** Qualitative ring-out label for a decay time (seconds), per guitar type. */
+/** Ring-out label for a decay time (seconds), per guitar type. */
 export function decayQuality(decay: number, type: GuitarTypeName): string {
-  const t = DECAY_THRESHOLDS[type]
+  const t = decayThresholds(type)
+  if (!(decay >= 0)) return 'Unknown'
   if (decay < t.veryShort) return 'Very Short'
   if (decay < t.short) return 'Short'
   if (decay < t.moderate) return 'Moderate'
@@ -34,18 +20,20 @@ export function decayQuality(decay: number, type: GuitarTypeName): string {
   return 'Excellent'
 }
 
-/** Color for the ring-out quality (gray → orange → yellow → green → blue). */
-export function decayQualityColor(decay: number, type: GuitarTypeName): string {
-  const t = DECAY_THRESHOLDS[type]
-  if (decay < t.veryShort) return '#8a8a8e'
-  if (decay < t.short) return '#e08a00'
-  if (decay < t.moderate) return '#c0a000'
-  if (decay < t.good) return '#2c9c3c'
-  return '#0a6cd8'
+/** Colour for the ring-out quality: gray → orange → yellow → green → blue. */
+export function decayQualityColor(decay: number, type: GuitarTypeName): ColorPair {
+  const t = decayThresholds(type)
+  if (!(decay >= 0)) return PALETTE.gray
+  if (decay < t.veryShort) return PALETTE.gray
+  if (decay < t.short) return PALETTE.orange
+  if (decay < t.moderate) return PALETTE.yellow
+  if (decay < t.good) return PALETTE.green
+  return PALETTE.blue
 }
 
-/** Qualitative tap-tone-ratio label (Low / Below Target / Ideal / Above Target / High). */
+/** Tap-tone-ratio label (target 1.9–2.1): Low / Below Target / Ideal / Above Target / High. */
 export function tapToneRatioQuality(ratio: number): string {
+  if (!(ratio >= 0)) return 'Unknown'
   if (ratio < 1.7) return 'Low'
   if (ratio < 1.9) return 'Below Target'
   if (ratio <= 2.1) return 'Ideal'
@@ -53,11 +41,12 @@ export function tapToneRatioQuality(ratio: number): string {
   return 'High'
 }
 
-/** Color for the tap-tone-ratio quality (red / orange / green). */
-export function tapToneRatioQualityColor(ratio: number): string {
-  if (ratio < 1.7) return '#d83a30'
-  if (ratio < 1.9) return '#e08a00'
-  if (ratio <= 2.1) return '#2c9c3c'
-  if (ratio < 2.3) return '#e08a00'
-  return '#d83a30'
+/** Colour for the tap-tone-ratio quality: green ideal, orange near, red out of range. */
+export function tapToneRatioQualityColor(ratio: number): ColorPair {
+  if (!(ratio >= 0)) return PALETTE.gray
+  if (ratio < 1.7) return PALETTE.red
+  if (ratio < 1.9) return PALETTE.orange
+  if (ratio <= 2.1) return PALETTE.green
+  if (ratio < 2.3) return PALETTE.orange
+  return PALETTE.red
 }

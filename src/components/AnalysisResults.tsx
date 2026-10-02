@@ -80,7 +80,7 @@ export function AnalysisResults({
         value={decayTime != null ? `${FieldPrecision.string(decayTime, FieldPrecision.decayTimeS)}s` : null}
         placeholder="Waiting…"
         quality={decayTime != null ? decayQuality(decayTime, guitarType) : ''}
-        qualityColor={decayTime != null ? decayQualityColor(decayTime, guitarType) : ''}
+        qualityColor={decayTime != null ? decayQualityColor(decayTime, guitarType).dark : ''}
         sub={`–${Math.trunc(decayThreshold)} dB`}
       />
       <div className="analysis-divider" />
@@ -89,7 +89,7 @@ export function AnalysisResults({
         value={ratio != null ? `${FieldPrecision.string(ratio, FieldPrecision.decayRatio)}:1` : null}
         placeholder="Need Air & Top"
         quality={ratio != null ? tapToneRatioQuality(ratio) : ''}
-        qualityColor={ratio != null ? tapToneRatioQualityColor(ratio) : ''}
+        qualityColor={ratio != null ? tapToneRatioQualityColor(ratio).dark : ''}
         sub="Ideal: 1.9–2.1"
       />
     </div>
