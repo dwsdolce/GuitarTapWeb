@@ -15,27 +15,9 @@ import { reportForMeasurement } from '../src/presentation/measurementImage'
 import { formatDisplayDate } from '../src/format/date'
 import { installCanvasStandIn } from './support/canvasStandIn'
 
-/** Each fixture, through the report its kind uses. */
-const FIXTURES = [
-  '5-guitar-comparison-1776708138',
-  'annotation-override-1790037028',
-  'annotation-override-python-1790037332',
-  'brace-umik-1-3-tap-swift-mac-1785359380',
-  'brace-umik-1-python-mac-1785442624',
-  'brace-umik-1-swift-mac-1785359411',
-  'comparison-long-name-1776708138',
-  'contreras-classical-1774731564',
-  'dws-2024-umik-1-3-tap-swift-mac-1785359425',
-  'dws-2024-umik-1-3-tap-web-mac-1785440737',
-  'dws-2024-umik-1-python-mac-1784225140',
-  'dws-2024-umik-1-swift-mac-1784225155',
-  'dws-2024-umik-1-swift-mac-1785359434',
-  'dws-2024-umik-1-web-mac-1784225174',
-  'plate-umik-1-3-tap-swift-ipad-1784314709',
-  'plate-umik-1-3-tap-swift-mac-1785359465',
-  'plate-umik-1-swift-mac-1785359486',
-  'plate-umik-1-web-mac-1785440769',
-]
+/** The shared cases: each fixture, through the report its kind uses, and the baseline tolerance. */
+const DATA = JSON.parse(readFileSync('test/fixtures/pdf-report.json', 'utf8')) as { baselineTolerance: number; fixtures: string[] }
+const FIXTURES = DATA.fixtures
 
 /** pdf.js's metrics for the PDF standard fonts (Helvetica …), shipped with pdfjs-dist. */
 const STANDARD_FONTS = `${process.cwd()}/node_modules/pdfjs-dist/standard_fonts/`
@@ -109,7 +91,7 @@ describe('PDF report', () => {
       expect(actual.length, `line count\n${listing}`).toBe(expected.length)
       actual.forEach((a, i) => {
         const e = expected[i]!
-        const same = a.page === e.page && Math.abs(a.baseline - e.baseline) <= 1 && squeezed([a.text]) === squeezed([e.text])
+        const same = a.page === e.page && Math.abs(a.baseline - e.baseline) <= DATA.baselineTolerance && squeezed([a.text]) === squeezed([e.text])
         expect(same, `${show(a)} ≠ expected ${show(e)}\n${listing}`).toBe(true)
       })
     })

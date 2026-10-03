@@ -34,11 +34,10 @@ const MAX_HZ = 2000
 const PEAK_PROXIMITY_HZ = 2
 const TOL = 1e-3
 
-const FIXTURES = [
-  'dws-2024-umik-1-swift-mac-1784225155.guitartap',
-  'dws-2024-umik-1-python-mac-1784225140.guitartap',
-  'dws-2024-umik-1-web-mac-1784225174.guitartap',
-]
+// The fixtures are the shared expected file's keys, so the three editions run the same list.
+const FIXTURES = Object.keys(
+  JSON.parse(readFileSync(join(__dirname, 'fixtures', 'peak-baseline-expected.json'), 'utf8')) as Record<string, unknown>,
+).sort()
 
 interface ExpectedPeak {
   frequency: number

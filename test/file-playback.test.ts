@@ -1,4 +1,5 @@
 // @parity test/file-playback
+import { readFileSync } from 'node:fs'
 import { describe, it, expect, vi } from 'vitest'
 
 // The analyzer writes the session WAV itself (Swift's shape); in Node there is no download, so the
@@ -14,6 +15,7 @@ import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import type { Calibration } from '../src/dsp/calibration'
+import type { ResonantPeak } from '../src/measurement/types'
 import {
   loadCal,
   loadWav,
@@ -78,160 +80,129 @@ async function playGuitarSession(
   return { wav, sessions }
 }
 
-// The cases run in Swift's order (FilePlaybackRegressionTests), then the session-recording cases.
-describe('G11 — file playback through the live engine (parity REG-*)', () => {
-  // REG-B2 — the brace counterpart to REG-P2: three taps, averaged. REG-P2 pins PLATE multi-tap and
-  // REG-B1 is single-tap brace, so this is the case that exercises brace averaging. Deliberately
-  // harder than the other material fixtures — the UMIK-1 is on its 18 dB gain path, so the peak sits
-  // at -65.5 dB against a -63.9 dB threshold.
-  // The peak must come off the AVERAGED spectrum, not the last tap: the three taps differ by ~6 dB,
-  // so a regression to last-tap selection lands well outside the bar rather than hiding inside it.
-  it('REG-B2: brace session, 3 taps → fL off the averaged spectrum', async () => {
-    const reg = oracle.filePlayback['REG-B2']
-    const a = await playMaterial(reg, true)
-    expect(a.materialTapPhase, 'materialTapPhase').toBe('complete')
-    expect(a.isMeasurementComplete, 'isMeasurementComplete').toBe(true)
-    const p = a.selectedLongitudinalPeak
-    expect(p, 'the fL peak should be identified').not.toBeNull()
-    const exp = reg.peaks[0] as PeakRef
-    expect(Math.abs(p!.frequency - exp.frequency)).toBeLessThanOrEqual(TOL.freqHz)
-    expect(Math.abs(p!.magnitude - exp.magnitude)).toBeLessThanOrEqual(TOL.magDb)
-    expect(Math.abs(p!.quality - exp.q!)).toBeLessThanOrEqual(TOL.q)
-  }, 30_000)
+// What each REG case checks is the shared case file, file-playback.json (the same cases the Swift and
+// Python suites run); the expected values are the oracle's.
+interface PlaybackCheck {
+  kind: string
+  count?: number
+  expected?: 'peaks' | 'averagedPeaks'
+  roles?: PeakRef['role'][]
+  fields?: ('frequency' | 'magnitude' | 'q')[]
+  min?: number
+  max?: number
+}
+interface PlaybackCase {
+  id: string
+  oracle: string
+  fixture?: string
+  checks: PlaybackCheck[]
+}
+const PLAYBACK_CASES = (
+  JSON.parse(readFileSync(new URL('./fixtures/file-playback.json', import.meta.url), 'utf8')) as {
+    cases: PlaybackCase[]
+  }
+).cases
 
-  it('REG-B1: brace session → fL', async () => {
-    const reg = oracle.filePlayback['REG-B1']
-    const a = await playMaterial(reg, true)
-    expect(a.materialTapPhase, 'materialTapPhase').toBe('complete')
-    expect(a.isMeasurementComplete, 'isMeasurementComplete').toBe(true)
-    const p = a.selectedLongitudinalPeak
-    expect(p, 'the fL peak should be identified').not.toBeNull()
-    const exp = reg.peaks[0] as PeakRef
-    expect(Math.abs(p!.frequency - exp.frequency)).toBeLessThanOrEqual(TOL.freqHz)
-    expect(Math.abs(p!.magnitude - exp.magnitude)).toBeLessThanOrEqual(TOL.magDb)
-    expect(Math.abs(p!.quality - exp.q!)).toBeLessThanOrEqual(TOL.q)
-  }, 30_000)
+// A case-file field → the tolerance it is compared at.
+const FIELD_TOLERANCE = { frequency: TOL.freqHz, magnitude: TOL.magDb, q: TOL.q }
 
-  it('REG-G1: generic-guitar single tap → Air/Top/Back match the oracle', async () => {
-    const reg = oracle.filePlayback['REG-G1']
-    const a = await playGuitar(reg)
-    expect(a.isMeasurementComplete, 'isMeasurementComplete').toBe(true)
-    expect(a.capturedTaps.length, 'one captured tap').toBe(1)
-    // getPeak — the same API the Results panel uses (Swift getPeak(for:)).
-    for (const exp of reg.peaks as PeakRef[]) {
-      const p = a.getPeak(exp.role as 'air' | 'top' | 'back')
-      expect(p, `${exp.role} peak not found`).toBeDefined()
-      expect(Math.abs(p!.frequency - exp.frequency)).toBeLessThanOrEqual(TOL.freqHz)
-      expect(Math.abs(p!.magnitude - exp.magnitude)).toBeLessThanOrEqual(TOL.magDb)
-    }
-  }, 20_000)
+function value(p: ResonantPeak | PeakRef, field: 'frequency' | 'magnitude' | 'q'): number {
+  if (field === 'q') return 'quality' in p ? p.quality : p.q!
+  return p[field]
+}
 
-  // REG-G ring-out: Recording 5.wav's post-tap level decays to peak−15 dB, on the audio clock. The REG-G1
-  // playback; the value is the oracle's, shared by all three editions.
-  it('REG-G: generic-guitar ring-out matches the oracle', async () => {
-    const reg = oracle.filePlayback['REG-G1']
-    const a = await playGuitar(reg)
-    expect(a.currentDecayTime, 'no ring-out measured').not.toBeNull()
-    expect(Math.abs(a.currentDecayTime! - reg.ringOutSec!)).toBeLessThanOrEqual(oracle.tolerances.ringOutSec)
-  }, 20_000)
+/** The peak the app identifies for a role: the selected fL / fC / fLC for a material, the peak for the
+ *  mode for a guitar. */
+function rolePeak(a: TapToneAnalyzer, role: PeakRef['role']): ResonantPeak | null | undefined {
+  return role === 'air' || role === 'top' || role === 'back' ? a.getPeak(role) : identifiedPeak(a, role)
+}
 
-  // REG-G2: 8 taps — the averaged Air/Top/Back (getPeak, the Results panel) and each tap's Air/Top/Back
-  // (TapEntry.resolvedModePeaks, the multi-tap view), in one case as in Swift/Python. The per-tap values
-  // come from the oracle's REG-G2.perTap (a change in Swift arrives through sync-oracle.sh). Taps 1 and 7
-  // pin Back at ~296.5 Hz rather than ~240.6 — real selection behaviour on this fixture, pinned
-  // deliberately (see _perTapNote in the oracle).
-  it('REG-G2: generic-guitar 8 taps → averaged and per-tap Air/Top/Back match the oracle', async () => {
-    const reg = oracle.filePlayback['REG-G2']
-    const perTap = reg.perTap as { tap: number; peaks: PeakRef[] }[]
-    const a = await playGuitar(reg)
-    expect(a.isMeasurementComplete, 'isMeasurementComplete').toBe(true)
-    expect(a.tapEntries.length).toBe(reg.settings.numberOfTaps) // 8 per-tap entries
-    for (const exp of reg.averagedPeaks as PeakRef[]) {
-      const p = a.getPeak(exp.role as 'air' | 'top' | 'back')
-      expect(p, `averaged ${exp.role} peak not found`).toBeDefined()
-      expect(Math.abs(p!.frequency - exp.frequency)).toBeLessThanOrEqual(TOL.freqHz)
-      expect(Math.abs(p!.magnitude - exp.magnitude)).toBeLessThanOrEqual(TOL.magDb)
-    }
-    a.tapEntries.forEach((entry, i) => {
-      const modes = entry.resolvedModePeaks()
-      for (const role of ['air', 'top', 'back'] as const) {
-        const want = perTap[i]!.peaks.find((pk) => pk.role === role)!
-        const got = modes.get(role)
-        expect(got, `tap ${i + 1} ${role}`).toBeDefined()
-        expect(Math.abs(got!.frequency - want.frequency), `tap ${i + 1} ${role} freq`).toBeLessThanOrEqual(TOL.freqHz)
-        expect(Math.abs(got!.magnitude - want.magnitude), `tap ${i + 1} ${role} mag`).toBeLessThanOrEqual(TOL.magDb)
+function expectPeak(
+  label: string,
+  actual: ResonantPeak | null | undefined,
+  expected: PeakRef,
+  fields: ('frequency' | 'magnitude' | 'q')[],
+) {
+  expect(actual, `${label}: no peak identified`).toBeTruthy()
+  for (const field of fields) {
+    expect(Math.abs(value(actual!, field) - value(expected, field)), `${label} ${field}`).toBeLessThanOrEqual(
+      FIELD_TOLERANCE[field],
+    )
+  }
+}
+
+function byRole(peaks: PeakRef[]): Map<string, PeakRef> {
+  return new Map(peaks.map((p) => [p.role, p]))
+}
+
+describe('file playback through the live engine (file-playback.json)', () => {
+  it.each(PLAYBACK_CASES.map((c) => [c.id, c] as const))('%s', async (_id, c) => {
+    const entry = oracle.filePlayback[c.oracle]
+    const reg = c.fixture ? { ...entry, fixture: c.fixture } : entry
+    const type = entry.settings.measurementType as string
+    const a =
+      type === 'Material (Plate)' || type === 'Material (Brace)'
+        ? await playMaterial(reg, type === 'Material (Brace)')
+        : await playGuitar(reg)
+
+    for (const check of c.checks) {
+      switch (check.kind) {
+        case 'materialPhaseComplete':
+          expect(a.materialTapPhase, 'materialTapPhase').toBe('complete')
+          break
+        case 'measurementComplete':
+          expect(a.isMeasurementComplete, 'isMeasurementComplete').toBe(true)
+          break
+        case 'capturedTaps':
+          expect(a.capturedTaps.length, 'captured taps').toBe(check.count)
+          break
+        case 'tapEntries':
+          expect(a.tapEntries.length, 'tap entries').toBe(check.count)
+          break
+        case 'peaks': {
+          const expected = byRole(entry[check.expected!] as PeakRef[])
+          for (const role of check.roles!) expectPeak(role, rolePeak(a, role), expected.get(role)!, check.fields!)
+          break
+        }
+        case 'perTapPeaks': {
+          const perTap = entry.perTap as { tap: number; peaks: PeakRef[] }[]
+          expect(a.tapEntries.length, 'tap entries').toBe(perTap.length)
+          a.tapEntries.forEach((tap, i) => {
+            const modes = tap.resolvedModePeaks()
+            const expected = byRole(perTap[i]!.peaks)
+            for (const role of check.roles!) {
+              expectPeak(
+                `tap ${i + 1} ${role}`,
+                modes.get(role as 'air' | 'top' | 'back'),
+                expected.get(role)!,
+                check.fields!,
+              )
+            }
+          })
+          break
+        }
+        case 'ringOut':
+          expect(a.currentDecayTime, 'no ring-out measured').not.toBeNull()
+          expect(Math.abs(a.currentDecayTime! - entry.ringOutSec)).toBeLessThanOrEqual(oracle.tolerances.ringOutSec)
+          break
+        case 'phasesCaptured': {
+          const captured = [a.matSpectra.longitudinal, a.matSpectra.cross, a.matSpectra.flc].filter((sp) => sp != null)
+          expect(captured.length, `phases captured (noiseFloorEstimate ${a.noiseFloorEstimate})`).toBe(check.count)
+          break
+        }
+        case 'noiseFloorBetween':
+          expect(a.noiseFloorEstimate, 'noiseFloorEstimate').toBeGreaterThan(check.min!)
+          expect(a.noiseFloorEstimate, 'noiseFloorEstimate').toBeLessThan(check.max!)
+          break
+        default:
+          throw new Error(`unknown check kind ${check.kind}`)
       }
-    })
-  }, 60_000)
-
-  it('REG-P1: plate full session → fL/fC/fLC via the analyzer auto-advancing phases', async () => {
-    const reg = oracle.filePlayback['REG-P1']
-    const a = await playMaterial(reg, false)
-    expect(a.materialTapPhase, 'materialTapPhase').toBe('complete')
-    expect(a.isMeasurementComplete, 'isMeasurementComplete').toBe(true)
-    for (const exp of reg.peaks as PeakRef[]) {
-      const p = identifiedPeak(a, exp.role)
-      expect(p, `the ${exp.role} peak should be identified`).not.toBeNull()
-      expect(Math.abs(p!.frequency - exp.frequency)).toBeLessThanOrEqual(TOL.freqHz)
-      expect(Math.abs(p!.magnitude - exp.magnitude)).toBeLessThanOrEqual(TOL.magDb)
-      expect(Math.abs(p!.quality - exp.q!)).toBeLessThanOrEqual(TOL.q)
-    }
-  }, 90_000)
-
-  // ── OUT-4: the one test that can tell the two detection models apart ────────────────────────────
-  //
-  // All three editions detect material taps against an EMA-tracked noise floor, not a fixed absolute
-  // dBFS threshold. The relative rule reduces to
-  //     rising = max(tapDetectionThreshold, noiseFloor + 10 dB)
-  // so the two are the SAME FUNCTION until the floor climbs within 10 dB of the threshold. Every other
-  // fixture sits at -64..-69 dBFS, far below that, so no other test separates them.
-  //
-  // This fixture is the clean plate session with its noise floor raised to -52 dBFS (above the -53.34
-  // threshold). At that floor an ABSOLUTE detector would SATURATE: the level never falls below the
-  // FALLING threshold, so the hysteresis latch never clears, nothing ever counts, and NO tap is
-  // confirmed — it captures nothing. The RELATIVE detector floats its threshold to floor+10 = -42 and
-  // still catches every tap (they peak at -24..-27 dBFS chunk-RMS). That is exactly the failure the relative model exists to
-  // prevent: "keeps detection working when ambient noise is elevated".
-  //
-  // Assert the PHASE COUNT, not peak values: the added noise sums into the gated FFT, so fL/fC/fLC
-  // shift slightly. A tight peak assertion here would be measuring the noise, not the detector. The
-  // clean fixtures keep the strict peak assertions.
-  //
-  // Regenerate the fixture with `python3 tooling/make-noisy-fixture.py` (deterministic, seeded).
-  it('OUT-4: noisy plate (floor -52 dBFS) → relative noise-floor detection still captures all 3 phases', async () => {
-    const reg = oracle.filePlayback['REG-P1']
-    const a = await playMaterial({ ...reg, fixture: 'plate-umik-1-noisy-52.wav' }, false)
-    const captured = [a.matSpectra.longitudinal, a.matSpectra.cross, a.matSpectra.flc].filter((sp) => sp != null)
-    expect(
-      captured.length,
-      'absolute-threshold detection saturates on an elevated noise floor and captures nothing; ' +
-        'the noise-floor-relative detector still finds all three taps',
-    ).toBe(3)
-    // The floor must have CONVERGED to the noisy ambient — pinned near its start, the relative model would
-    // have silently degraded to the absolute one and this would pass for the wrong reason.
-    expect(a.noiseFloorEstimate, 'noiseFloorEstimate converged to the ~-52 dBFS floor').toBeGreaterThan(-60)
-    expect(a.noiseFloorEstimate, 'noiseFloorEstimate converged to the ~-52 dBFS floor').toBeLessThan(-40)
-  }, 90_000)
-
-  // 6k: multi-tap averaging per MATERIAL phase. plate-umik-1-web-mac-3-taps.wav is a 3-taps-per-phase
-  // plate session recorded by the web app (Chrome, UMIK-1). Replaying it at numberOfTaps=3 averages each
-  // phase (L/C/FLC) and finds the dominant peak ON THE AVERAGED spectrum — exactly as guitar multi-tap
-  // does. The expected values are the oracle's, as for every case.
-  it('REG-P2: averages numberOfTaps per phase → one capture/phase, matches the canonical baseline', async () => {
-    const reg = oracle.filePlayback['REG-P2']
-    const a = await playMaterial(reg, false)
-    expect(a.materialTapPhase, 'materialTapPhase').toBe('complete')
-    expect(a.isMeasurementComplete, 'isMeasurementComplete').toBe(true)
-    for (const phase of ['longitudinal', 'cross', 'flc'] as const) {
-      const p = identifiedPeak(a, phase)
-      expect(p, `the ${phase} peak should be identified`).not.toBeNull()
-      const want = (reg.peaks as PeakRef[]).find((pk) => pk.role === phase)!
-      expect(Math.abs(p!.frequency - want.frequency), `${phase} freq`).toBeLessThanOrEqual(TOL.freqHz)
-      expect(Math.abs(p!.magnitude - want.magnitude), `${phase} mag`).toBeLessThanOrEqual(TOL.magDb)
-      expect(Math.abs(p!.quality - want.q!), `${phase} Q`).toBeLessThanOrEqual(TOL.q)
     }
   }, 120_000)
+})
 
+// The playback rules — sequences of actions, in Swift's order (FilePlaybackRegressionTests).
+describe('file playback rules', () => {
   // 6f: continuous session recording — see playGuitarSession above.
   it('REG-G1 + dump on: one session WAV labeled Guitar_1tap, continuous & bounded by the file', async () => {
     const { wav, sessions } = await playGuitarSession(oracle.filePlayback['REG-G1'], true)
@@ -290,6 +261,7 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
     const { analyzer, engine, ended, input } = await stopPlaybackAfterFirstTap((a) => a.cancelTapSequence())
     expect(engine.playingFile, 'the file is stopped').toBe(false)
     expect(analyzer.isPlayingFile, 'the view sees no playback').toBe(false)
+    expect(analyzer.getSnapshot().playingFileName, 'the chart no longer names the file').toBeNull()
     expect(ended, 'the playback ended').toBe(true)
     expect(engine.activeCalibration, "the input's calibration is back").toBe(input)
     expect(analyzer.detectionState, 'a fresh sequence is armed').toBe('listening')
@@ -332,10 +304,6 @@ describe('G11 — file playback through the live engine (parity REG-*)', () => {
     expect(analyzer.getSnapshot().playingFileName, 'a new sequence clears it').toBeNull()
   }, 20_000)
 
-  it('Cancel during a playback clears the file name', async () => {
-    const { analyzer } = await stopPlaybackAfterFirstTap((a) => a.cancelTapSequence())
-    expect(analyzer.getSnapshot().playingFileName).toBeNull()
-  }, 30_000)
 
   // A result made from a played file is saved with the file's provenance: the calibration it was played
   // with (or none), the file's sample rate, and no microphone — the microphone that recorded a file is

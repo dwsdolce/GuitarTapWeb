@@ -198,6 +198,9 @@ export interface TapToneMeasurementModel {
   microphoneUID?: string
   calibrationName?: string
   sampleRate?: number
+  /** Transient: set when decoding repaired the measurement (healMeasurement). Never written to a file.
+   *  Mirrors Swift/Python `wasHealed`. */
+  wasHealed?: boolean
   comparisonEntries?: ComparisonEntryModel[]
   tapEntries?: TapEntryModel[]
 }

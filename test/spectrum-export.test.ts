@@ -12,12 +12,8 @@ import { measurementToImageOpts } from '../src/presentation/measurementImage'
 import { renderSpectrumToCanvas, spectrumPng } from '../src/presentation/spectrumExport'
 import { installCanvasStandIn } from './support/canvasStandIn'
 
-/** Each fixture and the image it exports: pixels wide and high, and pixels per inch. */
-const CASES: [fixture: string, width: number, height: number, ppi: number][] = [
-  ['plate-umik-1-3-tap-swift-ipad-1784314709', 2928, 2376, 144],
-  ['dws-2024-umik-1-swift-mac-1785359434', 2928, 2376, 144],
-  ['5-guitar-comparison-1776708138', 2928, 2138, 144],
-]
+/** The shared cases: each fixture and the image it exports — pixels wide and high, and pixels per inch. */
+const CASES = (JSON.parse(readFileSync('test/fixtures/spectrum-export.json', 'utf8')) as { cases: [string, number, number, number][] }).cases
 
 /** The pixels per inch a PNG states (its pHYs chunk, per metre), or null. */
 function pixelsPerInch(png: Uint8Array): number | null {

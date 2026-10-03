@@ -47,16 +47,15 @@ function check(name: string) {
 }
 
 describe('gated FFT parity (GFFT1–5) and the transform’s own rules', () => {
-  it('GFFT1 — single tone matches the oracle', () => check('GFFT1'))
-
-  // Two tones at the plate-C capture frequencies that once exposed a discrepancy.
-  it('GFFT2 — two tones match the oracle', () => check('GFFT2'))
-
-  // Two tones whose frequencies are exact bin centres (bins 46 and 80 at 32768 points). Being bin
-  // centres does NOT remove leakage here: the window spans the padded 32768 samples and the signal
-  // only the first 19200, so no tone is periodic in the window. The 67 Hz tone reads differently here
-  // from GFFT5, where it is alone — that difference is leakage from the 117 Hz tone.
-  it('GFFT3 — bin-centred two tones match the oracle', () => check('GFFT3'))
+  // Every oracle case with tones, by its id — the list is the oracle's, shared by the three editions.
+  // The oracle's tone cases: GFFT1, a single tone; GFFT2, two tones at the plate-C capture
+  // frequencies that once exposed a discrepancy; GFFT3, two tones at exact bin centres (bins 46 and 80 at 32768
+  // points) — being bin centres does NOT remove leakage here: the window spans the padded 32768 samples and the
+  // signal only the first 19200, so no tone is periodic in the window, and the 67 Hz tone reads differently here
+  // from GFFT5, where it is alone; GFFT5, one bin-centred tone, which pins the window's normalisation (Swift's
+  // HANN_NORM instead of HANN_DENORM would read about 4.26 dB high).
+  const toneCases = Object.keys(G).filter((k) => ((G[k] as GatedCase).tones ?? []).length > 0).sort()
+  for (const name of toneCases) it(`${name} — matches the oracle`, () => check(name))
 
   // Silence reads exactly the oracle's value — -Infinity in every bin. The oracle stores it as the
   // string "-Infinity", which every edition's reader decodes.
@@ -66,10 +65,6 @@ describe('gated FFT parity (GFFT1–5) and the transform’s own rules', () => {
     for (const v of magnitudesDb) if (v > max) max = v
     expect(max).toBe(G.GFFT4.maxDb)
   })
-
-  // One bin-centred tone. Pins the window's normalisation: Swift's HANN_NORM instead of HANN_DENORM
-  // would read about 4.26 dB high.
-  it('GFFT5 — bin-centred single tone matches the oracle', () => check('GFFT5'))
 
   // The window is the PERIODIC Hann, 0.5·(1 − cos 2πn/N). A constant input fills the padded length,
   // so the windowed signal IS the window, and a periodic Hann's spectrum is exactly bins 0 and 1:

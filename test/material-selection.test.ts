@@ -1,32 +1,26 @@
 // @parity test/material-selection
 //
-// Locks the material (plate/brace) selection HEAL against the real iPad save-corruption bug.
-// Fixture `plate-umik-1-3-tap-swift-ipad-1784314709.guitartap` is a genuine iPad-saved plate whose
-// `selectedPeakIDs` aggregate was clobbered to just the cross peak (the intermittent iPad Swift
-// glitch), while `peaks[]` correctly holds all three (L ~67, C ~117, FLC ~36 Hz). Material has no
-// per-peak selection, so `effectiveSelectedPeakIDs` must ignore the corrupt aggregate and resolve
-// to all three — healing the file at render time. Swift + Python pin the same fixture in this group.
-
+// A material (plate / brace) measurement's effective selection ignores the saved selection, against the shared
+// case file `material-selection.json` — the same cases the Swift and Python suites run. Material has no
+// per-peak selection: the identified L / C / FLC are the peaks. The case is a genuine iPad-saved plate whose
+// saved selection was clobbered to the cross peak alone; reading it resolves all three, healing the file.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseGuitarTapFile } from '../src/measurement'
 import { effectiveSelectedPeakIDs, isMaterialMeasurement } from '../src/measurement/types'
 
-const raw = readFileSync(
-  new URL('./fixtures/plate-umik-1-3-tap-swift-ipad-1784314709.guitartap', import.meta.url),
-  'utf8',
-)
-const m = parseGuitarTapFile(raw)[0]!
+type Row = { fixture: string; isMaterial: boolean; peakCount: number; savedSelectionCount: number; effectiveSelectionCount: number }
+const CASES = (JSON.parse(readFileSync('test/fixtures/material-selection.json', 'utf8')) as { cases: Row[] }).cases
 
-describe('material-selection', () => {
-  it('corrupt iPad plate: effectiveSelectedPeakIDs heals to all three', () => {
-    // Preconditions: a material measurement, all three peaks present, corrupt aggregate = cross only.
-    expect(isMaterialMeasurement(m)).toBe(true)
-    expect(m.peaks).toHaveLength(3)
-    expect(m.selectedPeakIDs?.length ?? 0).toBe(1)
-
-    // The heal: the corrupt aggregate is ignored for material → all three peaks resolve.
-    expect(effectiveSelectedPeakIDs(m)).toEqual(new Set(m.peaks.map((p) => p.id)))
-    expect(effectiveSelectedPeakIDs(m).size).toBe(3)
-  })
+describe('material-selection — shared cases', () => {
+  for (const row of CASES) {
+    it(`${row.fixture}: the effective selection is every material peak`, () => {
+      const m = parseGuitarTapFile(readFileSync(`test/fixtures/${row.fixture}.guitartap`, 'utf8'))[0]!
+      expect(isMaterialMeasurement(m)).toBe(row.isMaterial)
+      expect(m.peaks).toHaveLength(row.peakCount)
+      expect(m.selectedPeakIDs?.length ?? 0).toBe(row.savedSelectionCount)
+      expect(effectiveSelectedPeakIDs(m)).toEqual(new Set(m.peaks.map((p) => p.id)))
+      expect(effectiveSelectedPeakIDs(m).size).toBe(row.effectiveSelectionCount)
+    })
+  }
 })

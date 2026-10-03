@@ -303,7 +303,7 @@ export function healMeasurement(m: TapToneMeasurementModel): boolean {
   // Fill a legacy comparison's missing per-entry modePeakIDs so the file is self-describing.
   if (healComparisonModes(m)) healed = true
 
-  if (healed) (m as unknown as Record<string, unknown>).wasHealed = true
+  if (healed) m.wasHealed = true
   return healed
 }
 
