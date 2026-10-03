@@ -21,24 +21,13 @@ const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 
  * @see https://www.johndcook.com/blog/2016/02/10/musical-pitch-notation/
  */
 /**
- * Format a number to zero decimals the way C's `%.0f` and Python's `:.0f` do — **ties to even**.
- *
- * This exists because `Number.prototype.toFixed` rounds ties AWAY FROM ZERO, so a naive port of
- * `formattedNote` would disagree with Swift and Python at every exact half-cent: `0.5` renders as
- * `1` here and `0` there, `2.5` as `3` and `2`, `-0.5` as `-1` and `-0`. Sub-cent, but it would be a
- * cross-edition string difference in a user-visible label. The sign is applied separately so `-0.4`
- * renders `-0`, as it does in both natives.
+ * Round to the nearest whole number, a half away from zero — Swift's `round`. `Math.round` sends a half
+ * up (−0.5 → −0) and can return −0, which Swift's `Int` cannot be.
  */
-export function roundTiesToEven(value: number): string {
-  const a = Math.abs(value)
-  const floor = Math.floor(a)
-  const frac = a - floor
-  let rounded: number
-  if (frac > 0.5) rounded = floor + 1
-  else if (frac < 0.5) rounded = floor
-  else rounded = floor % 2 === 0 ? floor : floor + 1
-  const sign = value < 0 || Object.is(value, -0) ? '-' : ''
-  return `${sign}${rounded}`
+function roundHalfAwayFromZero(x: number): number {
+  const whole = Math.floor(x)
+  const fraction = x - whole
+  return (fraction > 0.5 || (fraction === 0.5 && x > 0) ? whole + 1 : whole) + 0
 }
 
 export class Pitch {
@@ -71,7 +60,7 @@ export class Pitch {
    */
   pitch(frequency: number): { note: number; octave: number } {
     if (!this.hasPitch(frequency)) return { note: 0, octave: 0 }
-    const halfSteps = Math.round(12 * Math.log2(frequency / this.c0))
+    const halfSteps = roundHalfAwayFromZero(12 * Math.log2(frequency / this.c0))
     const octave = Math.floor(halfSteps / 12)
     const note = ((halfSteps % 12) + 12) % 12
     return { note, octave }
@@ -153,9 +142,28 @@ export class Pitch {
    */
   formattedNote(frequency: number): string {
     if (!this.hasPitch(frequency)) return '' // no pitch
-    const c = this.cents(frequency)
-    const sign = c >= 0 && !Object.is(c, -0) ? '+' : ''
-    return `${this.note(frequency)} (${sign}${roundTiesToEven(c)} cents)`
+    return `${this.note(frequency)} (${Pitch.formatCents(this.cents(frequency))} cents)`
+  }
+
+  /**
+   * A cents offset as a signed whole number: `"+23"`, `"-5"`, `"+0"`. Mirrors Swift `formatCents`.
+   *
+   * A half rounds to the even neighbour (`2.5` → `"+2"`), as C's `%.0f` (Swift) and Python's `:.0f`
+   * do. `Number.prototype.toFixed` rounds a half away from zero, so the rounding is done here.
+   * @param cents The cents offset.
+   * @returns The offset rounded to a whole number, with `+` when it is zero or positive.
+   */
+  static formatCents(cents: number): string {
+    const a = Math.abs(cents)
+    const floor = Math.floor(a)
+    const frac = a - floor
+    let rounded: number
+    if (frac > 0.5) rounded = floor + 1
+    else if (frac < 0.5) rounded = floor
+    else rounded = floor % 2 === 0 ? floor : floor + 1
+    const sign = cents >= 0 ? '+' : ''
+    const minus = cents < 0 || Object.is(cents, -0) ? '-' : ''
+    return `${sign}${minus}${rounded}`
   }
 
   /**
