@@ -13,11 +13,12 @@
  *   (Nothing else — Unicode letters are preserved, matching Swift/Python; the old web PNG/PDF paths
  *   used a `[^\w.-]` regex that ASCII-mangled names like "Ramírez".)
  * - `epochSeconds` is a discriminator, not part of the name — two measurements may share a name —
- *   and is always integer seconds.
+ *   and is written in whole seconds: a fraction is dropped here, as Swift's
+ *   `Int(timestamp.timeIntervalSince1970)`.
  * - `unnamed` is the per-artifact default word, used only when there is no name: `"measurement"`
  *   for `.guitartap`, `"report"` for PDF, `"spectrum"` for PNG. A default **name**, never an infix.
  */
 export function exportStem(name: string | null | undefined, epochSeconds: number, unnamed: string): string {
   const slug = (name ?? '').replace(/[ /]/g, '-').toLowerCase()
-  return `${slug || unnamed}-${epochSeconds}`
+  return `${slug || unnamed}-${Math.trunc(epochSeconds)}`
 }

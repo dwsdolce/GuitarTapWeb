@@ -1,59 +1,26 @@
 // @parity test/measurement-name
 //
-// Pin the required-name rule: a measurement name must be non-empty
-// after trimming before Save is allowed, and the stored name is trimmed. Three-way with Swift
-// MeasurementNameTests.swift and Python test_measurement_name.py.
+// The required-name rule — what enables Save and what is stored for the name and the notes — against the
+// shared case file `measurement-name.json`, the same cases the Swift and Python suites run. null in the
+// file is the web's undefined (no stored value).
 import { describe, it, expect } from 'vitest'
-import {
-  isValidMeasurementName,
-  normalizedMeasurementName,
-  normalizedMeasurementNotes,
-} from '../src/measurement/measurementName'
+import { readFileSync } from 'node:fs'
+import { isValidMeasurementName, normalizedMeasurementName, normalizedMeasurementNotes } from '../src/measurement/measurementName'
 
-describe('measurement-name — isValidMeasurementName (what enables Save)', () => {
-  it('empty and whitespace are invalid', () => {
-    expect(isValidMeasurementName('')).toBe(false)
-    expect(isValidMeasurementName('   ')).toBe(false)
-    expect(isValidMeasurementName('\t\n ')).toBe(false)
-  })
+const DATA = JSON.parse(readFileSync('test/fixtures/measurement-name.json', 'utf8')) as {
+  isValidName: [string, boolean][]
+  normalizedName: [string, string | null][]
+  normalizedNotes: [string, string | null][]
+}
 
-  it('any real text is valid', () => {
-    expect(isValidMeasurementName('x')).toBe(true)
-    expect(isValidMeasurementName('Martin 000-28')).toBe(true)
-    expect(isValidMeasurementName('  padded  ')).toBe(true)
-  })
-})
-
-describe('measurement-name — normalizedMeasurementName (what gets stored)', () => {
-  it('trims, and blanks become undefined', () => {
-    expect(normalizedMeasurementName('  Martin 000-28  ')).toBe('Martin 000-28')
-    expect(normalizedMeasurementName('Ramírez')).toBe('Ramírez')
-    expect(normalizedMeasurementName('')).toBeUndefined()
-    expect(normalizedMeasurementName('   ')).toBeUndefined()
-  })
-})
-
-describe('measurement-name — validity agrees with storage', () => {
-  it('valid iff normalized is defined', () => {
-    for (const c of ['', '  ', '\n', 'a', '  a  ', 'Spruce Top']) {
-      expect(isValidMeasurementName(c)).toBe(normalizedMeasurementName(c) !== undefined)
-    }
-  })
-})
-describe('normalizedMeasurementNotes — the other user-entered field', () => {
-  it('trims and blanks to undefined, exactly as the name does', () => {
-    // Swift stored notes verbatim and Python trimmed in the edit dialog but not on the save path,
-    // so the three disagreed on whether retyping whitespace was an edit.
-    expect(normalizedMeasurementNotes('  Tapped cold  ')).toBe('Tapped cold')
-    expect(normalizedMeasurementNotes('line one\nline two')).toBe('line one\nline two')
-    expect(normalizedMeasurementNotes('')).toBeUndefined()
-    expect(normalizedMeasurementNotes('   \n  ')).toBeUndefined()
-  })
-
-  it('normalizes identically to the name rule', () => {
-    // Or a round trip through one of them looks like an edit.
-    for (const c of ['', '  ', '\n', 'a', '  a  ', 'Spruce Top', ' multi word \n']) {
-      expect(normalizedMeasurementNotes(c)).toBe(normalizedMeasurementName(c))
-    }
-  })
+describe('measurement-name — shared cases', () => {
+  for (const [text, expected] of DATA.isValidName) {
+    it(`isValidName ${JSON.stringify(text)}`, () => expect(isValidMeasurementName(text)).toBe(expected))
+  }
+  for (const [text, expected] of DATA.normalizedName) {
+    it(`normalizedName ${JSON.stringify(text)}`, () => expect(normalizedMeasurementName(text)).toBe(expected ?? undefined))
+  }
+  for (const [text, expected] of DATA.normalizedNotes) {
+    it(`normalizedNotes ${JSON.stringify(text)}`, () => expect(normalizedMeasurementNotes(text)).toBe(expected ?? undefined))
+  }
 })

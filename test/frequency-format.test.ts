@@ -1,42 +1,26 @@
 // @parity test/frequency-format
 //
-// A frequency for display (one decimal, kHz from 1000 Hz) and the range line above the guitar peak
-// list built from it, and a sample rate or bandwidth in whole hertz grouped by the locale. Mirrors Swift
-// FrequencyFormatTests.
+// A frequency for display, the range line built from it, and whole hertz grouped by the locale, against the
+// shared case file `frequency-format.json` — the same cases the Swift and Python suites run. Locales are
+// written as Swift's identifiers (en_US); the web's are BCP 47 (en-US).
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { displayRangeLabel, formattedAsFrequency, formattedAsWholeHertz } from '../src/presentation/frequencyFormat'
 
-describe('frequency format', () => {
-  it('below 1 kHz is Hz with one decimal', () => {
-    expect(formattedAsFrequency(440)).toBe('440.0 Hz')
-    expect(formattedAsFrequency(25.37)).toBe('25.4 Hz')
-    expect(formattedAsFrequency(999.9)).toBe('999.9 Hz')
-  })
+const DATA = JSON.parse(readFileSync('test/fixtures/frequency-format.json', 'utf8')) as {
+  formattedAsFrequency: [number, string][]
+  displayRangeLabel: [number, number, string][]
+  formattedAsWholeHertz: [number, string, string][]
+}
 
-  it('from 1 kHz is kHz with one decimal', () => {
-    expect(formattedAsFrequency(1000)).toBe('1.0 kHz')
-    expect(formattedAsFrequency(2500)).toBe('2.5 kHz')
-  })
-
-  it('the range label shows both bounds', () => {
-    expect(displayRangeLabel(25, 45)).toBe('Showing 25.0 Hz - 45.0 Hz')
-  })
-
-  it("the range label keeps a zoomed range's fraction", () => {
-    expect(displayRangeLabel(25.37, 44.81)).toBe('Showing 25.4 Hz - 44.8 Hz')
-  })
-
-  it('the range label crossing 1 kHz mixes units', () => {
-    expect(displayRangeLabel(800, 1200)).toBe('Showing 800.0 Hz - 1.2 kHz')
-  })
-
-  it('whole hertz groups by the locale', () => {
-    expect(formattedAsWholeHertz(48000, 'en-US')).toBe('48,000 Hz')
-    expect(formattedAsWholeHertz(22050, 'en-US')).toBe('22,050 Hz')
-    expect(formattedAsWholeHertz(48000, 'de-DE')).toBe('48.000 Hz')
-  })
-
-  it('whole hertz rounds to the nearest hertz', () => {
-    expect(formattedAsWholeHertz(44100.4, 'en-US')).toBe('44,100 Hz')
-  })
+describe('frequency-format — shared cases', () => {
+  for (const [hz, expected] of DATA.formattedAsFrequency) {
+    it(`formattedAsFrequency ${hz}`, () => expect(formattedAsFrequency(hz)).toBe(expected))
+  }
+  for (const [lo, hi, expected] of DATA.displayRangeLabel) {
+    it(`displayRangeLabel ${lo}–${hi}`, () => expect(displayRangeLabel(lo, hi)).toBe(expected))
+  }
+  for (const [hz, locale, expected] of DATA.formattedAsWholeHertz) {
+    it(`formattedAsWholeHertz ${hz} ${locale}`, () => expect(formattedAsWholeHertz(hz, locale.replace('_', '-'))).toBe(expected))
+  }
 })

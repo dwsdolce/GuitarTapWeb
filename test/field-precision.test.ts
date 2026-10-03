@@ -1,113 +1,41 @@
 // @parity test/field-precision
+//
+// The numeric-precision table and its helpers (FieldPrecision) against the shared case file,
+// `field-precision.json` — the same cases the Swift and Python suites run.
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { FieldPrecision } from '../src/precision'
 
-// Mirror of Swift FieldPrecisionTests / Python test_field_precision.py. Pins the numeric-precision
-// single source of truth: the per-field decimal table, the restrict-on-entry predicate
-// (decimalsWithin), half-away-from-zero rounding (rounded), and display formatting (string). Keep
-// these cases identical across the three editions.
+const DATA = JSON.parse(readFileSync('test/fixtures/field-precision.json', 'utf8')) as {
+  table: [string, number][]
+  decimalsWithin: [string, number, boolean][]
+  rounded: { value: number; decimals: number; expect: number; tolerance?: number }[]
+  string: [number | string, number, string][]
+}
 
-describe('FieldPrecision — precision table', () => {
-  it('matches the canonical per-field decimal counts', () => {
-    expect(FieldPrecision.linearDimensionMM).toBe(2)
-    expect(FieldPrecision.massG).toBe(1)
-    expect(FieldPrecision.bodyDimensionMM).toBe(0)
-    expect(FieldPrecision.frequencyHz).toBe(0)
-    expect(FieldPrecision.magnitudeDB).toBe(0)
-    expect(FieldPrecision.stiffness).toBe(0)
-    expect(FieldPrecision.peakFrequencyHz).toBe(1)
-    expect(FieldPrecision.peakMagnitudeDB).toBe(1)
-    expect(FieldPrecision.qFactor).toBe(1)
-    expect(FieldPrecision.youngsModulusGPa).toBe(2)
-    expect(FieldPrecision.speedOfSoundMS).toBe(0)
-    expect(FieldPrecision.densityGPerCm3).toBe(3)
-    expect(FieldPrecision.decayRatio).toBe(2)
-    expect(FieldPrecision.bandwidthHz).toBe(1)
-    expect(FieldPrecision.shearModulusGPa).toBe(3)
-    expect(FieldPrecision.specificModulus).toBe(1)
-    expect(FieldPrecision.radiationRatio).toBe(1)
-    expect(FieldPrecision.crossLongRatio).toBe(3)
-    expect(FieldPrecision.longCrossRatio).toBe(1)
-    expect(FieldPrecision.goreThicknessMM).toBe(2)
-    expect(FieldPrecision.decayTimeS).toBe(2)
-  })
-})
+const number = (v: number | string) => (v === '-Infinity' ? -Infinity : v === 'Infinity' ? Infinity : Number(v))
 
-describe('FieldPrecision.decimalsWithin — restrict-on-entry predicate', () => {
-  it('accepts entries within precision', () => {
-    expect(FieldPrecision.decimalsWithin('29.35', 2)).toBe(true)
-    expect(FieldPrecision.decimalsWithin('29.3', 2)).toBe(true)
-    expect(FieldPrecision.decimalsWithin('29', 2)).toBe(true)
-  })
-  it('rejects entries over precision', () => {
-    expect(FieldPrecision.decimalsWithin('29.356', 2)).toBe(false)
-    expect(FieldPrecision.decimalsWithin('29.35', 1)).toBe(false)
-  })
-  it('accepts a trailing dot while typing', () => {
-    expect(FieldPrecision.decimalsWithin('29.', 2)).toBe(true)
-  })
-  it('rejects the decimal point entirely at zero decimals', () => {
-    expect(FieldPrecision.decimalsWithin('495.', 0)).toBe(false)
-    expect(FieldPrecision.decimalsWithin('495.5', 0)).toBe(false)
-    expect(FieldPrecision.decimalsWithin('495', 0)).toBe(true)
-  })
-  it('accepts in-progress empty and minus', () => {
-    expect(FieldPrecision.decimalsWithin('', 2)).toBe(true)
-    expect(FieldPrecision.decimalsWithin('-', 2)).toBe(true)
-    expect(FieldPrecision.decimalsWithin('', 0)).toBe(true)
-    expect(FieldPrecision.decimalsWithin('-', 0)).toBe(true)
-  })
-  it('accepts negative values', () => {
-    expect(FieldPrecision.decimalsWithin('-45', 0)).toBe(true)
-    expect(FieldPrecision.decimalsWithin('-45.5', 1)).toBe(true)
-    expect(FieldPrecision.decimalsWithin('-45.55', 1)).toBe(false)
-  })
-  it('rejects non-numeric input', () => {
-    expect(FieldPrecision.decimalsWithin('4a', 0)).toBe(false)
-    expect(FieldPrecision.decimalsWithin('abc', 2)).toBe(false)
-    expect(FieldPrecision.decimalsWithin('2..5', 2)).toBe(false)
-  })
-})
-
-describe('FieldPrecision.rounded — half away from zero', () => {
-  it('rounds a half away from zero', () => {
-    expect(FieldPrecision.rounded(2.5, 0)).toBe(3)
-    expect(FieldPrecision.rounded(0.5, 0)).toBe(1)
-    expect(FieldPrecision.rounded(-2.5, 0)).toBe(-3)
-    expect(FieldPrecision.rounded(-0.5, 0)).toBe(-1)
-  })
-  it('rounds to the field precision', () => {
-    expect(Math.abs(FieldPrecision.rounded(29.356, 2) - (29.36))).toBeLessThan(1e-5)
-    expect(Math.abs(FieldPrecision.rounded(29.354, 2) - (29.35))).toBeLessThan(1e-5)
-    expect(Math.abs(FieldPrecision.rounded(29.35, 2) - (29.35))).toBeLessThan(1e-5)
-  })
-  it('rounds negatives away from zero', () => {
-    expect(Math.abs(FieldPrecision.rounded(-29.356, 2) - (-29.36))).toBeLessThan(1e-5)
-  })
-})
-
-describe('FieldPrecision.string — display formatting', () => {
-  it('formats at the field precision', () => {
-    expect(FieldPrecision.string(29.4, 2)).toBe('29.40')
-    expect(FieldPrecision.string(29, 0)).toBe('29')
-    expect(FieldPrecision.string(-100, 0)).toBe('-100')
-    expect(FieldPrecision.string(2.5, 1)).toBe('2.5')
-  })
-  it('rounds for display', () => {
-    expect(FieldPrecision.string(2.678, 2)).toBe('2.68')
-  })
-  // An exact tie rounds to even, as C's `%.Nf` does (`toFixed` rounds it up).
-  it('rounds an exact tie to even', () => {
-    expect(FieldPrecision.string(2.5, 0)).toBe('2')
-    expect(FieldPrecision.string(0.125, 2)).toBe('0.12')
-  })
-  // The value is shown as Swift's 32-bit `Float`: 0.15 is 0.150000006 there, so it reads "0.2".
-  it('formats the 32-bit value', () => {
-    expect(FieldPrecision.string(0.15, 1)).toBe('0.2')
-  })
-  // A silent input's peak is -∞ dB: it reads "-∞" (as Swift's status bar draws it), not "-Infinity".
-  it('infinity reads as a symbol', () => {
-    expect(FieldPrecision.string(-Infinity, 1)).toBe('-∞')
-    expect(FieldPrecision.string(Infinity, 1)).toBe('∞')
-  })
+describe('field-precision — shared cases', () => {
+  for (const [name, decimals] of DATA.table) {
+    it(`table ${name}`, () => {
+      expect((FieldPrecision as unknown as Record<string, number>)[name]).toBe(decimals)
+    })
+  }
+  for (const [text, decimals, expected] of DATA.decimalsWithin) {
+    it(`decimalsWithin ${JSON.stringify(text)} at ${decimals}`, () => {
+      expect(FieldPrecision.decimalsWithin(text, decimals)).toBe(expected)
+    })
+  }
+  for (const row of DATA.rounded) {
+    it(`rounded ${row.value} at ${row.decimals}`, () => {
+      const result = FieldPrecision.rounded(row.value, row.decimals)
+      if (row.tolerance !== undefined) expect(Math.abs(result - row.expect)).toBeLessThan(row.tolerance)
+      else expect(result).toBe(row.expect)
+    })
+  }
+  for (const [value, decimals, expected] of DATA.string) {
+    it(`string ${value} at ${decimals}`, () => {
+      expect(FieldPrecision.string(number(value), decimals)).toBe(expected)
+    })
+  }
 })

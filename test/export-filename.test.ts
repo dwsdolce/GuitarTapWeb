@@ -1,51 +1,27 @@
 // @parity test/export-filename
 //
-// Pins the shared export-filename rule: one stem function,
-// per-artifact default word, integer-second discriminator, name slugged (spaces and "/" → "-",
-// lowercased). Three-way with Swift ExportFilenameTests.swift and Python test_export_filename.py.
+// The export filename stem (exportStem) and a saved measurement's base filename against the shared case file
+// `export-filename.json`, the same cases the Swift and Python suites run. The web composes a measurement's
+// filename with its extension (guitarTapFilename), so its base is the filename less `.guitartap`.
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { exportStem } from '../src/measurement/exportFilename'
 import { guitarTapFilename } from '../src/measurement/fromLive'
 import type { TapToneMeasurementModel } from '../src/measurement/types'
 
-const TS = 1784060789 // a fixed instant, so the discriminator is deterministic
+const DATA = JSON.parse(readFileSync('test/fixtures/export-filename.json', 'utf8')) as {
+  stem: { name: string | null; seconds: number; unnamed: string; expect: string }[]
+  measurementBaseFilename: { name: string | null; timestamp: string; expect: string }[]
+}
 
-describe('export-filenames — the core rule', () => {
-  it('named: uses the name for every artifact', () => {
-    expect(exportStem('Martin 000-28', TS, 'measurement')).toBe('martin-000-28-1784060789')
-    expect(exportStem('Martin 000-28', TS, 'report')).toBe('martin-000-28-1784060789')
-    expect(exportStem('Martin 000-28', TS, 'spectrum')).toBe('martin-000-28-1784060789')
-  })
-
-  it('unnamed: uses the artifact word, never an infix', () => {
-    expect(exportStem(null, TS, 'measurement')).toBe('measurement-1784060789')
-    expect(exportStem(null, TS, 'report')).toBe('report-1784060789')
-    expect(exportStem(undefined, TS, 'spectrum')).toBe('spectrum-1784060789')
-    expect(exportStem('', TS, 'measurement')).toBe('measurement-1784060789')
-  })
-
-  it('slugs spaces AND slashes, lowercased — and preserves Unicode (unlike the old [^\\w] regex)', () => {
-    expect(exportStem('Bridge/Plate Top', TS, 'report')).toBe('bridge-plate-top-1784060789')
-    // The old web PNG/PDF slug used [^\w.-] and mangled this to "ram-rez"; Swift/Python keep it.
-    expect(exportStem('RAMÍREZ 1975', TS, 'measurement')).toBe('ramírez-1975-1784060789')
-  })
-
-  it('the discriminator is the integer seconds passed in', () => {
-    expect(exportStem('x', 1784060789, 'measurement')).toBe('x-1784060789')
-  })
-})
-
-describe('export-filenames — guitarTapFilename wires "measurement" + the measurement timestamp', () => {
-  const base = (over: Partial<TapToneMeasurementModel>): TapToneMeasurementModel =>
-    ({ id: 'x', timestamp: '2026-07-14T00:00:00.000Z', peaks: [], measurementName: undefined, ...over }) as TapToneMeasurementModel
-
-  it('named → slug-<measurement ts>.guitartap', () => {
-    const f = guitarTapFilename(base({ measurementName: 'Martin 000-28', timestamp: '2026-07-14T00:00:00.000Z' }))
-    expect(f).toMatch(/^martin-000-28-\d+\.guitartap$/)
-  })
-
-  it('unnamed → measurement-<ts>.guitartap (no leading dash)', () => {
-    const f = guitarTapFilename(base({ measurementName: undefined }))
-    expect(f).toMatch(/^measurement-\d+\.guitartap$/)
-  })
+describe('export-filename — shared cases', () => {
+  for (const row of DATA.stem) {
+    it(`stem ${row.name} ${row.seconds} ${row.unnamed}`, () => expect(exportStem(row.name, row.seconds, row.unnamed)).toBe(row.expect))
+  }
+  for (const row of DATA.measurementBaseFilename) {
+    it(`measurement ${row.name} ${row.timestamp}`, () => {
+      const m = { id: 'x', timestamp: row.timestamp, peaks: [], measurementName: row.name ?? undefined } as TapToneMeasurementModel
+      expect(guitarTapFilename(m)).toBe(`${row.expect}.guitartap`)
+    })
+  }
 })
