@@ -11,6 +11,7 @@
 // GuitarTapTests/MeasurementAmendTests.swift and Python tests/test_measurement_amend.py, case for
 // case.
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { isAmended, amendMeasurement } from '../src/measurement/amend'
 import { normalizedMeasurementName, normalizedMeasurementNotes } from '../src/measurement/measurementName'
 import { newMeasurementId } from '../src/measurement/fromLive'
@@ -26,39 +27,26 @@ function make(measurementName?: string, notes?: string): TapToneMeasurementModel
   }
 }
 
-describe('isAmended — the gate on Save', () => {
-  it('is false when nothing differs', () => {
-    expect(isAmended(make('Bridge', 'Some notes'), 'Bridge', 'Some notes')).toBe(false)
-  })
+type AmendRow = {
+  stored: { name: string | null; notes: string | null }
+  candidate: { name: string | null; notes: string | null }
+  normalize?: boolean
+  expect: boolean
+}
+const IS_AMENDED = (JSON.parse(readFileSync('test/fixtures/measurement-amend.json', 'utf8')) as { isAmended: AmendRow[] }).isAmended
 
-  it('is true when the name differs', () => {
-    expect(isAmended(make('Bridge', 'Some notes'), 'Neck', 'Some notes')).toBe(true)
-  })
-
-  it('is true when the notes differ', () => {
-    expect(isAmended(make('Bridge', 'Some notes'), 'Bridge', 'Edited')).toBe(true)
-  })
-
-  it('is true when a field is cleared', () => {
-    const m = make('Bridge', 'Some notes')
-    expect(isAmended(m, 'Bridge', undefined)).toBe(true)
-    expect(isAmended(m, undefined, 'Some notes')).toBe(true)
-  })
-
-  it('is false for whitespace-only differences', () => {
-    // Whitespace-only retyping is NOT an edit, because both fields normalize the same way. This is
-    // the case that made the rule worth sharing: Swift stored notes verbatim and Python trimmed on
-    // one path only, so the three disagreed on whether this counted.
-    const m = make('Bridge', 'Some notes')
-    const name = normalizedMeasurementName('  Bridge  ')
-    const notes = normalizedMeasurementNotes('\n Some notes \n')
-    expect(isAmended(m, name, notes)).toBe(false)
-  })
-
-  it('handles a measurement with no name or notes', () => {
-    const m = make()
-    expect(isAmended(m, undefined, undefined)).toBe(false)
-    expect(isAmended(m, 'Named', undefined)).toBe(true)
+describe('isAmended — the gate on Save (the shared cases in measurement-amend.json)', () => {
+  IS_AMENDED.forEach((row, i) => {
+    it(`case ${i + 1}`, () => {
+      const m = make(row.stored.name ?? undefined, row.stored.notes ?? undefined)
+      let name = row.candidate.name ?? undefined
+      let notes = row.candidate.notes ?? undefined
+      if (row.normalize) {
+        name = name === undefined ? undefined : normalizedMeasurementName(name)
+        notes = notes === undefined ? undefined : normalizedMeasurementNotes(notes)
+      }
+      expect(isAmended(m, name, notes)).toBe(row.expect)
+    })
   })
 })
 

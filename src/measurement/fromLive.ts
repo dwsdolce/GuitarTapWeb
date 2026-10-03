@@ -10,7 +10,7 @@ import { exportStem } from './exportFilename'
 import { normalizedMeasurementNotes } from './measurementName'
 import { newId } from './newId'
 import { MODE_DISPLAY_NAME, effectiveMode } from '../presentation/modeColors'
-import { effectiveSelectedPeakIDs, isMaterialMeasurement } from './types'
+import { effectiveSelectedPeakIDs, isMaterialMeasurement, resolvedMeasurementType } from './types'
 import { formatDisplayDateCompact } from '../format/date'
 import type { ChartView } from '../presentation/chartTypes'
 import { DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, MEASUREMENT_SHORT_NAME, STIFFNESS_RAW_NAME, type MeasurementType, type Settings } from '../settings'
@@ -151,7 +151,7 @@ const MEASUREMENT_TYPE_FROM_RAW: Record<string, MeasurementType> = Object.fromEn
  *  Acoustic / Classical / Flamenco / Generic / Plate / Brace / Comparison. */
 export function measurementTypeName(m: TapToneMeasurementModel): string {
   if (m.comparisonEntries != null) return 'Comparison'
-  const raw = (m.spectrumSnapshot ?? m.longitudinalSnapshot)?.measurementType
+  const raw = resolvedMeasurementType(m)
   const t = raw != null ? MEASUREMENT_TYPE_FROM_RAW[raw] : undefined
   // An UNRECOGNISED type is an em-dash, not the raw string. Swift's contract, stated on
   // TapToneMeasurement.measurementTypeShortName: "Acoustic / Classical / Flamenco / Generic /

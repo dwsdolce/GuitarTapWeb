@@ -1,5 +1,7 @@
 // @parity test/settings-store
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import type { MeasurementType as MeasurementTypeName } from '../src/settings'
 import {
   DEFAULT_SETTINGS,
   defaultMinFrequency,
@@ -12,7 +14,6 @@ import {
   validateMagnitudeRange,
   type Settings,
 } from '../src/settings'
-import { FieldPrecision } from '../src/precision'
 import { enteredValue } from '../src/presentation/displayRange'
 
 // The per-measurement-type display frequency range store: each type has its own default and its
@@ -23,17 +24,6 @@ import { enteredValue } from '../src/presentation/displayRange'
 const fresh = (): Settings => ({ ...DEFAULT_SETTINGS, displayRanges: {} })
 
 describe('settings-store — per-type display frequency range', () => {
-  it('per-type defaults match the canonical values', () => {
-    for (const t of ['generic', 'acoustic', 'classical', 'flamenco'] as const) {
-      expect(defaultMinFrequency(t)).toBe(75)
-      expect(defaultMaxFrequency(t)).toBe(350)
-    }
-    expect(defaultMinFrequency('plate')).toBe(20)
-    expect(defaultMaxFrequency('plate')).toBe(200)
-    expect(defaultMinFrequency('brace')).toBe(30)
-    expect(defaultMaxFrequency('brace')).toBe(1000)
-  })
-
   it('a type with nothing stored reads its default', () => {
     const s = fresh()
     expect(minFrequency(s, 'flamenco')).toBe(75)
@@ -72,65 +62,41 @@ describe('settings-store — per-type display frequency range', () => {
     expect(minFrequency(s, 'plate')).toBe(Math.fround(15.37))
     expect(maxFrequency(s, 'plate')).toBe(Math.fround(180.43))
   })
-
-  it('a Settings range field left untouched keeps the exact stored value', () => {
-    const shown = FieldPrecision.string(23.37, FieldPrecision.frequencyHz) // "23"
-    expect(enteredValue(shown, 23.37, FieldPrecision.frequencyHz)).toBe(23.37)
-  })
-
-  it('a Settings range field edited is the number typed', () => {
-    expect(enteredValue('30', 23.37, FieldPrecision.frequencyHz)).toBe(30)
-  })
-
-  it('a Settings range field that is not a number is null', () => {
-    expect(enteredValue('abc', 23.37, FieldPrecision.frequencyHz)).toBeNull()
-  })
 })
 
-describe('settings-store — an entered range is validated: each bound clamped, at least 10 apart, else the saved range', () => {
-  const t = 'generic' as const
-  const withSaved = (): Settings => {
-    let s = fresh()
-    s = { ...s, ...setMinFrequency(s, 100, t) }
-    s = { ...s, ...setMaxFrequency(s, 8000, t) }
-    return { ...s, minDb: -100, maxDb: -10 }
+type RangeRow = { input: [number, number]; saved?: [number, number]; expect: [number, number] }
+const DATA = JSON.parse(readFileSync('test/fixtures/settings-store.json', 'utf8')) as {
+  defaults: [MeasurementTypeName, number, number][]
+  enteredValue: [string, number, number, number | null][]
+  validateFrequencyRange: RangeRow[]
+  validateMagnitudeRange: RangeRow[]
+}
+
+describe('settings-store — the shared cases in settings-store.json', () => {
+  for (const [t, lo, hi] of DATA.defaults) {
+    it(`default range ${t}`, () => expect([defaultMinFrequency(t), defaultMaxFrequency(t)]).toEqual([lo, hi]))
+  }
+  for (const [shown, stored, decimals, expected] of DATA.enteredValue) {
+    it(`entered value ${JSON.stringify(shown)} over ${stored}`, () => expect(enteredValue(shown, stored, decimals)).toBe(expected))
   }
 
-  it('frequency range: valid is unchanged', () => {
-    expect(validateFrequencyRange(fresh(), 200, 3000, t)).toEqual({ minHz: 200, maxHz: 3000 })
-  })
-  it('frequency range: below 1 Hz is clamped', () => {
-    expect(validateFrequencyRange(fresh(), 0, 3000, t)).toEqual({ minHz: 1, maxHz: 3000 })
-  })
-  it('frequency range: above 5 kHz is clamped', () => {
-    expect(validateFrequencyRange(fresh(), 200, 6000, t)).toEqual({ minHz: 200, maxHz: 5000 })
-  })
-  it('frequency range: inverted reads the saved range', () => {
-    expect(validateFrequencyRange(withSaved(), 5000, 200, t)).toEqual({ minHz: 100, maxHz: 8000 })
-  })
-  it('frequency range: too narrow reads the saved range', () => {
-    expect(validateFrequencyRange(withSaved(), 1000, 1005, t)).toEqual({ minHz: 100, maxHz: 8000 })
-  })
-  it('frequency range: exactly 10 Hz apart is accepted', () => {
-    expect(validateFrequencyRange(fresh(), 100, 110, t)).toEqual({ minHz: 100, maxHz: 110 })
-  })
-  it('magnitude range: valid is unchanged', () => {
-    expect(validateMagnitudeRange(fresh(), -80, -20)).toEqual({ minDb: -80, maxDb: -20 })
-  })
-  it('magnitude range: below -120 dB is clamped', () => {
-    expect(validateMagnitudeRange(fresh(), -150, -20)).toEqual({ minDb: -120, maxDb: -20 })
-  })
-  it('magnitude range: above 20 dB is clamped', () => {
-    expect(validateMagnitudeRange(fresh(), -80, 50)).toEqual({ minDb: -80, maxDb: 20 })
-  })
-  it('magnitude range: inverted reads the saved range', () => {
-    expect(validateMagnitudeRange(withSaved(), -20, -80)).toEqual({ minDb: -100, maxDb: -10 })
-  })
-  it('magnitude range: too narrow reads the saved range', () => {
-    expect(validateMagnitudeRange(withSaved(), -50, -45)).toEqual({ minDb: -100, maxDb: -10 })
-  })
-  it('magnitude range: exactly 10 dB apart is accepted', () => {
-    expect(validateMagnitudeRange(fresh(), -60, -50)).toEqual({ minDb: -60, maxDb: -50 })
-  })
+  // Validation of an entered range — each bound clamped, at least 10 apart, else the saved range — for the
+  // current type, here generic.
+  const t = 'generic' as const
+  const withSaved = (freq?: [number, number], db?: [number, number]): Settings => {
+    let s = fresh()
+    if (freq) {
+      s = { ...s, ...setMinFrequency(s, freq[0], t) }
+      s = { ...s, ...setMaxFrequency(s, freq[1], t) }
+    }
+    return db ? { ...s, minDb: db[0], maxDb: db[1] } : s
+  }
+  for (const row of DATA.validateFrequencyRange) {
+    it(`frequency range ${row.input.join('–')}`, () =>
+      expect(validateFrequencyRange(withSaved(row.saved), row.input[0], row.input[1], t)).toEqual({ minHz: row.expect[0], maxHz: row.expect[1] }))
+  }
+  for (const row of DATA.validateMagnitudeRange) {
+    it(`magnitude range ${row.input.join('–')}`, () =>
+      expect(validateMagnitudeRange(withSaved(undefined, row.saved), row.input[0], row.input[1])).toEqual({ minDb: row.expect[0], maxDb: row.expect[1] }))
+  }
 })
-

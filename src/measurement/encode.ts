@@ -15,7 +15,7 @@ import { floatsToBase64 } from './base64'
 import { f32 } from './floatJson'
 import type { ComparisonEntryModel, ResonantPeak, SpectrumSnapshotModel, TapEntryModel, TapToneMeasurementModel } from './types'
 import { classifyAll } from '../dsp/classify'
-import { guitarTypeNameFromRaw } from './types'
+import { guitarTypeNameFromRaw, resolvedMeasurementType } from './types'
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 
 type JsonObj = Record<string, unknown>
@@ -48,7 +48,7 @@ const isGuitarMeasurement = (mt?: string): boolean => mt == null || mt.endsWith(
  *  stored copy can fall out of sync. */
 function buildModeLabels(m: TapToneMeasurementModel): Map<string, string> {
   const out = new Map<string, string>()
-  const mt = m.spectrumSnapshot?.measurementType ?? m.longitudinalSnapshot?.measurementType
+  const mt = resolvedMeasurementType(m)
   if (isGuitarMeasurement(mt)) {
     const gt = guitarTypeNameFromRaw(m.spectrumSnapshot?.guitarType ?? m.longitudinalSnapshot?.guitarType)
     const modeMap = classifyAll(m.peaks, gt)
@@ -187,10 +187,10 @@ export function encodeMeasurement(m: TapToneMeasurementModel): JsonObj {
   put(d, 'calibrationName', m.calibrationName)
   put(d, 'sampleRate', m.sampleRate) // Double — raw
 
-  // Convenience copies for external consumers, resolved from the snapshot.
-  const snap = m.spectrumSnapshot ?? m.longitudinalSnapshot
-  put(d, 'measurementType', snap?.measurementType)
-  put(d, 'guitarType', snap?.guitarType)
+  // Convenience copies for external consumers, resolved from the snapshots field by field, as Swift's
+  // encode(to:): the spectrum snapshot's value, else the longitudinal snapshot's.
+  put(d, 'measurementType', resolvedMeasurementType(m))
+  put(d, 'guitarType', m.spectrumSnapshot?.guitarType ?? m.longitudinalSnapshot?.guitarType)
 
   const modeLabels = buildModeLabels(m)
   d.peaks = m.peaks.map((p) => encodePeak(p, modeLabels.get(p.id)))

@@ -1,117 +1,31 @@
 // @parity test/measurement-type-name
 //
-// Pin the Details-pane Measurement Type resolution (parity group `view/measurement-detail`).
-//
-// The type is stored ONLY inside the SpectrumSnapshot — never as a top-level measurement field.
-// Swift MeasurementDetailView.measurementTypeName is canonical:
-//
-//     let mt = measurement.spectrumSnapshot?.measurementType
-//         ?? measurement.longitudinalSnapshot?.measurementType
-//     return mt?.shortName ?? "—"
-//
-// These tests lock that resolution in. The top-level `measurement_type` is not a usable source: it is
-// None in memory by design, so reading it would show "—" in Details for every measurement saved in the
-// current session. Python pins the same rule in tests/test_measurement_type_name.py.
-//
-// A round-trip test cannot catch that class of bug: loading from a dict populates the top-level
-// field, so only an IN-MEMORY measurement (snapshot-only) exposes it. Hence the shape used here.
-//
-// Swift counterpart deferred: `measurementTypeName` is `private` inside the View struct and is
-// unreachable from a test without an application change.
-
+// The Details pane's measurement type (measurementTypeName) and the material flag (isMaterialMeasurement), both
+// resolved from the snapshots — the type lives only there in memory — against the shared case file
+// `measurement-type-name.json`, the same cases the Swift and Python suites run.
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { measurementTypeName } from '../src/measurement/fromLive'
-import type { TapToneMeasurementModel, SpectrumSnapshotModel } from '../src/measurement/types'
+import { isMaterialMeasurement, type TapToneMeasurementModel, type SpectrumSnapshotModel } from '../src/measurement/types'
 
-/** Minimal snapshot carrying only the field the resolver reads. */
-const snap = (measurementType?: string): SpectrumSnapshotModel =>
-  ({ measurementType } as unknown as SpectrumSnapshotModel)
+type Row = { id?: string; spectrum: string | null; longitudinal: string | null; isComparison?: boolean; topLevelType?: string; expect: string | boolean; editions?: string[] }
+const DATA = JSON.parse(readFileSync('test/fixtures/measurement-type-name.json', 'utf8')) as { shortName: Row[]; isMaterial: Row[] }
 
-/** A measurement as built in memory: the type lives in the snapshot, nowhere else. */
-const meas = (m: Partial<TapToneMeasurementModel>): TapToneMeasurementModel =>
-  ({ id: 'x', timestamp: '2026-07-16T00:00:00Z', peaks: [], ...m }) as TapToneMeasurementModel
+/** A snapshot as the file describes it: "absent" is none, null is one with no type. */
+const snap = (v: string | null) => (v === 'absent' ? undefined : ({ measurementType: v ?? undefined } as unknown as SpectrumSnapshotModel))
+const meas = (r: Row): TapToneMeasurementModel =>
+  ({
+    id: 'x', timestamp: '2026-07-16T00:00:00Z', peaks: [],
+    spectrumSnapshot: snap(r.spectrum), longitudinalSnapshot: snap(r.longitudinal),
+    ...(r.isComparison ? { comparisonEntries: [] } : {}),
+    ...(r.topLevelType ? { measurementType: r.topLevelType } : {}),
+  }) as unknown as TapToneMeasurementModel
 
-describe('measurementTypeName — resolves from the snapshot (Swift parity)', () => {
-  it('resolves a brace from longitudinalSnapshot', () => {
-    expect(measurementTypeName(meas({ longitudinalSnapshot: snap('Material (Brace)') }))).toBe('Brace')
-  })
-
-  it('resolves a plate from longitudinalSnapshot', () => {
-    expect(measurementTypeName(meas({ longitudinalSnapshot: snap('Material (Plate)') }))).toBe('Plate')
-  })
-
-  it('resolves a guitar from spectrumSnapshot', () => {
-    expect(measurementTypeName(meas({ spectrumSnapshot: snap('Classical Guitar') }))).toBe('Classical')
-  })
-
-  it('prefers spectrumSnapshot over longitudinalSnapshot (Swift ?? order)', () => {
-    expect(
-      measurementTypeName(
-        meas({ spectrumSnapshot: snap('Generic Guitar'), longitudinalSnapshot: snap('Material (Brace)') }),
-      ),
-    ).toBe('Generic')
-  })
-
-  it('short-circuits to Comparison before any snapshot lookup', () => {
-    expect(
-      measurementTypeName(
-        meas({ spectrumSnapshot: snap('Generic Guitar'), comparisonEntries: [] as never }),
-      ),
-    ).toBe('Comparison')
-  })
-
-  it('falls back to an em-dash when no snapshot carries a type', () => {
-    expect(measurementTypeName(meas({}))).toBe('—')
-    expect(measurementTypeName(meas({ spectrumSnapshot: snap(undefined) }))).toBe('—')
-  })
-})
-
-// ── Cases shared by all three editions ─────────────────────────────────────────────────────
-//
-// Like the six cases above, every case below is in all three editions.
-
-describe('measurementTypeName — every type resolves to its short name', () => {
-  // Mirrors Swift everyTypeResolvesToItsShortName. Only Swift pinned the 6-type table, so a
-  // short name that drifted in one edition would have gone unnoticed. The tables agree today:
-  // Generic, Acoustic, Classical, Flamenco, Plate, Brace.
-  const cases: [string, string][] = [
-    ['Generic Guitar', 'Generic'],
-    ['Acoustic Guitar', 'Acoustic'],
-    ['Classical Guitar', 'Classical'],
-    ['Flamenco Guitar', 'Flamenco'],
-    ['Material (Plate)', 'Plate'],
-    ['Material (Brace)', 'Brace'],
-  ]
-  for (const [raw, short] of cases) {
-    it(`${raw} → ${short}`, () => {
-      expect(measurementTypeName(meas({ spectrumSnapshot: snap(raw) }))).toBe(short)
-    })
+describe('measurement-type-name — shared cases', () => {
+  for (const r of DATA.shortName.filter((r) => (r.editions ?? ['web']).includes('web'))) {
+    it(`${r.id} → ${String(r.expect)}`, () => expect(measurementTypeName(meas(r))).toBe(r.expect))
   }
-})
-
-describe('measurementTypeName — fallbacks', () => {
-  it('an unrecognised snapshot type falls back to an em-dash', () => {
-    // Mirrors Python test_unrecognised_snapshot_type_falls_back_to_em_dash.
-    expect(measurementTypeName(meas({ spectrumSnapshot: snap('Sousaphone') }))).toBe('—')
-  })
-
-  it('an undefined snapshot type falls back to an em-dash', () => {
-    // Mirrors Swift nilSnapshotTypeFallsBackToEmDash / Python's None case.
-    expect(measurementTypeName(meas({ spectrumSnapshot: snap(undefined) }))).toBe('—')
-  })
-
-  it('a LOADED measurement still resolves — the regression Python guards', () => {
-    // The type is deliberately NOT written to a top-level field when a measurement is created;
-    // the writer resolves it from the snapshot at save time. A resolver that read the top-level
-    // field showed "—" for everything saved in the current session and only came right after a
-    // restart re-read the file — session-scoped, which is why no test caught it. Python added
-    // this case after that bug; this edition had no equivalent.
-    const loaded = meas({
-      spectrumSnapshot: snap('Classical Guitar'),
-      measurementType: 'Classical Guitar',
-    } as Partial<TapToneMeasurementModel>)
-    expect(measurementTypeName(loaded)).toBe('Classical')
-    // And with the top-level field absent, as an in-session save has it:
-    expect(measurementTypeName(meas({ spectrumSnapshot: snap('Classical Guitar') }))).toBe('Classical')
-  })
+  for (const r of DATA.isMaterial) {
+    it(`isMaterial → ${String(r.expect)}`, () => expect(isMaterialMeasurement(meas(r))).toBe(r.expect))
+  }
 })
