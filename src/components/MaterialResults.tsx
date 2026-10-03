@@ -1,5 +1,5 @@
 // @parity view/material-results
-import { density, densityGPerCm3, plateYoungsLongGPa, plateYoungsLongPa, plateYoungsCrossGPa, plateYoungsCrossPa, braceYoungsLongGPa, braceYoungsLongPa, speedOfSound, specificModulus, radiationRatio, crossLongRatio, longCrossRatio, goreShearPa, goreTargetThicknessMm, woodQuality, overallQuality } from '../dsp/material'
+import { BraceProperties, MaterialDimensions, PlateProperties } from '../dsp/material'
 import { WOOD_QUALITY_COLOR } from '../presentation/qualityColors'
 import { STIFFNESS_LABEL, type StiffnessPreset } from '../settings'
 import { materialDimensions, materialStiffness, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
@@ -42,7 +42,7 @@ function SampleDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasurem
       <NumberField label="Width" unit="mm" value={inputs.widthMm} decimals={P.linearDimensionMM} onChange={(v) => set({ widthMm: v })} />
       <NumberField label="Thickness" unit="mm" value={inputs.thicknessMm} decimals={P.linearDimensionMM} onChange={(v) => set({ thicknessMm: v })} />
       <NumberField label="Mass" unit="g" value={inputs.massG} decimals={P.massG} onChange={(v) => set({ massG: v })} />
-      <Row label="Calculated Density" value={`${FieldPrecision.string(densityGPerCm3(materialDimensions(inputs)), FieldPrecision.densityGPerCm3)} g/cm³`} />
+      <Row label="Calculated Density" value={`${FieldPrecision.string(new MaterialDimensions(materialDimensions(inputs)).densityGPerCm3, FieldPrecision.densityGPerCm3)} g/cm³`} />
     </div>
   )
 }
@@ -201,17 +201,16 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
   }
 
   // Dimensions come from Store B (the measurement's own values), never the live Settings.
-  const dims = materialDimensions(matInputs)
-  const rhoGcm3 = densityGPerCm3(dims)
-  const rho = density(dims)
+  const dims = new MaterialDimensions(materialDimensions(matInputs))
 
   if (!plate) {
     // ── Brace Properties ────────────────────────────────────────────────────
-    const eL = braceYoungsLongGPa(dims, fL)
-    const smL = specificModulus(eL, rhoGcm3)
-    const cL = speedOfSound(braceYoungsLongPa(dims, fL), rho)
-    const rL = radiationRatio(cL, rho)
-    const qL = woodQuality(smL, 'longitudinal')
+    const props = new BraceProperties(dims, fL)
+    const eL = props.youngsModulusLongGPa
+    const smL = props.specificModulusLong
+    const cL = props.speedOfSoundLong
+    const rL = props.radiationRatioLong
+    const qL = props.spruceQuality
     return (
       <div className="material-results">
         {peakList}
@@ -245,21 +244,22 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
       </div>
     )
 
-  const eL = plateYoungsLongGPa(dims, fL)
-  const eC = plateYoungsCrossGPa(dims, fC)
-  const smL = specificModulus(eL, rhoGcm3)
-  const smC = specificModulus(eC, rhoGcm3)
-  const cL = speedOfSound(plateYoungsLongPa(dims, fL), rho)
-  const cC = speedOfSound(plateYoungsCrossPa(dims, fC), rho)
-  const rL = radiationRatio(cL, rho)
-  const rC = radiationRatio(cC, rho)
-  const qL = woodQuality(smL, 'longitudinal')
-  const qC = woodQuality(smC, 'cross')
-  const overall = overallQuality(smL, smC)
-  const shearPa = goreShearPa(dims, fLC)
-  const target = goreTargetThicknessMm(dims, fL, fC, fLC, matInputs.bodyLengthMm, matInputs.bodyWidthMm, materialStiffness(matInputs))
-  const crossLong = crossLongRatio(eL, eC)
-  const longCross = longCrossRatio(eL, eC)
+  const props = new PlateProperties(dims, fL, fC, fLC)
+  const eL = props.youngsModulusLongGPa
+  const eC = props.youngsModulusCrossGPa
+  const smL = props.specificModulusLong
+  const smC = props.specificModulusCross
+  const cL = props.speedOfSoundLong
+  const cC = props.speedOfSoundCross
+  const rL = props.radiationRatioLong
+  const rC = props.radiationRatioCross
+  const qL = props.spruceQualityLong
+  const qC = props.spruceQualityCross
+  const overall = props.overallQuality
+  const shearPa = props.goreShearModulus
+  const target = props.goreTargetThickness(matInputs.bodyLengthMm, matInputs.bodyWidthMm, materialStiffness(matInputs))
+  const crossLong = props.crossLongRatio
+  const longCross = props.longCrossRatio
 
   return (
     <div className="material-results">

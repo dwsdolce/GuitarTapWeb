@@ -15,7 +15,7 @@ import type { GuitarTypeName } from '../dsp/guitarModes'
 import { effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
 import { MODE_DISPLAY_NAME as MODE_FULL_NAME } from './modeColors'
 import { decayQuality, decayQualityColor, tapToneRatioQuality, tapToneRatioQualityColor } from '../dsp/analysisQuality'
-import { density, densityGPerCm3, plateYoungsLongGPa, plateYoungsLongPa, plateYoungsCrossGPa, plateYoungsCrossPa, braceYoungsLongGPa, braceYoungsLongPa, speedOfSound, specificModulus, radiationRatio, crossLongRatio, longCrossRatio, goreShearPa, goreTargetThicknessMm, woodQuality, overallQuality, type Dimensions } from '../dsp/material'
+import { BraceProperties, MaterialDimensions, PlateProperties, type Dimensions } from '../dsp/material'
 import type { PdfReportData, PdfPeakRow, PdfMaterialAnalysis, PdfMaterialProp, PdfTapInstructions } from './pdfReport'
 import { generateMultiTapPdfReport, generatePdfReport } from './pdfReport'
 import { exportStem } from '../measurement/exportFilename'
@@ -301,8 +301,7 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
   const mi = r.materialInputs
   const dims: Dimensions = materialDimensions(mi)
   const fvs = materialStiffness(mi)
-  const rho = density(dims)
-  const rhoGcm3 = densityGPerCm3(dims)
+  const rhoGcm3 = new MaterialDimensions(dims).densityGPerCm3
   const fL = r.selectedLongitudinalPeak?.frequency ?? null
   const fC = r.selectedCrossPeak?.frequency ?? null
   const fLC = r.selectedFlcPeak?.frequency ?? null
@@ -338,14 +337,25 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     { label: 'Density', value: `${FieldPrecision.string(rhoGcm3, FieldPrecision.densityGPerCm3)} g/cm³` },
   ]
 
+  // Swift builds the properties only from the identified peaks (fL, and fC for a plate) and a sample with
+  // length and mass; without them the report has no material section.
+  const hasSample = dims.lengthMm > 0 && dims.massG > 0
+  const materialReport = (materialAnalysis: PdfMaterialAnalysis | undefined): PdfReportData => ({
+    ...base,
+    kind: plate ? 'plate' : 'brace',
+    peaks,
+    materialAnalysis,
+    tapInstructions: materialTapInstructions(plate, showFlc),
+  })
   let analysis: PdfMaterialAnalysis
   if (!plate) {
-    // Brace
-    const eL = fL != null ? braceYoungsLongGPa(dims, fL) : 0
-    const smL = specificModulus(eL, rhoGcm3)
-    const cL = fL != null ? speedOfSound(braceYoungsLongPa(dims, fL), rho) : 0
-    const rL = radiationRatio(cL, rho)
-    const qL = woodQuality(smL, 'longitudinal')
+    if (fL == null || !hasSample) return materialReport(undefined)
+    const props = new BraceProperties(new MaterialDimensions(dims), fL)
+    const eL = props.youngsModulusLongGPa
+    const smL = props.specificModulusLong
+    const cL = props.speedOfSoundLong
+    const rL = props.radiationRatioLong
+    const qL = props.spruceQuality
     analysis = {
       title: 'Brace Properties',
       gore: null,
@@ -361,24 +371,23 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
       overall: { value: qL, color: QUALITY_COLOR[qL] },
     }
   } else {
-    const eL = fL != null ? plateYoungsLongGPa(dims, fL) : 0
-    const eC = fC != null ? plateYoungsCrossGPa(dims, fC) : 0
-    const smL = specificModulus(eL, rhoGcm3)
-    const smC = specificModulus(eC, rhoGcm3)
-    const cL = fL != null ? speedOfSound(plateYoungsLongPa(dims, fL), rho) : 0
-    const cC = fC != null ? speedOfSound(plateYoungsCrossPa(dims, fC), rho) : 0
-    const rL = radiationRatio(cL, rho)
-    const rC = radiationRatio(cC, rho)
-    const qL = woodQuality(smL, 'longitudinal')
-    const qC = woodQuality(smC, 'cross')
-    const overall = overallQuality(smL, smC)
-    const shearPa = goreShearPa(dims, fLC)
-    const target =
-      fL != null && fC != null
-        ? goreTargetThicknessMm(dims, fL, fC, fLC, mi.bodyLengthMm, mi.bodyWidthMm, fvs)
-        : null
-    const crossLong = crossLongRatio(eL, eC)
-    const longCross = longCrossRatio(eL, eC)
+    if (fL == null || fC == null || !hasSample) return materialReport(undefined)
+    const props = new PlateProperties(new MaterialDimensions(dims), fL, fC, fLC)
+    const eL = props.youngsModulusLongGPa
+    const eC = props.youngsModulusCrossGPa
+    const smL = props.specificModulusLong
+    const smC = props.specificModulusCross
+    const cL = props.speedOfSoundLong
+    const cC = props.speedOfSoundCross
+    const rL = props.radiationRatioLong
+    const rC = props.radiationRatioCross
+    const qL = props.spruceQualityLong
+    const qC = props.spruceQualityCross
+    const overall = props.overallQuality
+    const shearPa = props.goreShearModulus
+    const target = props.goreTargetThickness(mi.bodyLengthMm, mi.bodyWidthMm, fvs)
+    const crossLong = props.crossLongRatio
+    const longCross = props.longCrossRatio
     const presetName = STIFFNESS_RAW_NAME[mi.stiffnessPreset]
     const fvsLine = mi.stiffnessPreset === 'custom' ? `f_vs = ${FieldPrecision.string(fvs, FieldPrecision.stiffness)} (custom)` : `f_vs = ${FieldPrecision.string(fvs, FieldPrecision.stiffness)} (${presetName})`
 
@@ -420,13 +429,7 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
     }
   }
 
-  return {
-    ...base,
-    kind: plate ? 'plate' : 'brace',
-    peaks,
-    materialAnalysis: analysis,
-    tapInstructions: materialTapInstructions(plate, showFlc),
-  }
+  return materialReport(analysis)
 }
 
 function materialTapInstructions(plate: boolean, hasFlc: boolean): PdfTapInstructions {

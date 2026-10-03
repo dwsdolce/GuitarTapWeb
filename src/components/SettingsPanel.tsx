@@ -4,7 +4,7 @@ import { NumberField } from './NumberField'
 import { FieldPrecision } from '../precision'
 import { formattedAsWholeHertz } from '../presentation/frequencyFormat'
 import type { StoredCalibration } from '../measurement/calibrationStore'
-import { densityGPerCm3, type Dimensions } from '../dsp/material'
+import { MaterialDimensions, type Dimensions } from '../dsp/material'
 import { modeBands } from '../dsp/guitarModes'
 import {
   ANALYSIS_KEYS,
@@ -357,7 +357,7 @@ export function SettingsPanel({
                 <NumberField label="Thickness" unit="mm" value={d.plateThickness} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ plateThickness: v })} />
                 <NumberField label="Mass" unit="g" value={d.plateMass} decimals={FieldPrecision.massG} onChange={(v) => patch({ plateMass: v })} />
                 <div className="set-readout">
-                  Density <b>{FieldPrecision.string(densityGPerCm3(plateDims), FieldPrecision.densityGPerCm3)}</b> g/cm³
+                  Density <b>{FieldPrecision.string(new MaterialDimensions(plateDims).densityGPerCm3, FieldPrecision.densityGPerCm3)}</b> g/cm³
                 </div>
 
                 <label className="set-field check">
@@ -406,7 +406,7 @@ export function SettingsPanel({
                 <p className="set-desc">Brace height when lying flat — this is the t dimension in the stiffness formula</p>
                 <NumberField label="Mass" unit="g" value={d.braceMass} decimals={FieldPrecision.massG} onChange={(v) => patch({ braceMass: v })} />
                 <div className="set-readout">
-                  Density <b>{FieldPrecision.string(densityGPerCm3(braceDims), FieldPrecision.densityGPerCm3)}</b> g/cm³
+                  Density <b>{FieldPrecision.string(new MaterialDimensions(braceDims).densityGPerCm3, FieldPrecision.densityGPerCm3)}</b> g/cm³
                 </div>
               </>
             )}
