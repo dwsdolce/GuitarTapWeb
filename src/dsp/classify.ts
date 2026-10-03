@@ -12,7 +12,7 @@ import type { ResonantPeak } from '../measurement/types'
 export type ResolvedMode = ModeName | 'unknown'
 
 /** Single-frequency lookup: bands tested in fixed case order (air→upper); first match wins. */
-export function classifySingle(freq: number, guitarType: GuitarTypeName): ResolvedMode {
+function classifySingle(freq: number, guitarType: GuitarTypeName): ResolvedMode {
   for (const b of modeBands(guitarType)) {
     if (b.lo <= freq && freq <= b.hi) return b.name
   }
