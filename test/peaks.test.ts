@@ -1,10 +1,23 @@
 // @parity test/peaks
 import { describe, it, expect } from 'vitest'
-import { findPeaks, removeDuplicatePeaks } from '../src/dsp/peaks'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { averageSpectra } from '../src/dsp/spectrumAverage'
 import { classifyAll, resolvedModePeaks } from '../src/dsp/classify'
 import type { Spectrum } from '../src/dsp/guitarFFT'
 import type { ResonantPeak } from '../src/measurement/types'
+
+/** Find peaks the way the app does: on an analyzer, whose Peak Min is the threshold unless a floor
+ *  overrides it. */
+function findPeaks(
+  mags: ArrayLike<number> & (number[] | Float32Array | Float64Array),
+  freqs: ArrayLike<number> & (number[] | Float32Array | Float64Array),
+  o: { peakMinThreshold?: number; peakMinOverride?: number; minHz?: number; maxHz?: number; guitarType?: string },
+): ResonantPeak[] {
+  const analyzer = new TapToneAnalyzer()
+  if (o.peakMinThreshold !== undefined) analyzer.peakMinThreshold = o.peakMinThreshold
+  return analyzer.findPeaks(mags, freqs, { minHz: o.minHz, maxHz: o.maxHz, peakMinOverride: o.peakMinOverride })
+}
+
 
 // Mirrors the Swift makeSpectrum helper: a Gaussian bump (a downward parabola in
 // dB) on a noise floor. Because the peak is a true parabola in frequency,
@@ -107,10 +120,10 @@ describe('G2 — peak finding', () => {
   })
 
   it('dedup keeps higher magnitude within 2 Hz; keeps both when separated', () => {
-    expect(removeDuplicatePeaks([p(100.5, -30, '1'), p(101.5, -20, '2')])).toEqual([
+    expect(new TapToneAnalyzer().removeDuplicatePeaks([p(100.5, -30, '1'), p(101.5, -20, '2')])).toEqual([
       p(101.5, -20, '2'),
     ])
-    expect(removeDuplicatePeaks([p(100, -30, '1'), p(110, -20, '2')])).toHaveLength(2)
+    expect(new TapToneAnalyzer().removeDuplicatePeaks([p(100, -30, '1'), p(110, -20, '2')])).toHaveLength(2)
   })
 
   it('Q / −3 dB bandwidth computed correctly (exact, hand-checked)', () => {

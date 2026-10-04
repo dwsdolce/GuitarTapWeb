@@ -67,6 +67,13 @@ export const MEASUREMENT_DESCRIPTION: Record<MeasurementType, string> = {
   brace: 'Brace strip — measures longitudinal stiffness (fL only)',
 }
 
+/** The analysis frequency range for peak detection (Hz) — a fixed bound on where useful modes live:
+ *  30 Hz reaches the material fLC, and nothing useful sits above 2000 Hz. Distinct from the display
+ *  range, which stays user-controllable. Mirrors Swift TapDisplaySettings.analysisMin/MaxFrequency /
+ *  Python analysis_min/max_frequency. */
+export const ANALYSIS_MIN_HZ = 30
+export const ANALYSIS_MAX_HZ = 2000
+
 export const isGuitarType = (t: MeasurementType): t is GuitarTypeName =>
   t === 'generic' || t === 'acoustic' || t === 'classical' || t === 'flamenco'
 export const isMaterialType = (t: MeasurementType): t is 'plate' | 'brace' => t === 'plate' || t === 'brace'

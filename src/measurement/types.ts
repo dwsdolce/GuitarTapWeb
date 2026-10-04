@@ -19,6 +19,7 @@ export type PeakModeOverrides = Record<string, string>
 /** Absolute data-space annotation label positions: uuid → [absFreqHz, absDB]. */
 export type AnnotationOffsets = Record<string, [number, number]>
 
+// @parity dsp/find-peaks tests=test/peaks
 /** A detected resonant peak — one type in memory and on file, guitar and material alike. Mirrors Swift
  *  `ResonantPeak` / Python `ResonantPeak`. Make one with {@link makeResonantPeak}. */
 export interface ResonantPeak {

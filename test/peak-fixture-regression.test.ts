@@ -22,11 +22,24 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { findPeaks } from '../src/dsp/peaks'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { classifyAll, resolvedModePeaks } from '../src/dsp/classify'
 import { base64ToFloats } from '../src/measurement/base64'
 import type { GuitarTypeName } from '../src/dsp/guitarModes'
 import type { ResonantPeak } from '../src/measurement/types'
+
+/** Find peaks the way the app does: on an analyzer, whose Peak Min is the threshold unless a floor
+ *  overrides it. */
+function findPeaks(
+  mags: ArrayLike<number> & (number[] | Float32Array | Float64Array),
+  freqs: ArrayLike<number> & (number[] | Float32Array | Float64Array),
+  o: { peakMinThreshold?: number; peakMinOverride?: number; minHz?: number; maxHz?: number; guitarType?: string },
+): ResonantPeak[] {
+  const analyzer = new TapToneAnalyzer()
+  if (o.peakMinThreshold !== undefined) analyzer.peakMinThreshold = o.peakMinThreshold
+  return analyzer.findPeaks(mags, freqs, { minHz: o.minHz, maxHz: o.maxHz, peakMinOverride: o.peakMinOverride })
+}
+
 
 const FIXTURE_DIR = join(__dirname, 'fixtures')
 const MIN_HZ = 30

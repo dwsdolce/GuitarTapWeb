@@ -13,7 +13,6 @@
 import { averageSpectra } from '../dsp/spectrumAverage'
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { Calibration } from '../dsp/calibration'
-import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, findPeaks, PEAK_DETECTION_FLOOR, parabolicInterpolate, calculateQ } from '../dsp/peaks'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 // The one override-aware mode resolver (mirrors Swift GuitarMode.effectiveMode). A minor state→presentation
 // import (precedent: MaterialPeaks from components) — the resolver lives with the mode↔label map it needs.
@@ -25,11 +24,11 @@ import { Pitch } from '../dsp/pitch'
 import { buildGuitarMeasurement, buildMaterialMeasurement, comparisonAxisRange, GUITAR_TYPE_RAW, measurementToLive, measurementToLiveMaterial } from '../measurement/fromLive'
 import { saveMeasurement as storeMeasurement } from '../measurement/store'
 import type { ChartView } from '../presentation/chartTypes'
-import { dftAnalRect, GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
+import { GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
 import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type MaterialPhaseName, type EngineState } from '../audio/realtimeFFTAnalyzer'
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
-import { isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, type MeasurementType, type Settings } from '../settings'
+import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, type MeasurementType, type Settings } from '../settings'
 import { materialInputsFromSettings, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { dumpCaptureWav } from '../measurement/dumpWav'
 import { FieldPrecision } from '../precision'
@@ -170,6 +169,9 @@ export function setupDiffersMessage(
     '\n\nA tap captured now may not match the saved result. In a browser, the sample rate follows your output device: set the output and input to the same rate in Audio MIDI Setup (Mac) or Sound settings (Windows).'
   )
 }
+
+/** A magnitude or frequency array the peak analysis reads. */
+type SpectrumValues = number[] | Float32Array | Float64Array
 
 export class TapToneAnalyzer {
   // ── Published-equivalent state (settable; the audio layer / tests mutate these directly) ──
@@ -338,6 +340,9 @@ export class TapToneAnalyzer {
   settings: Settings = DEFAULT_SETTINGS
   /** Pitch at concert A (440 Hz) for the peaks the analyzer makes. Swift `pitchCalculator`. */
   readonly pitchCalculator = new Pitch(440)
+  /** The analysis range for peak detection, in Hz. Swift `minFrequency` / `maxFrequency`. */
+  minFrequency = ANALYSIS_MIN_HZ
+  maxFrequency = ANALYSIS_MAX_HZ
   // Store B — the current material measurement's OWN dimensions. `null` for guitar and before a
   // material measurement completes. Seeded from Settings at the completion transition (the setter
   // below), restored from the file's snapshot by restoreMaterial, and edited through
@@ -539,7 +544,7 @@ export class TapToneAnalyzer {
     // that full set — a quiet Air below Peak Min is selected even though it is not displayed. A new
     // capture is one of the two things that legitimately resets per-peak selection state.
     const guitarType = this.guitarType
-    const peaksFromAveragedSpectrum = findPeaks(avg.magnitudesDb, avg.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR })
+    const peaksFromAveragedSpectrum = this.findPeaks(avg.magnitudesDb, avg.frequencies, { peakMinOverride: TapToneAnalyzer.peakDetectionFloor })
     this.peaks = peaksFromAveragedSpectrum
     this.selectedPeakIds = this.guitarModeSelectedPeakIds(peaksFromAveragedSpectrum, guitarType)
     this.userModifiedSelection = false
@@ -558,7 +563,7 @@ export class TapToneAnalyzer {
       const s = this.settings
       const range = { minHz: minFrequency(s, this.measurementType), maxHz: maxFrequency(s, this.measurementType) }
       this.tapEntries = spectra.map((sp, i) => {
-        const tapPeaks = findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: PEAK_DETECTION_FLOOR })
+        const tapPeaks = this.findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: TapToneAnalyzer.peakDetectionFloor })
         const modeSelected = this.guitarModeSelectedPeakIds(tapPeaks, guitarType)
         const snap: SpectrumSnapshotModel = {
           frequencies: sp.frequencies,
@@ -974,7 +979,7 @@ export class TapToneAnalyzer {
       }
       return
     }
-    const peaks = findPeaks(magnitudes, frequencies, { peakMinThreshold: this._peakMinThreshold })
+    const peaks = this.findPeaks(magnitudes, frequencies)
     this.peaks = peaks
     // Auto-select every newly detected peak so visibility mode "selected" shows everything by default.
     this.selectedPeakIds = new Set(peaks.map((p) => p.id))
@@ -1005,10 +1010,8 @@ export class TapToneAnalyzer {
     }
     // Live-tap path: detect the FULL set (floor -100) on the frozen spectrum; Peak Min only projects it.
     const oldPeaks = this.peaks
-    const peaks = findPeaks(this.frozenMagnitudes, this.frozenFrequencies, {
-      minHz: ANALYSIS_MIN_HZ,
-      maxHz: ANALYSIS_MAX_HZ,
-      peakMinOverride: PEAK_DETECTION_FLOOR,
+    const peaks = this.findPeaks(this.frozenMagnitudes, this.frozenFrequencies, {
+      peakMinOverride: TapToneAnalyzer.peakDetectionFloor,
     })
     this.peaks = peaks
     this.modeByPeak = classifyAll(peaks, guitarType)
@@ -2530,6 +2533,168 @@ export class TapToneAnalyzer {
     return out
   }
 
+  // ── Peak analysis (Swift TapToneAnalyzer+PeakAnalysis) ──────────────────────────────────────
+
+  /** Peaks closer than this (Hz) are one resonance; the louder is kept. Swift `peakProximityHz`. */
+  static readonly peakProximityHz = 2.0
+  /** The fixed detection floor (dB): capture finds peaks down to this, and Peak Min is applied
+   *  afterwards as a display projection. Swift `peakDetectionFloor`. */
+  static readonly peakDetectionFloor = -100
+
+  /**
+   * Find every significant spectral peak within the analysis range. Swift
+   * `findPeaks(magnitudes:frequencies:minHz:maxHz:peakMinOverride:)`.
+   *
+   * **Detection only — this knows nothing about guitar modes.** A single sweep over the spectrum in
+   * ascending frequency order: each bin is visited once and mints at most one peak, so two peaks can
+   * never describe the same spectral feature. Classification and mode claiming belong to
+   * `classifyAll`, which works on the returned list — where each peak has one identity and is claimed
+   * once. Do not reintroduce mode-band awareness here.
+   *
+   * Each accepted peak's frequency and magnitude are refined by parabolic interpolation, and its Q
+   * comes from the −3 dB bandwidth.
+   * @param magnitudes Magnitude spectrum, in dB.
+   * @param frequencies Bin centre frequencies, in Hz (same length as `magnitudes`).
+   * @param options `minHz` / `maxHz` (default the analyzer's `minFrequency` / `maxFrequency`), and
+   *   `peakMinOverride` (default the analyzer's `peakMinThreshold`).
+   * @returns Detected peaks, sorted by descending magnitude.
+   */
+  // @parity dsp/peak-analysis
+  findPeaks(
+    magnitudes: SpectrumValues,
+    frequencies: SpectrumValues,
+    options: { minHz?: number; maxHz?: number; peakMinOverride?: number } = {},
+  ): ResonantPeak[] {
+    const n = magnitudes.length
+    if (n !== frequencies.length) return []
+
+    const windowSize = 5 // look at ±5 bins around each point
+    const loFreq = options.minHz ?? this.minFrequency
+    const hiFreq = options.maxHz ?? this.maxFrequency
+    const firstIndex = (pred: (f: number) => boolean): number | null => {
+      for (let i = 0; i < n; i++) if (pred(frequencies[i] as number)) return i
+      return null
+    }
+    const startIdx = firstIndex((f) => f >= loFreq) ?? 0
+    const endIdx = firstIndex((f) => f > hiFreq) ?? n - 1
+
+    const effectiveThreshold = options.peakMinOverride ?? this.peakMinThreshold
+
+    // The ±windowSize local-maximum test needs that many neighbours on each side.
+    const scanStart = startIdx + windowSize
+    const scanEnd = endIdx - windowSize
+    if (scanStart >= scanEnd) return []
+
+    const peaks: ResonantPeak[] = []
+    for (let i = scanStart; i < scanEnd; i++) {
+      const magnitude = magnitudes[i] as number
+      if (!(magnitude > effectiveThreshold)) continue
+      let isLocalMax = true
+      for (let offset = -windowSize; offset <= windowSize; offset++) {
+        if (offset === 0) continue
+        if ((magnitudes[i + offset] as number) >= magnitude) {
+          isLocalMax = false
+          break
+        }
+      }
+      if (!isLocalMax) continue
+      peaks.push(this.makePeak(i, magnitudes, frequencies))
+    }
+
+    // Two adjacent bins can still resolve to interpolated vertices within peakProximityHz of one
+    // another; collapse those, keeping the louder.
+    return this.removeDuplicatePeaks(peaks).sort((a, b) => b.magnitude - a.magnitude)
+  }
+
+  /** A peak at bin `index`: interpolated frequency and magnitude, Q and bandwidth, and pitch. Swift `makePeak(at:)`. */
+  private makePeak(index: number, magnitudes: SpectrumValues, frequencies: SpectrumValues): ResonantPeak {
+    const { frequency, magnitude } = this.parabolicInterpolate(magnitudes, frequencies, index)
+    const { quality, bandwidth } = this.calculateQFactor(magnitudes, frequencies, index, magnitude)
+    return makeResonantPeak({
+      frequency,
+      magnitude,
+      quality,
+      bandwidth,
+      pitchNote: this.pitchCalculator.note(frequency),
+      pitchCents: this.pitchCalculator.cents(frequency),
+      pitchFrequency: this.pitchCalculator.freq0(frequency),
+    })
+  }
+
+  /**
+   * Collapse near-coincident peaks: within `peakProximityHz` of an existing entry, keep the louder;
+   * otherwise append. First-seen order is preserved. Swift `removeDuplicatePeaks(_:)`.
+   * @param peaks Peaks in any order.
+   * @returns The peaks with near-duplicates removed.
+   */
+  removeDuplicatePeaks(peaks: ResonantPeak[]): ResonantPeak[] {
+    const unique: ResonantPeak[] = []
+    const tolerance = TapToneAnalyzer.peakProximityHz
+    for (const peak of peaks) {
+      const existing = unique.findIndex((e) => Math.abs(e.frequency - peak.frequency) < tolerance)
+      if (existing === -1) unique.push(peak)
+      else if (peak.magnitude > unique[existing]!.magnitude) unique[existing] = peak
+    }
+    return unique
+  }
+
+  /**
+   * Refine a bin-level peak with a parabola through the bin and its two neighbours (α left, β centre,
+   * γ right): `δ = 0.5(α−γ)/(α−2β+γ)`, `f = f_bin + δ·Δf`, `A = β − 0.25(α−γ)·δ`. An edge bin, or a flat
+   * top (denominator ≈ 0), returns the raw bin. Swift `parabolicInterpolate(magnitudes:frequencies:peakIndex:)`.
+   * @param magnitudes Magnitude spectrum, in dB.
+   * @param frequencies Bin centre frequencies, in Hz.
+   * @param i Index of the local-maximum bin.
+   * @returns The interpolated `{ frequency, magnitude }`.
+   */
+  parabolicInterpolate(
+    magnitudes: SpectrumValues,
+    frequencies: SpectrumValues,
+    i: number,
+  ): { frequency: number; magnitude: number } {
+    if (!(i > 0 && i < magnitudes.length - 1)) {
+      return { frequency: frequencies[i] as number, magnitude: magnitudes[i] as number }
+    }
+    const val = magnitudes[i] as number
+    const lval = magnitudes[i - 1] as number
+    const rval = magnitudes[i + 1] as number
+    const denom = lval - 2 * val + rval
+    // Avoid division by near-zero (flat top — the bin is already accurate).
+    if (!(Math.abs(denom) > 1e-6)) return { frequency: frequencies[i] as number, magnitude: val }
+    const delta = (0.5 * (lval - rval)) / denom
+    const binWidth = (frequencies[i] as number) - (frequencies[i - 1] as number)
+    return { frequency: (frequencies[i] as number) + delta * binWidth, magnitude: val - 0.25 * (lval - rval) * delta }
+  }
+
+  /**
+   * Q factor and −3 dB bandwidth: walk outward from `peakIndex` until the magnitude first drops below
+   * `peakMagnitude − 3 dB`; `bandwidth = f_upper − f_lower`, `Q = f_centre / bandwidth`. Swift
+   * `calculateQFactor(magnitudes:frequencies:peakIndex:peakMagnitude:)`.
+   * @param magnitudes Magnitude spectrum, in dB.
+   * @param frequencies Bin centre frequencies, in Hz.
+   * @param peakIndex Index of the peak bin.
+   * @param peakMagnitude Reference magnitude (the interpolated peak), in dB.
+   * @returns `{ quality, bandwidth }`; both 0 when an index is out of bounds.
+   */
+  calculateQFactor(
+    magnitudes: SpectrumValues,
+    frequencies: SpectrumValues,
+    peakIndex: number,
+    peakMagnitude: number,
+  ): { quality: number; bandwidth: number } {
+    const threshold = peakMagnitude - 3.0
+    let lowerIdx = peakIndex
+    while (lowerIdx > 0 && (magnitudes[lowerIdx] as number) > threshold) lowerIdx--
+    let upperIdx = peakIndex
+    while (upperIdx < magnitudes.length - 1 && (magnitudes[upperIdx] as number) > threshold) upperIdx++
+    if (!(peakIndex < frequencies.length && lowerIdx < frequencies.length && upperIdx < frequencies.length)) {
+      return { quality: 0, bandwidth: 0 }
+    }
+    const bandwidth = (frequencies[upperIdx] as number) - (frequencies[lowerIdx] as number)
+    const quality = bandwidth > 0 ? (frequencies[peakIndex] as number) / bandwidth : 0
+    return { quality, bandwidth }
+  }
+
   /**
    * Select the dominant resonance from a gated-FFT spectrum. Swift
    * `findDominantPeak(magnitudes:frequencies:minHz:maxHz:preferLowestSignificant:)`.
@@ -2582,7 +2747,7 @@ export class TapToneAnalyzer {
         const h = i * k
         if (h < n) hps *= linear[h]!
       }
-      const { quality } = calculateQ(magnitudesDb, frequencies, i, mag)
+      const { quality } = this.calculateQFactor(magnitudesDb, frequencies, i, mag)
       candidates.push({ index: i, magnitude: mag, hps, q: quality })
     }
     if (candidates.length === 0) return null
@@ -2606,8 +2771,8 @@ export class TapToneAnalyzer {
       best = current
     }
 
-    const { frequency, magnitude } = parabolicInterpolate(magnitudesDb, frequencies, best.index)
-    const { quality, bandwidth } = calculateQ(magnitudesDb, frequencies, best.index, magnitude)
+    const { frequency, magnitude } = this.parabolicInterpolate(magnitudesDb, frequencies, best.index)
+    const { quality, bandwidth } = this.calculateQFactor(magnitudesDb, frequencies, best.index, magnitude)
     return makeResonantPeak({
       frequency,
       magnitude,
@@ -2654,7 +2819,10 @@ export class TapToneAnalyzer {
   finishGuitarGatedCapture(samples: Float32Array, sampleRate: number): void {
     const fftSize = this.device?.fftSize ?? GUITAR_FFT_SIZE
     const aligned = this.alignCaptureToOnset(samples, fftSize, Math.round(sampleRate * TapToneAnalyzer.preOnsetDuration))
-    const spectrum = this.applyCalibration(dftAnalRect(aligned, sampleRate, fftSize))
+    // The live path's rectangular window and fftSize, so the spectrum is bin-compatible with the live
+    // frames (Swift `fftAnalyzer.computeFFT(on: chunk)`), then the input's calibration.
+    const engine = this.device ?? new RealtimeFFTAnalyzer()
+    const spectrum = this.applyCalibration({ magnitudesDb: engine.computeFFT(aligned), frequencies: engine.frequencies })
     this.gatedCaptureActive = false
     this.guitarTapCount += 1
     this.recordGuitarTap(spectrum)

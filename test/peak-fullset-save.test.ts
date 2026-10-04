@@ -18,11 +18,24 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildGuitarMeasurement } from '../src/measurement/fromLive'
-import { findPeaks, PEAK_DETECTION_FLOOR } from '../src/dsp/peaks'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { classifyAll } from '../src/dsp/classify'
 import { base64ToFloats } from '../src/measurement/base64'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import type { ResonantPeak } from '../src/measurement/types'
+
+/** Find peaks the way the app does: on an analyzer, whose Peak Min is the threshold unless a floor
+ *  overrides it. */
+function findPeaks(
+  mags: ArrayLike<number> & (number[] | Float32Array | Float64Array),
+  freqs: ArrayLike<number> & (number[] | Float32Array | Float64Array),
+  o: { peakMinThreshold?: number; peakMinOverride?: number; minHz?: number; maxHz?: number; guitarType?: string },
+): ResonantPeak[] {
+  const analyzer = new TapToneAnalyzer()
+  if (o.peakMinThreshold !== undefined) analyzer.peakMinThreshold = o.peakMinThreshold
+  return analyzer.findPeaks(mags, freqs, { minHz: o.minHz, maxHz: o.maxHz, peakMinOverride: o.peakMinOverride })
+}
+
 
 const raw = JSON.parse(
   readFileSync(join(__dirname, 'fixtures', 'dws-2024-umik-1-swift-mac-1784225155.guitartap'), 'utf8'),
@@ -49,7 +62,7 @@ describe('buildGuitarMeasurement — full-set save (Option 4, real capture)', ()
   // The analyzer's durable set — what App.tsx actually hands the save path.
   const durable: ResonantPeak[] = findPeaks(spectrum.magnitudesDb, spectrum.frequencies, {
     guitarType: 'generic',
-    peakMinOverride: PEAK_DETECTION_FLOOR,
+    peakMinOverride: TapToneAnalyzer.peakDetectionFloor,
     minHz: 30,
     maxHz: 2000,
   })

@@ -1,6 +1,6 @@
 // @parity audio/realtime-analyzer
 import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, watchdogDecision } from './deadInput'
-import { dftAnalRect, GUITAR_FFT_SIZE, spectrumPeak, type Spectrum } from '../dsp/guitarFFT'
+import { GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { fftInPlace } from '../dsp/fft'
 import {
@@ -116,7 +116,7 @@ interface ChunkMessage {
 /**
  * Live audio engine. The mic feeds an AudioWorklet that posts 1024-sample chunks
  * (+ RMS) to the main thread, where the tested `src/dsp` core runs:
- *   - continuous live spectrum (accumulate 65536 → `dftAnalRect`; 0% overlap);
+ *   - continuous live spectrum (accumulate 65536 → `performFFT`; 0% overlap);
  *   - tap detection (2-chunk level-crossing), always-on once started (matching
  *     GuitarTap) → 65536 capture → the captured spectrum is emitted and the view
  *     freezes. New Tap simply re-arms a frozen result. Peak-finding/classification
@@ -192,6 +192,80 @@ export class RealtimeFFTAnalyzer {
   /** The analysis window size, so the analyzer can align and pad to it (Swift `fftAnalyzer.fftSize`). */
   get fftSize(): number {
     return GUITAR_FFT_SIZE
+  }
+
+  /** The live spectrum's loudest bin — Swift `peakFrequency` / `peakMagnitude`, set by `performFFT`.
+   *  Starts at Swift's silent state: 0 Hz, −100 dB. */
+  peakFrequency = 0
+  peakMagnitude = -100
+
+  private binFrequencies: { sampleRate: number; values: number[] } | null = null
+
+  /** The live FFT's bin centre frequencies (Hz) at the current sample rate, `fftSize / 2` bins.
+   *  Swift `frequencies`. */
+  get frequencies(): number[] {
+    if (this.binFrequencies?.sampleRate !== this.sampleRate) {
+      const half = this.fftSize >> 1
+      const values = new Array<number>(half)
+      for (let i = 0; i < half; i++) values[i] = (i * this.sampleRate) / this.fftSize
+      this.binFrequencies = { sampleRate: this.sampleRate, values }
+    }
+    return this.binFrequencies.values
+  }
+
+  /**
+   * Magnitude spectrum of `samples` in dBFS, with the rectangular window and `fftSize` — the deterministic
+   * DSP core shared by `performFFT` and the guitar gated capture. Reads nothing but `fftSize`, writes
+   * nothing. Swift `computeFFT(on:)`.
+   *
+   * The window is a boxcar normalised by its sum (÷N); the one-sided magnitudes run from DC to the last
+   * bin below Nyquist, as Swift's, with the interior bins doubled (DC not). The reference zero-phase
+   * rotation is omitted: a circular shift does not change |FFT|.
+   * @param samples Time-domain samples; truncated or zero-filled to `fftSize`.
+   * @returns The one-sided spectrum in dBFS, `fftSize / 2` bins.
+   */
+  // @parity dsp/guitar-fft
+  computeFFT(samples: Float32Array | Float64Array | number[]): number[] {
+    const fftSize = this.fftSize
+    const re = new Float64Array(fftSize)
+    const im = new Float64Array(fftSize)
+    const norm = 1 / fftSize // rectangular window divided by its sum (= fftSize)
+    const copy = Math.min(samples.length, fftSize)
+    for (let i = 0; i < copy; i++) re[i] = (samples[i] as number) * norm
+
+    fftInPlace(re, im)
+
+    const half = fftSize >> 1
+    const magnitudesDb = new Array<number>(half)
+    for (let i = 0; i < half; i++) {
+      let mag = Math.hypot(re[i]!, im[i]!)
+      if (i >= 1) mag *= 2 // one-sided: interior doubled; DC not
+      // No epsilon clamp: a bin with no energy is -Infinity, which is what Swift's vDSP_vdbcon
+      // produces. It has to stay distinguishable from -100 dB, a REAL level a live UMIK-1 reaches in
+      // a quiet room, where an epsilon clamp would put a precise-looking -313.0 dB on screen for the
+      // absence of a signal.
+      magnitudesDb[i] = 20 * Math.log10(mag)
+    }
+    return magnitudesDb
+  }
+
+  /**
+   * Run the live FFT on `samples`: `computeFFT`, then the input's calibration, then the spectrum's peak —
+   * `peakFrequency` / `peakMagnitude`, the first maximum on ties (as Swift's `max(by:)`), so a silent input
+   * is −∞ dB at bin 0. Swift `performFFT(on:)`.
+   * @param samples `fftSize` time-domain samples.
+   * @returns The calibrated spectrum.
+   */
+  performFFT(samples: Float32Array | Float64Array | number[]): Spectrum {
+    const spectrum = this.applyCal({ magnitudesDb: this.computeFFT(samples), frequencies: this.frequencies })
+    const mags = spectrum.magnitudesDb
+    if (mags.length > 0) {
+      let best = 0
+      for (let i = 1; i < mags.length; i++) if (mags[i]! > mags[best]!) best = i
+      this.peakFrequency = spectrum.frequencies[best]!
+      this.peakMagnitude = mags[best]!
+    }
+    return spectrum
   }
 
 
@@ -371,7 +445,7 @@ export class RealtimeFFTAnalyzer {
    *  The fixed guitar FFT bins are cached; any other bin layout (gated) is interpolated fresh. */
   private applyCal(spec: Spectrum): Spectrum {
     if (!this.calibration) return spec
-    const guitarBins = (GUITAR_FFT_SIZE >> 1) + 1
+    const guitarBins = GUITAR_FFT_SIZE >> 1
     let corr: number[]
     if (spec.magnitudesDb.length === guitarBins) {
       if (!this.guitarCorr) this.guitarCorr = interpolateToBins(this.calibration, spec.frequencies)
@@ -772,7 +846,7 @@ export class RealtimeFFTAnalyzer {
       this.wakePlaybackPacer()
       return
     }
-    this.processChunk(data.samples, data.rms)
+    this.processRawSamples(data.samples)
   }
 
   /** Wire a fresh input track's loss signals. `ended` (device truly gone) forces the watchdog
@@ -797,13 +871,33 @@ export class RealtimeFFTAnalyzer {
     }
   }
 
-  // The shared per-chunk core, fed by BOTH the live mic (onChunk) and file playback (playFile),
-  // so a played file runs the exact same level-crossing + FFT + capture path as the mic.
-  private processChunk(s: Float32Array, rms: number): void {
+  /** The level of the last chunk, in dBFS, for detection, the meter and decay; silence is −100.
+   *  Swift `inputLevelDB`. */
+  get inputLevelDB(): number {
+    return this.inputLevelDb
+  }
+  private inputLevelDb = -100
+
+  /** The readout's level: `inputLevelDB`, except true digital silence is −∞. Swift `readoutLevelDB`. */
+  get readoutLevelDB(): number {
+    return this.readoutLevelDb
+  }
+
+  /**
+   * Process one audio chunk through the pipeline — the shared per-chunk core, fed by BOTH the live mic
+   * (onChunk) and file playback (playFile), so a played file runs the exact same level-crossing + FFT +
+   * capture path as the mic. Swift `processRawSamples(_:)`.
+   * @param s The chunk's samples.
+   */
+  processRawSamples(s: Float32Array): void {
+    let sumSq = 0
+    for (let k = 0; k < s.length; k++) sumSq += s[k]! * s[k]!
+    const rms = Math.sqrt(sumSq / Math.max(1, s.length))
     // Silence is -100, exactly as Swift (`rms > 0 ? 20*log10(rms) : -100`). This was
     // `max(rms, 1e-10)`, i.e. -200 — copied from Python, not Swift — so detection saw a different
     // level on true digital silence than Swift's did.
     const db = rms > 0 ? 20 * Math.log10(rms) : -100
+    this.inputLevelDb = db
     // The READOUT's level — Swift readoutLevelDB: the same value, except true silence is -Infinity,
     // because -100 dB is a real level a quiet UMIK-1 reaches. Sampled into the FFT-frame metrics
     // (displayLevelDB) at the graph rate. Detection, the meter and decay keep `db`.
@@ -865,9 +959,7 @@ export class RealtimeFFTAnalyzer {
     const renderedAtStart = this.renderedSeconds
     for (let i = 0; i < samples.length && this.filePlaybackGeneration === myGeneration; i += CHUNK) {
       const chunk = samples.subarray(i, Math.min(i + CHUNK, samples.length))
-      let sumSq = 0
-      for (let k = 0; k < chunk.length; k++) sumSq += chunk[k]! * chunk[k]!
-      this.processChunk(chunk, Math.sqrt(sumSq / Math.max(1, chunk.length)))
+      this.processRawSamples(chunk)
       if (!pace) continue
       if (audioClock) await this.untilRendered(renderedAtStart + (i + chunk.length) / fileSampleRate)
       else await new Promise((r) => setTimeout(r, chunkMs))
@@ -967,17 +1059,16 @@ export class RealtimeFFTAnalyzer {
       i += n
       if (this.accumIdx >= this.accum.length) {
         const t0 = performance.now()
-        const spectrum = this.applyCal(dftAnalRect(this.accum, this.sampleRate, GUITAR_FFT_SIZE))
+        const spectrum = this.performFFT(this.accum)
         this.recordProcessing(performance.now() - t0)
         this.callbacks.onSpectrum?.(spectrum)
-        const peak = spectrumPeak(spectrum)
         this.callbacks.onMetrics?.({
           processingMs: this.processingMs,
           avgProcessingMs: this.avgProcessingMs,
           frameRate: this.sampleRate / GUITAR_FFT_SIZE,
           displayLevelDB: this.readoutLevelDb,
-          peakFrequency: peak?.frequency ?? 0,
-          peakMagnitude: peak?.magnitude ?? -100,
+          peakFrequency: this.peakFrequency,
+          peakMagnitude: this.peakMagnitude,
         })
         this.accumIdx = 0
       }
