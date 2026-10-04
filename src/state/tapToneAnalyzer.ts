@@ -10,25 +10,25 @@
 //
 // @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/start-tap-race,test/measurement-complete
 // @parity audio/tap-analyzer  tests=test/tap-decisions
-import { averageSpectra } from '../dsp/spectrumAverage'
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { Calibration } from '../dsp/calibration'
-import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
+import { classifyAll, type ResolvedMode } from '../dsp/classify'
 // The one override-aware mode resolver (mirrors Swift GuitarMode.effectiveMode). A minor state→presentation
 // import (precedent: MaterialPeaks from components) — the resolver lives with the mode↔label map it needs.
 import { effectiveMode as resolveEffectiveMode } from '../presentation/modeColors'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import { makeResonantPeak, TapEntry, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapToneMeasurementModel } from '../measurement/types'
+import { guitarTypeNameFromRaw, isoNow, makeResonantPeak, TapEntry, type AnnotationOffsets, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapEntryModel, type TapToneMeasurementModel } from '../measurement/types'
+import { normalizedMeasurementNotes } from '../measurement/measurementName'
 import { newId } from '../measurement/newId'
 import { Pitch } from '../dsp/pitch'
-import { buildGuitarMeasurement, buildMaterialMeasurement, comparisonAxisRange, GUITAR_TYPE_RAW, measurementToLive, measurementToLiveMaterial } from '../measurement/fromLive'
+import { comparisonAxisRange, GUITAR_TYPE_RAW, measurementToLive, measurementToLiveMaterial } from '../measurement/fromLive'
 import { saveMeasurement as storeMeasurement } from '../measurement/store'
 import type { ChartView } from '../presentation/chartTypes'
 import { GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
 import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type MaterialPhaseName, type EngineState } from '../audio/realtimeFFTAnalyzer'
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
-import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, type MeasurementType, type Settings } from '../settings'
+import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, type MeasurementType, type Settings } from '../settings'
 import { materialInputsFromSettings, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { dumpCaptureWav } from '../measurement/dumpWav'
 import { FieldPrecision } from '../precision'
@@ -168,6 +168,254 @@ export function setupDiffersMessage(
     lines.join('\n') +
     '\n\nA tap captured now may not match the saved result. In a browser, the sample rate follows your output device: set the output and input to the same rate in Audio MIDI Setup (Mac) or Sound settings (Windows).'
   )
+}
+
+// ── The saved record ────────────────────────────────────────────────────────────────────────
+// The record builders behind `buildMeasurement` / `buildComparisonMeasurement`: the analyzer's save is the
+// only caller, as Swift builds the record inside `saveMeasurement` / `saveComparison`.
+
+interface BuildMeasurementArgs {
+  name: string
+  notes: string
+  spectrum: Spectrum
+  peaks: ResonantPeak[]
+  selectedIds: Set<string>
+  /** Manual label overrides, keyed by peak `id` (the analyzer-owned live form). */
+  overridesById: Map<string, string>
+  view: ChartView
+  settings: Settings
+  numberOfTaps: number
+  /** Per-tap entries (multi-tap capture), saved as they are as the measurement's tapEntries. */
+  tapEntries?: TapEntry[]
+  sampleRate: number | null
+  deviceLabel: string
+  /** Active input deviceId + calibration name at capture time (provenance for the Details pane). */
+  microphoneUID?: string
+  calibrationName?: string
+  /** Dragged annotation-label positions, keyed by peak `id` → [absFreqHz, absDB] (the analyzer store). */
+  annotationOffsetsById?: Map<string, [number, number]>
+  /** Measured ring-out time (s) from the engine, or null/undefined if not measured. */
+  decayTime?: number | null
+  /** Whether the current selection is user-modified (vs automatic) — persisted so a reloaded
+   *  measurement re-runs auto-selection on Peak Min change when automatic. Omitted defaults to
+   *  automatic (a fresh build that never touched selection). */
+  userModified?: boolean
+}
+
+/** Construct a guitar TapToneMeasurementModel from the current frozen result. */
+function makeGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurementModel {
+  const timestamp = isoNow()
+  const guitarTypeRaw = GUITAR_TYPE_RAW[a.settings.measurementType] ?? 'Generic'
+  const guitarTypeName = guitarTypeNameFromRaw(guitarTypeRaw)
+  const measurementTypeRaw = MEASUREMENT_FULL_NAME[a.settings.measurementType]
+
+  // Each peak is saved as it is — its own id, the time it was found and its pitch — as Swift saves
+  // `allPeaks`. (The mode label the file carries is the writer's: encode.ts derives it afresh.)
+  const peakModels: ResonantPeak[] = [...a.peaks]
+
+  // Full-set save. `a.peaks` IS the full set — the analyzer detects
+  // at the -100 dB floor and `peaksAbovePeakMin` is only its display projection — so what gets saved
+  // is simply that set, built above. Mirrors Swift `guitarFullSavePeaks() { allPeaks }`.
+  //
+  // This block used to re-run findPeaks here and APPEND every peak below the current Peak Min, on
+  // the pre-Phase-1 assumption that `a.peaks` held only the peaks above it. Once the analyzer's
+  // durable set became the full -100 dB set, that appended a second copy of every sub-Peak-Min peak
+  // under a second UUID: a real capture saved 111 peaks as 217, with 106 frequencies duplicated.
+  // Swift deleted the same re-detect-and-append dance for the same reason. Do not reintroduce it.
+
+  const snapshot: SpectrumSnapshotModel = {
+    frequencies: a.spectrum.frequencies,
+    magnitudes: a.spectrum.magnitudesDb,
+    minFreq: a.view.minHz,
+    maxFreq: a.view.maxHz,
+    minDB: a.view.minDb,
+    maxDB: a.view.maxDb,
+    isLogarithmic: false,
+    showUnknownModes: a.settings.showUnknownModes,
+    guitarType: guitarTypeRaw,
+    measurementType: measurementTypeRaw,
+  }
+
+  const selected = a.peaks.filter((p) => a.selectedIds.has(p.id))
+  const peakModeOverrides: Record<string, string> = {}
+  const peakAnnotationOffsets: AnnotationOffsets = {}
+  for (const p of a.peaks) {
+    const override = a.overridesById.get(p.id)
+    if (override != null) peakModeOverrides[p.id] = override
+    const offset = a.annotationOffsetsById?.get(p.id)
+    if (offset != null) peakAnnotationOffsets[p.id] = offset
+  }
+
+  // Per-tap entries for the multi-tap comparison view, saved as they are (mirrors Swift tapEntries).
+  const tapEntries: TapEntryModel[] | undefined =
+    a.tapEntries && a.tapEntries.length > 1
+      ? a.tapEntries.map((entry) => ({
+          id: entry.id,
+          tapIndex: entry.tapIndex,
+          snapshot: entry.snapshot,
+          peaks: entry.peaks,
+          selectedPeakIDs: entry.selectedPeakIDs,
+        }))
+      : undefined
+
+  return {
+    id: newId(),
+    timestamp,
+    peaks: peakModels,
+    decayTime: a.decayTime ?? undefined,
+    measurementName: a.name.trim() || undefined,
+    notes: normalizedMeasurementNotes(a.notes),
+    spectrumSnapshot: snapshot,
+    selectedPeakIDs: selected.map((p) => p.id),
+    userModifiedSelection: a.userModified ?? false,
+    selectedPeakFrequencies: selected.map((p) => p.frequency),
+    annotationVisibilityMode: a.settings.annotationVisibilityMode,
+    tapDetectionThreshold: a.settings.tapDetectionThreshold,
+    numberOfTaps: a.numberOfTaps,
+    peakMinThreshold: a.settings.peakMinThreshold,
+    peakModeOverrides: Object.keys(peakModeOverrides).length ? peakModeOverrides : undefined,
+    peakAnnotationOffsets: Object.keys(peakAnnotationOffsets).length ? peakAnnotationOffsets : undefined,
+    tapEntries,
+    microphoneName: a.deviceLabel || undefined,
+    microphoneUID: a.microphoneUID || undefined,
+    calibrationName: a.calibrationName || undefined,
+    sampleRate: a.sampleRate ?? undefined,
+  }
+}
+
+
+interface BuildMaterialArgs {
+  name: string
+  notes: string
+  spectra: { longitudinal: Spectrum | null; cross: Spectrum | null; flc: Spectrum | null }
+  peaks: { longitudinal: ResonantPeak | null; cross: ResonantPeak | null; flc: ResonantPeak | null }
+  view: ChartView
+  settings: Settings
+  /** The measurement's OWN dims (Store B) — the sole source for the snapshot dims written on save. */
+  materialInputs: MaterialMeasurementInputs
+  /** Taps averaged per phase. Required (not optional) so the call site must supply the real
+   *  count — a hardcoded 1 here shipped a wrong tap count in every saved material measurement. */
+  numberOfTaps: number
+  sampleRate: number | null
+  deviceLabel: string
+  microphoneUID?: string
+  calibrationName?: string
+  /** Dragged L/C/FLC label positions, keyed by material peak `id` (the shared analyzer store). */
+  annotationOffsetsById?: Map<string, [number, number]>
+}
+
+/** Construct a plate/brace TapToneMeasurementModel from the current completed material
+ *  result. Mirrors Swift's per-phase snapshots: each snapshot carries the dimensions +
+ *  measurementType; the selected L/C/FLC peaks are the measurement's `peaks`. */
+function makeMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasurementModel {
+  const timestamp = isoNow()
+  const brace = a.settings.measurementType === 'brace'
+  const measurementType = MEASUREMENT_FULL_NAME[a.settings.measurementType]
+  // Swift/Python write the current guitar-body type on plate/brace snapshots too
+  // (falls back to "Generic"); external consumers read it for the top-level guitarType.
+  const guitarTypeRaw = GUITAR_TYPE_RAW[a.settings.measurementType] ?? 'Generic'
+
+  // Dimensions written on every per-phase snapshot come from Store B (the measurement's own values),
+  // NOT the live Settings — mirrors Swift makePhaseSnapshot reading materialInputs. measureFlc is a
+  // capture setting (not in Store B), so it still comes from settings.
+  const mi = a.materialInputs
+  const dims: Partial<SpectrumSnapshotModel> = brace
+    ? {
+        braceLength: mi.lengthMm,
+        braceWidth: mi.widthMm,
+        braceThickness: mi.thicknessMm,
+        braceMass: mi.massG,
+      }
+    : {
+        plateLength: mi.lengthMm,
+        plateWidth: mi.widthMm,
+        plateThickness: mi.thicknessMm,
+        plateMass: mi.massG,
+        guitarBodyLength: mi.bodyLengthMm,
+        guitarBodyWidth: mi.bodyWidthMm,
+        plateStiffnessPreset: STIFFNESS_RAW_NAME[mi.stiffnessPreset],
+        customPlateStiffness: mi.customStiffness,
+        measureFlc: a.settings.measureFlc,
+      }
+
+  const makeSnap = (sp: Spectrum): SpectrumSnapshotModel => ({
+    frequencies: sp.frequencies,
+    magnitudes: sp.magnitudesDb,
+    minFreq: a.view.minHz,
+    maxFreq: a.view.maxHz,
+    minDB: a.view.minDb,
+    maxDB: a.view.maxDb,
+    isLogarithmic: false,
+    showUnknownModes: a.settings.showUnknownModes,
+    guitarType: guitarTypeRaw,
+    measurementType,
+    ...dims,
+  })
+
+  // The selected L/C/FLC peaks become the measurement's peaks, each under its own id; any dragged label
+  // offset is written into the shared peakAnnotationOffsets map keyed by that id (gold-standard format).
+  const peaks: ResonantPeak[] = []
+  const peakAnnotationOffsets: AnnotationOffsets = {}
+  const addPeak = (mp: ResonantPeak | null): string | undefined => {
+    if (!mp) return undefined
+    const id = mp.id
+    peaks.push(mp)
+    const offset = a.annotationOffsetsById?.get(mp.id) // material offsets are id-keyed live
+    if (offset != null) peakAnnotationOffsets[id] = offset
+    return id
+  }
+  const selL = addPeak(a.peaks.longitudinal)
+  const selC = addPeak(a.peaks.cross)
+  const selFlc = addPeak(a.peaks.flc)
+
+  // selectedPeakIDs / selectedPeakFrequencies mirror Swift: every role-selected peak,
+  // so a native consumer marks the same peaks "selected" (annotationVisibilityMode).
+  const selectedPairs = [
+    [selL, a.peaks.longitudinal],
+    [selC, a.peaks.cross],
+    [selFlc, a.peaks.flc],
+  ] as const
+  const selectedPeakIDs = selectedPairs.filter(([id]) => id != null).map(([id]) => id as string)
+  const selectedPeakFrequencies = selectedPairs.filter(([, p]) => p != null).map(([, p]) => p!.frequency)
+
+  return {
+    id: newId(),
+    timestamp,
+    peaks,
+    measurementName: a.name.trim() || undefined,
+    notes: normalizedMeasurementNotes(a.notes),
+    longitudinalSnapshot: a.spectra.longitudinal ? makeSnap(a.spectra.longitudinal) : undefined,
+    crossSnapshot: a.spectra.cross ? makeSnap(a.spectra.cross) : undefined,
+    flcSnapshot: a.spectra.flc ? makeSnap(a.spectra.flc) : undefined,
+    selectedLongitudinalPeakID: selL,
+    selectedCrossPeakID: selC,
+    selectedFlcPeakID: selFlc,
+    selectedPeakIDs,
+    selectedPeakFrequencies,
+    peakAnnotationOffsets: Object.keys(peakAnnotationOffsets).length ? peakAnnotationOffsets : undefined,
+    annotationVisibilityMode: a.settings.annotationVisibilityMode,
+    tapDetectionThreshold: a.settings.tapDetectionThreshold,
+    numberOfTaps: a.numberOfTaps,
+    peakMinThreshold: a.settings.peakMinThreshold,
+    microphoneName: a.deviceLabel || undefined,
+    microphoneUID: a.microphoneUID || undefined,
+    calibrationName: a.calibrationName || undefined,
+    sampleRate: a.sampleRate ?? undefined,
+  }
+}
+
+
+/** Wrap live comparison entries into a saved comparison measurement (peaks: [] top-level,
+ *  comparisonEntries populated) — mirrors Swift/Python save_comparison. */
+function makeComparisonMeasurement(a: { name: string; notes: string; entries: ComparisonEntryModel[] }): TapToneMeasurementModel {
+  return {
+    id: newId(),
+    timestamp: isoNow(),
+    peaks: [],
+    measurementName: a.name.trim() || undefined,
+    notes: normalizedMeasurementNotes(a.notes),
+    comparisonEntries: a.entries,
+  }
 }
 
 /** A magnitude or frequency array the peak analysis reads. */
@@ -535,7 +783,7 @@ export class TapToneAnalyzer {
       magnitudesDb: t.magnitudes,
       frequencies: t.frequencies,
     }))
-    const avg = averageSpectra(spectra)
+    const avg = this.averageSpectra(spectra)
     this.frozenMagnitudes = avg.magnitudesDb
     this.frozenFrequencies = avg.frequencies
     this.isMeasurementComplete = true
@@ -543,14 +791,13 @@ export class TapToneAnalyzer {
     // (detected to the floor) as the durable result, and auto-select one best peak per guitar mode over
     // that full set — a quiet Air below Peak Min is selected even though it is not displayed. A new
     // capture is one of the two things that legitimately resets per-peak selection state.
-    const guitarType = this.guitarType
     const peaksFromAveragedSpectrum = this.findPeaks(avg.magnitudesDb, avg.frequencies, { peakMinOverride: TapToneAnalyzer.peakDetectionFloor })
     this.peaks = peaksFromAveragedSpectrum
-    this.selectedPeakIds = this.guitarModeSelectedPeakIds(peaksFromAveragedSpectrum, guitarType)
+    this.selectedPeakIds = this.guitarModeSelectedPeakIds(peaksFromAveragedSpectrum)
     this.userModifiedSelection = false
     this.loadedPeaks = null // a new live result — no longer remapping from a loaded measurement
     this.selectedPeakFrequencies = [] // reset the frequency cache for the new live session
-    this.modeByPeak = classifyAll(peaksFromAveragedSpectrum, guitarType)
+    this.modeByPeak = classifyAll(peaksFromAveragedSpectrum, this.guitarType)
     this.refreshDisplayedPeaks()
     this.setStatusMessage(
       `Analysis complete! ${peaksFromAveragedSpectrum.length} peaks identified (from ${this.capturedTaps.length} averaged taps).`,
@@ -564,7 +811,7 @@ export class TapToneAnalyzer {
       const range = { minHz: minFrequency(s, this.measurementType), maxHz: maxFrequency(s, this.measurementType) }
       this.tapEntries = spectra.map((sp, i) => {
         const tapPeaks = this.findPeaks(sp.magnitudesDb, sp.frequencies, { peakMinOverride: TapToneAnalyzer.peakDetectionFloor })
-        const modeSelected = this.guitarModeSelectedPeakIds(tapPeaks, guitarType)
+        const modeSelected = this.guitarModeSelectedPeakIds(tapPeaks)
         const snap: SpectrumSnapshotModel = {
           frequencies: sp.frequencies,
           magnitudes: sp.magnitudesDb,
@@ -594,6 +841,36 @@ export class TapToneAnalyzer {
     this.startTapSequence()
   }
 
+  /**
+   * Frequency-domain power averaging of tap spectra: each bin's dB to linear power, the mean, back to dB.
+   * Mirrors Swift `averageSpectra(from:)`.
+   * @param taps One spectrum per tap.
+   * @returns The averaged spectrum: empty for no taps; a single tap unchanged; the first tap when the bin
+   *   counts differ.
+   */
+  // @parity dsp/spectrum-average
+  averageSpectra(taps: Spectrum[]): Spectrum {
+    if (taps.length === 0) return { magnitudesDb: [], frequencies: [] }
+    if (taps.length === 1) return taps[0]!
+    const first = taps[0]!
+    const spectrumLength = first.magnitudesDb.length
+    if (!taps.every((t) => t.magnitudesDb.length === spectrumLength)) return first
+    const magnitudesDb = new Array<number>(spectrumLength)
+    for (let bin = 0; bin < spectrumLength; bin++) {
+      let linearSum = 0
+      for (const tap of taps) linearSum += 10 ** (tap.magnitudesDb[bin]! / 10)
+      magnitudesDb[bin] = 10 * Math.log10(linearSum / taps.length)
+    }
+    return { magnitudesDb, frequencies: first.frequencies }
+  }
+
+  /** The guitar peak set to save: the full set found down to the −100 dB floor, not just those above the
+   *  current Peak Min, so a reloaded measurement reveals peaks below its capture-time Peak Min as the live
+   *  one does. The durable set is that set. Mirrors Swift `guitarFullSavePeaks()`. */
+  guitarFullSavePeaks(): ResonantPeak[] {
+    return this.peaks
+  }
+
   /** Build the current measurement from the analyzer's state — guitar or material — or null when there is
    *  no result to save. Everything but the view's own state is read here: the peaks and selection, the
    *  identified material peaks, overrides, annotation offsets, the ring-out, the spectra, the material
@@ -611,7 +888,7 @@ export class TapToneAnalyzer {
     const settings = { ...this.settings, measurementType: type }
     if (!isGuitarType(type)) {
       if (!this.matSpectra.longitudinal) return null
-      return buildMaterialMeasurement({
+      return makeMaterialMeasurement({
         name,
         notes,
         spectra: this.matSpectra,
@@ -627,11 +904,11 @@ export class TapToneAnalyzer {
     }
     const spectrum = this.frozenSpectrum()
     if (!spectrum) return null
-    return buildGuitarMeasurement({
+    return makeGuitarMeasurement({
       name,
       notes,
       spectrum,
-      peaks: this.peaks,
+      peaks: this.guitarFullSavePeaks(),
       selectedIds: this.selectedPeakIds,
       overridesById: this.overrides,
       annotationOffsetsById: this.annotationOffsets,
@@ -648,6 +925,19 @@ export class TapToneAnalyzer {
   /** Save the current measurement to the measurement store. Mirrors Swift `saveMeasurement`. */
   async saveMeasurement(name: string, notes: string, view: ChartView): Promise<void> {
     const m = this.buildMeasurement(name, notes, view)
+    if (m) await storeMeasurement(m)
+  }
+
+  /** The current comparison as a saved record — its entries as they are, no peaks of its own — or null
+   *  when no comparison is showing. The comparison save and the comparison PDF both use it. */
+  buildComparisonMeasurement(name: string, notes: string): TapToneMeasurementModel | null {
+    if (this.displayMode !== 'comparison' || this.comparisonEntries.length === 0) return null
+    return makeComparisonMeasurement({ name, notes, entries: this.comparisonEntries })
+  }
+
+  /** Save the current comparison to the measurement store. Mirrors Swift `saveComparison(measurementName:notes:)`. */
+  async saveComparison(name: string, notes: string): Promise<void> {
+    const m = this.buildComparisonMeasurement(name, notes)
     if (m) await storeMeasurement(m)
   }
 
@@ -873,7 +1163,7 @@ export class TapToneAnalyzer {
       // authoritative reference too (`loadedMeasurementPeaks`), and classified (`reclassifyPeaks`).
       this.loadedPeaks = snapshot.loadedPeaks
       this.peaks = snapshot.loadedPeaks ?? []
-      this.reclassifyPeaks(this.guitarType)
+      this.reclassifyPeaks()
       this.refreshDisplayedPeaks()
     }
     if (snapshot.overrides) this.overrides = new Map(snapshot.overrides)
@@ -1018,7 +1308,7 @@ export class TapToneAnalyzer {
     this.refreshDisplayedPeaks()
     // Nothing detected at all: leave the per-peak state alone, so the selection survives (Swift returns
     // before applyFrozenPeakState; Python likewise).
-    if (peaks.length > 0) this.applyFrozenPeakState(oldPeaks, peaks, guitarType)
+    if (peaks.length > 0) this.applyFrozenPeakState(oldPeaks, peaks)
     // Per-tap entries are deliberately NOT recomputed here: each is detected once, at capture, and is
     // durable (Swift removed `recalculateTapEntryPeaks` for the same reason).
     this.notify()
@@ -1038,8 +1328,8 @@ export class TapToneAnalyzer {
 
   /** Re-classify the durable peaks under the current guitar type (no detection). Mirrors Swift
    *  `reclassifyPeaks`. */
-  reclassifyPeaks(guitarType: GuitarTypeName): void {
-    this.modeByPeak = classifyAll(this.peaks, guitarType)
+  reclassifyPeaks(): void {
+    this.modeByPeak = classifyAll(this.peaks, this.guitarType)
   }
 
   // ── Per-peak mode overrides (id-keyed) ───────────────────────────────────────────────────────────
@@ -1109,10 +1399,8 @@ export class TapToneAnalyzer {
    *  Swift `applyFrozenPeakState`. Snapshots the old state BY FREQUENCY from the DURABLE old set (never
    *  a display projection), then re-attaches it — overrides, offsets and selection — to the new peaks by
    *  ±REMAP_TOLERANCE_HZ proximity. Called
-   *  only on the findPeaks branch (loaded/material keep stable ids). `guitarType` is passed in (not read
-   *  from `measurementType`) because recalc's layout-effect can run before the type-sync effect. Notify
-   *  is left to the caller. */
-  private applyFrozenPeakState(oldPeaks: ResonantPeak[], newPeaks: ResonantPeak[], guitarType: GuitarTypeName): void {
+   *  only on the findPeaks branch (loaded/material keep stable ids). Notify is left to the caller. */
+  private applyFrozenPeakState(oldPeaks: ResonantPeak[], newPeaks: ResonantPeak[]): void {
     if (this.overrides.size > 0) {
       // Snapshot {frequency → label} from the OLD durable peaks, then remap onto the new ids.
       const byFreq: Array<{ frequency: number; label: string }> = []
@@ -1169,7 +1457,7 @@ export class TapToneAnalyzer {
       this.selectedPeakIds = carriedIds
       this.selectedPeakFrequencies = carriedFreqs
     } else {
-      const autoIds = this.guitarModeSelectedPeakIds(newPeaks, guitarType)
+      const autoIds = this.guitarModeSelectedPeakIds(newPeaks)
       this.selectedPeakIds = autoIds
       this.selectedPeakFrequencies = newPeaks.filter((np) => autoIds.has(np.id)).map((np) => np.frequency)
     }
@@ -1217,10 +1505,25 @@ export class TapToneAnalyzer {
     return this.peaks.filter((p) => this.selectedPeakIds.has(p.id))
   }
 
-  /** One peak per named mode — the strongest `classifyAll` assigns to that mode — over `peaks`.
-   *  Mirrors Swift `guitarModeSelectedPeakIDs(from:)`. `guitarType` passed in (see applyFrozenPeakState). */
-  guitarModeSelectedPeakIds(peaks: ResonantPeak[], guitarType: GuitarTypeName): Set<string> {
-    return new Set([...resolvedModePeaks(peaks, guitarType).values()].map((p) => p.id))
+  /**
+   * The peaks auto-selected by guitar mode: for each named mode, the strongest peak `classifyAll` assigns
+   * to it (the first on a tie). Unknown peaks are never auto-selected. Mirrors Swift
+   * `guitarModeSelectedPeakIDs(from:)`.
+   * @param peaks The candidates; default the DURABLE set — auto-selection is a fact about the measurement,
+   *   so it never runs over the Peak Min projection. Classified under the analyzer's guitar type.
+   * @returns At most one peak id per named mode.
+   */
+  guitarModeSelectedPeakIds(peaks: ResonantPeak[] = this.peaks): Set<string> {
+    const modeMap = classifyAll(peaks, this.guitarType)
+    const claimedModes = new Set<ResolvedMode>(['air', 'top', 'back', 'dipole', 'ring', 'upper'])
+    const bestPerMode = new Map<ResolvedMode, ResonantPeak>()
+    for (const peak of peaks) {
+      const mode = modeMap.get(peak.id)
+      if (mode === undefined || !claimedModes.has(mode)) continue
+      const best = bestPerMode.get(mode)
+      if (best === undefined || peak.magnitude > best.magnitude) bestPerMode.set(mode, peak)
+    }
+    return new Set([...bestPerMode.values()].map((p) => p.id))
   }
 
   /** The override-aware mode of a peak (mirrors Swift `peakMode(for:)` → `GuitarMode.effectiveMode`): a
@@ -1304,12 +1607,12 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  /** The wand: drop manual edits and re-run auto-selection over the durable set (Swift
-   *  `resetToAutoSelection`). `guitarType` from the caller (App knows the current type). */
-  resetToAutoSelection(guitarType: GuitarTypeName): void {
+  /** The wand: drop manual edits and re-run auto-selection over the durable set, under the analyzer's guitar
+   *  type (Swift `resetToAutoSelection`). */
+  resetToAutoSelection(): void {
     this.userModifiedSelection = false
     this.selectedPeakFrequencies = []
-    this.selectedPeakIds = this.guitarModeSelectedPeakIds(this.peaks, guitarType)
+    this.selectedPeakIds = this.guitarModeSelectedPeakIds()
     this.notify()
   }
 
@@ -1320,10 +1623,10 @@ export class TapToneAnalyzer {
    *  `reclassifyForGuitarTypeChange` (peakModeOverrides=[:] → reclassifyPeaks → resetToAutoSelection) /
    *  Python `reclassify_for_guitar_type_change`. Deliberately NOT the wand (`resetToAutoSelection`
    *  alone), which keeps labels. */
-  reclassifyForGuitarTypeChange(guitarType: GuitarTypeName): void {
+  reclassifyForGuitarTypeChange(): void {
     this.overrides = new Map()
-    this.reclassifyPeaks(guitarType)
-    this.resetToAutoSelection(guitarType)
+    this.reclassifyPeaks()
+    this.resetToAutoSelection()
   }
 
   /** Restore selection from a loaded measurement (ids keyed to the loaded peaks, + the frequency cache
@@ -1614,7 +1917,7 @@ export class TapToneAnalyzer {
     }
     // Phase complete: average the phase's taps + read the dominant peak off the AVERAGED spectrum (the
     // stored result value, pinned by REG-B1/P1/P2).
-    const avg = averageSpectra(this.materialBuffer)
+    const avg = this.averageSpectra(this.materialBuffer)
     const avgPeak = this.findDominantPeak(
       avg.magnitudesDb,
       avg.frequencies,

@@ -20,7 +20,6 @@ import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { TapEntry, type TapToneMeasurementModel, type ResonantPeak } from '../src/measurement/types'
 import { newId } from '../src/measurement/newId'
-import { buildMaterialMeasurement } from '../src/measurement/fromLive'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import type { Spectrum } from '../src/dsp/guitarFFT'
 

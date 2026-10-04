@@ -138,7 +138,7 @@ describe('peak-state-store — analyzer override / offset / selection mutators',
     a.selectNoPeaks()
     expect(a.userModifiedSelection).toBe(true)
     expect(a.selectedPeakIds.size).toBe(0)
-    a.resetToAutoSelection('generic')
+    a.resetToAutoSelection()
     expect(a.userModifiedSelection).toBe(false)
     expect(a.selectedPeakIds.size).toBeGreaterThan(0) // auto re-selected the mode winners
   })

@@ -19,9 +19,10 @@ import {
   materialInputsFromSettings,
   type MaterialMeasurementInputs,
 } from '../src/measurement/materialMeasurementInputs'
-import { measurementToLiveMaterial, buildMaterialMeasurement } from '../src/measurement/fromLive'
+import { measurementToLiveMaterial } from '../src/measurement/fromLive'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
+import { saveMaterial } from './saveFromAnalyzer'
 
 /** A minimal loadable plate measurement whose snapshot carries its own dimensions (mirrors the
  *  canonical `plateMeasurement` fixture; `preset` is the persisted raw name, Swift `.rawValue`). */
@@ -62,7 +63,7 @@ const STORE_B_PLATE: MaterialMeasurementInputs = {
 /** Build a saved plate measurement through the real save builder, with the Settings template and Store B
  *  set independently so a test can prove which one the snapshot dimensions come from. */
 function buildPlate(materialInputs: MaterialMeasurementInputs, settingsDims: Partial<Settings>, notes = '') {
-  return buildMaterialMeasurement({
+  return saveMaterial({
     name: 'X', notes,
     spectra: { longitudinal: { frequencies: [100, 200], magnitudesDb: [-10, -20] }, cross: null, flc: null },
     peaks: { longitudinal: { id: '0', frequency: 120, magnitude: -40, quality: 20, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' }, cross: null, flc: null },

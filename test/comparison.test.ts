@@ -1,11 +1,12 @@
 // @parity test/comparison
 import { describe, it, expect } from 'vitest'
-import { buildGuitarMeasurement, buildComparisonEntries, buildComparisonMeasurement, comparisonEntryModeFreqs } from '../src/measurement/fromLive'
+import { buildComparisonEntries, comparisonEntryModeFreqs } from '../src/measurement/fromLive'
 import { serializeGuitarTapFile, parseGuitarTapFile, isComparison, type ComparisonEntryModel } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { ResolvedMode } from '../src/dsp/classify'
 import type { ResonantPeak } from '../src/measurement/types'
+import { saveGuitar, saveComparison } from './saveFromAnalyzer'
 
 // A comparison measurement overlays several measurements. Building it from a
 // selection assigns palette colors + disambiguated labels and keeps each source's selected
@@ -22,7 +23,7 @@ const modeByPeak = new Map<string, ResolvedMode>([
 ])
 
 const src = (name: string) =>
-  buildGuitarMeasurement({
+  saveGuitar({
     name,
     notes: '',
     spectrum,
@@ -59,7 +60,7 @@ describe('buildComparisonEntries — from a selection', () => {
 describe('comparison measurement round-trip', () => {
   it('saves as a comparison record and survives the .guitartap round-trip', () => {
     const entries = buildComparisonEntries([src('A'), src('B')])
-    const m = buildComparisonMeasurement({ name: 'A vs B', notes: 'test', entries })
+    const m = saveComparison({ name: 'A vs B', notes: 'test', entries })
     expect(isComparison(m)).toBe(true)
     expect(m.peaks).toEqual([])
 
@@ -80,7 +81,7 @@ describe('comparison measurement round-trip', () => {
 // ---------------------------------------------------------------------------
 describe('comparison modePeakIDs — self-describing definitive modes', () => {
   // A source whose Top is a manual override of an out-of-band (Dipole) peak.
-  const srcOverride = buildGuitarMeasurement({
+  const srcOverride = saveGuitar({
     name: 'Ov', notes: '',
     spectrum: { frequencies: [90, 380], magnitudesDb: [-20, -20] },
     peaks: [
@@ -117,14 +118,14 @@ describe('comparison modePeakIDs — self-describing definitive modes', () => {
     const entries = buildComparisonEntries([srcOverride])
     const topId = entries[0]!.modePeakIDs!.Top
     expect(topId).toBeDefined()
-    const m = buildComparisonMeasurement({ name: 'C', notes: '', entries })
+    const m = saveComparison({ name: 'C', notes: '', entries })
     const back = parseGuitarTapFile(serializeGuitarTapFile([m]))[0]!
     expect(back.comparisonEntries![0]!.modePeakIDs!.Top).toBe(topId)
     expect(comparisonEntryModeFreqs(back.comparisonEntries![0]!).top).toBe(380)
   })
 
   it('a legacy comparison (no modePeakIDs) heals positionally on decode + flags re-save', () => {
-    const m = buildComparisonMeasurement({ name: 'Legacy', notes: '', entries: buildComparisonEntries([src('A')]) })
+    const m = saveComparison({ name: 'Legacy', notes: '', entries: buildComparisonEntries([src('A')]) })
     const json = JSON.parse(serializeGuitarTapFile([m]))
     for (const e of json[0].comparisonEntries) delete e.modePeakIDs // simulate a pre-6b file
     const back = parseGuitarTapFile(JSON.stringify(json))[0]!

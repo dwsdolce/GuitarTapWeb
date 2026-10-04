@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { measurementToLiveMaterial, buildMaterialMeasurement } from '../src/measurement/fromLive'
+import { measurementToLiveMaterial } from '../src/measurement/fromLive'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { materialInputsFromSettings } from '../src/measurement/materialMeasurementInputs'
 import { measurementToPdfData } from '../src/presentation/measurementImage'
+import { saveMaterial } from './saveFromAnalyzer'
 
 // Loading a saved plate/brace measurement restores the
 // per-phase spectra (chart overlay), the selected L/C/FLC peaks (markers + results), and
@@ -97,7 +98,7 @@ describe('material survives the .guitartap file round-trip (export → import)',
 
 describe('buildMaterialMeasurement — save round-trip (live → model → file → restore)', () => {
   const matPeak = (id: string, f: number, mag: number) => ({ id, frequency: f, magnitude: mag, quality: 20, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' })
-  const built = buildMaterialMeasurement({
+  const built = saveMaterial({
     name: 'Top Plate',
     notes: 'spruce',
     spectra: {
@@ -194,7 +195,7 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
 // keyed by peak UUID (gold-standard format) — this asserts the build→file→restore re-keying both ways.
 describe('material annotation offsets round-trip (6d)', () => {
   const matPeak = (id: string, f: number, mag: number) => ({ id, frequency: f, magnitude: mag, quality: 20, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' })
-  const built = buildMaterialMeasurement({
+  const built = saveMaterial({
     name: 'Top Plate',
     notes: '',
     spectra: {
@@ -231,7 +232,7 @@ describe('material annotation offsets round-trip (6d)', () => {
   })
 
   it('omits peakAnnotationOffsets entirely when no labels were dragged', () => {
-    const plain = buildMaterialMeasurement({
+    const plain = saveMaterial({
       name: '', notes: '',
       spectra: { longitudinal: { frequencies: [100, 120], magnitudesDb: [-50, -40] }, cross: null, flc: null },
       peaks: { longitudinal: matPeak('0', 120, -40), cross: null, flc: null },
@@ -261,7 +262,7 @@ describe('measurementToPdfData — material analysis reads Store B dims, not def
     bodyWidthMm: 355,
     stiffnessPreset: 'classicalBack' as const, // ≠ DEFAULT steelStringTop; raw name "Classical Back"
   }
-  const built = buildMaterialMeasurement({
+  const built = saveMaterial({
     name: 'Reg', notes: '',
     spectra: {
       longitudinal: { frequencies: [100, 120, 140], magnitudesDb: [-50, -40, -60] },

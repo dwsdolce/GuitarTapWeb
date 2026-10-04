@@ -24,7 +24,7 @@ import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
-import { buildComparisonEntries, buildComparisonMeasurement, comparisonEntryModeFreqs, comparisonAxisRange, colorComponentsToCss, measurementToLive, measurementToLiveMaterial } from './measurement/fromLive'
+import { buildComparisonEntries, comparisonEntryModeFreqs, comparisonAxisRange, colorComponentsToCss, measurementToLive, measurementToLiveMaterial } from './measurement/fromLive'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { importMeasurements, saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
@@ -303,7 +303,7 @@ export default function App() {
     if (prev !== next && isGuitarType(prev) && isGuitarType(next)) {
       // Guitar subtype change: clean-slate re-classification for the new type, keeping the frozen
       // spectrum, peaks and dragged offsets (Swift reclassifyForGuitarTypeChange — no re-detection).
-      analyzer.reclassifyForGuitarTypeChange(guitarType)
+      analyzer.reclassifyForGuitarTypeChange()
       return
     }
     // Initial mount (prev === next) or a paradigm change: drop the result + per-peak state and arm afresh.
@@ -459,7 +459,7 @@ export default function App() {
   const userModified = snapshot.userModifiedSelection
   const toggleSelect = useCallback((id: string) => analyzer.togglePeakSelection(id), [analyzer])
   const selectNone = useCallback(() => analyzer.selectNoPeaks(), [analyzer])
-  const resetSelection = useCallback(() => analyzer.resetToAutoSelection(guitarType), [analyzer, guitarType])
+  const resetSelection = useCallback(() => analyzer.resetToAutoSelection(), [analyzer])
   const overrides = snapshot.overrides
   const annotationOffsets = snapshot.annotationOffsets // id-keyed dragged label positions
   // Chart drag → analyzer (markers carry the peak id as their annoKey); Reset Labels clears the store.
@@ -681,7 +681,7 @@ export default function App() {
   // comparison is App's, as Swift's view branches to saveComparison.
   const buildCurrentMeasurement = useCallback(
     (name: string, notes: string): TapToneMeasurementModel | null => {
-      if (comparison) return buildComparisonMeasurement({ name, notes, entries: comparison })
+      if (comparison) return analyzer.buildComparisonMeasurement(name, notes)
       return analyzer.buildMeasurement(name, notes, view)
     },
     [analyzer, comparison, view],
@@ -690,7 +690,7 @@ export default function App() {
   const onSaveMeasurement = useCallback(
     (name: string, notes: string) => {
       if (comparison) {
-        void saveMeasurement(buildComparisonMeasurement({ name, notes, entries: comparison }))
+        void analyzer.saveComparison(name, notes)
         return
       }
       void analyzer.saveMeasurement(name, notes, view)

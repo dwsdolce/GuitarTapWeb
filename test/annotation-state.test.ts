@@ -252,9 +252,10 @@ describe('annotation-state — clean-slate triggers', () => {
     expect(a.overrides.size).toBe(1)
     expect(a.userModifiedSelection).toBe(true)
 
-    a.reclassifyForGuitarTypeChange('classical')
+    a.measurementType = 'classical' // the new type is set first, as the app's settings sync does
+    a.reclassifyForGuitarTypeChange()
 
-    const expected = a.guitarModeSelectedPeakIds(a.peaks, 'classical')
+    const expected = a.guitarModeSelectedPeakIds()
     expect(expected.size).toBe(2) // sanity: air + top actually auto-select for the new type
     expect(a.overrides.size).toBe(0) // clean slate clears manual overrides
     expect(a.userModifiedSelection).toBe(false) // selection reset to auto (not user-modified)
@@ -269,11 +270,11 @@ describe('annotation-state — clean-slate triggers', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'classical'
     a.peaks = [gpeak('1', 100, -25), gpeak('2', 160, -20)]
-    a.reclassifyPeaks('classical')
+    a.reclassifyPeaks()
     expect(a.modeByPeak.get('2')).not.toBe('top') // precondition: 160 Hz is not Top on a classical
 
     a.measurementType = 'acoustic'
-    a.reclassifyForGuitarTypeChange('acoustic')
+    a.reclassifyForGuitarTypeChange()
 
     expect(a.modeByPeak.get('2')).toBe('top') // re-classified under the new type's bands
   })

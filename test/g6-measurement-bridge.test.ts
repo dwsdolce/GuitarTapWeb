@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { buildGuitarMeasurement, measurementPeakModeLabels, measurementToLive } from '../src/measurement/fromLive'
+import { measurementPeakModeLabels, measurementToLive } from '../src/measurement/fromLive'
 import { serializeGuitarTapFile, parseGuitarTapFile } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import type { ResolvedMode } from '../src/dsp/classify'
 import { newId } from '../src/measurement/newId'
 import type { ResonantPeak } from '../src/measurement/types'
+import { saveGuitar } from './saveFromAnalyzer'
 
 // The live <-> persisted bridge. Build a measurement from synthetic live
 // state, round-trip it through the canonical writer/reader, then restore it — the
@@ -38,7 +39,7 @@ const args = {
 }
 
 describe('buildGuitarMeasurement — live state → model', () => {
-  const m = buildGuitarMeasurement(args)
+  const m = saveGuitar(args)
 
   it('saves each peak under its own id and maps selection / overrides onto them', () => {
     expect(m.peaks.map((p) => p.id)).toEqual([AIR_ID, TOP_ID])
@@ -69,7 +70,7 @@ describe('buildGuitarMeasurement — live state → model', () => {
 
 describe('round-trip through file → restore into the view', () => {
   it('restores spectrum, ranges, selection (by freq), and settings', () => {
-    const m = buildGuitarMeasurement(args)
+    const m = saveGuitar(args)
     const m2 = parseGuitarTapFile(serializeGuitarTapFile([m]))[0]!
     const live = measurementToLive(m2)
 
