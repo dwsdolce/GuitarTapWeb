@@ -32,6 +32,7 @@ import {
 import type { ChartView } from '../presentation/chartTypes'
 import { enteredValue } from '../presentation/displayRange'
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
+import { APPEARANCES, APPEARANCE_LABEL, type Appearance } from '../presentation/appearance'
 
 /**
  * Props for {@link SettingsPanel}. Display/analysis/measurement edits are buffered and
@@ -426,6 +427,21 @@ export function SettingsPanel({
             {showAdvanced && (
               <>
                 <h4>Display Settings</h4>
+                <label className="set-field">
+                  <span>Appearance</span>
+                  <select
+                    className="set-input-select"
+                    value={d.appearance}
+                    onChange={(e) => patch({ appearance: e.target.value as Appearance })}
+                  >
+                    {APPEARANCES.map((a) => (
+                      <option key={a} value={a}>
+                        {APPEARANCE_LABEL[a]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="set-desc">System follows the operating system&apos;s Light or Dark setting</p>
                 <RangeField
                   title="Frequency Range"
                   description={`Frequency range shown in the spectrum chart for ${MEASUREMENT_FULL_NAME[d.measurementType]} (saved per measurement type)`}

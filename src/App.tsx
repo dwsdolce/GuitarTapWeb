@@ -4,6 +4,7 @@ import { RealtimeFFTAnalyzer } from './audio/realtimeFFTAnalyzer'
 import { SpectrumChart } from './components/SpectrumChart'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
+import { apply as applyAppearance } from './presentation/palette'
 import type { ChartView, PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
 import { type MaterialTapPhase as MatPhase, type DefinitiveModeInfo } from './state/tapToneAnalyzer'
@@ -265,6 +266,9 @@ export default function App() {
     [],
   )
   useEffect(() => saveSettings(settings), [settings])
+  // Draw the app in the scheme the Appearance setting resolves to — at launch and whenever the setting changes
+  // (mirrors Swift's root onAppear and applySettings).
+  useEffect(() => applyAppearance(settings.appearance), [settings.appearance])
   // Ask the browser to make storage persistent so the saved-measurements library (IndexedDB)
   // isn't evicted under pressure. Best-effort: Chrome/Firefox honor it; Safari mostly ignores
   // it (there, installing the app is what makes storage durable — see the Measurements hint).

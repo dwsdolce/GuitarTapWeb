@@ -18,10 +18,15 @@
   --system-blue: #0a84ff;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --system-blue: #007aff; /* Apple systemBlue, light */
-  }
+/* The scheme the app is drawn in (palette.ts sets data-theme from the Appearance setting): the browser draws its
+   own controls and scroll bars in it. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --system-blue: #007aff; /* Apple systemBlue, light */
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 * {

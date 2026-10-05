@@ -3,6 +3,7 @@
 // @parity state/settings-store tests=test/settings-store
 
 import type { GuitarTypeName } from './dsp/guitarModes'
+import type { Appearance } from './presentation/appearance'
 import {
   MIN_FREQUENCY_HZ,
   MAX_FREQUENCY_HZ,
@@ -129,6 +130,8 @@ export interface Settings {
   // (Swift keys displayMinFreq_<rawValue> / displayMaxFreq_<rawValue>). A bound that was never set
   // reads the type's default — read and write through minFrequency / maxFrequency /
   // setMinFrequency / setMaxFrequency. The dB range stays global, matching Swift/Python.
+  // The Appearance setting: follow the operating system (the default), or always Light, or always Dark.
+  appearance: Appearance
   displayRanges: Partial<Record<MeasurementType, { minHz?: number; maxHz?: number }>>
   minDb: number
   maxDb: number
@@ -162,6 +165,7 @@ export const DEFAULT_SETTINGS: Settings = {
   braceWidth: 6,
   braceThickness: 12,
   braceMass: 8,
+  appearance: 'system',
   displayRanges: {},
   minDb: -100,
   maxDb: 0,

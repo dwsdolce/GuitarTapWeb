@@ -7,6 +7,8 @@
 // Exports are drawn on white, so they use the light values. The tap/phase progress bar's blue is `--system-blue` in
 // index.css, the same pair as `quality.blue`. Mirrors Swift `Palette`.
 
+import { resolvedScheme, type Appearance, type Scheme } from './appearance'
+
 /** A colour's two values, as "#RRGGBB", or "#RRGGBBAA" when the role has an opacity. */
 export interface ColorPair {
   light: string
@@ -134,6 +136,72 @@ export type Opacity = keyof typeof OPACITIES
 /** The light and dark values of `role`. */
 export function pair(role: Role): ColorPair {
   return ROLES[role]
+}
+
+// The resolved scheme. Swift's palette colours resolve themselves when drawn, and CSS follows the custom properties
+// set per `data-theme`; what this edition draws in script (the canvas chart) does not, so it subscribes and redraws.
+
+let appearance: Appearance = 'system'
+let current: Scheme = 'light'
+let followingOs = false
+const listeners = new Set<(scheme: Scheme) => void>()
+
+const darkQuery = (): MediaQueryList | null =>
+  typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null
+
+/** The scheme the app is drawn in. */
+export function scheme(): Scheme {
+  return current
+}
+
+/** The scheme the operating system reports, or `null` when it reports none. */
+export function osScheme(): Scheme | null {
+  const q = darkQuery()
+  return q ? (q.matches ? 'dark' : 'light') : null
+}
+
+/**
+ * Draw the app — its controls and the palette's colours — in the scheme `appearance` resolves to: the operating
+ * system's own for System. Mirrors Swift `Palette.apply`.
+ */
+export function apply(next: Appearance): void {
+  appearance = next
+  const q = darkQuery()
+  if (q && !followingOs) {
+    q.addEventListener('change', () => {
+      if (appearance === 'system') update()
+    })
+    followingOs = true
+  }
+  update()
+}
+
+/** Call `listener` on every change of the resolved scheme; returns the unsubscribe. */
+export function subscribe(listener: (scheme: Scheme) => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+function update(): void {
+  const resolved = resolvedScheme(appearance, appearance === 'system' ? osScheme() : null)
+  if (typeof document !== 'undefined') document.documentElement.dataset.theme = resolved
+  if (resolved !== current) {
+    current = resolved
+    for (const listener of listeners) listener(resolved)
+  }
+}
+
+/** `"#RRGGBB"` or `"#RRGGBBAA"` as a CSS colour. */
+function css(hex: string, alpha = 1): string {
+  const a = (hex.length === 9 ? parseInt(hex.slice(7), 16) / 255 : 1) * alpha
+  if (a === 1) return hex
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
+  return `rgba(${r}, ${g}, ${b}, ${Number(a.toFixed(3))})`
+}
+
+/** The colour of `role` in the scheme the app is drawn in, at the scheme's `opacity` when given, as CSS. */
+export function color(role: Role, opacity?: Opacity): string {
+  return css(ROLES[role][current], opacity ? OPACITIES[opacity][current] : 1)
 }
 
 export const PALETTE = {
