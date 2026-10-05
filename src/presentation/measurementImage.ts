@@ -2,8 +2,8 @@
 
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
-import { MODE_COLOR, MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, USER_MODE_COLOR } from './modeColors'
-import { WOOD_QUALITY_COLOR } from './qualityColors'
+import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME } from './modeColors'
+import { color as roleColor, modeRole, qualityRole } from './palette'
 import { FieldPrecision } from '../precision'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
@@ -15,7 +15,7 @@ import type { GuitarTypeName } from '../dsp/guitarModes'
 import { effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
 import { MODE_DISPLAY_NAME as MODE_FULL_NAME } from './modeColors'
 import { decayQuality, decayQualityColor, tapToneRatioQuality, tapToneRatioQualityColor } from '../dsp/analysisQuality'
-import { BraceProperties, MaterialDimensions, PlateProperties, type Dimensions } from '../dsp/material'
+import { BraceProperties, MaterialDimensions, PlateProperties, type Dimensions, type WoodQuality } from '../dsp/material'
 import type { PdfReportData, PdfPeakRow, PdfMaterialAnalysis, PdfMaterialProp, PdfTapInstructions } from './pdfReport'
 import { generateMultiTapPdfReport, generatePdfReport } from './pdfReport'
 import { exportStem } from '../measurement/exportFilename'
@@ -27,7 +27,8 @@ type AnnoMode = 'all' | 'selected' | 'none'
 // Wood-quality → colour comes from the single scheme-qualified table in presentation/qualityColors.
 // The report is ALWAYS a white page — Swift and Python render their PDFs light regardless of app
 // appearance — so it is pinned to 'light' and stays that way when the theme work lands.
-const QUALITY_COLOR = WOOD_QUALITY_COLOR.light
+/** A grade's colour in the report: its role's light value (the report is drawn on white). */
+const qualityColor = (q: WoodQuality): string => roleColor(qualityRole(q), undefined, 'light')
 const ROLE_L = '#0a84ff'
 const ROLE_C = '#ff9f0a'
 const ROLE_FLC = '#bf5af2'
@@ -57,9 +58,7 @@ export function buildGuitarMarkers(
       id: p.id,
       frequency: p.frequency,
       magnitude: p.magnitude,
-      color: override != null
-        ? (overrideMode ? MODE_COLOR[overrideMode] : USER_MODE_COLOR)
-        : (mode !== 'unknown' ? MODE_COLOR[mode] : undefined),
+      role: override != null ? (overrideMode ? modeRole(overrideMode) : 'mode.userDefined') : modeRole(mode),
       label: override ?? MODE_DISPLAY_NAME[mode],
       note: note ?? undefined,
       cents: note ? pitch.cents(p.frequency) : undefined,
@@ -165,13 +164,12 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
 const MODE_BY_DISPLAY = new Map<string, ResolvedMode>(
   (Object.entries(MODE_FULL_NAME) as [ResolvedMode, string][]).map(([mode, name]) => [name, mode]),
 )
-const USER_DEFINED_COLOR = '#3bb6a6' // teal, matching Swift GuitarMode.userDefinedColor
-
-/** Color for a peak's effective mode label (override-aware), mirroring Swift's PDF peakRow color. */
+/** Color for a peak's effective mode label (override-aware), mirroring Swift's PDF peakRow color: its role's light
+ *  value (the report is drawn on white). */
 function modeLabelColor(mode: ResolvedMode, override: string | undefined): string {
-  if (override == null) return MODE_COLOR[mode]
+  if (override == null) return roleColor(modeRole(mode), undefined, 'light')
   const m = MODE_BY_DISPLAY.get(override)
-  return m ? MODE_COLOR[m] : USER_DEFINED_COLOR
+  return roleColor(m ? modeRole(m) : 'mode.userDefined', undefined, 'light')
 }
 
 /**
@@ -364,11 +362,11 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
       props: [
         { label: 'Speed of Sound', value: `${FieldPrecision.string(cL, FieldPrecision.speedOfSoundMS)} m/s` },
         { label: "Young's Modulus (E)", value: `${FieldPrecision.string(eL, FieldPrecision.youngsModulusGPa)} GPa` },
-        { label: 'Specific Modulus', value: FieldPrecision.string(smL, FieldPrecision.specificModulus), color: QUALITY_COLOR[qL], hint: `(${qL})` },
+        { label: 'Specific Modulus', value: FieldPrecision.string(smL, FieldPrecision.specificModulus), color: qualityColor(qL), hint: `(${qL})` },
         { label: 'Radiation Ratio', value: FieldPrecision.string(rL, FieldPrecision.radiationRatio) },
       ],
       ratios: [],
-      overall: { value: qL, color: QUALITY_COLOR[qL] },
+      overall: { value: qL, color: qualityColor(qL) },
     }
   } else {
     if (fL == null || fC == null || !hasSample) return materialReport(undefined)
@@ -409,8 +407,8 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
         { label: 'Speed of Sound (C)', value: `${FieldPrecision.string(cC, FieldPrecision.speedOfSoundMS)} m/s` },
         { label: "Young's Modulus (L)", value: `${FieldPrecision.string(eL, FieldPrecision.youngsModulusGPa)} GPa` },
         { label: "Young's Modulus (C)", value: `${FieldPrecision.string(eC, FieldPrecision.youngsModulusGPa)} GPa` },
-        { label: 'Specific Modulus (L)', value: FieldPrecision.string(smL, FieldPrecision.specificModulus), color: QUALITY_COLOR[qL], hint: `(${qL})` },
-        { label: 'Specific Modulus (C)', value: FieldPrecision.string(smC, FieldPrecision.specificModulus), color: QUALITY_COLOR[qC], hint: `(${qC})` },
+        { label: 'Specific Modulus (L)', value: FieldPrecision.string(smL, FieldPrecision.specificModulus), color: qualityColor(qL), hint: `(${qL})` },
+        { label: 'Specific Modulus (C)', value: FieldPrecision.string(smC, FieldPrecision.specificModulus), color: qualityColor(qC), hint: `(${qC})` },
         { label: 'Radiation Ratio (L)', value: FieldPrecision.string(rL, FieldPrecision.radiationRatio) },
         { label: 'Radiation Ratio (C)', value: FieldPrecision.string(rC, FieldPrecision.radiationRatio) },
       ],
@@ -425,7 +423,7 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
         { label: 'Cross/Long Ratio', value: FieldPrecision.string(crossLong, FieldPrecision.crossLongRatio), note: 'typical: 0.04–0.08' },
         { label: 'Long/Cross Ratio', value: FieldPrecision.string(longCross, FieldPrecision.longCrossRatio), note: 'typical: 12–25' },
       ],
-      overall: { value: overall, color: QUALITY_COLOR[overall] },
+      overall: { value: overall, color: qualityColor(overall) },
     }
   }
 

@@ -9,7 +9,8 @@ import type { Spectrum } from '../dsp/guitarFFT'
 import type { PeakMarker, SpectrumOverlay, ChartView } from './chartTypes'
 import { renderSpectrum, LIGHT_CHART, hexA, type ChartTheme } from './spectrumRender'
 import { type GuitarTypeName } from '../dsp/guitarModes'
-import { MODE_COLOR, MODE_DISPLAY_NAME } from './modeColors'
+import { MODE_DISPLAY_NAME } from './modeColors'
+import { color as roleColor, modeRole } from './palette'
 import { withPixelsPerInch } from './pngPixelsPerInch'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
@@ -142,7 +143,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
     let cx = PAD
     const cy = y + 32
     for (const m of chips) {
-      const color = m.color ?? MODE_COLOR.unknown
+      const color = m.role ? roleColor(m.role, undefined, 'light') : (m.color ?? roleColor('mode.unknown', undefined, 'light'))
       // Override-aware, matching the callout and the results list: an overridden mode chip is italic
       // with a trailing " *" (m.label + m.color are already override-aware from buildGuitarMarkers).
       const modeText = (m.label ?? '') + (m.isOverride ? ' *' : '')
@@ -185,7 +186,10 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   ctx.font = FONT(13)
   const legendItems = overlays.length
     ? overlays.map((o) => ({ color: o.color, label: o.label }))
-    : (['air', 'top', 'back', 'dipole', 'ring'] as const).map((k) => ({ color: MODE_COLOR[k], label: MODE_DISPLAY_NAME[k] }))
+    : (['air', 'top', 'back', 'dipole', 'ring'] as const).map((k) => ({
+        color: roleColor(modeRole(k), undefined, 'light'),
+        label: MODE_DISPLAY_NAME[k],
+      }))
   for (const it of legendItems) {
     ctx.fillStyle = it.color
     ctx.beginPath()

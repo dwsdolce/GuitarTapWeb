@@ -1,6 +1,6 @@
 // @parity view/material-results
-import { BraceProperties, MaterialDimensions, PlateProperties } from '../dsp/material'
-import { WOOD_QUALITY_COLOR } from '../presentation/qualityColors'
+import { BraceProperties, MaterialDimensions, PlateProperties, type WoodQuality } from '../dsp/material'
+import { color as roleColor, qualityRole } from '../presentation/palette'
 import { STIFFNESS_LABEL, type StiffnessPreset } from '../settings'
 import { materialDimensions, materialStiffness, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { NumberField } from './NumberField'
@@ -79,7 +79,7 @@ function BodyDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasuremen
 // The app chrome is dark today, so this names 'dark' explicitly. When the theme work lands (STATUS
 // item 3) this literal becomes the active scheme from the theme context — the table itself doesn't
 // move, and the PDF stays pinned to 'light'.
-const QUALITY_COLOR = WOOD_QUALITY_COLOR.dark
+const qualityColor = (q: WoodQuality): string => roleColor(qualityRole(q))
 
 type Role = 'L' | 'C' | 'FLC'
 
@@ -221,10 +221,10 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
           <Row label="Young's Modulus (E)" value={`${FieldPrecision.string(eL, FieldPrecision.youngsModulusGPa)} GPa`} />
           <div className="mat-specmod">
             <div className="mat-specmod-title">Specific Modulus (E/ρ)</div>
-            <div className="mat-specmod-value" style={{ color: QUALITY_COLOR[qL] }}>
+            <div className="mat-specmod-value" style={{ color: qualityColor(qL) }}>
               {FieldPrecision.string(smL, FieldPrecision.specificModulus)} <em>GPa/(g/cm³)</em>
             </div>
-            <div className="mat-specmod-quality" style={{ color: QUALITY_COLOR[qL] }}>
+            <div className="mat-specmod-quality" style={{ color: qualityColor(qL) }}>
               {qL}
             </div>
           </div>
@@ -301,19 +301,19 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
           <div className="mat-specmod-cols">
             <div>
               <div className="mat-specmod-label">Longitudinal:</div>
-              <div className="mat-specmod-value" style={{ color: QUALITY_COLOR[qL] }}>
+              <div className="mat-specmod-value" style={{ color: qualityColor(qL) }}>
                 {FieldPrecision.string(smL, FieldPrecision.specificModulus)} <em>GPa/(g/cm³)</em>
               </div>
-              <div className="mat-specmod-quality" style={{ color: QUALITY_COLOR[qL] }}>
+              <div className="mat-specmod-quality" style={{ color: qualityColor(qL) }}>
                 {qL}
               </div>
             </div>
             <div className="mat-specmod-right">
               <div className="mat-specmod-label">Cross-grain:</div>
-              <div className="mat-specmod-value" style={{ color: QUALITY_COLOR[qC] }}>
+              <div className="mat-specmod-value" style={{ color: qualityColor(qC) }}>
                 {FieldPrecision.string(smC, FieldPrecision.specificModulus)} <em>GPa/(g/cm³)</em>
               </div>
-              <div className="mat-specmod-quality" style={{ color: QUALITY_COLOR[qC] }}>
+              <div className="mat-specmod-quality" style={{ color: qualityColor(qC) }}>
                 {qC}
               </div>
             </div>
@@ -344,7 +344,7 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
         <hr className="mat-divider" />
         <div className="mat-row mat-overall">
           <span className="mat-label">Overall Quality</span>
-          <span className="mat-value" style={{ color: QUALITY_COLOR[overall] }}>
+          <span className="mat-value" style={{ color: qualityColor(overall) }}>
             {overall}
           </span>
         </div>

@@ -3,6 +3,8 @@
 // Kept in the presentation layer (not in the SpectrumChart component) so renderer/export modules
 // don't have to import from a view.
 
+import type { Role } from './palette'
+
 /** One peak's dot + (optional) annotation badge. */
 export interface PeakMarker {
   /** The peak's stable id — carried so the chart can hit-test a clicked dot back to a peak (the
@@ -10,7 +12,9 @@ export interface PeakMarker {
   id?: string
   frequency: number
   magnitude: number
-  /** Mode color for the dot (gray when omitted — e.g. unidentified peaks). */
+  /** The dot's colour role, resolved in the chart's scheme when drawn. */
+  role?: Role
+  /** A fixed dot colour, for markers without a role (gray when neither is given). */
   color?: string
   /** Mode / override name — the badge's first line. */
   label?: string

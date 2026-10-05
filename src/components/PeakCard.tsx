@@ -1,7 +1,8 @@
 // @parity view/peak-card
 import { useRef, useEffect } from 'react'
 import type { ResolvedMode } from '../dsp/classify'
-import { MODE_COLOR, MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, USER_MODE_COLOR, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS, magnitudeColor } from '../presentation/modeColors'
+import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS, magnitudeColor } from '../presentation/modeColors'
+import { color as roleColor, modeRole } from '../presentation/palette'
 import { WindIcon, ArrowUpDownIcon, SquareFilledIcon, DipoleIcon, CircleDashedIcon, WaveformIcon, HelpIcon, TagIcon } from './icons'
 import type { ResonantPeak } from '../measurement/types'
 import { FieldPrecision } from '../precision'
@@ -86,7 +87,7 @@ export function PeakCard({
   // Glyph + colour follow the EFFECTIVE (possibly overridden) label, like Swift — a manual override
   // swaps both. A custom label that isn't a known mode gets the tag glyph in teal.
   const effMode = MODE_BY_DISPLAY_NAME[effectiveLabel]
-  const color = effMode ? MODE_COLOR[effMode] : USER_MODE_COLOR
+  const color = roleColor(effMode ? modeRole(effMode) : 'mode.userDefined')
   const ModeIcon = effMode ? MODE_ICON[effMode] : TagIcon
 
   // Build the option list, ensuring the current value is present. Two groups, as in Swift's

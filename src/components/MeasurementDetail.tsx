@@ -1,7 +1,8 @@
 // @parity view/measurement-detail
 import { measurementTypeName, comparisonEntryModeFreqs, colorComponentsToCss, measurementPeakModeLabels } from '../measurement/fromLive'
 import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
-import { MODE_COLOR, MODE_DISPLAY_NAME, magnitudeColor } from '../presentation/modeColors'
+import { MODE_DISPLAY_NAME, magnitudeColor } from '../presentation/modeColors'
+import { color as roleColor, modeRole } from '../presentation/palette'
 import type { ResolvedMode } from '../dsp/classify'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
 import { formatDisplayDate } from '../format/date'
@@ -26,7 +27,7 @@ const MATERIAL_LABEL_COLOR: Record<string, string> = {
 }
 function labelColor(label: string): string {
   for (const [mode, name] of Object.entries(MODE_DISPLAY_NAME)) {
-    if (name === label) return MODE_COLOR[mode as ResolvedMode]
+    if (name === label) return roleColor(modeRole(mode as ResolvedMode))
   }
   return MATERIAL_LABEL_COLOR[label] ?? 'var(--accent)'
 }

@@ -1,31 +1,7 @@
-// @parity model/mode-colors tests=test/mode-colors,test/classify — the colour table is pinned by
-// test/mode-colors; MODE_LABEL, MODE_DISPLAY_NAME and the override-label resolution are pinned by
-// test/classify, where Swift and Python file them.
+// @parity model/guitar-mode-classify tests=test/classify — MODE_LABEL, MODE_DISPLAY_NAME and the
+// override-label resolution, pinned by test/classify, where Swift and Python file them. A mode's colour is
+// its role in palette.ts.
 import type { ResolvedMode } from '../dsp/classify'
-
-/**
- * Per-mode annotation colours, for this edition's **dark** chart.
- *
- * Where a value differs from Swift because the background differs, the web keeps its own; otherwise
- * it follows Swift. `top`, `back` and `dipole` are Swift's hues brightened for a dark surface — 1°,
- * 5° and 7° away. `air` and `ring` carry Swift's values.
- *
- * `upper` and `unknown` are near-neutral greys, where hue is meaningless and only lightness
- * matters, so these keep the web's — the natives' #8E8E93 and #808080 would be muddy on dark, and
- * the pair has to stay tellable apart.
- *
- * When the theme work lands it adds a light table here, which will be
- * Swift's values outright, exactly as `qualityColors.ts` already does.
- */
-export const MODE_COLOR: Record<ResolvedMode, string> = {
-  air: '#00C0E8', // Swift's cyan — was #4ea1ff, a different hue, not a dark variant
-  top: '#5fd07a', // Swift's green, brightened for dark
-  back: '#f0a03a', // Swift's orange, brightened for dark
-  dipole: '#e0584a', // Swift's red, brightened for dark
-  ring: '#CB30E0', // Swift's purple — was #b07ad8, a different hue
-  upper: '#9aa6b3', // near-neutral; lightness tuned for dark
-  unknown: '#5a6573', // near-neutral; must stay distinct from `upper`
-}
 
 /** Short mode labels for compact chart annotations (`DP`, `?`, …). */
 export const MODE_LABEL: Record<ResolvedMode, string> = {
@@ -112,12 +88,6 @@ export function effectiveMode(overrideLabel: string | undefined | null, auto: Re
   if (overrideLabel != null) return MODE_BY_DISPLAY_NAME[overrideLabel] ?? 'unknown'
   return auto
 }
-
-/**
- * Color for a user-defined / custom override label (not a known mode) — the tag glyph in teal.
- * Mirrors Swift's `tag.fill` + RGB(0,128,128) for UserAssignedMode freeform labels.
- */
-export const USER_MODE_COLOR = '#1a9a9a'
 
 /** Quick-pick mode labels for the override menu (GuitarMode.currentCases order). */
 export const QUICK_PICK_MODES = [

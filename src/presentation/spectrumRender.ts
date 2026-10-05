@@ -7,7 +7,9 @@
 import { drawnIndices } from './displayRange'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
-import { MODE_COLOR, MODE_LABEL } from './modeColors'
+import { MODE_LABEL } from './modeColors'
+import { color as roleColor, modeRole } from './palette'
+import type { Scheme } from './appearance'
 import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect, DotHit } from './chartTypes'
 import { formattedAsFrequency } from './frequencyFormat'
 import { FieldPrecision } from '../precision'
@@ -210,7 +212,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   // Mode-boundary dashed lines + top labels (guitar). TWO lines per mode — the lower (lo) and upper
   // (hi) bound of its frequency range — with the abbreviation label at the lower bound (range start).
   for (const b of bands) {
-    const color = MODE_COLOR[b.name]
+    const color = roleColor(modeRole(b.name), undefined, schemeOf(th))
     for (const edge of [b.lo, b.hi]) {
       if (edge < minHz || edge > maxHz) continue
       const ex = xFor(edge)
@@ -304,7 +306,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     } else {
       ctx.beginPath()
       ctx.arc(cx, cy, 4, 0, Math.PI * 2)
-      ctx.fillStyle = m.color ?? '#8a96a5'
+      ctx.fillStyle = markerColor(m, th)
       ctx.fill()
     }
     // Hit radius 30 (CSS px) matches Swift's nearestPeak hitRadius — a forgiving click target; the
@@ -445,7 +447,7 @@ function drawBadge(
   th: ChartTheme,
   dragged: boolean,
 ): { x: number; y: number; w: number; h: number } {
-  const color = m.color ?? '#8a96a5'
+  const color = markerColor(m, th)
   const PITCH = th === LIGHT_CHART ? '#9b51c2' : '#c389e8'
   const fg = th === LIGHT_CHART ? '#1a2330' : '#dfe4ea'
   const sub = th === LIGHT_CHART ? '#6b7785' : '#9aa6b3'
@@ -499,6 +501,16 @@ function drawBadge(
   }
   ctx.textBaseline = 'alphabetic'
   return { x: boxX, y: boxTop, w: boxW, h: boxH }
+}
+
+/** The scheme a chart theme draws in. */
+function schemeOf(th: ChartTheme): Scheme {
+  return th === LIGHT_CHART ? 'light' : 'dark'
+}
+
+/** A marker's dot colour: its role in the chart's scheme, else its fixed colour, else gray. */
+function markerColor(m: PeakMarker, th: ChartTheme): string {
+  return m.role ? roleColor(m.role, undefined, schemeOf(th)) : (m.color ?? '#8a96a5')
 }
 
 export function hexA(hex: string, a: number): string {

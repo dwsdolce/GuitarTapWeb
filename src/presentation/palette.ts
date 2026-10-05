@@ -1,4 +1,4 @@
-// @parity view/palette tests=test/theme,test/analysis-quality
+// @parity view/palette tests=test/theme,test/analysis-quality,test/mode-colors,test/quality-colors
 //
 // Every colour the app draws itself, as a functional role: what the colour is for (secondary text, the fL curve,
 // the Peak Min line), with one light value and one dark value; two roles may share a value without being linked.
@@ -7,6 +7,8 @@
 // Exports are drawn on white, so they use the light values. The tap/phase progress bar's blue is `--system-blue` in
 // index.css, the same pair as `quality.blue`. Mirrors Swift `Palette`.
 
+import type { ResolvedMode } from '../dsp/classify'
+import type { WoodQuality } from '../dsp/material'
 import { resolvedScheme, type Appearance, type Scheme } from './appearance'
 
 /** A colour's two values, as "#RRGGBB", or "#RRGGBBAA" when the role has an opacity. */
@@ -199,9 +201,31 @@ function css(hex: string, alpha = 1): string {
   return `rgba(${r}, ${g}, ${b}, ${Number(a.toFixed(3))})`
 }
 
-/** The colour of `role` in the scheme the app is drawn in, at the scheme's `opacity` when given, as CSS. */
-export function color(role: Role, opacity?: Opacity): string {
-  return css(ROLES[role][current], opacity ? OPACITIES[opacity][current] : 1)
+/**
+ * The colour of `role` in the scheme the app is drawn in (or `inScheme` — an export passes light), at that scheme's
+ * `opacity` when given, as CSS.
+ */
+export function color(role: Role, opacity?: Opacity, inScheme?: Scheme): string {
+  const s = inScheme ?? current
+  return css(ROLES[role][s], opacity ? OPACITIES[opacity][s] : 1)
+}
+
+/** The role of a guitar mode's colour. Mirrors Swift `Palette.role(_: GuitarMode)`. */
+export function modeRole(mode: ResolvedMode): Role {
+  return `mode.${mode}`
+}
+
+const QUALITY_ROLE: Record<WoodQuality, Role> = {
+  Excellent: 'wood.excellent',
+  'Very Good': 'wood.veryGood',
+  Good: 'wood.good',
+  Fair: 'wood.fair',
+  Poor: 'wood.poor',
+}
+
+/** The role of a wood-quality grade's colour. Mirrors Swift `Palette.role(_: WoodQuality)`. */
+export function qualityRole(quality: WoodQuality): Role {
+  return QUALITY_ROLE[quality]
 }
 
 export const PALETTE = {
