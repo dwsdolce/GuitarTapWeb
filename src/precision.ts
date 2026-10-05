@@ -22,6 +22,12 @@
 //     youngsModulusGPa 2 · shearModulusGPa 3 · specificModulus 1 · speedOfSoundMS 0 · densityGPerCm3 3
 //     radiationRatio 1 · crossLongRatio 3 · longCrossRatio 1 · decayTimeS 2 · decayRatio 2
 
+/** `x` with `decimals` places, from its exact binary value, an exact tie rounded to even — C's `%.Nf`, what Swift's
+ *  `String(format:)` shows for a `Double`. */
+export function formatFixed(x: number, decimals: number): string {
+  return fixedHalfEven(x, decimals)
+}
+
 /** `x` with `decimals` places, from its exact binary value, an exact tie rounded to even — C's `%.Nf`. */
 function fixedHalfEven(x: number, decimals: number): string {
   const negative = x < 0 || Object.is(x, -0)

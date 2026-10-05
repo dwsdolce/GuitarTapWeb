@@ -1,7 +1,8 @@
 // @parity view/spectrum-chart
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Spectrum } from '../dsp/guitarFFT'
-import { renderSpectrum, chartGeometry, DARK_CHART } from '../presentation/spectrumRender'
+import { renderSpectrum, chartGeometry, chartTheme } from '../presentation/spectrumRender'
+import { scheme as currentScheme, subscribe } from '../presentation/palette'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { PeakMarker, AnnotationRect, DotHit, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
 import { zoomedRange } from '../presentation/displayRange'
@@ -158,6 +159,10 @@ export function SpectrumChart({
   // hit-test a mouse click back to a peak for the dot ↔ results-row highlight.
   const dotRectsRef = useRef<DotHit[]>([])
 
+  // The scheme the chart is drawn in; a change of it redraws.
+  const [scheme, setScheme] = useState(currentScheme)
+  useEffect(() => subscribe(setScheme), [])
+
   // ── Draw ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     const canvas = canvasRef.current
@@ -182,7 +187,7 @@ export function SpectrumChart({
       title,
       guitarType,
       peakMin,
-      theme: DARK_CHART,
+      theme: chartTheme(scheme),
       view: { minHz, maxHz, minDb, maxDb },
       badgeRectsOut: badgeRectsRef.current,
       dotRectsOut: dotRectsRef.current,
@@ -190,7 +195,7 @@ export function SpectrumChart({
       crosshair: hover,
       frozen,
     })
-  }, [spectrum, markers, overlays, title, guitarType, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen, highlightedPeakId])
+  }, [spectrum, markers, overlays, title, guitarType, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen, highlightedPeakId, scheme])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
   // @parity view/spectrum-gestures — the web co-locates gestures with the chart

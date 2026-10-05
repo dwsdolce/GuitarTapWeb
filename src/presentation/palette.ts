@@ -186,11 +186,20 @@ export function subscribe(listener: (scheme: Scheme) => void): () => void {
 
 function update(): void {
   const resolved = resolvedScheme(appearance, appearance === 'system' ? osScheme() : null)
-  if (typeof document !== 'undefined') document.documentElement.dataset.theme = resolved
-  if (resolved !== current) {
-    current = resolved
-    for (const listener of listeners) listener(resolved)
+  const changed = resolved !== current
+  current = resolved
+  if (typeof document !== 'undefined') {
+    const root = document.documentElement
+    root.dataset.theme = resolved
+    for (const role of Object.keys(ROLES) as Role[]) root.style?.setProperty(cssVariable(role), color(role))
   }
+  if (changed) for (const listener of listeners) listener(resolved)
+}
+
+/** The CSS custom property that carries `role` in the current scheme: `chart.readout.background` →
+ *  `--c-chart-readout-background`. Set on the root by `apply`, so CSS follows the scheme. */
+export function cssVariable(role: Role): string {
+  return `--c-${role.replace(/\./g, '-').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()}`
 }
 
 /** `"#RRGGBB"` or `"#RRGGBBAA"` as a CSS colour. */
@@ -208,6 +217,17 @@ function css(hex: string, alpha = 1): string {
 export function color(role: Role, opacity?: Opacity, inScheme?: Scheme): string {
   const s = inScheme ?? current
   return css(ROLES[role][s], opacity ? OPACITIES[opacity][s] : 1)
+}
+
+/** The multi-tap and comparison series, by slot; a slot past the last starts again at the first. */
+export const SERIES_ROLES: Role[] = [
+  'series.1', 'series.2', 'series.3', 'series.4', 'series.5',
+  'series.6', 'series.7', 'series.8', 'series.9', 'series.10',
+]
+
+/** The role of series slot `index` (0-based). Mirrors Swift `Palette.series`. */
+export function seriesRole(index: number): Role {
+  return SERIES_ROLES[index % SERIES_ROLES.length]!
 }
 
 /** The role of a guitar mode's colour. Mirrors Swift `Palette.role(_: GuitarMode)`. */

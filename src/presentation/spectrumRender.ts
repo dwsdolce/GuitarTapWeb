@@ -8,11 +8,13 @@ import { drawnIndices } from './displayRange'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_LABEL } from './modeColors'
-import { color as roleColor, modeRole } from './palette'
+import { color as roleColor, modeRole, type Role } from './palette'
 import type { Scheme } from './appearance'
 import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect, DotHit } from './chartTypes'
 import { formattedAsFrequency } from './frequencyFormat'
 import { FieldPrecision } from '../precision'
+import { SCREEN, EXPORT, diameter, type ChartLines } from './chartStyle'
+import { formatTickLabel, formatTickLabels, generateTicks, magnitudeStride } from './axisTicks'
 
 /** Fill a `points`-pointed star centred at (cx, cy) between `outerR` and `innerR`. Used for the
  *  highlighted peak dot (mirrors Swift's `star.fill`). */
@@ -39,17 +41,8 @@ function drawStar(
   ctx.fill()
 }
 
-export function niceLinearTicks(minHz: number, maxHz: number): number[] {
-  const span = Math.max(1, maxHz - minHz)
-  const raw = span / 8
-  const mag = Math.pow(10, Math.floor(Math.log10(raw)))
-  const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? 10 * mag
-  const out: number[] = []
-  for (let t = Math.ceil(minHz / step) * step; t <= maxHz; t += step) out.push(t)
-  return out
-}
-
 export interface ChartTheme {
+  scheme: Scheme // the scheme its colours are from
   bg: string
   grid: string
   border: string
@@ -62,34 +55,23 @@ export interface ChartTheme {
   crosshairDb: string // magnitude-readout color
   crosshairBg: string // readout box fill
 }
-export const DARK_CHART: ChartTheme = {
-  bg: '#0e1116',
-  grid: '#1c242e',
-  border: '#2a3543',
-  axis: '#8a97a6',
-  title: '#dfe4ea',
-  // The primary spectrum line is RED, matching Swift `spectrumLineContent` (.foregroundStyle(.red)) for guitar
-  // AND material live/frozen — and distinct from the material Longitudinal overlay (blue #4ea1ff = MAT_L_COLOR).
-  // (Was #4ea1ff, which collided with the L overlay and hid the live spectrum during material capture.)
-  curve: '#e0584a',
-  badgeBg: 'rgba(20, 25, 33, 0.92)',
-  crosshairLine: 'rgba(150, 160, 170, 0.55)',
-  crosshairFreq: '#dc6464',
-  crosshairDb: '#8a97a6',
-  crosshairBg: 'rgba(20, 25, 33, 0.92)',
-}
-export const LIGHT_CHART: ChartTheme = {
-  bg: '#ffffff',
-  grid: '#e3e8ee',
-  border: '#c2cad4',
-  axis: '#6b7785',
-  title: '#1a2330',
-  curve: '#e0584a',
-  badgeBg: 'rgba(255, 255, 255, 0.96)',
-  crosshairLine: 'rgba(90, 100, 110, 0.5)',
-  crosshairFreq: '#cc3232',
-  crosshairDb: '#6b7785',
-  crosshairBg: 'rgba(255, 255, 255, 0.96)',
+/** The chart's colours in `scheme`, from the palette's chart roles. */
+export function chartTheme(scheme: Scheme): ChartTheme {
+  const c = (role: Role) => roleColor(role, undefined, scheme)
+  return {
+    scheme,
+    bg: c('chart.background'),
+    grid: c('chart.grid'),
+    border: c('chart.border'),
+    axis: c('chart.axis'),
+    title: c('chart.title'),
+    curve: c('chart.spectrum'),
+    badgeBg: c('chart.readout.background'),
+    crosshairLine: c('chart.crosshair.line'),
+    crosshairFreq: c('chart.crosshair.frequency'),
+    crosshairDb: c('chart.axis'),
+    crosshairBg: c('chart.readout.background'),
+  }
 }
 
 // Margins around the plot: room for the title + mode labels (top), the y-axis title + labels (left),
@@ -122,6 +104,8 @@ export interface RenderOpts {
    *  omitted for exports, matching Swift). Drawn only when within the visible dB range. */
   peakMin?: number
   theme?: ChartTheme
+  /** Line and point styles: the screen's (default) or the exported image's. */
+  style?: ChartLines
   /** When provided, the renderer pushes each drawn (keyed) badge's screen rect here for hit-testing. */
   badgeRectsOut?: AnnotationRect[]
   /** When provided, the renderer pushes each drawn dot's screen centre+radius+id here, so a click can
@@ -157,7 +141,8 @@ function nearestIndex(sorted: ArrayLike<number>, target: number): number {
 /** Draw the spectrum chart into ctx over a W×H region (origin at 0,0). */
 export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: number, opts: RenderOpts): void {
   const { spectrum, markers = [], overlays = [], title, guitarType } = opts
-  const th = opts.theme ?? DARK_CHART
+  const th = opts.theme ?? chartTheme('dark')
+  const style = opts.style ?? SCREEN
   const { minHz, maxHz, minDb, maxDb } = opts.view
   const { l: plotL, t: plotT, r: plotR, b: plotB } = chartGeometry(W, H)
   const plotW = plotR - plotL
@@ -180,11 +165,12 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   const yFor = (db: number) => plotB - ((db - minDb) / (maxDb - minDb)) * plotH
 
   // Gridlines + tick labels OUTSIDE the plot.
+  // One grid line per axis tick, no minor lines — Swift's ticks (AxisTickGenerator).
   ctx.strokeStyle = th.grid
   ctx.fillStyle = th.axis
-  ctx.lineWidth = 1
+  ctx.lineWidth = style.gridWidth
   ctx.font = '11px system-ui, sans-serif'
-  const dbStep = maxDb - minDb > 60 ? 20 : 10
+  const dbStep = style.magnitudeStride ?? magnitudeStride(maxDb - minDb)
   ctx.textAlign = 'right'
   for (let db = Math.ceil(minDb / dbStep) * dbStep; db <= maxDb; db += dbStep) {
     const y = yFor(db)
@@ -195,32 +181,33 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.fillText(`${db}`, plotL - 7, y + 4)
   }
   ctx.textAlign = 'center'
-  const ticks = niceLinearTicks(minHz, maxHz)
+  const ticks = generateTicks(minHz, maxHz, 8).filter((hz) => hz >= minHz && hz <= maxHz)
+  const screenLabels = formatTickLabels(ticks)
+  const tickLabel = (hz: number) => (style === EXPORT ? formatTickLabel(hz) : screenLabels.get(hz)!)
   for (const hz of ticks) {
     const x = xFor(hz)
-    if (x < plotL || x > plotR) continue
     ctx.strokeStyle = th.grid
     ctx.beginPath()
     ctx.moveTo(x, plotT)
     ctx.lineTo(x, plotB)
     ctx.stroke()
     ctx.fillStyle = th.axis
-    ctx.fillText(`${Math.round(hz)}`, x, plotB + 16)
+    ctx.fillText(tickLabel(hz), x, plotB + 16)
   }
   ctx.textAlign = 'left'
 
   // Mode-boundary dashed lines + top labels (guitar). TWO lines per mode — the lower (lo) and upper
   // (hi) bound of its frequency range — with the abbreviation label at the lower bound (range start).
   for (const b of bands) {
-    const color = roleColor(modeRole(b.name), undefined, schemeOf(th))
+    const color = roleColor(modeRole(b.name), undefined, th.scheme)
     for (const edge of [b.lo, b.hi]) {
       if (edge < minHz || edge > maxHz) continue
       const ex = xFor(edge)
       ctx.save()
       ctx.strokeStyle = color
-      ctx.globalAlpha = 0.5
-      ctx.setLineDash([7, 7])
-      ctx.lineWidth = 1.5
+      ctx.globalAlpha = style.modeBoundaryOpacity
+      ctx.setLineDash(style.modeBoundaryDash)
+      ctx.lineWidth = style.modeBoundaryWidth
       ctx.beginPath()
       ctx.moveTo(ex, plotT)
       ctx.lineTo(ex, plotB)
@@ -265,10 +252,10 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   ctx.beginPath()
   ctx.rect(plotL, plotT, plotW, plotH)
   ctx.clip()
-  const drawCurve = (freqs: number[], mags: number[], color: string) => {
+  const drawCurve = (freqs: number[], mags: number[], color: string, width: number) => {
     ctx.beginPath()
     ctx.strokeStyle = color
-    ctx.lineWidth = 1.5
+    ctx.lineWidth = width
     let started = false
     // The points inside the range and the one beyond each edge; the clip cuts the crossing segments.
     const [lo, hi] = drawnIndices(freqs, minHz, maxHz)
@@ -286,8 +273,8 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   // Draw the primary (live/frozen) spectrum FIRST, then any overlays on top — matching Swift's
   // SpectrumView (primary line + materialSpectra together). Material capture paints the live base under
   // the captured-phase overlays; comparison/multi-tap pass spectrum=null so only overlays draw.
-  if (spectrum) drawCurve(spectrum.frequencies, spectrum.magnitudesDb, th.curve)
-  for (const ov of overlays) drawCurve(ov.frequencies, ov.magnitudesDb, ov.color)
+  if (spectrum) drawCurve(spectrum.frequencies, spectrum.magnitudesDb, th.curve, style.spectrumWidth)
+  for (const ov of overlays) drawCurve(ov.frequencies, ov.magnitudesDb, overlayColor(ov, th), style.overlayWidth)
 
   // Peak dots — Layer 1: EVERY in-range peak gets a dot, independent of annotation mode,
   // mirroring Swift's `allPeaksInRange` (SpectrumView+ChartContent peakAnnotationContent Layer 1).
@@ -302,10 +289,11 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     if (m.id != null && m.id === opts.highlightedPeakId) {
       // The highlighted peak renders as a red star, enlarged (Swift's macOS highlighted `star.fill`,
       // symbolSize 120 vs the normal circle's 40).
-      drawStar(ctx, cx, cy, 5, 8, 3.5, '#ff3b30') // systemRed
+      const starR = diameter(style.highlightedDotArea) / 2
+      drawStar(ctx, cx, cy, 5, starR, starR * 0.44, roleColor('chart.highlightedPeak', undefined, th.scheme))
     } else {
       ctx.beginPath()
-      ctx.arc(cx, cy, 4, 0, Math.PI * 2)
+      ctx.arc(cx, cy, diameter(style.dotArea) / 2, 0, Math.PI * 2)
       ctx.fillStyle = markerColor(m, th)
       ctx.fill()
     }
@@ -323,9 +311,9 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   if (guitarType && overlays.length === 0 && peakMin != null && peakMin > minDb && peakMin < maxDb) {
     const y = yFor(peakMin)
     ctx.save()
-    ctx.strokeStyle = 'rgba(52, 199, 89, 0.7)' // Swift .green.opacity(0.7) (systemGreen)
-    ctx.lineWidth = 1.5
-    ctx.setLineDash([8, 3])
+    ctx.strokeStyle = hexA(roleColor('chart.peakMin', undefined, th.scheme), style.peakMinOpacity)
+    ctx.lineWidth = style.peakMinWidth
+    ctx.setLineDash(style.peakMinDash)
     ctx.beginPath()
     ctx.moveTo(plotL, y)
     ctx.lineTo(plotR, y)
@@ -337,11 +325,11 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     const lw = ctx.measureText(label).width + 10
     const lx = plotR - lw - 4
     const ly = y - 18
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'
+    ctx.fillStyle = th.badgeBg
     ctx.beginPath()
     ctx.roundRect(lx, ly, lw, 15, 4)
     ctx.fill()
-    ctx.fillStyle = 'rgb(52, 199, 89)'
+    ctx.fillStyle = roleColor('chart.peakMin', undefined, th.scheme)
     ctx.textAlign = 'center'
     ctx.fillText(label, lx + lw / 2, ly + 11)
     ctx.textAlign = 'left'
@@ -356,7 +344,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     // data-space position (so the label stays put under the peak through zoom/pan).
     const anchorX = m.annoOffset ? xFor(m.annoOffset[0]) : xFor(m.frequency)
     const anchorBottom = m.annoOffset ? yFor(m.annoOffset[1]) : yFor(m.magnitude) - 10
-    const rect = drawBadge(ctx, m, xFor(m.frequency), yFor(m.magnitude), anchorX, anchorBottom, plotL, plotR, plotT, th, !!m.annoOffset)
+    const rect = drawBadge(ctx, m, xFor(m.frequency), yFor(m.magnitude), anchorX, anchorBottom, plotL, plotR, plotT, th, style, !!m.annoOffset)
     if (opts.badgeRectsOut && m.annoKey) opts.badgeRectsOut.push({ key: m.annoKey, ...rect })
   }
 
@@ -384,7 +372,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
           bestDy = dy
           dispHz = fs[i]!
           dispDb = ms[i]!
-          freqColor = ov.color
+          freqColor = overlayColor(ov, th)
         }
       }
     } else if (opts.frozen && spectrum && spectrum.frequencies.length) {
@@ -399,7 +387,8 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     const ly = yFor(dispDb)
     ctx.save()
     ctx.strokeStyle = th.crosshairLine
-    ctx.lineWidth = 1
+    ctx.lineWidth = style.crosshairWidth
+    ctx.setLineDash(style.crosshairDash)
     ctx.beginPath()
     ctx.moveTo(lx, plotT)
     ctx.lineTo(lx, plotB)
@@ -421,6 +410,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     if (by + boxH > plotB) by = ly - 10 - boxH
     ctx.fillStyle = th.crosshairBg
     ctx.strokeStyle = th.crosshairLine
+    ctx.setLineDash([])
     ctx.beginPath()
     ctx.rect(bx, by, boxW, boxH)
     ctx.fill()
@@ -445,12 +435,13 @@ function drawBadge(
   plotR: number,
   plotT: number,
   th: ChartTheme,
+  style: ChartLines,
   dragged: boolean,
 ): { x: number; y: number; w: number; h: number } {
   const color = markerColor(m, th)
-  const PITCH = th === LIGHT_CHART ? '#9b51c2' : '#c389e8'
-  const fg = th === LIGHT_CHART ? '#1a2330' : '#dfe4ea'
-  const sub = th === LIGHT_CHART ? '#6b7785' : '#9aa6b3'
+  const PITCH = roleColor('peak.pitch', undefined, th.scheme)
+  const fg = th.title
+  const sub = th.axis
   const padX = 7
   const padY = 5
   const lineH = 14
@@ -480,18 +471,21 @@ function drawBadge(
     boxTop = plotT + 2
     boxBottom = boxTop + boxH
   }
-  ctx.strokeStyle = color
-  ctx.lineWidth = 1
+  ctx.save()
+  ctx.strokeStyle = hexA(color, style.leaderOpacity)
+  ctx.lineWidth = style.leaderWidth
+  ctx.setLineDash(style.leaderDash)
   ctx.beginPath()
   ctx.moveTo(peakX, peakY)
   ctx.lineTo(Math.max(boxX, Math.min(peakX, boxX + boxW)), boxBottom)
   ctx.stroke()
+  ctx.restore()
   ctx.beginPath()
   ctx.roundRect(boxX, boxTop, boxW, boxH, 6)
   ctx.fillStyle = th.badgeBg
   ctx.fill()
   ctx.strokeStyle = color
-  ctx.lineWidth = 1.5
+  ctx.lineWidth = style.labelBorderWidth
   ctx.stroke()
   ctx.textBaseline = 'top'
   for (let i = 0; i < lines.length; i++) {
@@ -503,14 +497,14 @@ function drawBadge(
   return { x: boxX, y: boxTop, w: boxW, h: boxH }
 }
 
-/** The scheme a chart theme draws in. */
-function schemeOf(th: ChartTheme): Scheme {
-  return th === LIGHT_CHART ? 'light' : 'dark'
+/** An overlay curve's colour: its role in the chart's scheme, else its fixed colour. */
+export function overlayColor(ov: SpectrumOverlay, th: ChartTheme): string {
+  return ov.role ? roleColor(ov.role, undefined, th.scheme) : (ov.color ?? th.curve)
 }
 
 /** A marker's dot colour: its role in the chart's scheme, else its fixed colour, else gray. */
 function markerColor(m: PeakMarker, th: ChartTheme): string {
-  return m.role ? roleColor(m.role, undefined, schemeOf(th)) : (m.color ?? '#8a96a5')
+  return m.role ? roleColor(m.role, undefined, th.scheme) : (m.color ?? roleColor('mode.unknown', undefined, th.scheme))
 }
 
 export function hexA(hex: string, a: number): string {

@@ -1153,7 +1153,7 @@
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
-  background: #0e1116;
+  background: var(--c-chart-background);
 }
 .chart-host {
   position: relative;
@@ -1257,8 +1257,8 @@
   height: 20px;
   border-radius: 50%;
   border: 1px solid var(--line);
-  background: rgba(14, 17, 22, 0.85);
-  color: var(--muted);
+  background: var(--c-chart-readout-background);
+  color: var(--c-text-secondary);
   font-size: 0.8rem;
   line-height: 1;
   cursor: pointer;
@@ -1281,8 +1281,8 @@
   height: 20px;
   border-radius: 50%;
   border: 1px solid var(--line);
-  background: rgba(14, 17, 22, 0.85);
-  color: var(--muted);
+  background: var(--c-chart-readout-background);
+  color: var(--c-text-secondary);
   font-size: 0.85rem;
   line-height: 1;
   cursor: pointer;
@@ -1312,8 +1312,8 @@
   justify-content: flex-end;
   gap: 0.25rem 0.7rem;
   padding: 0.3rem 0.6rem;
-  background: rgba(14, 17, 22, 0.82);
-  border: 1px solid var(--line);
+  background: var(--c-chart-readout-background);
+  border: 1px solid var(--c-chart-border);
   border-radius: 7px;
   z-index: 2;
   pointer-events: none;

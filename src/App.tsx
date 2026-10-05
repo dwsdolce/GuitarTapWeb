@@ -4,7 +4,7 @@ import { RealtimeFFTAnalyzer } from './audio/realtimeFFTAnalyzer'
 import { SpectrumChart } from './components/SpectrumChart'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
-import { apply as applyAppearance } from './presentation/palette'
+import { apply as applyAppearance, seriesRole } from './presentation/palette'
 import type { ChartView, PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
 import { type MaterialTapPhase as MatPhase, type DefinitiveModeInfo } from './state/tapToneAnalyzer'
@@ -37,7 +37,7 @@ import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfRepo
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
 import { MODE_DISPLAY_NAME } from './presentation/modeColors'
 import { GUITAR_FFT_SIZE } from './dsp/guitarFFT'
-import { MultiTapComparisonResultsView, MULTITAP_PALETTE, MULTITAP_AVG_COLOR, type MultiTapRow } from './components/MultiTapComparisonResultsView'
+import { MultiTapComparisonResultsView, type MultiTapRow } from './components/MultiTapComparisonResultsView'
 import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
 import { modeBands, peaksInDisplayRange, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
@@ -49,11 +49,6 @@ import './App.css'
 
 const pitch = new Pitch(440)
 
-// Per-phase material spectra, overlaid on the chart (mirrors Swift's materialSpectra:
-// Longitudinal always; Cross + optional FLC for plate). Colors match the markers.
-const MAT_L_COLOR = '#4ea1ff'
-const MAT_C_COLOR = '#f0a03a'
-const MAT_FLC_COLOR = '#b07ad8'
 
 
 const isReviewing = (p: MatPhase) => p === 'reviewingL' || p === 'reviewingC' || p === 'reviewingFlc'
@@ -529,10 +524,10 @@ export default function App() {
     const out: SpectrumOverlay[] = tapEntries.map((e, i) => ({
       magnitudesDb: e.snapshot.magnitudes,
       frequencies: e.snapshot.frequencies,
-      color: MULTITAP_PALETTE[i % MULTITAP_PALETTE.length]!,
+      role: seriesRole(i),
       label: `Tap ${e.tapIndex}`,
     }))
-    if (captured) out.push({ magnitudesDb: captured.magnitudesDb, frequencies: captured.frequencies, color: MULTITAP_AVG_COLOR, label: 'Averaged' })
+    if (captured) out.push({ magnitudesDb: captured.magnitudesDb, frequencies: captured.frequencies, role: 'series.average', label: 'Averaged' })
     return out
   }, [tapEntries, captured])
 
@@ -548,9 +543,9 @@ export default function App() {
     if (matSpectra.longitudinal)
       // Chart legend uses the frequency notation (fL/fC) and the "Diagonal (fLC)" name uniformly for
       // plate AND brace, matching Swift/Python.
-      out.push({ ...matSpectra.longitudinal, color: MAT_L_COLOR, label: 'Longitudinal (fL)' })
-    if (matSpectra.cross) out.push({ ...matSpectra.cross, color: MAT_C_COLOR, label: 'Cross-grain (fC)' })
-    if (matSpectra.flc) out.push({ ...matSpectra.flc, color: MAT_FLC_COLOR, label: 'Diagonal (fLC)' })
+      out.push({ ...matSpectra.longitudinal, role: 'material.longitudinal', label: 'Longitudinal (fL)' })
+    if (matSpectra.cross) out.push({ ...matSpectra.cross, role: 'material.cross', label: 'Cross-grain (fC)' })
+    if (matSpectra.flc) out.push({ ...matSpectra.flc, role: 'material.flc', label: 'Diagonal (fLC)' })
     return out
   }, [material, matSpectra])
   // Per-measurement-type display range (plate 20–200, brace 30–1000, guitar 75–350),

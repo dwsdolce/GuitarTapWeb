@@ -65,6 +65,9 @@ export type ResetAxis = 'both' | 'freq' | 'mag'
 export interface SpectrumOverlay {
   magnitudesDb: number[]
   frequencies: number[]
-  color: string
+  /** The curve's colour role, resolved in the chart's scheme when drawn. */
+  role?: Role
+  /** A fixed curve colour, for overlays without a role (a saved comparison's stored colour). */
+  color?: string
   label: string
 }

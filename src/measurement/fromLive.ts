@@ -16,6 +16,7 @@ import type { ChartView } from '../presentation/chartTypes'
 import { DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, MEASUREMENT_SHORT_NAME, STIFFNESS_RAW_NAME, type MeasurementType, type Settings } from '../settings'
 import { materialInputsFromSnapshot, type MaterialMeasurementInputs } from './materialMeasurementInputs'
 import { guitarTypeNameFromRaw, isoNow, TapEntry, type AnnotationOffsets, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapEntryModel, type TapToneMeasurementModel } from './types'
+import { pair, seriesRole } from '../presentation/palette'
 
 /** A measurement type's guitar-type raw name as a snapshot records it ("Generic" … "Flamenco"). */
 export const GUITAR_TYPE_RAW: Record<string, string> = {
@@ -347,9 +348,8 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
 }
 
 // ── Comparison measurements ─────────────────────────────────────────────────
-// A comparison overlays several measurements' spectra. Same 5-color palette as the
-// multi-tap view, cycled by index (Swift/Python comparison palette).
-export const COMPARISON_PALETTE = ['#0a84ff', '#ff9f0a', '#30d158', '#bf5af2', '#40c8e0']
+// A comparison overlays several measurements' spectra. Each entry's colour is its series slot's role,
+// stored as the light value (Swift/Python comparison entries).
 
 /** ComparisonEntry.colorComponents ([r,g,b,a] 0–1) → a CSS color for the chart/table. */
 export function colorComponentsToCss(c: number[]): string {
@@ -402,7 +402,7 @@ export function buildComparisonEntries(measurements: TapToneMeasurementModel[]):
     return {
       id: uuid(),
       label: labels[i]!,
-      colorComponents: hexToComponents(COMPARISON_PALETTE[i % COMPARISON_PALETTE.length]!),
+      colorComponents: hexToComponents(pair(seriesRole(i)).light),
       snapshot: snap,
       peaks,
       guitarType: snap.guitarType,
@@ -412,9 +412,6 @@ export function buildComparisonEntries(measurements: TapToneMeasurementModel[]):
   })
 }
 
-// Averaged-spectrum highlight color for the multi-tap comparison — must match
-// MultiTapComparisonResultsView.MULTITAP_AVG_COLOR (the per-tap colors reuse COMPARISON_PALETTE).
-export const MULTITAP_AVG_COLOR = '#ffd900'
 
 /** Convert a multi-tap guitar measurement's per-tap entries into comparison entries — one "Tap N"
  *  per tap (palette-cycled) plus a trailing "Averaged" entry built from the measurement's own
@@ -430,7 +427,7 @@ export function multiTapComparisonEntries(m: TapToneMeasurementModel): Compariso
   const entries: ComparisonEntryModel[] = (m.tapEntries ?? []).map((e, i) => ({
     id: uuid(),
     label: `Tap ${e.tapIndex}`,
-    colorComponents: hexToComponents(COMPARISON_PALETTE[i % COMPARISON_PALETTE.length]!),
+    colorComponents: hexToComponents(pair(seriesRole(i)).light),
     snapshot: e.snapshot,
     peaks: selectedOf(e.peaks, e.selectedPeakIDs),
     guitarType: e.snapshot.guitarType,
@@ -439,7 +436,7 @@ export function multiTapComparisonEntries(m: TapToneMeasurementModel): Compariso
     entries.push({
       id: uuid(),
       label: 'Averaged',
-      colorComponents: hexToComponents(MULTITAP_AVG_COLOR),
+      colorComponents: hexToComponents(pair('series.average').light),
       snapshot: m.spectrumSnapshot,
       peaks: selectedOf(m.peaks, m.selectedPeakIDs),
       guitarType: m.spectrumSnapshot.guitarType,

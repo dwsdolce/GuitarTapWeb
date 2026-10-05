@@ -3,7 +3,7 @@
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME } from './modeColors'
-import { color as roleColor, modeRole, qualityRole } from './palette'
+import { color as roleColor, modeRole, qualityRole, type Role } from './palette'
 import { FieldPrecision } from '../precision'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
@@ -24,14 +24,12 @@ import type { ResonantPeak } from '../measurement/types'
 const pitch = new Pitch(440)
 type AnnoMode = 'all' | 'selected' | 'none'
 
-// Wood-quality → colour comes from the single scheme-qualified table in presentation/qualityColors.
-// The report is ALWAYS a white page — Swift and Python render their PDFs light regardless of app
-// appearance — so it is pinned to 'light' and stays that way when the theme work lands.
 /** A grade's colour in the report: its role's light value (the report is drawn on white). */
 const qualityColor = (q: WoodQuality): string => roleColor(qualityRole(q), undefined, 'light')
-const ROLE_L = '#0a84ff'
-const ROLE_C = '#ff9f0a'
-const ROLE_FLC = '#bf5af2'
+/** The plate/brace phase colours in the report: their roles' light values. */
+const ROLE_L = roleColor('material.longitudinal', undefined, 'light')
+const ROLE_C = roleColor('material.cross', undefined, 'light')
+const ROLE_FLC = roleColor('material.flc', undefined, 'light')
 
 
 /** Styled guitar peak markers (dot color + mode label + pitch + override/annotation) — the SAME
@@ -86,13 +84,13 @@ export function buildMaterialMarkers(
   // identified peak; None hides all badges (dots remain). Mirrors Swift/Python visiblePeaks.
   const annotated = mode !== 'none'
   const out: PeakMarker[] = []
-  const push = (mp: ResonantPeak, color: string, label: string) => {
+  const push = (mp: ResonantPeak, role: Role, label: string) => {
     const key = mp.id // material offsets are id-keyed in the shared analyzer store
-    out.push({ ...mp, color, label, annotated, annoKey: key, annoOffset: offsetsById?.get(mp.id) })
+    out.push({ ...mp, role, label, annotated, annoKey: key, annoOffset: offsetsById?.get(mp.id) })
   }
-  if (matPeaks.longitudinal) push(matPeaks.longitudinal, '#4ea1ff', 'Longitudinal')
-  if (matPeaks.cross) push(matPeaks.cross, '#f0a03a', 'Cross-grain')
-  if (matPeaks.flc) push(matPeaks.flc, '#b07ad8', 'Diagonal')
+  if (matPeaks.longitudinal) push(matPeaks.longitudinal, 'material.longitudinal', 'Longitudinal')
+  if (matPeaks.cross) push(matPeaks.cross, 'material.cross', 'Cross-grain')
+  if (matPeaks.flc) push(matPeaks.flc, 'material.flc', 'Diagonal')
   return out
 }
 
@@ -118,9 +116,9 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
   if (m.longitudinalSnapshot) {
     const r = measurementToLiveMaterial(m)
     const overlays: SpectrumOverlay[] = []
-    if (r.matSpectra.longitudinal) overlays.push({ ...r.matSpectra.longitudinal, color: '#4ea1ff', label: 'Longitudinal (fL)' })
-    if (r.matSpectra.cross) overlays.push({ ...r.matSpectra.cross, color: '#f0a03a', label: 'Cross-grain (fC)' })
-    if (r.matSpectra.flc) overlays.push({ ...r.matSpectra.flc, color: '#b07ad8', label: 'Diagonal (fLC)' })
+    if (r.matSpectra.longitudinal) overlays.push({ ...r.matSpectra.longitudinal, role: 'material.longitudinal', label: 'Longitudinal (fL)' })
+    if (r.matSpectra.cross) overlays.push({ ...r.matSpectra.cross, role: 'material.cross', label: 'Cross-grain (fC)' })
+    if (r.matSpectra.flc) overlays.push({ ...r.matSpectra.flc, role: 'material.flc', label: 'Diagonal (fLC)' })
     const s = m.longitudinalSnapshot
     return {
       title,

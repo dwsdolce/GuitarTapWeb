@@ -85,10 +85,10 @@ describe('multiTapComparisonEntries — per-tap + averaged (6e)', () => {
     expect(entries.map((e) => e.label)).toEqual(['Tap 1', 'Tap 2', 'Averaged'])
   })
 
-  it('cycles the comparison palette for taps and uses the avg color for Averaged', () => {
-    expect(colorComponentsToCss(entries[0]!.colorComponents)).toBe('rgba(10, 132, 255, 1)') // #0a84ff
-    expect(colorComponentsToCss(entries[1]!.colorComponents)).toBe('rgba(255, 159, 10, 1)') // #ff9f0a
-    expect(colorComponentsToCss(entries[2]!.colorComponents)).toBe('rgba(255, 217, 0, 1)') // #ffd900 (avg)
+  it('stores each tap its series slot\'s light colour, and the average the average\'s', () => {
+    expect(colorComponentsToCss(entries[0]!.colorComponents)).toBe('rgba(0, 122, 255, 1)') // series.1 #007AFF
+    expect(colorComponentsToCss(entries[1]!.colorComponents)).toBe('rgba(224, 120, 0, 1)') // series.2 #E07800
+    expect(colorComponentsToCss(entries[2]!.colorComponents)).toBe('rgba(235, 195, 0, 1)') // series.average #EBC300
   })
 
   it('the Averaged entry keeps the measurement’s selected peaks', () => {

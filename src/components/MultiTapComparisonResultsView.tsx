@@ -18,6 +18,7 @@
 
 import type { DefinitiveMode, DefinitiveModeInfo } from '../state/tapToneAnalyzer'
 import { FieldPrecision } from '../precision'
+import { color as roleColor, seriesRole } from '../presentation/palette'
 
 /** Resolved Air / Top / Back peak frequencies (Hz) for one row; `null` when no peak was found. */
 export interface TapModeFreqs {
@@ -31,18 +32,6 @@ export interface MultiTapRow extends TapModeFreqs {
   tapIndex: number
 }
 
-/**
- * Per-tap palette cycled by row index (blue / orange / green / purple / teal).
- *
- * Mirrors Swift `TapToneAnalyzer.multiTapPalette` (`[.blue, .orange, .green, .purple, .teal]`).
- * These are the dark-appearance variants of those system colors, brightened for the
- * chart's dark background — the same convention as the mode colors.
- */
-// eslint-disable-next-line react-refresh/only-export-components -- shared palette constant (used by App's multi-tap overlays); kept alongside the view rather than in its own module
-export const MULTITAP_PALETTE = ['#0a84ff', '#ff9f0a', '#30d158', '#bf5af2', '#40c8e0']
-
-/** Averaged-row indicator color — gold; mirrors Swift `TapToneAnalyzer.multiTapAvgColor` = `Color(1.0, 0.85, 0.0)`. */
-export const MULTITAP_AVG_COLOR = '#ffd900'
 
 const hz = (n: number | null) => (n != null ? `${FieldPrecision.string(n, FieldPrecision.peakFrequencyHz)} Hz` : '—')
 
@@ -93,7 +82,7 @@ export function MultiTapComparisonResultsView({ taps, avg }: { taps: MultiTapRow
       {taps.map((t, i) => (
         <div className="mt-row" key={t.tapIndex}>
           <span className="mt-label">
-            <span className="mt-dot" style={{ background: MULTITAP_PALETTE[i % MULTITAP_PALETTE.length] }} />
+            <span className="mt-dot" style={{ background: roleColor(seriesRole(i)) }} />
             Tap {t.tapIndex}
           </span>
           <FreqCells m={t} />
@@ -101,7 +90,7 @@ export function MultiTapComparisonResultsView({ taps, avg }: { taps: MultiTapRow
       ))}
       <div className="mt-row mt-avg">
         <span className="mt-label">
-          <span className="mt-square" style={{ background: MULTITAP_AVG_COLOR }} />
+          <span className="mt-square" style={{ background: roleColor('series.average') }} />
           Averaged
         </span>
         <AvgFreqCells m={avg} />

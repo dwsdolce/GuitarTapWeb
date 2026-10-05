@@ -7,7 +7,8 @@
 
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { PeakMarker, SpectrumOverlay, ChartView } from './chartTypes'
-import { renderSpectrum, LIGHT_CHART, hexA, type ChartTheme } from './spectrumRender'
+import { renderSpectrum, chartTheme, overlayColor, hexA, type ChartTheme } from './spectrumRender'
+import { EXPORT } from './chartStyle'
 import { type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_DISPLAY_NAME } from './modeColors'
 import { color as roleColor, modeRole } from './palette'
@@ -31,7 +32,7 @@ export interface SpectrumImageOpts {
 const PIXEL_SCALE = 2
 
 const FONT = (s: number, w = '') => `${w ? w + ' ' : ''}${s}px system-ui, sans-serif`
-const th: ChartTheme = LIGHT_CHART
+const th: ChartTheme = chartTheme('light')
 
 /**
  * The peaks a report is ABOUT — its header count, its Detected Peaks Summary, and its chart dots
@@ -126,6 +127,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
     title: opts.title,
     guitarType: opts.guitarType,
     theme: th,
+    style: EXPORT,
   })
   ctx.restore()
   y += chartH
@@ -185,7 +187,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   let lx = PAD + ctx.measureText(legendTitle).width + 18
   ctx.font = FONT(13)
   const legendItems = overlays.length
-    ? overlays.map((o) => ({ color: o.color, label: o.label }))
+    ? overlays.map((o) => ({ color: overlayColor(o, th), label: o.label }))
     : (['air', 'top', 'back', 'dipole', 'ring'] as const).map((k) => ({
         color: roleColor(modeRole(k), undefined, 'light'),
         label: MODE_DISPLAY_NAME[k],
