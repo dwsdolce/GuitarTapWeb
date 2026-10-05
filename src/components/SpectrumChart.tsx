@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { renderSpectrum, chartGeometry, chartTheme } from '../presentation/spectrumRender'
-import { scheme as currentScheme, subscribe } from '../presentation/palette'
+import { useScheme } from '../hooks/useScheme'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { PeakMarker, AnnotationRect, DotHit, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
 import { zoomedRange } from '../presentation/displayRange'
@@ -160,8 +160,7 @@ export function SpectrumChart({
   const dotRectsRef = useRef<DotHit[]>([])
 
   // The scheme the chart is drawn in; a change of it redraws.
-  const [scheme, setScheme] = useState(currentScheme)
-  useEffect(() => subscribe(setScheme), [])
+  const scheme = useScheme()
 
   // ── Draw ──────────────────────────────────────────────────────────────────
   useEffect(() => {

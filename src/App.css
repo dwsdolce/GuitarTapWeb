@@ -1607,13 +1607,12 @@
   gap: 0.5rem;
   padding: 0.4rem 0.5rem;
   border-radius: 8px;
-  border-left: 3px solid transparent;
+  border: 2px solid transparent;
 }
 .star {
   background: none;
   border: none;
   cursor: pointer;
-  color: #4ea1ff;
   font-size: 1.05rem;
   line-height: 1.2;
   padding: 0;
@@ -1640,10 +1639,10 @@
   line-height: 1;
 }
 .range-flag.ok {
-  color: #5fd07a;
+  color: var(--c-peak-in-range);
 }
 .range-flag.warn {
-  color: #f0a03a;
+  color: var(--c-peak-out-of-range);
 }
 
 .peak-info {
@@ -1677,12 +1676,13 @@
   outline: none;
 }
 .freq {
+  color: var(--c-text-primary);
   font-size: 1rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .pitch {
-  color: #c79cf0;
+  color: var(--c-peak-pitch);
   font-size: 0.82rem;
   font-weight: 600;
   margin: 0.15rem 0;
@@ -1692,14 +1692,14 @@
 }
 .details {
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   margin-top: 0.1rem;
 }
 .kv {
   margin-right: 0.75rem;
 }
 .kv b {
-  color: var(--text);
+  color: inherit;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }

@@ -1,11 +1,16 @@
 // @parity view/peak-card
 import { useRef, useEffect } from 'react'
 import type { ResolvedMode } from '../dsp/classify'
-import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS, magnitudeColor } from '../presentation/modeColors'
-import { color as roleColor, modeRole } from '../presentation/palette'
+import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS } from '../presentation/modeColors'
+import { color as roleColor, magnitudeRole, modeRole } from '../presentation/palette'
+import { hexA } from '../presentation/spectrumRender'
+import { useScheme } from '../hooks/useScheme'
 import { WindIcon, ArrowUpDownIcon, SquareFilledIcon, DipoleIcon, CircleDashedIcon, WaveformIcon, HelpIcon, TagIcon } from './icons'
 import type { ResonantPeak } from '../measurement/types'
 import { FieldPrecision } from '../precision'
+
+/** A highlighted row's fill under its tint — mirrors Swift TapAnalysisResultsView. */
+const HIGHLIGHT_OPACITY = 0.12
 
 // One resonant-peak card, mirroring Swift CombinedPeakModeRowView:
 //   [star] [mode glyph + in-range check] [mode label · freq / pitch / Q · BW · mag]
@@ -87,7 +92,10 @@ export function PeakCard({
   // Glyph + colour follow the EFFECTIVE (possibly overridden) label, like Swift — a manual override
   // swaps both. A custom label that isn't a known mode gets the tag glyph in teal.
   const effMode = MODE_BY_DISPLAY_NAME[effectiveLabel]
-  const color = roleColor(effMode ? modeRole(effMode) : 'mode.userDefined')
+  useScheme() // the colours below are the current scheme's
+  const role = effMode ? modeRole(effMode) : 'mode.userDefined'
+  const color = roleColor(role)
+  const tint = roleColor(role, 'peak.rowTint')
   const ModeIcon = effMode ? MODE_ICON[effMode] : TagIcon
 
   // Build the option list, ensuring the current value is present. Two groups, as in Swift's
@@ -114,14 +122,15 @@ export function PeakCard({
       ref={cardRef}
       className={`peak-card${highlighted ? ' highlighted' : ''}`}
       style={{
-        background: `${color}14`,
-        borderLeftColor: color,
-        boxShadow: highlighted ? `0 0 0 2px ${color}` : undefined,
+        // The row's tint, over the highlight's fill when highlighted; the highlight's border (Swift).
+        background: highlighted ? `linear-gradient(${tint}, ${tint}), ${hexA(color, HIGHLIGHT_OPACITY)}` : tint,
+        borderColor: highlighted ? color : 'transparent',
       }}
       onClick={onHighlight}
     >
       <button
         className="star"
+        style={{ color: roleColor(selected ? 'peak.selectedStar' : 'peak.unselectedStar') }}
         onClick={(e) => {
           e.stopPropagation() // the star toggles selection, not the highlight
           onToggle()
@@ -188,7 +197,7 @@ export function PeakCard({
           <span className="kv">
             BW: <b>{FieldPrecision.string(peak.bandwidth, FieldPrecision.bandwidthHz)} Hz</b>
           </span>
-          <span className="mag" style={{ color: magnitudeColor(peak.magnitude) }}>
+          <span className="mag" style={{ color: roleColor(magnitudeRole(peak.magnitude)) }}>
             {FieldPrecision.string(peak.magnitude, FieldPrecision.peakMagnitudeDB)} dB
           </span>
         </div>

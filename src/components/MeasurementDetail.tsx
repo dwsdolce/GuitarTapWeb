@@ -1,8 +1,8 @@
 // @parity view/measurement-detail
 import { measurementTypeName, comparisonEntryModeFreqs, colorComponentsToCss, measurementPeakModeLabels } from '../measurement/fromLive'
 import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
-import { MODE_DISPLAY_NAME, magnitudeColor } from '../presentation/modeColors'
-import { color as roleColor, modeRole } from '../presentation/palette'
+import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
+import { color as roleColor, magnitudeRole, modeRole } from '../presentation/palette'
 import type { ResolvedMode } from '../dsp/classify'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
 import { formatDisplayDate } from '../format/date'
@@ -142,7 +142,7 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
                           <div className="detail-peak-line2">
                             <span>Q: {FieldPrecision.string(p.quality, FieldPrecision.qFactor)}</span>
                             <span>BW: {FieldPrecision.string(p.bandwidth, FieldPrecision.bandwidthHz)} Hz</span>
-                            <span style={{ color: magnitudeColor(p.magnitude) }}>{FieldPrecision.string(p.magnitude, FieldPrecision.peakMagnitudeDB)} dB</span>
+                            <span style={{ color: roleColor(magnitudeRole(p.magnitude)) }}>{FieldPrecision.string(p.magnitude, FieldPrecision.peakMagnitudeDB)} dB</span>
                           </div>
                         </div>
                       </div>

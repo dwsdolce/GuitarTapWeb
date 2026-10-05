@@ -235,6 +235,17 @@ export function modeRole(mode: ResolvedMode): Role {
   return `mode.${mode}`
 }
 
+/**
+ * The role of a peak's magnitude (dB) in a peak list: strong from −40 dB, moderate from −60, weak from −80, faint
+ * below. Mirrors Swift `Palette.role(magnitude:)`.
+ */
+export function magnitudeRole(magnitude: number): Role {
+  if (magnitude >= -40) return 'peak.magnitude.strong'
+  if (magnitude >= -60) return 'peak.magnitude.moderate'
+  if (magnitude >= -80) return 'peak.magnitude.weak'
+  return 'peak.magnitude.faint'
+}
+
 const QUALITY_ROLE: Record<WoodQuality, Role> = {
   Excellent: 'wood.excellent',
   'Very Good': 'wood.veryGood',

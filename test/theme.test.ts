@@ -6,7 +6,7 @@
 // exactly the changes of the resolved scheme, and the page's data-theme follows it.
 import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { OPACITIES, ROLES, SERIES_ROLES, apply, color, cssVariable, pair, seriesRole, subscribe, type Opacity, type Role } from '../src/presentation/palette'
+import { OPACITIES, ROLES, SERIES_ROLES, apply, color, cssVariable, magnitudeRole, pair, seriesRole, subscribe, type Opacity, type Role } from '../src/presentation/palette'
 import { APPEARANCES, APPEARANCE_LABEL, resolvedScheme, type Appearance, type Scheme } from '../src/presentation/appearance'
 import { DEFAULT_SETTINGS } from '../src/settings'
 
@@ -15,6 +15,7 @@ const DATA = JSON.parse(readFileSync('test/fixtures/theme.json', 'utf8')) as {
   opacities: [Opacity, number, number][]
   appearance: { default: Appearance; values: [Appearance, string][] }
   resolve: [Appearance, Scheme | 'unknown', Scheme][]
+  magnitudeRoles: [number, Role][]
 }
 
 describe('theme — shared cases', () => {
@@ -102,4 +103,10 @@ describe('theme — the series slots', () => {
     expect(SERIES_ROLES).toEqual(Array.from({ length: 10 }, (_, i) => `series.${i + 1}`))
     expect(seriesRole(10)).toBe('series.1')
   })
+})
+
+describe('theme — the magnitude roles', () => {
+  for (const [magnitude, role] of DATA.magnitudeRoles) {
+    it(`${magnitude} dB → ${role}`, () => expect(magnitudeRole(magnitude)).toBe(role))
+  }
 })

@@ -99,11 +99,3 @@ export const QUICK_PICK_MODES = [
   'Upper Modes',
   'Unknown',
 ]
-
-/** Magnitude → color, mirroring CombinedPeakModeRowView.magnitudeColor. */
-export function magnitudeColor(mag: number): string {
-  if (mag >= -40) return '#5fd07a' // green
-  if (mag >= -60) return '#4ea1ff' // blue
-  if (mag >= -80) return '#f0a03a' // orange
-  return '#e0584a' // red
-}
