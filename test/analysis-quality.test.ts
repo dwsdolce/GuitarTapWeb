@@ -1,7 +1,8 @@
 // @parity test/analysis-quality
 //
 // The guitar tap-tone quality helpers against the shared case file `analysis-quality.json` — the same cases
-// the Swift and Python suites run. Guitar types and palette names are Swift's (the web's are the same).
+// the Swift and Python suites run. Guitar types are Swift's (the web's are the same); colour names are the quality roles of
+// `theme.json`.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { decayQuality, decayQualityColor, tapToneRatioQuality, tapToneRatioQualityColor } from '../src/dsp/analysisQuality'
@@ -16,7 +17,6 @@ const DATA = JSON.parse(readFileSync('test/fixtures/analysis-quality.json', 'utf
   ratioLabel: [number, string][]
   ratioColor: [number, Name][]
   outsideEveryBand: { values: (number | string)[]; guitarType: GuitarTypeName; label: string; color: Name }
-  palette: [Name, string, string][]
 }
 const number = (v: number | string) => (v === 'NaN' ? NaN : Number(v))
 
@@ -48,8 +48,4 @@ describe('analysis-quality — shared cases', () => {
       expect(tapToneRatioQuality(value)).toBe(o.label)
       expect(tapToneRatioQualityColor(value)).toBe(PALETTE[o.color])
     })
-  }
-  it('palette', () => {
-    expect(PALETTE).toEqual(Object.fromEntries(DATA.palette.map(([name, light, dark]) => [name, { light, dark }])))
-  })
-})
+  }})

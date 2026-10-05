@@ -1,23 +1,146 @@
-// @parity view/palette tests=test/analysis-quality
+// @parity view/palette tests=test/theme,test/analysis-quality
 //
-// The app's fixed colours: each has one light value and one dark value, chosen by the background. They
-// are pinned rather than taken from a platform palette, so every edition shows the same colours on every
-// OS. The colour only tells values apart; the exact shade does not matter, but it must be the same
-// everywhere. The app's background is dark, so the screen takes `dark`; a PDF is printed on white, so it
-// takes `light`. The tap/phase progress bar's blue is `--system-blue` in index.css, the same pair.
-// Mirrors Swift `Palette`.
+// Every colour the app draws itself, as a functional role: what the colour is for (secondary text, the fL curve,
+// the Peak Min line), with one light value and one dark value; two roles may share a value without being linked.
+// The values are pinned rather than taken from a platform palette, so every edition shows the same colours on every
+// OS. The colour only tells values apart; the exact shade does not matter, but it must be the same everywhere.
+// Exports are drawn on white, so they use the light values. The tap/phase progress bar's blue is `--system-blue` in
+// index.css, the same pair as `quality.blue`. Mirrors Swift `Palette`.
 
-/** A colour's two values, as "#RRGGBB". */
+/** A colour's two values, as "#RRGGBB", or "#RRGGBBAA" when the role has an opacity. */
 export interface ColorPair {
   light: string
   dark: string
 }
 
+/** Every role, by its name in the theme table. */
+export const ROLES = {
+  'background.window': { light: '#F2F2F7', dark: '#0B0E13' },
+  'background.panel': { light: '#FFFFFF', dark: '#141A22' },
+  'background.control': { light: '#FFFFFF', dark: '#11161D' },
+  'background.subtle': { light: '#8E8E9314', dark: '#8E8E931A' },
+  'separator': { light: '#D8DEE6', dark: '#222A33' },
+  'text.primary': { light: '#1A2330', dark: '#E7EBF0' },
+  'text.secondary': { light: '#6B7785', dark: '#8A96A5' },
+  'accent': { light: '#007AFF', dark: '#0A84FF' },
+  'accent.text': { light: '#007AFF', dark: '#409CFF' },
+  'scrim': { light: '#0000004D', dark: '#00000080' },
+  'chart.background': { light: '#FFFFFF', dark: '#0E1116' },
+  'chart.grid': { light: '#E3E8EE', dark: '#1C242E' },
+  'chart.border': { light: '#C2CAD4', dark: '#2A3543' },
+  'chart.axis': { light: '#6B7785', dark: '#8A97A6' },
+  'chart.title': { light: '#1A2330', dark: '#DFE4EA' },
+  'chart.spectrum': { light: '#FF3B30', dark: '#FF453A' },
+  'chart.crosshair.line': { light: '#5A646E80', dark: '#96A0AA8C' },
+  'chart.crosshair.frequency': { light: '#FF3B30', dark: '#FF453A' },
+  'chart.readout.background': { light: '#FFFFFFF5', dark: '#141921EB' },
+  'chart.peakMin': { light: '#34C759', dark: '#30D158' },
+  'chart.highlightedPeak': { light: '#FF3B30', dark: '#FF453A' },
+  'mode.air': { light: '#00B0DC', dark: '#64D2FF' },
+  'mode.top': { light: '#269342', dark: '#30D158' },
+  'mode.back': { light: '#BB6D00', dark: '#FF9F0A' },
+  'mode.dipole': { light: '#FF3B30', dark: '#FF453A' },
+  'mode.ring': { light: '#AF52DE', dark: '#BF5AF2' },
+  'mode.upper': { light: '#A2845E', dark: '#AC8E68' },
+  'mode.unknown': { light: '#8E8E93', dark: '#8E8E93' },
+  'mode.userDefined': { light: '#5856D6', dark: '#7D7AFF' },
+  'material.longitudinal': { light: '#007AFF', dark: '#0A84FF' },
+  'material.cross': { light: '#FF9500', dark: '#FF9F0A' },
+  'material.flc': { light: '#AF52DE', dark: '#BF5AF2' },
+  'material.unselected': { light: '#6B7785', dark: '#8A96A5' },
+  'phase.notStarted': { light: '#8E8E93', dark: '#8E8E93' },
+  'phase.complete': { light: '#34C759', dark: '#30D158' },
+  'peak.magnitude.strong': { light: '#34C759', dark: '#30D158' },
+  'peak.magnitude.moderate': { light: '#007AFF', dark: '#0A84FF' },
+  'peak.magnitude.weak': { light: '#FF9500', dark: '#FF9F0A' },
+  'peak.magnitude.faint': { light: '#FF3B30', dark: '#FF453A' },
+  'peak.pitch': { light: '#AF52DE', dark: '#BF5AF2' },
+  'peak.selectedStar': { light: '#007AFF', dark: '#0A84FF' },
+  'peak.unselectedStar': { light: '#6B7785', dark: '#8A96A5' },
+  'peak.inRange': { light: '#34C759', dark: '#30D158' },
+  'peak.outOfRange': { light: '#FF9500', dark: '#FF9F0A' },
+  'quality.gray': { light: '#8E8E93', dark: '#8E8E93' },
+  'quality.orange': { light: '#FF9500', dark: '#FF9F0A' },
+  'quality.yellow': { light: '#FFCC00', dark: '#FFD60A' },
+  'quality.green': { light: '#34C759', dark: '#30D158' },
+  'quality.blue': { light: '#007AFF', dark: '#0A84FF' },
+  'quality.red': { light: '#FF3B30', dark: '#FF453A' },
+  'wood.excellent': { light: '#34C759', dark: '#30D158' },
+  'wood.veryGood': { light: '#00C7BE', dark: '#63E6E2' },
+  'wood.good': { light: '#007AFF', dark: '#0A84FF' },
+  'wood.fair': { light: '#FF9500', dark: '#FF9F0A' },
+  'wood.poor': { light: '#FF3B30', dark: '#FF453A' },
+  'series.1': { light: '#007AFF', dark: '#0A84FF' },
+  'series.2': { light: '#E07800', dark: '#FF9F0A' },
+  'series.3': { light: '#269342', dark: '#30D158' },
+  'series.4': { light: '#AF52DE', dark: '#BF5AF2' },
+  'series.5': { light: '#0090B0', dark: '#64D2FF' },
+  'series.6': { light: '#E0302A', dark: '#FF453A' },
+  'series.7': { light: '#D6177A', dark: '#FF6FB5' },
+  'series.8': { light: '#8B6A42', dark: '#C29A6B' },
+  'series.9': { light: '#7A8A00', dark: '#B8D430' },
+  'series.10': { light: '#5E6B7A', dark: '#A8B4C2' },
+  'series.average': { light: '#EBC300', dark: '#FFD900' },
+  'status.running': { light: '#34C759', dark: '#30D158' },
+  'status.tapDetected': { light: '#34C759', dark: '#30D158' },
+  'status.complete': { light: '#34C759', dark: '#30D158' },
+  'status.stopped': { light: '#8E8E93', dark: '#8E8E93' },
+  'status.idle': { light: '#8E8E93', dark: '#8E8E93' },
+  'status.paused': { light: '#FF9500', dark: '#FF9F0A' },
+  'status.frozen': { light: '#FF9500', dark: '#FF9F0A' },
+  'status.warning': { light: '#FF9500', dark: '#FF9F0A' },
+  'status.playingFile': { light: '#FF9500', dark: '#FF9F0A' },
+  'status.info': { light: '#007AFF', dark: '#0A84FF' },
+  'status.saved': { light: '#007AFF', dark: '#0A84FF' },
+  'status.progress': { light: '#007AFF', dark: '#0A84FF' },
+  'status.tapCount': { light: '#007AFF', dark: '#0A84FF' },
+  'status.peakReadout': { light: '#007AFF', dark: '#0A84FF' },
+  'status.error': { light: '#FF3B30', dark: '#FF453A' },
+  'meter.groove': { light: '#EBEBEB', dark: '#0A0D12' },
+  'meter.grooveBorder': { light: '#8E8E9399', dark: '#8E8E9373' },
+  'meter.levelTop': { light: '#66CCFF', dark: '#66CCFF' },
+  'meter.levelMiddle': { light: '#0066CC', dark: '#0066CC' },
+  'meter.levelBottom': { light: '#001E50', dark: '#001E50' },
+  'meter.clip': { light: '#FF3B30D9', dark: '#FF453AD9' },
+  'meter.ticks': { light: '#3D8C3DB3', dark: '#3D8C3DB3' },
+  'meter.peakHold': { light: '#FFD900', dark: '#FFD900' },
+  'meter.thresholdHandle': { light: '#FF3B30', dark: '#FF453A' },
+  'meter.thresholdHandleBorder': { light: '#800000', dark: '#800000' },
+  'metric.good': { light: '#34C759', dark: '#30D158' },
+  'metric.fair': { light: '#FFCC00', dark: '#FFD60A' },
+  'metric.high': { light: '#FF9500', dark: '#FF9F0A' },
+  'metric.overload': { light: '#FF3B30', dark: '#FF453A' },
+  'pdf.accent': { light: '#2659BF', dark: '#2659BF' },
+  'pdf.text': { light: '#1C1C1E', dark: '#1C1C1E' },
+  'pdf.secondary': { light: '#787880', dark: '#787880' },
+  'pdf.divider': { light: '#D2D2D4', dark: '#D2D2D4' },
+  'pdf.box': { light: '#F2F2F4', dark: '#F2F2F4' },
+  'pdf.pill': { light: '#ECECEE', dark: '#ECECEE' },
+  'pdf.goreBox': { light: '#F7F9FD', dark: '#F7F9FD' },
+  'pdf.chartMatte': { light: '#0D0D0D', dark: '#0D0D0D' },
+} as const satisfies Record<string, ColorPair>
+
+/** A colour's purpose. */
+export type Role = keyof typeof ROLES
+
+/** Opacities applied to another role's colour (the peak-row tint over its mode colour). */
+export const OPACITIES = {
+  'peak.rowTint': { light: 0.1, dark: 0.2 },
+  'status.messageBackground': { light: 0.12, dark: 0.12 },
+} as const satisfies Record<string, { light: number; dark: number }>
+
+export type Opacity = keyof typeof OPACITIES
+
+/** The light and dark values of `role`. */
+export function pair(role: Role): ColorPair {
+  return ROLES[role]
+}
+
 export const PALETTE = {
-  gray: { light: '#8E8E93', dark: '#8E8E93' },
-  orange: { light: '#FF9500', dark: '#FF9F0A' },
-  yellow: { light: '#FFCC00', dark: '#FFD60A' },
-  green: { light: '#34C759', dark: '#30D158' },
-  blue: { light: '#007AFF', dark: '#0A84FF' },
-  red: { light: '#FF3B30', dark: '#FF453A' },
+  gray: ROLES['quality.gray'],
+  orange: ROLES['quality.orange'],
+  yellow: ROLES['quality.yellow'],
+  green: ROLES['quality.green'],
+  blue: ROLES['quality.blue'],
+  red: ROLES['quality.red'],
 } as const satisfies Record<string, ColorPair>
