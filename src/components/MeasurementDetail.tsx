@@ -1,13 +1,14 @@
 // @parity view/measurement-detail
-import { measurementTypeName, comparisonEntryModeFreqs, colorComponentsToCss, measurementPeakModeLabels } from '../measurement/fromLive'
+import { measurementTypeName, comparisonEntryModeFreqs, measurementPeakModeLabels } from '../measurement/fromLive'
 import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
-import { color as roleColor, magnitudeRole, modeRole } from '../presentation/palette'
+import { color as roleColor, comparisonRole, cssVariable, magnitudeRole, modeRole, type Role } from '../presentation/palette'
 import type { ResolvedMode } from '../dsp/classify'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
 import { formatDisplayDate } from '../format/date'
 import type { ResonantPeak } from '../measurement/types'
 import { FieldPrecision } from '../precision'
+import { useScheme } from '../hooks/useScheme'
 
 // Read-only measurement inspector — mirrors Swift MeasurementDetailView / Python
 // MeasurementDetailDialog. Opened from the Measurements ⋯ menu ("View Details"). A
@@ -20,16 +21,16 @@ export interface MeasurementDetailProps {
 }
 
 // Mode-label → chart color (guitar modes + material L/C/FLC).
-const MATERIAL_LABEL_COLOR: Record<string, string> = {
-  Longitudinal: '#4ea1ff',
-  'Cross-grain': '#f0a03a',
-  Diagonal: '#b07ad8',
+const MATERIAL_LABEL_ROLE: Record<string, Role> = {
+  Longitudinal: 'material.longitudinal',
+  'Cross-grain': 'material.cross',
+  Diagonal: 'material.flc',
 }
 function labelColor(label: string): string {
   for (const [mode, name] of Object.entries(MODE_DISPLAY_NAME)) {
     if (name === label) return roleColor(modeRole(mode as ResolvedMode))
   }
-  return MATERIAL_LABEL_COLOR[label] ?? 'var(--accent)'
+  return roleColor(MATERIAL_LABEL_ROLE[label] ?? 'material.unselected')
 }
 
 const pitchText = (p: ResonantPeak): string | null => {
@@ -49,6 +50,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetailProps) {
+  useScheme() // the colours below are the current scheme's
   const comparison = isComparison(m)
 
   // Identified Peaks = the SELECTED peaks only (guitar: identified modes / multi-tap averaged;
@@ -76,9 +78,9 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
   }
 
   const comparisonRows: ComparisonRow[] = comparison
-    ? (m.comparisonEntries ?? []).map((e) => ({
+    ? (m.comparisonEntries ?? []).map((e, i) => ({
         label: e.label,
-        color: colorComponentsToCss(e.colorComponents),
+        color: `var(${cssVariable(comparisonRole(i, e.label))})`,
         ...comparisonEntryModeFreqs(e),
       }))
     : []

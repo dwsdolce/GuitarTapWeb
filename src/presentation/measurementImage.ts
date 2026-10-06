@@ -3,11 +3,11 @@
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME } from './modeColors'
-import { color as roleColor, modeRole, qualityRole, type Role } from './palette'
+import { color as roleColor, comparisonRole, modeRole, qualityRole, type Role } from './palette'
 import { FieldPrecision } from '../precision'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
-import { measurementToLive, measurementToLiveMaterial, measurementTypeName, comparisonAxisRange, comparisonEntryModeFreqs, colorComponentsToCss, multiTapComparisonEntries, measurementTapToneRatio } from '../measurement/fromLive'
+import { measurementToLive, measurementToLiveMaterial, measurementTypeName, comparisonAxisRange, comparisonEntryModeFreqs, multiTapComparisonEntries, measurementTapToneRatio } from '../measurement/fromLive'
 import { isGuitarType, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, DEFAULT_SETTINGS } from '../settings'
 import { materialDimensions, materialStiffness } from '../measurement/materialMeasurementInputs'
 import { formatDisplayDate } from '../format/date'
@@ -102,10 +102,10 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
   // Comparison
   if (m.comparisonEntries && m.comparisonEntries.length) {
     const entries = m.comparisonEntries
-    const overlays: SpectrumOverlay[] = entries.map((e) => ({
+    const overlays: SpectrumOverlay[] = entries.map((e, i) => ({
       magnitudesDb: e.snapshot.magnitudes,
       frequencies: e.snapshot.frequencies,
-      color: colorComponentsToCss(e.colorComponents),
+      role: comparisonRole(i, e.label),
       label: e.label,
     }))
     const view = comparisonAxisRange(entries) ?? { minHz: 30, maxHz: 2000, minDb: -100, maxDb: 0 }
@@ -200,9 +200,9 @@ export function measurementToPdfData(m: TapToneMeasurementModel): PdfReportData 
       peaks: [],
       comparison: {
         spectraCount: entries.length,
-        rows: entries.map((e) => ({
+        rows: entries.map((e, i) => ({
           label: e.label,
-          color: colorComponentsToCss(e.colorComponents),
+          color: roleColor(comparisonRole(i, e.label), undefined, 'light'),
           ...comparisonEntryModeFreqs(e),
         })),
       },

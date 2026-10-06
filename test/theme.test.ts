@@ -6,7 +6,7 @@
 // exactly the changes of the resolved scheme, and the page's data-theme follows it.
 import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { OPACITIES, ROLES, SERIES_ROLES, apply, color, cssVariable, magnitudeRole, pair, seriesRole, subscribe, type Opacity, type Role } from '../src/presentation/palette'
+import { OPACITIES, PALETTE, ROLES, SERIES_ROLES, apply, color, comparisonRole, cssVariable, magnitudeRole, pair, roleOf, seriesRole, subscribe, type Opacity, type Role } from '../src/presentation/palette'
 import { APPEARANCES, APPEARANCE_LABEL, resolvedScheme, type Appearance, type Scheme } from '../src/presentation/appearance'
 import { DEFAULT_SETTINGS } from '../src/settings'
 
@@ -109,4 +109,19 @@ describe('theme — the magnitude roles', () => {
   for (const [magnitude, role] of DATA.magnitudeRoles) {
     it(`${magnitude} dB → ${role}`, () => expect(magnitudeRole(magnitude)).toBe(role))
   }
+})
+
+describe('theme — the role of a quality colour', () => {
+  it('each analysis-quality colour is its quality role', () => {
+    expect(roleOf(PALETTE.gray)).toBe('quality.gray')
+    expect(roleOf(PALETTE.red)).toBe('quality.red')
+  })
+})
+
+describe('theme — a saved comparison is drawn by slot', () => {
+  it('an entry takes its series slot, the "Averaged" entry the average — never its stored colour', () => {
+    expect(comparisonRole(0, 'Top plate')).toBe('series.1')
+    expect(comparisonRole(11, 'Back')).toBe('series.2')
+    expect(comparisonRole(3, 'Averaged')).toBe('series.average')
+  })
 })

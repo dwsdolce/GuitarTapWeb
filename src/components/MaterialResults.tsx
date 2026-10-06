@@ -75,10 +75,7 @@ function BodyDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasuremen
 }
 
 
-// Wood-quality → colour comes from the single scheme-qualified table in presentation/qualityColors.
-// The app chrome is dark today, so this names 'dark' explicitly. When the theme work lands (STATUS
-// item 3) this literal becomes the active scheme from the theme context — the table itself doesn't
-// move, and the PDF stays pinned to 'light'.
+/** A grade's colour in the current scheme. */
 const qualityColor = (q: WoodQuality): string => roleColor(qualityRole(q))
 
 type Role = 'L' | 'C' | 'FLC'
@@ -92,7 +89,7 @@ function PeakRow({ peak, role, showCross, showFlc }: { peak: ResonantPeak | null
   // Dashes + an unselected bubble until this phase's peak is captured.
   const found = peak != null
   const badge = (r: Role, color: string) => (
-    <span className="mat-badge" style={role === r && found ? { background: color, color: '#fff' } : undefined}>
+    <span className="mat-badge" style={role === r && found ? { background: color, color: 'var(--c-text-on-color)' } : undefined}>
       {ROLE_LABEL[r]}
     </span>
   )
@@ -104,9 +101,9 @@ function PeakRow({ peak, role, showCross, showFlc }: { peak: ResonantPeak | null
         <span className="mat-peak-mag">{peak ? `${FieldPrecision.string(peak.magnitude, FieldPrecision.peakMagnitudeDB)} dB` : '—'}</span>
       </span>
       <span className="mat-badges">
-        {badge('L', '#0a84ff')}
-        {showCross && badge('C', '#ff9f0a')}
-        {showFlc && badge('FLC', '#bf5af2')}
+        {badge('L', 'var(--c-material-longitudinal)')}
+        {showCross && badge('C', 'var(--c-material-cross)')}
+        {showFlc && badge('FLC', 'var(--c-material-flc)')}
       </span>
     </div>
   )
@@ -138,16 +135,16 @@ function ProcessSection({ type, measureFlc }: { type: 'plate' | 'brace'; measure
       {type === 'plate' ? (
         <>
           <div className="mat-process-head">{measureFlc ? 'Three-Tap Measurement Process:' : 'Two-Tap Measurement Process:'}</div>
-          {step('#0a84ff', '1. Longitudinal (fL) Tap', 'Hold plate at 22% from one end along the length, near one long edge (not at the width node). Tap center.')}
-          {step('#ff9f0a', '2. Cross-grain (fC) Tap', 'Rotate 90°. Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.')}
+          {step('var(--c-material-longitudinal)', '1. Longitudinal (fL) Tap', 'Hold plate at 22% from one end along the length, near one long edge (not at the width node). Tap center.')}
+          {step('var(--c-material-cross)', '2. Cross-grain (fC) Tap', 'Rotate 90°. Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.')}
           {measureFlc &&
-            step('#bf5af2', '3. Diagonal (fLC) Tap', 'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.')}
+            step('var(--c-material-flc)', '3. Diagonal (fLC) Tap', 'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.')}
           <p className="mat-process-foot">The strongest peak from each tap is auto-selected. Redo if needed.</p>
         </>
       ) : (
         <>
           <div className="mat-process-head">Single-Tap Measurement (fL only):</div>
-          {step('#0a84ff', '1. Longitudinal (fL) Tap', 'Hold brace at 22% from one end along the length. Tap center.')}
+          {step('var(--c-material-longitudinal)', '1. Longitudinal (fL) Tap', 'Hold brace at 22% from one end along the length. Tap center.')}
           <p className="mat-process-foot">The strongest peak is auto-selected. Redo if needed.</p>
         </>
       )}

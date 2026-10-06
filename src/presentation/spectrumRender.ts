@@ -106,6 +106,10 @@ export interface RenderOpts {
   theme?: ChartTheme
   /** Line and point styles: the screen's (default) or the exported image's. */
   style?: ChartLines
+  /** The screen's chart (default) or the exported image's, which mirrors Swift ExportableSpectrumChart:
+   *  a 24 pt title, the mode chips inside the plot's top, and its peak cards (16 / 16 / 14 / 13 pt
+   *  lines 6 pt apart, 10 pt padding, corner 10, a shadow and no border, centred 70 pt above the peak). */
+  variant?: 'screen' | 'export'
   /** When provided, the renderer pushes each drawn (keyed) badge's screen rect here for hit-testing. */
   badgeRectsOut?: AnnotationRect[]
   /** When provided, the renderer pushes each drawn dot's screen centre+radius+id here, so a click can
@@ -152,12 +156,14 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   ctx.fillStyle = th.bg
   ctx.fillRect(0, 0, W, H)
 
-  // Centered title.
+  const exporting = opts.variant === 'export'
+
+  // Centered title — Swift's export: .font(.system(size: 24, weight: .semibold)).
   if (title) {
     ctx.fillStyle = th.title
-    ctx.font = '600 15px system-ui, sans-serif'
+    ctx.font = exporting ? '600 24px system-ui, sans-serif' : '600 15px system-ui, sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText(title, (plotL + plotR) / 2, 20)
+    ctx.fillText(title, (plotL + plotR) / 2, exporting ? 28 : 20)
     ctx.textAlign = 'left'
   }
 
@@ -191,6 +197,10 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.moveTo(x, plotT)
     ctx.lineTo(x, plotB)
     ctx.stroke()
+    // A label that would reach past the plot's left or right edge is left out, as Swift's and
+    // Python's charts leave it out.
+    const half = ctx.measureText(tickLabel(hz)).width / 2
+    if (x - half < plotL || x + half > plotR) continue
     ctx.fillStyle = th.axis
     ctx.fillText(tickLabel(hz), x, plotB + 16)
   }
@@ -217,16 +227,20 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     if (b.lo < minHz || b.lo > maxHz) continue
     const bx = xFor(b.lo)
     const label = MODE_LABEL[b.name]
-    ctx.font = '600 12px system-ui, sans-serif'
-    const lw = ctx.measureText(label).width + 10
+    // The screen's chip sits above the plot; the export's, as Swift's, just inside its top:
+    // .font(.system(size: 14, weight: .semibold)), padded 4 / 3, mode colour at 15 %, corner 6.
+    ctx.font = exporting ? '600 14px system-ui, sans-serif' : '600 12px system-ui, sans-serif'
+    const lw = ctx.measureText(label).width + (exporting ? 8 : 10)
+    const lh = exporting ? 20 : 16
     const lx = Math.max(plotL, Math.min(bx - lw / 2, plotR - lw))
-    ctx.fillStyle = hexA(color, 0.16)
+    const lt = exporting ? plotT + 4 : plotT - 20
+    ctx.fillStyle = hexA(color, exporting ? 0.15 : 0.16)
     ctx.beginPath()
-    ctx.roundRect(lx, plotT - 20, lw, 16, 4)
+    ctx.roundRect(lx, lt, lw, lh, exporting ? 6 : 4)
     ctx.fill()
     ctx.fillStyle = color
     ctx.textAlign = 'center'
-    ctx.fillText(label, lx + lw / 2, plotT - 8)
+    ctx.fillText(label, lx + lw / 2, lt + (exporting ? 15 : 12))
     ctx.textAlign = 'left'
   }
 
@@ -344,7 +358,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     // data-space position (so the label stays put under the peak through zoom/pan).
     const anchorX = m.annoOffset ? xFor(m.annoOffset[0]) : xFor(m.frequency)
     const anchorBottom = m.annoOffset ? yFor(m.annoOffset[1]) : yFor(m.magnitude) - 10
-    const rect = drawBadge(ctx, m, xFor(m.frequency), yFor(m.magnitude), anchorX, anchorBottom, plotL, plotR, plotT, th, style, !!m.annoOffset)
+    const rect = drawBadge(ctx, m, xFor(m.frequency), yFor(m.magnitude), anchorX, anchorBottom, plotL, plotR, plotT, th, style, !!m.annoOffset, BADGES[opts.variant ?? 'screen'])
     if (opts.badgeRectsOut && m.annoKey) opts.badgeRectsOut.push({ key: m.annoKey, ...rect })
   }
 
@@ -424,6 +438,28 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
 }
 
+/** A peak card's text sizes (px: mode, pitch, frequency, dB), line gap, padding, corner and frame. */
+interface BadgeMetrics {
+  sizes: [number, number, number, number]
+  gap: number
+  padX: number
+  padY: number
+  padBottom: number
+  radius: number
+  /** A border in the peak's colour (the screen badge) or a shadow (Swift's export card). */
+  frame: 'border' | 'shadow'
+  /** Where an undragged card sits: its bottom just above the peak (the screen), or its centre 70 pt
+   *  above it with the leader from 50 pt below the centre (Swift's export). */
+  place: 'above' | 'centred70'
+  /** The pitch line in one style (the screen), or Swift's runs: ♪ 14, the note 16 bold, the cents 14
+   *  at 80 %. */
+  pitchRuns: boolean
+}
+const BADGES: Record<'screen' | 'export', BadgeMetrics> = {
+  screen: { sizes: [11, 11, 11, 11], gap: 3, padX: 7, padY: 5, padBottom: 8, radius: 6, frame: 'border', place: 'above', pitchRuns: false },
+  export: { sizes: [16, 16, 14, 13], gap: 6, padX: 10, padY: 10, padBottom: 10, radius: 10, frame: 'shadow', place: 'centred70', pitchRuns: true },
+}
+
 function drawBadge(
   ctx: CanvasRenderingContext2D,
   m: PeakMarker,
@@ -437,33 +473,40 @@ function drawBadge(
   th: ChartTheme,
   style: ChartLines,
   dragged: boolean,
+  metrics: BadgeMetrics,
 ): { x: number; y: number; w: number; h: number } {
   const color = markerColor(m, th)
   const PITCH = roleColor('peak.pitch', undefined, th.scheme)
   const fg = th.title
   const sub = th.axis
-  const padX = 7
-  const padY = 5
-  const lineH = 14
-  const lines: { text: string; color: string; font: string }[] = [
-    { text: (m.label ?? '') + (m.isOverride ? ' *' : ''), color, font: `${m.isOverride ? 'italic ' : ''}bold 11px system-ui, sans-serif` },
+  const { sizes: [modeSize, pitchSize, freqSize, dbSize], gap, padX, padY, padBottom } = metrics
+  type Run = { text: string; color: string; font: string }
+  const lines: { runs: Run[]; size: number }[] = [
+    { runs: [{ text: (m.label ?? '') + (m.isOverride ? ' *' : ''), color, font: `${m.isOverride ? 'italic ' : ''}bold ${modeSize}px system-ui, sans-serif` }], size: modeSize },
   ]
   if (m.note) {
     const c = Math.round(m.cents ?? 0)
-    lines.push({ text: `♪ ${m.note} ${c >= 0 ? '+' : ''}${c} ¢`, color: PITCH, font: '600 11px system-ui, sans-serif' })
+    const cents = `${c >= 0 ? '+' : ''}${c} ¢`
+    lines.push(metrics.pitchRuns
+      ? { runs: [
+          { text: '♪', color: PITCH, font: `${pitchSize - 2}px system-ui, sans-serif` },
+          { text: m.note, color: PITCH, font: `bold ${pitchSize}px system-ui, sans-serif` },
+          { text: cents, color: hexA(PITCH, 0.8), font: `${pitchSize - 2}px system-ui, sans-serif` },
+        ], size: pitchSize }
+      : { runs: [{ text: `♪ ${m.note} ${cents}`, color: PITCH, font: `600 ${pitchSize}px system-ui, sans-serif` }], size: pitchSize })
   }
-  lines.push({ text: formattedAsFrequency(m.frequency), color: fg, font: '500 11px system-ui, sans-serif' })
-  lines.push({ text: `${FieldPrecision.string(m.magnitude, FieldPrecision.peakMagnitudeDB)} dB`, color: sub, font: '11px system-ui, sans-serif' })
+  lines.push({ runs: [{ text: formattedAsFrequency(m.frequency), color: fg, font: `500 ${freqSize}px system-ui, sans-serif` }], size: freqSize })
+  lines.push({ runs: [{ text: `${FieldPrecision.string(m.magnitude, FieldPrecision.peakMagnitudeDB)} dB`, color: sub, font: `${dbSize}px system-ui, sans-serif` }], size: dbSize })
 
-  let boxW = 0
-  for (const ln of lines) {
-    ctx.font = ln.font
-    boxW = Math.max(boxW, ctx.measureText(ln.text).width)
-  }
-  boxW += padX * 2
-  const boxH = lines.length * lineH + padY * 2
+  const RUN_GAP = 4
+  const widthOf = (ln: { runs: Run[] }) =>
+    ln.runs.reduce((w, r) => { ctx.font = r.font; return w + ctx.measureText(r.text).width }, 0) + RUN_GAP * (ln.runs.length - 1)
+  const lineW = lines.map(widthOf)
+  const boxW = Math.max(...lineW) + padX * 2
+  const boxH = padY + lines.reduce((h, ln) => h + ln.size, 0) + gap * (lines.length - 1) + padBottom
+  const centred = metrics.place === 'centred70' && !dragged
   const boxX = Math.max(plotL + 2, Math.min(anchorX - boxW / 2, plotR - boxW - 2))
-  let boxBottom = anchorBottom
+  let boxBottom = centred ? peakY - 70 + boxH / 2 : anchorBottom
   let boxTop = boxBottom - boxH
   // Auto-placed badges nudge down if they'd clip the plot top; dragged badges keep the
   // user's exact position (the drag already constrains the anchor to the plot).
@@ -477,22 +520,41 @@ function drawBadge(
   ctx.setLineDash(style.leaderDash)
   ctx.beginPath()
   ctx.moveTo(peakX, peakY)
-  ctx.lineTo(Math.max(boxX, Math.min(peakX, boxX + boxW)), boxBottom)
+  if (centred) ctx.lineTo(boxX + boxW / 2, boxTop + boxH / 2 + 50)
+  else ctx.lineTo(Math.max(boxX, Math.min(peakX, boxX + boxW)), boxBottom)
   ctx.stroke()
   ctx.restore()
   ctx.beginPath()
-  ctx.roundRect(boxX, boxTop, boxW, boxH, 6)
+  ctx.roundRect(boxX, boxTop, boxW, boxH, metrics.radius)
   ctx.fillStyle = th.badgeBg
-  ctx.fill()
-  ctx.strokeStyle = color
-  ctx.lineWidth = style.labelBorderWidth
-  ctx.stroke()
-  ctx.textBaseline = 'top'
-  for (let i = 0; i < lines.length; i++) {
-    ctx.font = lines[i]!.font
-    ctx.fillStyle = lines[i]!.color
-    ctx.fillText(lines[i]!.text, boxX + padX, boxTop + padY + i * lineH)
+  if (metrics.frame === 'shadow') {
+    ctx.save()
+    ctx.shadowColor = roleColor('scrim', undefined, th.scheme)
+    ctx.shadowBlur = 4
+    ctx.shadowOffsetY = 2
+    ctx.fill()
+    ctx.restore()
+  } else {
+    ctx.fill()
+    ctx.strokeStyle = color
+    ctx.lineWidth = style.labelBorderWidth
+    ctx.stroke()
   }
+  ctx.textBaseline = 'top'
+  let lineTop = boxTop + padY
+  lines.forEach((ln, i) => {
+    // Each line centred in the export card (Swift's VStack), left-aligned in the screen badge.
+    let runX = metrics.frame === 'shadow' ? boxX + (boxW - lineW[i]!) / 2 : boxX + padX
+    for (const r of ln.runs) {
+      ctx.font = r.font
+      ctx.fillStyle = r.color
+      // Runs of different sizes share a baseline: smaller ones drop to it.
+      const sizeOf = Number(/(\d+)px/.exec(r.font)?.[1] ?? ln.size)
+      ctx.fillText(r.text, runX, lineTop + (ln.size - sizeOf) * 0.8)
+      runX += ctx.measureText(r.text).width + RUN_GAP
+    }
+    lineTop += ln.size + gap
+  })
   ctx.textBaseline = 'alphabetic'
   return { x: boxX, y: boxTop, w: boxW, h: boxH }
 }

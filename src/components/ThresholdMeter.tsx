@@ -1,5 +1,7 @@
 // @parity view/threshold-slider
 import { useEffect, useRef } from 'react'
+import { useScheme } from '../hooks/useScheme'
+import { color } from '../presentation/palette'
 
 /**
  * Combined level meter + threshold slider, mirroring the native app's
@@ -38,6 +40,7 @@ const HANDLE_H = 22
  * drags (click or drag anywhere jumps the handle) via {@link ThresholdMeterProps.onChange}.
  */
 export function ThresholdMeter({ level, value, onChange, min = -80, max = -20, clipping = false }: ThresholdMeterProps) {
+  const scheme = useScheme() // drawn in the meter roles of the current scheme
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const peak = useRef({ db: min, setTime: 0, last: 0 })
   const dragging = useRef(false)
@@ -83,26 +86,26 @@ export function ThresholdMeter({ level, value, onChange, min = -80, max = -20, c
     ctx.clearRect(0, 0, W, H)
 
     // ── Groove background ─────────────────────────────────────────────
-    ctx.fillStyle = '#0a0d12'
+    ctx.fillStyle = color('meter.groove')
     ctx.fillRect(0, gTop, W, GROOVE_H)
-    ctx.strokeStyle = 'rgba(120,130,140,0.45)'
+    ctx.strokeStyle = color('meter.grooveBorder')
     ctx.lineWidth = 1
     ctx.strokeRect(0.5, gTop + 0.5, W - 1, GROOVE_H - 1)
 
-    // ── Level fill (cyan→blue gradient from min to current level) ─────
+    // ── Level fill (top→middle→bottom gradient from min to current level) ─
     const fx = xFor(level)
     if (fx > 0) {
       const grad = ctx.createLinearGradient(0, gTop, 0, gTop + GROOVE_H)
-      grad.addColorStop(0, 'rgb(102,204,255)')
-      grad.addColorStop(0.7, 'rgb(0,102,204)')
-      grad.addColorStop(1, 'rgb(0,30,80)')
+      grad.addColorStop(0, color('meter.levelTop'))
+      grad.addColorStop(0.5, color('meter.levelMiddle'))
+      grad.addColorStop(1, color('meter.levelBottom'))
       ctx.fillStyle = grad
       ctx.fillRect(1, gTop + 1, Math.max(0, fx - 1), GROOVE_H - 2)
     }
 
     // ── Clip zone (rightmost 10%) ─────────────────────────────────────
     if (clipping) {
-      ctx.fillStyle = 'rgba(220,40,40,0.85)'
+      ctx.fillStyle = color('meter.clip')
       ctx.fillRect(W * 0.9, gTop + 1, W * 0.1, GROOVE_H - 2)
     }
 
@@ -110,7 +113,7 @@ export function ThresholdMeter({ level, value, onChange, min = -80, max = -20, c
     for (let db = Math.ceil(min / 10) * 10; db < max; db += 10) {
       if (db <= min) continue
       const x = xFor(db)
-      ctx.strokeStyle = 'rgba(61,140,61,0.7)'
+      ctx.strokeStyle = color('meter.ticks')
       ctx.lineWidth = 1
       ctx.beginPath()
       ctx.moveTo(x, gTop + 2)
@@ -118,11 +121,11 @@ export function ThresholdMeter({ level, value, onChange, min = -80, max = -20, c
       ctx.stroke()
     }
 
-    // ── Peak-hold dot (amber) ─────────────────────────────────────────
+    // ── Peak-hold dot ─────────────────────────────────────────────────
     if (pk.db > min) {
       const x = xFor(pk.db)
-      ctx.fillStyle = 'rgb(255,200,0)'
-      ctx.strokeStyle = 'rgba(255,255,255,0.86)'
+      ctx.fillStyle = color('meter.peakHold')
+      ctx.strokeStyle = color('meter.peakHoldBorder')
       ctx.lineWidth = 1
       ctx.beginPath()
       ctx.arc(x, gMid, 3.5, 0, Math.PI * 2)
@@ -130,15 +133,15 @@ export function ThresholdMeter({ level, value, onChange, min = -80, max = -20, c
       ctx.stroke()
     }
 
-    // ── Threshold handle (red bar standing proud of the groove) ───────
+    // ── Threshold handle (a bar standing proud of the groove) ─────────
     const hx = xFor(value)
-    ctx.fillStyle = '#ff3b3b'
-    ctx.strokeStyle = '#800'
+    ctx.fillStyle = color('meter.thresholdHandle')
+    ctx.strokeStyle = color('meter.thresholdHandleBorder')
     ctx.lineWidth = 1
     const hy = (H - HANDLE_H) / 2
     ctx.fillRect(hx - HANDLE_W / 2, hy, HANDLE_W, HANDLE_H)
     ctx.strokeRect(hx - HANDLE_W / 2 + 0.5, hy + 0.5, HANDLE_W - 1, HANDLE_H - 1)
-  }, [level, value, clipping, min, max])
+  }, [level, value, clipping, min, max, scheme])
 
   // ── Pointer drag (click/drag anywhere jumps the handle) ─────────────
   useEffect(() => {

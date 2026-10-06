@@ -28,6 +28,7 @@ import { formatDisplayDate } from '../format/date'
 // jsPDF's own optional html2canvas/dompurify deps stay lazy and are never fetched (we use only core drawing).
 import { jsPDF } from 'jspdf'
 import { FieldPrecision } from '../precision'
+import { pair, type Role } from './palette'
 
 export interface PdfPeakRow {
   frequency: number
@@ -138,15 +139,17 @@ function pageHeightFor(contentBottom: number): number {
   return contentBottom + FOOTER_H + MARGIN
 }
 
-// ── Colors (RGB) ──────────────────────────────────────────────────────────────
+// ── Colors (RGB): the pdf.* roles, light — the report is always drawn light ──────
 type RGB = [number, number, number]
-const ACCENT: RGB = [38, 89, 191] // Swift Color(0.15, 0.35, 0.75)
-const SECONDARY: RGB = [120, 120, 128]
-const PRIMARY: RGB = [28, 28, 30]
-const DIVIDER: RGB = [210, 210, 212]
-const BOX_BG: RGB = [242, 242, 244]
-const PILL_BG: RGB = [236, 236, 238]
-const GORE_BG: RGB = [247, 249, 253]
+const pdf = (role: Role): RGB => hexToRgb(pair(role).light)
+const ACCENT: RGB = pdf('pdf.accent')
+const SECONDARY: RGB = pdf('pdf.secondary')
+const PRIMARY: RGB = pdf('pdf.text')
+const DIVIDER: RGB = pdf('pdf.divider')
+const BOX_BG: RGB = pdf('pdf.box')
+const PILL_BG: RGB = pdf('pdf.pill')
+const GORE_BG: RGB = pdf('pdf.goreBox')
+const CHART_MATTE: RGB = pdf('pdf.chartMatte')
 
 function hexToRgb(hex: string): RGB {
   const h = hex.replace('#', '')
@@ -349,7 +352,7 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
   const MATTE = 5
   const innerH = frameH - MATTE * 2
   const innerW = (innerH * canvas.width) / canvas.height
-  doc.setFillColor(13, 13, 13) // Color(white: 0.05)
+  doc.setFillColor(CHART_MATTE[0], CHART_MATTE[1], CHART_MATTE[2])
   doc.roundedRect(L, cur.y, CONTENT_W, frameH, 6, 6, 'F')
   // ⚠ The trailing 'MEDIUM' is load-bearing. jsPDF's `compression` argument defaults to 'NONE',
   // which stores the chart as a RAW RGB bitmap — the PNG compression paid for in toDataURL is

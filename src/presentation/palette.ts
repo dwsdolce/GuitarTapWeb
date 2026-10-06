@@ -26,9 +26,12 @@ export const ROLES = {
   'separator': { light: '#D8DEE6', dark: '#222A33' },
   'text.primary': { light: '#1A2330', dark: '#E7EBF0' },
   'text.secondary': { light: '#6B7785', dark: '#8A96A5' },
+  'text.onColor': { light: '#FFFFFF', dark: '#FFFFFF' },
   'accent': { light: '#007AFF', dark: '#0A84FF' },
   'accent.text': { light: '#007AFF', dark: '#409CFF' },
+  'toolbar.inactive': { light: '#8E8E93', dark: '#8E8E93' },
   'scrim': { light: '#0000004D', dark: '#00000080' },
+  'overlay.card': { light: '#3A3A3CCC', dark: '#3A3A3CCC' },
   'chart.background': { light: '#FFFFFF', dark: '#0E1116' },
   'chart.grid': { light: '#E3E8EE', dark: '#1C242E' },
   'chart.border': { light: '#C2CAD4', dark: '#2A3543' },
@@ -52,6 +55,8 @@ export const ROLES = {
   'material.cross': { light: '#FF9500', dark: '#FF9F0A' },
   'material.flc': { light: '#AF52DE', dark: '#BF5AF2' },
   'material.unselected': { light: '#6B7785', dark: '#8A96A5' },
+  'material.phaseInactive': { light: '#8E8E9333', dark: '#8E8E9333' },
+  'material.goreBox': { light: '#007AFF14', dark: '#0A84FF14' },
   'phase.notStarted': { light: '#8E8E93', dark: '#8E8E93' },
   'phase.complete': { light: '#34C759', dark: '#30D158' },
   'peak.magnitude.strong': { light: '#34C759', dark: '#30D158' },
@@ -74,6 +79,10 @@ export const ROLES = {
   'wood.good': { light: '#007AFF', dark: '#0A84FF' },
   'wood.fair': { light: '#FF9500', dark: '#FF9F0A' },
   'wood.poor': { light: '#FF3B30', dark: '#FF453A' },
+  'badge.guitar': { light: '#007AFF33', dark: '#0A84FF33' },
+  'badge.material': { light: '#FF950033', dark: '#FF9F0A33' },
+  'badge.comparison': { light: '#AF52DE33', dark: '#BF5AF233' },
+  'results.tapsActive': { light: '#FF9500', dark: '#FF9F0A' },
   'series.1': { light: '#007AFF', dark: '#0A84FF' },
   'series.2': { light: '#E07800', dark: '#FF9F0A' },
   'series.3': { light: '#269342', dark: '#30D158' },
@@ -100,6 +109,7 @@ export const ROLES = {
   'status.tapCount': { light: '#007AFF', dark: '#0A84FF' },
   'status.peakReadout': { light: '#007AFF', dark: '#0A84FF' },
   'status.error': { light: '#FF3B30', dark: '#FF453A' },
+  'status.inactiveDot': { light: '#8E8E934D', dark: '#8E8E934D' },
   'meter.groove': { light: '#EBEBEB', dark: '#0A0D12' },
   'meter.grooveBorder': { light: '#8E8E9399', dark: '#8E8E9373' },
   'meter.levelTop': { light: '#66CCFF', dark: '#66CCFF' },
@@ -107,7 +117,8 @@ export const ROLES = {
   'meter.levelBottom': { light: '#001E50', dark: '#001E50' },
   'meter.clip': { light: '#FF3B30D9', dark: '#FF453AD9' },
   'meter.ticks': { light: '#3D8C3DB3', dark: '#3D8C3DB3' },
-  'meter.peakHold': { light: '#FFD900', dark: '#FFD900' },
+  'meter.peakHold': { light: '#FFC700', dark: '#FFC700' },
+  'meter.peakHoldBorder': { light: '#FFFFFFD9', dark: '#FFFFFFD9' },
   'meter.thresholdHandle': { light: '#FF3B30', dark: '#FF453A' },
   'meter.thresholdHandleBorder': { light: '#800000', dark: '#800000' },
   'metric.good': { light: '#34C759', dark: '#30D158' },
@@ -228,6 +239,18 @@ export const SERIES_ROLES: Role[] = [
 /** The role of series slot `index` (0-based). Mirrors Swift `Palette.series`. */
 export function seriesRole(index: number): Role {
   return SERIES_ROLES[index % SERIES_ROLES.length]!
+}
+
+/** The role a saved comparison's entry `index` is drawn in: its series slot, or the average for the
+ *  "Averaged" entry — never the colour stored with it. Mirrors Swift
+ *  `Palette.comparisonColor(index:label:)`. */
+export function comparisonRole(index: number, label: string): Role {
+  return label === 'Averaged' ? 'series.average' : seriesRole(index)
+}
+
+/** The role whose values `p` holds (an analysis-quality colour). */
+export function roleOf(p: ColorPair): Role {
+  return (Object.keys(ROLES) as Role[]).find((r) => ROLES[r] === p)!
 }
 
 /** The role of a guitar mode's colour. Mirrors Swift `Palette.role(_: GuitarMode)`. */

@@ -4,7 +4,7 @@ import { RealtimeFFTAnalyzer } from './audio/realtimeFFTAnalyzer'
 import { SpectrumChart } from './components/SpectrumChart'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
-import { apply as applyAppearance, seriesRole } from './presentation/palette'
+import { apply as applyAppearance, comparisonRole, cssVariable, seriesRole } from './presentation/palette'
 import type { ChartView, PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
 import { type MaterialTapPhase as MatPhase, type DefinitiveModeInfo } from './state/tapToneAnalyzer'
@@ -25,7 +25,7 @@ import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
-import { buildComparisonEntries, comparisonEntryModeFreqs, comparisonAxisRange, colorComponentsToCss, measurementToLive, measurementToLiveMaterial } from './measurement/fromLive'
+import { buildComparisonEntries, comparisonEntryModeFreqs, comparisonAxisRange, measurementToLive, measurementToLiveMaterial } from './measurement/fromLive'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { importMeasurements, saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
@@ -102,19 +102,8 @@ export default function App() {
   const { analyzer, snapshot } = useTapToneAnalyzer()
   const numberOfTaps = snapshot.numberOfTaps
   const currentTapCount = snapshot.currentTapCount
-  // Detection state + clipping are analyzer facts (no duplicate React state in useAudioEngine) — the
-  // status-bar className and the threshold-slider red zone read the snapshot. Derived from the
-  // analyzer's own detectionState / gatedCaptureActive, since the analyzer owns detection. 'capturing'
-  // is a status-bar label, not a detection state: a capture runs WHILE the detector listens, so it is
-  // layered on here and not in the enum.
-  const engineState =
-    snapshot.detectionState === 'paused'
-      ? 'paused'
-      : snapshot.gatedCaptureActive
-        ? 'capturing'
-        : snapshot.detectionState === 'listening'
-          ? 'listening'
-          : 'idle'
+  // Clipping is an analyzer fact (no duplicate React state in useAudioEngine) — the threshold-slider
+  // red zone reads the snapshot.
   const clipping = snapshot.isClipping
   // The frozen guitar result + per-tap comparison spectra live on the analyzer (mirrors Swift
   // frozenMagnitudes/Frequencies + tapEntries), exposed via the snapshot. App reads them through
@@ -794,10 +783,10 @@ export default function App() {
   // Comparison chart overlays + results rows (derived from the active comparison entries).
   const comparisonOverlays = useMemo<SpectrumOverlay[]>(
     () =>
-      (comparison ?? []).map((e) => ({
+      (comparison ?? []).map((e, i) => ({
         magnitudesDb: e.snapshot.magnitudes,
         frequencies: e.snapshot.frequencies,
-        color: colorComponentsToCss(e.colorComponents),
+        role: comparisonRole(i, e.label),
         label: e.label,
       })),
     [comparison],
@@ -834,9 +823,9 @@ export default function App() {
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
-      (comparison ?? []).map((e) => ({
+      (comparison ?? []).map((e, i) => ({
         label: e.label,
-        color: colorComponentsToCss(e.colorComponents),
+        color: `var(${cssVariable(comparisonRole(i, e.label))})`,
         ...comparisonEntryModeFreqs(e),
       })),
     [comparison],
@@ -857,7 +846,7 @@ export default function App() {
         {/* Phone only: open the Analysis Results bottom sheet (mirrors the iOS Results button).
             Hidden on desktop/tablet, where the results panel is always visible. */}
         <button
-          className={`btn phone-only${showResults ? ' on' : ''}`}
+          className={`btn tint tint-accent phone-only${showResults ? ' on' : ''}`}
           onClick={() => setShowResults((v) => !v)}
           aria-pressed={showResults}
           title="Analysis Results"
@@ -866,7 +855,7 @@ export default function App() {
           <span>Results</span>
         </button>
         <button
-          className={`btn${snapshot.isPlayingFile ? ' playing-file' : ''}`}
+          className={`btn tint ${snapshot.isPlayingFile ? 'tint-playing-file' : 'tint-accent'}`}
           onClick={() => setShowPlayFile(true)}
           disabled={!running || comparison != null}
           title={HINTS.playFile}
@@ -875,7 +864,7 @@ export default function App() {
           <span>Play File</span>
         </button>
         <button
-          className={`btn toggle ${autoDb ? 'on' : ''}`}
+          className={`btn tint tint-accent toggle ${autoDb ? 'on' : ''}`}
           onClick={toggleAutoDb}
           disabled={!running}
           aria-pressed={autoDb}
@@ -886,7 +875,7 @@ export default function App() {
         </button>
         {isTouch && (
           <button
-            className={`btn toggle ${crosshairMode ? 'on' : ''}`}
+            className={`btn tint tint-accent toggle ${crosshairMode ? 'on' : ''}`}
             onClick={() => setCrosshairMode((m) => !m)}
             aria-pressed={crosshairMode}
             title={crosshairMode ? 'Crosshair on — drag the chart to read values' : 'Crosshair — drag the chart to read values'}
@@ -896,7 +885,7 @@ export default function App() {
           </button>
         )}
         <button
-          className={`btn toggle ${annotationMode !== 'none' ? 'on' : ''}`}
+          className={`btn tint tint-accent toggle ${annotationMode !== 'none' ? 'on' : ''}`}
           onClick={cycleAnnotations}
           // Something to annotate, and no comparison on screen: the Peak-Min projection (guitar) or the
           // identified L/C/FLC (material) — the same test as Swift's and Python's.
@@ -907,7 +896,7 @@ export default function App() {
           <span>Annotations</span>
         </button>
         <button
-          className="btn"
+          className="btn tint tint-accent"
           onClick={() => setShowSave(true)}
           disabled={!snapshot.hasResultToSaveOrExport}
           title={HINTS.save}
@@ -915,21 +904,21 @@ export default function App() {
           <SaveIcon />
           <span>Save</span>
         </button>
-        <button className="btn" onClick={() => setShowMeasurements(true)} title={HINTS.measurements}>
+        <button className="btn tint tint-accent" onClick={() => setShowMeasurements(true)} title={HINTS.measurements}>
           <ClipboardIcon />
           <span>Measurements</span>
         </button>
-        <button className="btn" onClick={() => setShowMetrics(true)} disabled={!running} title={HINTS.showMetrics}>
+        <button className="btn tint tint-accent" onClick={() => setShowMetrics(true)} disabled={!running} title={HINTS.showMetrics}>
           <BarChartIcon />
           <span>Metrics</span>
         </button>
-        <button className="btn" onClick={() => setShowSettings(true)} title={HINTS.settings}>
+        <button className="btn tint tint-accent" onClick={() => setShowSettings(true)} title={HINTS.settings}>
           <GearIcon />
           <span>Settings</span>
         </button>
         <div className="help-menu-wrap">
           <button
-            className="btn"
+            className="btn tint tint-accent"
             onClick={() => setShowHelpMenu((v) => !v)}
             title="Help"
             aria-haspopup="menu"
@@ -1091,7 +1080,7 @@ export default function App() {
                 <span>New Tap</span>
               </button>
               <button
-                className={`btn tap-action${reviewing ? ' btn-accept' : ''}`}
+                className={`btn tint tap-action ${reviewing ? 'tint-complete' : 'tint-accent'}`}
                 onClick={reviewing ? () => analyzer.acceptMaterial() : paused ? resumeTap : pauseTap}
                 disabled={!pauseEnabled}
                 title={reviewing ? HINTS.acceptTap : paused ? HINTS.resumeDetection : HINTS.pauseDetection}
@@ -1100,7 +1089,7 @@ export default function App() {
                 <span>{reviewing ? 'Accept' : paused ? 'Resume' : 'Pause'}</span>
               </button>
               <button
-                className={`btn tap-action${cancelEnabled ? ' btn-cancel' : ''}`}
+                className={`btn tint tap-action ${cancelEnabled ? 'tint-warning' : 'tint-inactive'}`}
                 onClick={reviewing ? () => analyzer.redoMaterial() : cancelTap}
                 disabled={!cancelEnabled}
                 title={reviewing ? HINTS.redoTap : HINTS.cancel}
@@ -1176,7 +1165,7 @@ export default function App() {
                 enables/disables in place instead of appearing and disappearing (all 3 platforms). */}
             {!material && !comparison && (
               <button
-                className={`btn mini taps-toggle${showMultiTap ? ' active' : ''}`}
+                className={`btn mini tint taps-toggle ${showMultiTap ? 'tint-taps-active' : 'tint-accent'}`}
                 onClick={() => analyzer.setMultiTapComparison(!showMultiTap)}
                 disabled={!(multiTapAvailable || showMultiTap)}
                 title={showMultiTap ? HINTS.showAveraged : HINTS.compareTaps}
@@ -1344,7 +1333,7 @@ export default function App() {
           </button>
         </div>
       )}
-      <div className={`statusbar state-${engineState}`}>
+      <div className="statusbar">
         {/* Full-width linear progress bar on its OWN ROW above the status line — mirrors Swift's macOS
             fullStatusBar, a VStack of "ProgressView when currentTapCount > 0" then the status HStack.
             Gated on the tap count alone (see sbShowBar) so it never blinks during the per-tap cooldown. */}

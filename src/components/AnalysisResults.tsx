@@ -14,6 +14,8 @@ import {
 } from '../dsp/analysisQuality'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { FieldPrecision } from '../precision'
+import { color as roleColor, roleOf } from '../presentation/palette'
+import { useScheme } from '../hooks/useScheme'
 
 function Column({
   caption,
@@ -73,6 +75,7 @@ export function AnalysisResults({
   ratio: number | null
   guitarType: GuitarTypeName
 }) {
+  useScheme() // the quality colours below are the current scheme's
   return (
     <div className="analysis-bar">
       <Column
@@ -80,7 +83,7 @@ export function AnalysisResults({
         value={decayTime != null ? `${FieldPrecision.string(decayTime, FieldPrecision.decayTimeS)}s` : null}
         placeholder="Waiting…"
         quality={decayTime != null ? decayQuality(decayTime, guitarType) : ''}
-        qualityColor={decayTime != null ? decayQualityColor(decayTime, guitarType).dark : ''}
+        qualityColor={decayTime != null ? roleColor(roleOf(decayQualityColor(decayTime, guitarType))) : ''}
         sub={`–${Math.trunc(decayThreshold)} dB`}
       />
       <div className="analysis-divider" />
@@ -89,7 +92,7 @@ export function AnalysisResults({
         value={ratio != null ? `${FieldPrecision.string(ratio, FieldPrecision.decayRatio)}:1` : null}
         placeholder="Need Air & Top"
         quality={ratio != null ? tapToneRatioQuality(ratio) : ''}
-        qualityColor={ratio != null ? tapToneRatioQualityColor(ratio).dark : ''}
+        qualityColor={ratio != null ? roleColor(roleOf(tapToneRatioQualityColor(ratio))) : ''}
         sub="Ideal: 1.9–2.1"
       />
     </div>

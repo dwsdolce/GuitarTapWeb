@@ -7,17 +7,17 @@
 
 import type { MaterialTapPhase as MatPhase } from '../state/tapToneAnalyzer'
 
-// Apple system colors used by SwiftUI .gray/.blue/.orange/.purple/.green.
+// Each phase's colour, as Swift materialPhaseColor: CSS properties of the current scheme's roles.
 const PHASE_COLOR: Record<MatPhase, string> = {
-  notStarted: '#8e8e93',
-  capturingL: '#007aff',
-  reviewingL: '#007aff',
-  capturingC: '#ff9500',
-  reviewingC: '#ff9500',
-  waitingForFlcTap: '#af52de',
-  capturingFlc: '#af52de',
-  reviewingFlc: '#af52de',
-  complete: '#34c759',
+  notStarted: 'var(--c-phase-not-started)',
+  capturingL: 'var(--c-material-longitudinal)',
+  reviewingL: 'var(--c-material-longitudinal)',
+  capturingC: 'var(--c-material-cross)',
+  reviewingC: 'var(--c-material-cross)',
+  waitingForFlcTap: 'var(--c-material-flc)',
+  capturingFlc: 'var(--c-material-flc)',
+  reviewingFlc: 'var(--c-material-flc)',
+  complete: 'var(--c-phase-complete)',
 }
 
 // Mirrors Swift MaterialTapPhase.shortStatus.
@@ -76,7 +76,7 @@ function PhaseIcon({ kind, color }: { kind: IconKind; color: string }) {
       return (
         <svg width="24" height="24" viewBox="0 0 24 24" fill={color} aria-hidden="true">
           <circle cx="12" cy="12" r="10" />
-          <path d="M8 12.5l2.5 2.5 5.5-6" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M8 12.5l2.5 2.5 5.5-6" fill="none" stroke="var(--c-text-on-color)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       )
     case 'rotate':

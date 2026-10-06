@@ -29,7 +29,7 @@
   white-space: nowrap;
 }
 .app-version {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.82rem;
   font-weight: 500;
 }
@@ -41,8 +41,8 @@
   gap: 0.5rem 0.7rem;
   flex-wrap: nowrap;
   padding: 0.5rem 0.7rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--c-background-panel);
+  border: 1px solid var(--c-separator);
   border-radius: 10px;
 }
 /* Bar 2 — app control bar: buttons packed to the right (macOS unified-titlebar convention). */
@@ -72,10 +72,10 @@
   z-index: 41;
   min-width: 210px;
   padding: 4px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--c-background-panel);
+  border: 1px solid var(--c-separator);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--c-scrim);
 }
 .help-menu button {
   display: flex;
@@ -86,13 +86,13 @@
   background: none;
   border: none;
   border-radius: 6px;
-  color: var(--text);
+  color: var(--c-text-primary);
   font-size: 0.9rem;
   text-align: left;
   cursor: pointer;
 }
 .help-menu button:hover {
-  background: var(--line);
+  background: var(--c-separator);
 }
 
 /* Quick Start Guide modal (Help → Quick Start Guide). Reuses .settings-overlay/.settings-modal;
@@ -106,7 +106,7 @@
 }
 .qs-section {
   padding: 0.85rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
 }
 .qs-section:last-child {
   border-bottom: none;
@@ -117,11 +117,11 @@
   gap: 0.5rem;
   margin: 0 0 0.6rem;
   font-size: 1rem;
-  color: var(--accent);
+  color: var(--c-accent-text);
 }
 .qs-h-icon {
   display: inline-flex;
-  color: var(--accent);
+  color: var(--c-accent-text);
 }
 .qs-h-icon svg {
   width: 18px;
@@ -136,7 +136,7 @@
   flex: 0 0 auto;
   display: inline-flex;
   margin-top: 0.1rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .qs-row-icon svg {
   width: 16px;
@@ -147,7 +147,7 @@
 }
 .qs-intro {
   margin: 0 0 0.75rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   line-height: 1.55;
   font-size: 0.92rem;
 }
@@ -159,7 +159,7 @@
 }
 .qs-row-title {
   font-weight: 600;
-  color: var(--text);
+  color: var(--c-text-primary);
   font-size: 0.92rem;
   margin-bottom: 0.15rem;
 }
@@ -168,7 +168,7 @@
    Bug Fixes group headings within a release. */
 .rn-since {
   margin: -0.35rem 0 0.6rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.85rem;
 }
 .rn-group {
@@ -179,14 +179,14 @@
 }
 .rn-group-h {
   font-weight: 600;
-  color: var(--text);
+  color: var(--c-text-primary);
   font-size: 0.95rem;
   margin: 0 0 0.5rem;
   padding-bottom: 0.25rem;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
 }
 .qs-row-body {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   line-height: 1.55;
   font-size: 0.9rem;
   /* Preserve paragraph breaks (\n\n) inside a help body — used where an entry carries a note or
@@ -203,9 +203,9 @@
 }
 .btn {
   appearance: none;
-  border: 1px solid var(--line);
-  background: #11161d;
-  color: var(--text);
+  border: 1px solid var(--c-separator);
+  background: var(--c-background-control);
+  color: var(--c-text-primary);
   padding: 0.32rem 0.7rem;
   border-radius: 8px;
   font-size: 0.82rem;
@@ -213,23 +213,51 @@
   white-space: nowrap;
 }
 .btn:hover:not(:disabled) {
-  border-color: var(--accent);
+  border-color: var(--c-accent-text);
 }
 .btn:disabled {
   opacity: 0.45;
   cursor: default;
 }
+/* Swift's .buttonStyle(.borderedProminent): the accent as the fill, text.onColor as the text. */
 .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #06121f;
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-text-on-color);
   font-weight: 600;
 }
-.btn-accept {
-  background: #2e6f3e;
-  border-color: #3a8a4e;
-  color: #eafff0;
-  font-weight: 600;
+/* A bordered button tinted by a role — Swift's .buttonStyle(.bordered) with .tint(role): the role as
+   the text, 12 % of it as the fill and 35 % as the border; a tint-* class names the role. */
+.btn.tint {
+  color: var(--tint);
+  background: color-mix(in srgb, var(--tint) 12%, transparent);
+  border-color: color-mix(in srgb, var(--tint) 35%, transparent);
+}
+.btn.tint:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tint) 20%, transparent);
+  border-color: color-mix(in srgb, var(--tint) 55%, transparent);
+}
+.btn.tint.on {
+  background: color-mix(in srgb, var(--tint) 28%, transparent);
+  border-color: color-mix(in srgb, var(--tint) 60%, transparent);
+}
+.tint-accent {
+  --tint: var(--c-accent);
+}
+.tint-complete {
+  --tint: var(--c-status-complete);
+}
+.tint-warning {
+  --tint: var(--c-status-warning);
+}
+.tint-inactive {
+  --tint: var(--c-toolbar-inactive);
+}
+.tint-playing-file {
+  --tint: var(--c-status-playing-file);
+}
+.tint-taps-active {
+  --tint: var(--c-results-taps-active);
 }
 /* New Tap · Pause/Resume · Cancel: a right-aligned group on the SAME row as Taps/Threshold/Peak Min
    (margin-left:auto mirrors Python's addStretch() before New Tap). nowrap keeps the trio together;
@@ -253,32 +281,12 @@
 .tap-action svg {
   flex-shrink: 0;
 }
-/* Cancel / abort — orange outline, mirroring Swift's orange Cancel button. */
-.btn-cancel {
-  border-color: #c0772a;
-  color: #f0a258;
-}
-.btn-cancel:hover:not(:disabled) {
-  border-color: #e08a32;
-}
-/* Play File while a file plays — tinted orange, as Swift's Play File button is. */
-.btn.playing-file {
-  background: rgba(255, 149, 0, 0.15);
-  border-color: rgba(255, 149, 0, 0.45);
-  color: #f0a258;
-}
-/* Toggle buttons (Auto dB, Annotations) show an "on" state like the native tinted toolbar items. */
-.btn.toggle.on {
-  background: color-mix(in srgb, var(--accent) 22%, #11161d);
-  border-color: var(--accent);
-  color: var(--text);
-}
 
 /* ── Material results ─────────────────────────────────────── */
 .material-results h3 {
   font-size: 0.82rem;
   margin: 0.75rem 0 0.35rem;
-  color: var(--accent);
+  color: var(--c-text-primary);
   font-weight: 600;
 }
 .material-results h3:first-child {
@@ -290,11 +298,11 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.22rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
   font-size: 0.88rem;
 }
 .mat-label {
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .mat-value {
   font-weight: 600;
@@ -302,13 +310,13 @@
   white-space: nowrap;
 }
 .mat-value em {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-style: normal;
   font-weight: 400;
   font-size: 0.82rem;
 }
 .mat-hint {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-style: normal;
   font-weight: 400;
   font-size: 0.78rem;
@@ -326,17 +334,18 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.3rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
 }
 /* An uncaptured phase slot: dashes + unselected bubble, dimmed until its tap lands. */
-.mat-peak-row.pending .mat-peak-freq,
-.mat-peak-row.pending .mat-peak-mag,
-.mat-peak-row.pending .mat-peak-star {
-  opacity: 0.45;
+.mat-peak-row.pending .mat-peak-freq {
+  color: var(--c-text-secondary);
 }
 .mat-peak-star {
-  color: #0a84ff;
+  color: var(--c-peak-selected-star);
   font-size: 0.95rem;
+}
+.mat-peak-row.pending .mat-peak-star {
+  color: var(--c-peak-unselected-star);
 }
 .mat-peak-info {
   display: flex;
@@ -348,7 +357,7 @@
   font-variant-numeric: tabular-nums;
 }
 .mat-peak-mag {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
 }
@@ -364,8 +373,8 @@
   border-radius: 6px;
   font-size: 0.78rem;
   font-weight: 700;
-  background: var(--line);
-  color: var(--muted);
+  background: var(--c-material-phase-inactive);
+  color: var(--c-text-primary);
 }
 
 .mat-section {
@@ -373,11 +382,11 @@
 }
 .mat-divider {
   border: none;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--c-separator);
   margin: 0.45rem 0;
 }
 .mat-freqs {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.82rem;
   display: flex;
   flex-direction: column;
@@ -405,12 +414,12 @@
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.82rem;
   font-variant-numeric: tabular-nums;
 }
 .mat-lc-sub {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.82rem;
   margin-top: 0.15rem;
   font-variant-numeric: tabular-nums;
@@ -424,7 +433,7 @@
   align-items: stretch;
   gap: 0.7rem;
   padding: 0.45rem 0.1rem 0.5rem;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--c-separator);
 }
 .analysis-col {
   flex: 1;
@@ -435,12 +444,12 @@
 }
 .analysis-divider {
   width: 1px;
-  background: var(--line);
+  background: var(--c-separator);
   align-self: stretch;
 }
 .ac-cap {
   font-size: 0.66rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .ac-val-row {
   display: flex;
@@ -461,17 +470,17 @@
 }
 .ac-sub {
   font-size: 0.64rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 /* No value yet — a small grey placeholder, as Swift's caption-sized secondary text. */
 .ac-placeholder {
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 
 /* Highlighted Specific Modulus (E/ρ) box */
 .mat-specmod {
-  background: rgba(127, 127, 127, 0.1);
+  background: var(--c-background-subtle);
   border-radius: 8px;
   padding: 0.5rem 0.6rem;
   margin: 0.5rem 0;
@@ -490,7 +499,7 @@
   text-align: right;
 }
 .mat-specmod-label {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.78rem;
 }
 .mat-specmod-value {
@@ -502,7 +511,7 @@
   font-style: normal;
   font-weight: 400;
   font-size: 0.74rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .mat-specmod-quality {
   font-size: 0.78rem;
@@ -513,19 +522,22 @@
 .mat-gore-thickness {
   font-size: 2.1rem;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--c-accent-text);
+  background: var(--c-material-gore-box);
+  border-radius: 8px;
+  padding: 0.25rem 0.5rem;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 .mat-gore-thickness em {
   font-style: normal;
   font-size: 1rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-weight: 400;
 }
 .mat-info,
 .mat-params {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.76rem;
   margin: 0.2rem 0 0;
 }
@@ -558,23 +570,18 @@
 }
 .mat-step-body {
   font-size: 0.76rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .mat-process-foot {
   font-size: 0.76rem;
   font-style: italic;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   margin: 0.3rem 0 0;
 }
 
 /* ── Multi-tap comparison table ───────────────────────────── */
 .taps-toggle {
   margin-left: auto;
-}
-.taps-toggle.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
 }
 .multitap-table {
   display: flex;
@@ -587,10 +594,10 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.3rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
 }
 .mt-head {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-weight: 600;
 }
 .mt-head .mt-cell {
@@ -607,7 +614,7 @@
   font-variant-numeric: tabular-nums;
 }
 .mt-empty {
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 /* Overridden Averaged value — italic (the " *" suffix is in the text), the app-wide override marker. */
 .mt-override {
@@ -646,10 +653,10 @@
   font-size: 1.1rem;
   width: 1.4rem;
   text-align: center;
-  color: var(--accent);
+  color: var(--c-accent-text);
 }
 .meas-row.selected {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: color-mix(in srgb, var(--c-accent) 16%, transparent);
   border-radius: 8px;
 }
 .meas-row.disabled {
@@ -659,8 +666,7 @@
   cursor: default;
 }
 .type-badge.comparison {
-  background: #b07ad8;
-  color: #fff;
+  background: var(--c-badge-comparison);
 }
 
 /* ── Measurement detail (read-only inspector) ─────────────── */
@@ -670,7 +676,7 @@
 .detail-section h3 {
   font-size: 0.85rem;
   margin: 0 0 0.4rem;
-  color: var(--accent);
+  color: var(--c-accent-text);
   font-weight: 600;
 }
 .detail-row {
@@ -678,11 +684,11 @@
   justify-content: space-between;
   gap: 1rem;
   padding: 0.22rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
   font-size: 0.88rem;
 }
 .detail-label {
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .detail-value {
   font-weight: 600;
@@ -707,13 +713,13 @@
   align-items: flex-start;
   gap: 0.5rem;
   padding: 0.35rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
 }
 .detail-peak.unselected {
   opacity: 0.4;
 }
 .detail-peak-star {
-  color: #0a84ff;
+  color: var(--c-peak-selected-star);
   font-size: 0.95rem;
   line-height: 1.4;
 }
@@ -736,7 +742,7 @@
   font-weight: 600;
 }
 .detail-peak-pitch {
-  color: #b07ad8;
+  color: var(--c-peak-pitch);
   font-size: 0.8rem;
 }
 .detail-peak-line2 {
@@ -744,7 +750,7 @@
   gap: 1rem;
   margin-top: 0.15rem;
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -753,7 +759,7 @@
   align-items: center;
   gap: 0.45rem;
   font-size: 0.82rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .field label {
   white-space: nowrap;
@@ -768,17 +774,17 @@
 }
 .field input[type='range'] {
   width: 130px;
-  accent-color: var(--accent);
+  accent-color: var(--c-accent-text);
 }
 .field .val {
   font-variant-numeric: tabular-nums;
-  color: var(--text);
+  color: var(--c-text-primary);
   min-width: 3.5rem;
 }
 .field select {
-  background: #0a0d12;
-  color: var(--text);
-  border: 1px solid var(--line);
+  background: var(--c-background-control);
+  color: var(--c-text-primary);
+  border: 1px solid var(--c-separator);
   border-radius: 6px;
   padding: 0.3rem 0.4rem;
 }
@@ -787,7 +793,7 @@
 .settings-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--c-scrim);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -795,8 +801,8 @@
   z-index: 50;
 }
 .settings-modal {
-  background: #0e1116;
-  border: 1px solid var(--line);
+  background: var(--c-background-panel);
+  border: 1px solid var(--c-separator);
   border-radius: 12px;
   width: 100%;
   max-width: 460px;
@@ -813,12 +819,12 @@
   margin: 0 0 0.4rem;
   font-size: 1.05rem;
   font-weight: 600;
-  color: var(--text);
+  color: var(--c-text-primary);
 }
 .alert-message {
   margin: 0 0 1.1rem;
   white-space: pre-line; /* keep a message's blank lines (the import message folds a warning below one) */
-  color: var(--muted);
+  color: var(--c-text-secondary);
   line-height: 1.5;
   font-size: 0.92rem;
 }
@@ -828,9 +834,9 @@
   gap: 0.5rem;
 }
 .alert-modal .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #06121f;
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-text-on-color);
   font-weight: 600;
 }
 .settings-modal-head {
@@ -838,7 +844,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 0.85rem 1rem;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
 }
 .settings-modal-head h2 {
   margin: 0;
@@ -864,11 +870,11 @@
   justify-content: flex-end;
   gap: 0.5rem;
   padding: 0.85rem 1rem;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--c-separator);
 }
 .settings-body section {
   padding: 0.75rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
 }
 .settings-body section:last-child {
   border-bottom: none;
@@ -876,18 +882,18 @@
 .settings-body h3 {
   font-size: 0.9rem;
   margin: 0 0 0.5rem;
-  color: var(--accent);
+  color: var(--c-accent-text);
 }
 .settings-body h4 {
   font-size: 0.82rem;
   margin: 0.75rem 0 0.4rem;
-  color: var(--text);
+  color: var(--c-text-primary);
 }
 .set-select,
 .set-input-select {
-  background: #0a0d12;
-  color: var(--text);
-  border: 1px solid var(--line);
+  background: var(--c-background-control);
+  color: var(--c-text-primary);
+  border: 1px solid var(--c-separator);
   border-radius: 6px;
   padding: 0.35rem 0.5rem;
 }
@@ -913,32 +919,32 @@
 }
 .set-input input {
   width: 5rem;
-  background: #0a0d12;
-  color: var(--text);
-  border: 1px solid var(--line);
+  background: var(--c-background-control);
+  color: var(--c-text-primary);
+  border: 1px solid var(--c-separator);
   border-radius: 6px;
   padding: 0.3rem 0.4rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 .set-input em {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-style: normal;
   font-size: 0.8rem;
   min-width: 1.6rem;
 }
 .set-readout {
   font-size: 0.85rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   margin: 0.5rem 0;
 }
 .set-readout b {
-  color: var(--text);
+  color: var(--c-text-primary);
   font-variant-numeric: tabular-nums;
 }
 .set-note {
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   margin: 0.4rem 0 0;
 }
 .set-cal-actions {
@@ -957,12 +963,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .set-disclosure {
   background: none;
   border: none;
-  color: var(--text);
+  color: var(--c-text-primary);
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
@@ -990,15 +996,15 @@
   gap: 0.5rem;
 }
 .set-range-dash {
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .set-desc {
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   margin: 0.25rem 0 0;
 }
 .set-inline-desc {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-style: normal;
   font-size: 0.78rem;
 }
@@ -1020,11 +1026,11 @@
 }
 .mode-range-table td {
   padding: 0.2rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
 }
 .mode-range-table td:last-child {
   text-align: right;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1032,7 +1038,7 @@
   width: 1px;
   align-self: stretch;
   min-height: 20px;
-  background: var(--line);
+  background: var(--c-separator);
 }
 
 .stepper {
@@ -1048,7 +1054,7 @@
 .step-val {
   min-width: 1.4rem;
   text-align: center;
-  color: var(--text);
+  color: var(--c-text-primary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1067,12 +1073,12 @@
 }
 .thmeter-val {
   font-variant-numeric: tabular-nums;
-  color: var(--text);
+  color: var(--c-text-primary);
   min-width: 3.5rem;
 }
 
 .error {
-  color: #ff8a7a;
+  color: var(--c-status-error);
   margin: 0;
 }
 /* Load-time provenance notice (mic / calibration / sample-rate mismatch). */
@@ -1081,9 +1087,9 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
-  border: 1px solid #6b5a1e;
-  background: #2a2410;
-  color: #e6c558;
+  border: none;
+  background: color-mix(in srgb, var(--c-status-warning) 12%, transparent);
+  color: var(--c-status-warning);
   border-radius: 8px;
   font-size: 0.88rem;
 }
@@ -1096,9 +1102,9 @@
 .loaded-settings-banner {
   padding: 0.4rem 0.85rem;
   margin-top: 0.4rem;
-  border: 1px solid #6b4a1e;
-  background: #2a1f10;
-  color: #f0a258;
+  border: none;
+  background: color-mix(in srgb, var(--c-status-warning) 12%, transparent);
+  color: var(--c-status-warning);
   border-radius: 8px;
   font-size: 0.82rem;
   font-weight: 500;
@@ -1111,9 +1117,9 @@
   gap: 0.75rem;
   padding: 0.4rem 0.85rem;
   margin-top: 0.4rem;
-  border: 1px solid #1e4a6b;
-  background: #10202a;
-  color: #8cc4f0;
+  border: none;
+  background: color-mix(in srgb, var(--c-status-saved) 12%, transparent);
+  color: var(--c-status-saved);
   border-radius: 8px;
   font-size: 0.82rem;
 }
@@ -1150,7 +1156,7 @@
   flex: 1 1 auto;
   min-height: 240px;
   /* No fixed aspect ratio — the chart fills the available vertical space (matches native). */
-  border: 1px solid var(--line);
+  border: 1px solid var(--c-separator);
   border-radius: 10px;
   overflow: hidden;
   background: var(--c-chart-background);
@@ -1164,16 +1170,17 @@
 /* Material (plate/brace) instruction panel below the chart — mirrors Swift
    materialInstructionsView / Python material instruction panel. */
 .mat-instr {
+  color: var(--c-text-primary);
   flex: 0 0 auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--c-separator);
   border-radius: 10px;
-  background: var(--panel);
+  background: var(--c-background-panel);
   padding: 10px 12px;
 }
 .mat-instr-head {
   font-size: 12px;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   margin-bottom: 6px;
 }
 .mat-instr-phase {
@@ -1194,11 +1201,11 @@
 .mat-instr-step {
   margin-left: auto;
   font-size: 12px;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .mat-instr-divider {
   height: 1px;
-  background: var(--line);
+  background: var(--c-separator);
   margin: 8px 0;
 }
 .mat-instr-body {
@@ -1218,12 +1225,12 @@
 .mat-instr-title {
   font-weight: 500;
   font-size: 13px;
-  color: var(--text);
+  color: var(--c-text-primary);
   margin-bottom: 3px;
 }
 .mat-instr-desc {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   line-height: 1.4;
 }
 .chart-title {
@@ -1233,7 +1240,7 @@
   z-index: 2;
   font-size: 0.82rem;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   pointer-events: none;
 }
 .spectrum-canvas {
@@ -1256,7 +1263,7 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  border: 1px solid var(--line);
+  border: 1px solid var(--c-separator);
   background: var(--c-chart-readout-background);
   color: var(--c-text-secondary);
   font-size: 0.8rem;
@@ -1269,8 +1276,8 @@
   padding: 0;
 }
 .chart-help:hover {
-  color: var(--text);
-  border-color: var(--accent);
+  color: var(--c-text-primary);
+  border-color: var(--c-accent-text);
 }
 /* ⋯ Chart Options button — sits just left of the ? help (two icons, upper-right). */
 .chart-menu-btn {
@@ -1280,7 +1287,7 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  border: 1px solid var(--line);
+  border: 1px solid var(--c-separator);
   background: var(--c-chart-readout-background);
   color: var(--c-text-secondary);
   font-size: 0.85rem;
@@ -1293,8 +1300,8 @@
   padding: 0;
 }
 .chart-menu-btn:hover {
-  color: var(--text);
-  border-color: var(--accent);
+  color: var(--c-text-primary);
+  border-color: var(--c-accent-text);
 }
 .chart-overlay-backdrop {
   position: fixed;
@@ -1323,7 +1330,7 @@
   align-items: center;
   gap: 0.35rem;
   font-size: 0.75rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .legend-swatch {
   width: 14px;
@@ -1335,12 +1342,12 @@
   top: 30px;
   right: 8px;
   z-index: 5;
-  background: #11161d;
-  border: 1px solid var(--line);
+  background: var(--c-background-panel);
+  border: 1px solid var(--c-separator);
   border-radius: 8px;
   padding: 0.6rem 0.75rem;
   max-width: 320px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 24px var(--c-scrim);
 }
 .chart-help-pop h4 {
   margin: 0 0 0.4rem;
@@ -1357,7 +1364,7 @@
   white-space: nowrap;
 }
 .ctrl-row span {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   text-align: right;
 }
 .chart-ctx {
@@ -1365,12 +1372,12 @@
      coords by SpectrumChart and clamped on-screen. */
   position: fixed;
   z-index: 60;
-  background: #11161d;
-  border: 1px solid var(--line);
+  background: var(--c-background-panel);
+  border: 1px solid var(--c-separator);
   border-radius: 8px;
   padding: 0.3rem;
   min-width: 168px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 24px var(--c-scrim);
 }
 .chart-ctx .ctx-title {
   font-size: 0.85rem;
@@ -1379,7 +1386,7 @@
 }
 .chart-ctx .ctx-header {
   font-size: 0.72rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 0.3rem 0.5rem 0.15rem;
@@ -1390,15 +1397,15 @@
   text-align: left;
   background: none;
   border: none;
-  color: var(--text);
+  color: var(--c-text-primary);
   font-size: 0.85rem;
   padding: 0.3rem 0.5rem;
   border-radius: 5px;
   cursor: pointer;
 }
 .chart-ctx button:hover {
-  background: var(--accent);
-  color: #06121f;
+  background: var(--c-accent);
+  color: var(--c-text-on-color);
 }
 .chart-ctx button:disabled {
   opacity: 0.4;
@@ -1406,7 +1413,7 @@
 }
 .chart-ctx button:disabled:hover {
   background: none;
-  color: var(--text);
+  color: var(--c-text-primary);
 }
 /* Per-label "Reset Position" — icon before the text (mirrors Swift's Label(systemImage:)). */
 .chart-ctx button.ctx-icon-item {
@@ -1425,14 +1432,15 @@
 }
 .chart-ctx .ctx-sep {
   height: 1px;
-  background: var(--line);
+  background: var(--c-separator);
   margin: 0.25rem 0;
 }
 
 .results-pane {
   flex: 0 0 320px;
-  background: var(--panel);
-  border: 1px solid var(--line);
+  color: var(--c-text-primary);
+  background: var(--c-background-panel);
+  border: 1px solid var(--c-separator);
   border-radius: 10px;
   /* Desktop: bound the pane height to the chart (via .main stretch) and scroll the results
      internally, independent of the graph. The absolute inner removes the content from flow so
@@ -1462,7 +1470,7 @@
   justify-content: space-between;
   gap: 0.4rem;
   padding: 0.5rem 0.1rem 0.1rem;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--c-separator);
 }
 .foot-export {
   display: flex;
@@ -1475,18 +1483,18 @@
   align-items: center;
   gap: 0.3rem;
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   white-space: nowrap;
 }
 .foot-status .foot-dot {
   font-size: 0.66rem;
-  color: #8a8a8e;
+  color: var(--c-status-stopped);
 }
 .foot-status.on {
-  color: var(--text, #dfe4ea);
+  color: var(--c-text-secondary);
 }
 .foot-status.on .foot-dot {
-  color: #3fb950;
+  color: var(--c-status-running);
 }
 .results-head {
   display: flex;
@@ -1497,7 +1505,7 @@
 .results-pane h2 {
   font-size: 0.95rem;
   margin: 0;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-weight: 600;
 }
 .type-badge {
@@ -1506,12 +1514,10 @@
   border-radius: 4px;
 }
 .type-badge.guitar {
-  background: rgba(78, 161, 255, 0.2);
-  color: #9cc7ff;
+  background: var(--c-badge-guitar);
 }
 .type-badge.material {
-  background: rgba(240, 160, 58, 0.2);
-  color: #f0c089;
+  background: var(--c-badge-material);
 }
 .results {
   width: 100%;
@@ -1522,11 +1528,11 @@
 .results td {
   text-align: right;
   padding: 0.32rem 0.4rem;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
   font-variant-numeric: tabular-nums;
 }
 .results th {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-weight: 600;
 }
 .results th:first-child,
@@ -1542,7 +1548,7 @@
   vertical-align: middle;
 }
 .empty {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.85rem;
   margin: 0;
 }
@@ -1554,7 +1560,7 @@
   align-items: center;
   gap: 0.4rem;
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   margin-bottom: 0.4rem;
 }
 .results-mic-name {
@@ -1572,7 +1578,7 @@
   justify-content: space-between;
   margin-bottom: 0.5rem;
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .sel-buttons {
   display: flex;
@@ -1583,8 +1589,9 @@
   font-size: 0.75rem;
 }
 /* Icon-only mini buttons (Analysis Results selection controls: All / None / Reset-to-auto).
-   Mirrors Swift's icon-only .controlSize(.mini) buttons. */
+   Mirrors Swift's icon-only .controlSize(.mini) buttons, their icons text.secondary. */
 .btn.mini.icon {
+  color: var(--c-text-secondary);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1717,9 +1724,8 @@
   flex-direction: column;
   gap: 6px;
   padding: 0.5rem 0.85rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 4px solid var(--line);
+  background: var(--c-background-subtle);
+  border: 1px solid var(--c-separator);
   border-radius: 8px;
   font-size: 0.85rem;
 }
@@ -1727,24 +1733,6 @@
   display: flex;
   align-items: center;
   gap: 0.85rem;
-}
-.statusbar.state-listening {
-  border-left-color: #d8b13a;
-}
-.statusbar.state-listening .status-text {
-  color: #e6c558;
-}
-.statusbar.state-capturing {
-  border-left-color: #4ea1ff;
-}
-.statusbar.state-capturing .status-text {
-  color: #6fb6ff;
-}
-.statusbar.state-paused {
-  border-left-color: #c0772a;
-}
-.statusbar.state-paused .status-text {
-  color: #f0a258;
 }
 .status-text {
   min-width: 14rem;
@@ -1759,29 +1747,29 @@
   flex: 0 0 auto;
 }
 .sb-state-dot {
-  background: var(--muted);
+  background: var(--c-status-inactive-dot);
 }
 .sb-state-dot.complete {
-  background: #3fb950;
+  background: var(--c-status-complete);
 }
 .sb-active-dot {
-  background: #c0772a;
+  background: var(--c-status-paused);
 }
 .sb-active-dot.on {
-  background: #3fb950;
+  background: var(--c-status-running);
 }
 .sb-detect,
 .sb-sep {
-  color: var(--muted);
+  color: var(--c-text-secondary);
   white-space: nowrap;
 }
 .sb-msg {
   font-weight: 500;
-  color: var(--text);
+  color: var(--c-text-primary);
   white-space: nowrap;
 }
 .sb-msg.idle {
-  color: #f0a258;
+  color: var(--c-status-warning);
 }
 .spacer {
   flex: 1;
@@ -1789,16 +1777,15 @@
 .level,
 .rate {
   font-variant-numeric: tabular-nums;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   white-space: nowrap;
 }
 /* Status-bar widgets (mirror Swift status bar: phase/tap progress, frozen badge, peak readout). */
-/* The phase/tap label shares the bar's colour — Swift's phase label is `.foregroundColor(.blue)`,
-   the same systemBlue the bar is tinted with. Theme token: --system-blue (see index.css). */
+/* The phase/tap label: status.tapCount, as Swift's. */
 .sb-progress {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: var(--system-blue);
+  color: var(--c-status-tap-count);
   white-space: nowrap;
 }
 /* Linear tap/phase progress bar — mirrors Swift `ProgressView(value: tap.tapProgress)` (.linear),
@@ -1808,26 +1795,25 @@
 .sb-progress-track {
   width: 100%;
   height: 6px;
-  background: var(--line);
+  background: var(--c-separator);
   border-radius: 3px;
   overflow: hidden;
 }
 .sb-progress-fill {
   height: 100%;
-  background: var(--system-blue);
+  background: var(--c-status-progress);
   border-radius: 3px;
   transition: width 120ms linear;
 }
 .sb-frozen {
   font-weight: 600;
-  color: #f0a258;
+  color: var(--c-status-warning);
   white-space: nowrap;
 }
-/* Swift renders the Peak readout `.foregroundColor(.blue)` — the same systemBlue as the progress bar
-   and its label. Theme token: --system-blue (index.css). */
+/* The Peak readout: status.peakReadout, as Swift's. */
 .sb-peak {
   font-variant-numeric: tabular-nums;
-  color: var(--system-blue);
+  color: var(--c-status-peak-readout);
   white-space: nowrap;
 }
 
@@ -1836,7 +1822,7 @@
   max-width: 460px;
 }
 .metric-group {
-  border: 1px solid var(--line);
+  border: 1px solid var(--c-separator);
   border-radius: 10px;
   padding: 0.6rem 0.8rem;
 }
@@ -1846,7 +1832,7 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.3rem 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--c-separator);
 }
 .metric-row:last-child {
   border-bottom: none;
@@ -1861,7 +1847,7 @@
 }
 .metric-subtitle {
   font-size: 0.75rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .metric-value {
   font-weight: 600;
@@ -1872,17 +1858,17 @@
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   font-size: 0.85rem;
 }
 .metric-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #6b727c;
+  background: var(--c-status-stopped);
 }
 .metric-dot.on {
-  background: #3bbf63;
+  background: var(--c-status-running);
 }
 
 /* ── Save sheet + Measurements library ────────────────────── */
@@ -1898,9 +1884,9 @@
   width: 100%;
   resize: vertical;
   font: inherit;
-  background: #11161d;
-  color: var(--text);
-  border: 1px solid var(--line);
+  background: var(--c-background-control);
+  color: var(--c-text-primary);
+  border: 1px solid var(--c-separator);
   border-radius: 8px;
   padding: 0.4rem 0.55rem;
 }
@@ -1933,27 +1919,27 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.55rem 0.7rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--c-separator);
   border-radius: 10px;
-  background: #11161d;
+  background: var(--c-background-control);
 }
 .meas-total {
   margin: 0 0 0.5rem;
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .meas-hint {
   margin: 0 0 0.6rem;
   padding: 0.5rem 0.6rem;
   font-size: 0.78rem;
   line-height: 1.35;
-  color: var(--muted);
-  background: rgba(127, 127, 127, 0.1);
-  border: 1px solid var(--line);
+  color: var(--c-text-secondary);
+  background: var(--c-background-subtle);
+  border: 1px solid var(--c-separator);
   border-radius: 8px;
 }
 .meas-hint b {
-  color: var(--text);
+  color: var(--c-text-primary);
 }
 .meas-info {
   display: flex;
@@ -1976,22 +1962,22 @@
   white-space: nowrap;
 }
 .meas-wave {
-  color: #3bbf63;
+  color: var(--c-status-complete);
   font-weight: 700;
 }
 .meas-date {
   margin-left: auto;
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   white-space: nowrap;
 }
 .meas-meta {
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
 }
 .meas-notes {
   font-size: 0.82rem;
-  color: var(--muted);
+  color: var(--c-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2011,7 +1997,7 @@
   appearance: none;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--text);
+  color: var(--c-text-primary);
   font-size: 1.1rem;
   line-height: 1;
   padding: 0.25rem 0.5rem;
@@ -2019,8 +2005,8 @@
   cursor: pointer;
 }
 .meas-menu-btn:hover {
-  border-color: var(--line);
-  background: #161b22;
+  border-color: var(--c-separator);
+  background: var(--c-background-subtle);
 }
 .meas-menu {
   /* Positioned via inline `position: fixed` (portaled to <body>); see MeasurementsPanel. */
@@ -2029,16 +2015,16 @@
   display: flex;
   flex-direction: column;
   padding: 0.25rem;
-  background: #161b22;
-  border: 1px solid var(--line);
+  background: var(--c-background-panel);
+  border: 1px solid var(--c-separator);
   border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 8px 24px var(--c-scrim);
 }
 .meas-menu button {
   appearance: none;
   border: none;
   background: transparent;
-  color: var(--text);
+  color: var(--c-text-primary);
   text-align: left;
   font: inherit;
   padding: 0.45rem 0.6rem;
@@ -2059,20 +2045,20 @@
   stroke-linejoin: round;
 }
 .meas-menu button:hover {
-  background: var(--accent);
-  color: #06121f;
+  background: var(--c-accent);
+  color: var(--c-text-on-color);
 }
 .meas-menu button.danger {
-  color: #e0584a;
+  color: var(--c-status-error);
 }
 .meas-menu button.danger:hover {
-  background: #e0584a;
-  color: #fff;
+  background: var(--c-status-error);
+  color: var(--c-text-on-color);
 }
 .meas-menu-sep {
   height: 1px;
   margin: 0.25rem 0.3rem;
-  background: var(--line);
+  background: var(--c-separator);
 }
 
 @media (max-width: 820px) {
@@ -2193,13 +2179,13 @@
     width: 36px;
     height: 4px;
     border-radius: 2px;
-    background: var(--line);
+    background: var(--c-separator);
     z-index: 1;
   }
   .results-sheet-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--c-scrim);
     z-index: 59;
   }
 }
@@ -2267,7 +2253,7 @@
     width: min(46%, 420px);
     height: auto;
     border-radius: 0;
-    border-left: 1px solid var(--line);
+    border-left: 1px solid var(--c-separator);
     transform: translateX(100%);
     padding: 0;
   }
