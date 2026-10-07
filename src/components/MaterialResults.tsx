@@ -38,11 +38,13 @@ function SampleDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasurem
   return (
     <div className="mat-section">
       <h3>Sample Dimensions</h3>
-      <NumberField label="Length" unit="mm" value={inputs.lengthMm} decimals={P.linearDimensionMM} onChange={(v) => set({ lengthMm: v })} />
-      <NumberField label="Width" unit="mm" value={inputs.widthMm} decimals={P.linearDimensionMM} onChange={(v) => set({ widthMm: v })} />
-      <NumberField label="Thickness" unit="mm" value={inputs.thicknessMm} decimals={P.linearDimensionMM} onChange={(v) => set({ thicknessMm: v })} />
-      <NumberField label="Mass" unit="g" value={inputs.massG} decimals={P.massG} onChange={(v) => set({ massG: v })} />
-      <Row label="Calculated Density" value={`${FieldPrecision.string(new MaterialDimensions(materialDimensions(inputs)).densityGPerCm3, FieldPrecision.densityGPerCm3)} g/cm³`} />
+      <div className="mat-box">
+        <NumberField label="Length:" unit="mm" value={inputs.lengthMm} decimals={P.linearDimensionMM} onChange={(v) => set({ lengthMm: v })} />
+        <NumberField label="Width:" unit="mm" value={inputs.widthMm} decimals={P.linearDimensionMM} onChange={(v) => set({ widthMm: v })} />
+        <NumberField label="Thickness:" unit="mm" value={inputs.thicknessMm} decimals={P.linearDimensionMM} onChange={(v) => set({ thicknessMm: v })} />
+        <NumberField label="Mass:" unit="g" value={inputs.massG} decimals={P.massG} onChange={(v) => set({ massG: v })} />
+        <Row label="Calculated Density:" secondary value={`${FieldPrecision.string(new MaterialDimensions(materialDimensions(inputs)).densityGPerCm3, FieldPrecision.densityGPerCm3)} g/cm³`} />
+      </div>
     </div>
   )
 }
@@ -55,21 +57,23 @@ function BodyDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasuremen
   return (
     <div className="mat-section">
       <h3>Body Dimensions</h3>
-      <NumberField label="Body Length (a)" unit="mm" value={inputs.bodyLengthMm} decimals={P.bodyDimensionMM} onChange={(v) => set({ bodyLengthMm: v })} />
-      <NumberField label="Lower Bout Width (b)" unit="mm" value={inputs.bodyWidthMm} decimals={P.bodyDimensionMM} onChange={(v) => set({ bodyWidthMm: v })} />
-      <label className="set-field">
-        <span>Panel Stiffness (f_vs)</span>
-        <span className="set-input">
-          <select value={inputs.stiffnessPreset} onChange={(e) => set({ stiffnessPreset: e.target.value as StiffnessPreset })}>
-            {STIFFNESS_PRESETS.map((p) => (
-              <option key={p} value={p}>{STIFFNESS_LABEL[p]}</option>
-            ))}
-          </select>
-        </span>
-      </label>
-      {inputs.stiffnessPreset === 'custom' && (
-        <NumberField label="Custom f_vs" unit="" value={inputs.customStiffness} decimals={P.stiffness} onChange={(v) => set({ customStiffness: v })} />
-      )}
+      <div className="mat-box">
+        <NumberField label="Body Length (a):" unit="mm" value={inputs.bodyLengthMm} decimals={P.bodyDimensionMM} onChange={(v) => set({ bodyLengthMm: v })} />
+        <NumberField label="Lower Bout Width (b):" unit="mm" value={inputs.bodyWidthMm} decimals={P.bodyDimensionMM} onChange={(v) => set({ bodyWidthMm: v })} />
+        <label className="set-field">
+          <span>Panel Stiffness (f_vs):</span>
+          <span className="set-input">
+            <select value={inputs.stiffnessPreset} onChange={(e) => set({ stiffnessPreset: e.target.value as StiffnessPreset })}>
+              {STIFFNESS_PRESETS.map((p) => (
+                <option key={p} value={p}>{STIFFNESS_LABEL[p]}</option>
+              ))}
+            </select>
+          </span>
+        </label>
+        {inputs.stiffnessPreset === 'custom' && (
+          <NumberField label="Custom f_vs:" unit="" value={inputs.customStiffness} decimals={P.stiffness} onChange={(v) => set({ customStiffness: v })} />
+        )}
+      </div>
     </div>
   )
 }
@@ -109,10 +113,10 @@ function PeakRow({ peak, role, showCross, showFlc }: { peak: ResonantPeak | null
   )
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, secondary = false }: { label: string; value: string; secondary?: boolean }) {
   return (
     <div className="mat-row">
-      <span className="mat-label">{label}</span>
+      <span className={`mat-label${secondary ? ' secondary' : ''}`}>{label}</span>
       <span className="mat-value">{value}</span>
     </div>
   )
@@ -132,22 +136,24 @@ function ProcessSection({ type, measureFlc }: { type: 'plate' | 'brace'; measure
   return (
     <div className="mat-section mat-process">
       <h3>Measurement Process</h3>
-      {type === 'plate' ? (
-        <>
-          <div className="mat-process-head">{measureFlc ? 'Three-Tap Measurement Process:' : 'Two-Tap Measurement Process:'}</div>
-          {step('var(--c-material-longitudinal)', '1. Longitudinal (fL) Tap', 'Hold plate at 22% from one end along the length, near one long edge (not at the width node). Tap center.')}
-          {step('var(--c-material-cross)', '2. Cross-grain (fC) Tap', 'Rotate 90°. Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.')}
-          {measureFlc &&
-            step('var(--c-material-flc)', '3. Diagonal (fLC) Tap', 'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.')}
-          <p className="mat-process-foot">The strongest peak from each tap is auto-selected. Redo if needed.</p>
-        </>
-      ) : (
-        <>
-          <div className="mat-process-head">Single-Tap Measurement (fL only):</div>
-          {step('var(--c-material-longitudinal)', '1. Longitudinal (fL) Tap', 'Hold brace at 22% from one end along the length. Tap center.')}
-          <p className="mat-process-foot">The strongest peak is auto-selected. Redo if needed.</p>
-        </>
-      )}
+      <div className="mat-box">
+        {type === 'plate' ? (
+          <>
+            <div className="mat-process-head">{measureFlc ? 'Three-Tap Measurement Process:' : 'Two-Tap Measurement Process:'}</div>
+            {step('var(--c-material-longitudinal)', '1. Longitudinal (fL) Tap', 'Hold plate at 22% from one end along the length, near one long edge (not at the width node). Tap center.')}
+            {step('var(--c-material-cross)', '2. Cross-grain (fC) Tap', 'Rotate 90°. Hold plate at 22% from one end along the width, near one short edge (not at the length node). Tap center.')}
+            {measureFlc &&
+              step('var(--c-material-flc)', '3. Diagonal (fLC) Tap', 'Hold plate at the midpoint of one long edge. Tap near the opposite corner (~22% from both the end and the side). Measures shear stiffness.')}
+            <p className="mat-process-foot">The strongest peak from each tap is auto-selected. Redo if needed.</p>
+          </>
+        ) : (
+          <>
+            <div className="mat-process-head">Single-Tap Measurement (fL only):</div>
+            {step('var(--c-material-longitudinal)', '1. Longitudinal (fL) Tap', 'Hold brace at 22% from one end along the length. Tap center.')}
+            <p className="mat-process-foot">The strongest peak is auto-selected. Redo if needed.</p>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -214,18 +220,20 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
         <SampleDimensionsEditor inputs={matInputs} onChange={onInputsChange} />
         <div className="mat-section">
           <h3>Brace Properties</h3>
-          <Row label="Speed of Sound" value={`${FieldPrecision.string(cL, FieldPrecision.speedOfSoundMS)} m/s`} />
-          <Row label="Young's Modulus (E)" value={`${FieldPrecision.string(eL, FieldPrecision.youngsModulusGPa)} GPa`} />
-          <div className="mat-specmod">
-            <div className="mat-specmod-title">Specific Modulus (E/ρ)</div>
-            <div className="mat-specmod-value" style={{ color: qualityColor(qL) }}>
-              {FieldPrecision.string(smL, FieldPrecision.specificModulus)} <em>GPa/(g/cm³)</em>
-            </div>
-            <div className="mat-specmod-quality" style={{ color: qualityColor(qL) }}>
-              {qL}
-            </div>
+          <div className="mat-box">
+            <Row label="Speed of Sound:" value={`${FieldPrecision.string(cL, FieldPrecision.speedOfSoundMS)} m/s`} />
+            <Row label="Young's Modulus (E):" value={`${FieldPrecision.string(eL, FieldPrecision.youngsModulusGPa)} GPa`} />
+            <div className="mat-specmod">
+              <div className="mat-specmod-title">Specific Modulus (E/ρ)</div>
+              <div className="mat-specmod-value" style={{ color: qualityColor(qL) }}>
+                {FieldPrecision.string(smL, FieldPrecision.specificModulus)} <em>GPa/(g/cm³)</em>
+              </div>
+              <div className="mat-specmod-quality" style={{ color: qualityColor(qL) }}>
+                {qL}
+              </div>
           </div>
-          <Row label="Radiation Ratio (R)" value={FieldPrecision.string(rL, FieldPrecision.radiationRatio)} />
+          <Row label="Radiation Ratio (R):" value={FieldPrecision.string(rL, FieldPrecision.radiationRatio)} />
+          </div>
         </div>
         {process}
       </div>
@@ -275,13 +283,14 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
 
       <div className="mat-section">
         <h3>Plate Properties</h3>
+        <div className="mat-box">
 
-        <div className="mat-prop-block">
-          <div className="mat-prop-title">Speed of Sound</div>
-          <div className="mat-lc">
-            <span>L: {FieldPrecision.string(cL, FieldPrecision.speedOfSoundMS)} m/s</span>
-            <span>C: {FieldPrecision.string(cC, FieldPrecision.speedOfSoundMS)} m/s</span>
-          </div>
+          <div className="mat-prop-block">
+            <div className="mat-prop-title">Speed of Sound</div>
+            <div className="mat-lc">
+              <span>L: {FieldPrecision.string(cL, FieldPrecision.speedOfSoundMS)} m/s</span>
+              <span>C: {FieldPrecision.string(cC, FieldPrecision.speedOfSoundMS)} m/s</span>
+            </div>
         </div>
 
         <div className="mat-prop-block">
@@ -326,24 +335,24 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
         </div>
 
         <div className="mat-row">
-          <span className="mat-label">Cross/Long Ratio</span>
+          <span className="mat-label">Cross/Long Ratio:</span>
           <span className="mat-value">
             {FieldPrecision.string(crossLong, FieldPrecision.crossLongRatio)} <em className="mat-hint">(typical: 0.04–0.08)</em>
           </span>
         </div>
         <div className="mat-row">
-          <span className="mat-label">Long/Cross Ratio</span>
+          <span className="mat-label">Long/Cross Ratio:</span>
           <span className="mat-value">
             {FieldPrecision.string(longCross, FieldPrecision.longCrossRatio)} <em className="mat-hint">(typical: 12–25)</em>
           </span>
         </div>
 
-        <hr className="mat-divider" />
         <div className="mat-row mat-overall">
-          <span className="mat-label">Overall Quality</span>
+          <span className="mat-label">Overall Quality:</span>
           <span className="mat-value" style={{ color: qualityColor(overall) }}>
             {overall}
           </span>
+        </div>
         </div>
       </div>
       {process}

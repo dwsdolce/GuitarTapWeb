@@ -2019,6 +2019,10 @@ export class TapToneAnalyzer {
       this.materialInputs = m.materialInputs // Store B ← the file's own dims, never Settings
       this.materialTapPhase = 'complete'
       this.isMeasurementComplete = true // a loaded material measurement is complete (Swift loadMeasurement)
+      // A sequence the load interrupts leaves no count behind — else the status bar's progress bar
+      // (gated on currentTapCount > 0) lingers over the loaded measurement. Swift loadMeasurement.
+      this.currentTapCount = 0
+      this.tapProgress = 0
       // The file's tap count BEFORE the raise — its hook clears the warning.
       if (m.numberOfTaps != null) this.setNumberOfTaps(m.numberOfTaps)
       this.showLoadedSettingsWarning = true // after both clearing hooks have run

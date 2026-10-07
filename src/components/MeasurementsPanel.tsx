@@ -21,6 +21,7 @@ import { exportSpectrumPng } from '../presentation/spectrumExport'
 import { measurementToImageOpts, reportForMeasurement } from '../presentation/measurementImage'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
+import { WaveformIcon } from './icons'
 
 export interface MeasurementsPanelProps {
   onClose: () => void
@@ -399,7 +400,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: Meas
                           </span>
                           {m.spectrumSnapshot && (
                             <span className="meas-wave" title="Has spectrum data" aria-label="Has spectrum">
-                              ∿
+                              <WaveformIcon />
                             </span>
                           )}
                           <span className="meas-date">{formatDisplayDate(m.timestamp)}</span>

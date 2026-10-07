@@ -185,7 +185,8 @@ export function ThresholdMeter({ level, value, onChange, min = -80, max = -20, c
   return (
     <div className="thmeter">
       <canvas ref={canvasRef} className="thmeter-canvas" />
-      <span className="thmeter-val">{value} dB</span>
+      {/* Whole decibels, truncated toward zero — Swift's Int(tapDetectionThreshold). */}
+      <span className="thmeter-val">{Math.trunc(value)} dB</span>
     </div>
   )
 }

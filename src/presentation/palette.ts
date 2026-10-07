@@ -24,6 +24,8 @@ export const ROLES = {
   'background.control': { light: '#FFFFFF', dark: '#11161D' },
   'background.subtle': { light: '#8E8E9314', dark: '#8E8E931A' },
   'separator': { light: '#D8DEE6', dark: '#222A33' },
+  'divider.section': { light: '#1A233059', dark: '#FFFFFF59' },
+  'divider.headerFooter': { light: '#1A2330', dark: '#E7EBF0' },
   'text.primary': { light: '#1A2330', dark: '#E7EBF0' },
   'text.secondary': { light: '#6B7785', dark: '#8A96A5' },
   'text.onColor': { light: '#FFFFFF', dark: '#FFFFFF' },

@@ -6,6 +6,7 @@
 // @parity view/material-instructions
 
 import type { MaterialTapPhase as MatPhase } from '../state/tapToneAnalyzer'
+import { MDI } from './mdiPaths'
 
 // Each phase's colour, as Swift materialPhaseColor: CSS properties of the current scheme's roles.
 const PHASE_COLOR: Record<MatPhase, string> = {
@@ -35,7 +36,7 @@ const SHORT_STATUS: Record<MatPhase, string> = {
 
 type IconKind = 'handTap' | 'waveform' | 'check' | 'checkFill' | 'rotate'
 
-// Mirrors Swift materialPhaseIcon (SF Symbols hand.tap / waveform / checkmark.circle[.fill]).
+// Mirrors Swift materialPhaseIcon (SF Symbols hand.tap / waveform / checkmark.circle[.fill] / rotate.3d).
 const PHASE_ICON: Record<MatPhase, IconKind> = {
   notStarted: 'handTap',
   capturingL: 'waveform',
@@ -48,47 +49,21 @@ const PHASE_ICON: Record<MatPhase, IconKind> = {
   complete: 'checkFill',
 }
 
+// The Material Design glyphs the Python edition draws (mdiPaths.ts), nearest to Swift's symbols.
+const PHASE_GLYPH: Record<IconKind, string> = {
+  handTap: MDI.tap,
+  waveform: MDI.waveform,
+  check: MDI.checkCircle,
+  checkFill: MDI.checkCircleFill,
+  rotate: MDI.rotate3d,
+}
+
 function PhaseIcon({ kind, color }: { kind: IconKind; color: string }) {
-  const common = { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: color, strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
-  switch (kind) {
-    case 'handTap':
-      return (
-        <svg {...common} aria-hidden="true">
-          <path d="M8 11V5a2 2 0 0 1 4 0v6" />
-          <path d="M12 11V4a2 2 0 0 1 4 0v7" />
-          <path d="M16 11V6a2 2 0 0 1 4 0v8a6 6 0 0 1-6 6h-2a6 6 0 0 1-5.2-3l-2.3-4a2 2 0 0 1 3.4-2L8 11" />
-        </svg>
-      )
-    case 'waveform':
-      return (
-        <svg {...common} aria-hidden="true">
-          <path d="M3 12h2l2-7 4 18 3-13 2 5h5" />
-        </svg>
-      )
-    case 'check':
-      return (
-        <svg {...common} aria-hidden="true">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M8.5 12.5l2.5 2.5 4.5-5" />
-        </svg>
-      )
-    case 'checkFill':
-      return (
-        <svg width="24" height="24" viewBox="0 0 24 24" fill={color} aria-hidden="true">
-          <circle cx="12" cy="12" r="10" />
-          <path d="M8 12.5l2.5 2.5 5.5-6" fill="none" stroke="var(--c-text-on-color)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      )
-    case 'rotate':
-      return (
-        <svg {...common} aria-hidden="true">
-          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-          <path d="M21 3v5h-5" />
-          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-          <path d="M3 21v-5h5" />
-        </svg>
-      )
-  }
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill={color} aria-hidden="true">
+      <path d={PHASE_GLYPH[kind]} />
+    </svg>
+  )
 }
 
 function phaseStep(phase: MatPhase, brace: boolean, measureFlc: boolean): number {

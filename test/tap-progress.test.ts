@@ -16,6 +16,8 @@ import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { TapToneMeasurementModel } from '../src/measurement/types'
 import { advanceAudio } from './audioClockFeed'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
+import { readFileSync } from 'node:fs'
+import { parseGuitarTapFile } from '../src/measurement'
 
 /** A decaying tone — a tap's ring-out — at 48 kHz. */
 function decayingTone(hz: number, count: number): Float32Array {
@@ -296,5 +298,17 @@ describe('TapProgress — a later count change does not rewrite a finished measu
     a.setNumberOfTaps(3) // configures the next measurement
 
     expect(a.tapProgress).toBe(1)
+  })
+})
+
+describe('a load clears the progress', () => {
+  it('a plate measurement loaded over a part-captured sequence shows no progress', () => {
+    const a = material('plate', 3, true)
+    tapL(a)
+    expect(a.currentTapCount).toBe(1)
+    const saved = parseGuitarTapFile(readFileSync('test/fixtures/plate-umik-1-3-tap-swift-mac-1785359465.guitartap', 'utf8'))[0]!
+    a.loadMeasurement(saved)
+    expect(a.currentTapCount).toBe(0)
+    expect(a.tapProgress).toBe(0)
   })
 })

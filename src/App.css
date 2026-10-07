@@ -16,21 +16,17 @@
 }
 
 /* Bar 1 — slim title row (the native apps keep the title separate from the control bar). */
-.app-titlebar {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  flex-wrap: nowrap;
-  padding: 0 0.2rem;
-}
-.app-titlebar h1 {
-  font-size: 1.05rem;
-  margin: 0;
+/* The name and version at the left end of the app control bar — the native window title. */
+.app-title {
+  margin: 0 auto 0 0.2rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--c-text-secondary);
   white-space: nowrap;
 }
 .app-version {
   color: var(--c-text-secondary);
-  font-size: 0.82rem;
+  font-size: 0.75rem;
   font-weight: 500;
 }
 
@@ -227,19 +223,27 @@
   font-weight: 600;
 }
 /* A bordered button tinted by a role — Swift's .buttonStyle(.bordered) with .tint(role): the role as
-   the text, 12 % of it as the fill and 35 % as the border; a tint-* class names the role. */
+   the text and 5 % of it as the fill (measured from Swift's), no outline; a tint-* class names the role. */
 .btn.tint {
   color: var(--tint);
-  background: color-mix(in srgb, var(--tint) 12%, transparent);
-  border-color: color-mix(in srgb, var(--tint) 35%, transparent);
+  background: color-mix(in srgb, var(--tint) 5%, transparent);
+  border-color: transparent;
 }
+/* Hover only where there is a pointer — a touch screen has none (as iPad: pointer, not touch). */
 .btn.tint:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--tint) 20%, transparent);
-  border-color: color-mix(in srgb, var(--tint) 55%, transparent);
+  border-color: transparent; /* never the plain button's hover outline */
 }
 .btn.tint.on {
   background: color-mix(in srgb, var(--tint) 28%, transparent);
-  border-color: color-mix(in srgb, var(--tint) 60%, transparent);
+}
+/* Hover lifts the fill by 10 points, on or off — as Swift's wash over its button: 5 → 15, 28 → 38. */
+@media (hover: hover) {
+  .btn.tint:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--tint) 15%, transparent);
+  }
+  .btn.tint.on:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--tint) 38%, transparent);
+  }
 }
 .tint-accent {
   --tint: var(--c-accent);
@@ -284,10 +288,10 @@
 
 /* ── Material results ─────────────────────────────────────── */
 .material-results h3 {
-  font-size: 0.82rem;
-  margin: 0.75rem 0 0.35rem;
+  font-size: 10px;
+  margin: 0 0 4px;
   color: var(--c-text-primary);
-  font-weight: 600;
+  font-weight: 700;
 }
 .material-results h3:first-child {
   margin-top: 0;
@@ -297,12 +301,11 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.22rem 0;
-  border-bottom: 1px solid var(--c-separator);
-  font-size: 0.88rem;
+  padding: 1px 0;
+  font-size: 10px;
 }
 .mat-label {
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
 }
 .mat-value {
   font-weight: 600;
@@ -313,28 +316,27 @@
   color: var(--c-text-secondary);
   font-style: normal;
   font-weight: 400;
-  font-size: 0.82rem;
+  font-size: 10px;
 }
 .mat-hint {
   color: var(--c-text-secondary);
   font-style: normal;
   font-weight: 400;
-  font-size: 0.78rem;
+  font-size: 10px;
 }
 
 /* Sorted peak list (mirrors Swift MaterialPeakRowView) */
 .mat-peaks {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 4px;
   margin-bottom: 0.5rem;
 }
 .mat-peak-row {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.3rem 0;
-  border-bottom: 1px solid var(--c-separator);
+  gap: 8px;
+  padding: 2px 0;
 }
 /* An uncaptured phase slot: dashes + unselected bubble, dimmed until its tap lands. */
 .mat-peak-row.pending .mat-peak-freq {
@@ -342,7 +344,9 @@
 }
 .mat-peak-star {
   color: var(--c-peak-selected-star);
-  font-size: 0.95rem;
+  font-size: 14px;
+  width: 24px;
+  text-align: center;
 }
 .mat-peak-row.pending .mat-peak-star {
   color: var(--c-peak-unselected-star);
@@ -352,38 +356,73 @@
   flex-direction: column;
 }
 .mat-peak-freq {
-  font-weight: 600;
-  font-size: 0.95rem;
+  font-weight: 700;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 .mat-peak-mag {
   color: var(--c-text-secondary);
-  font-size: 0.76rem;
+  font-size: 9px;
   font-variant-numeric: tabular-nums;
 }
 .mat-badges {
   margin-left: auto;
   display: flex;
-  gap: 0.35rem;
+  gap: 8px;
 }
 .mat-badge {
-  min-width: 1.9rem;
-  text-align: center;
-  padding: 0.2rem 0.4rem;
+  width: 36px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 6px;
-  font-size: 0.78rem;
+  font-size: 8px;
   font-weight: 700;
   background: var(--c-material-phase-inactive);
   color: var(--c-text-primary);
 }
 
 .mat-section {
-  margin-top: 0.6rem;
+  margin-top: 12px;
 }
-.mat-divider {
-  border: none;
-  border-top: 1px solid var(--c-separator);
-  margin: 0.45rem 0;
+/* The line between sections — divider.section, plain enough to group them without competing. */
+.material-results > .mat-section {
+  border-top: 1px solid var(--c-divider-section);
+  padding-top: 12px;
+}
+/* A section's content in a grey box — the same box the Swift and Python editions draw. */
+.mat-box {
+  background: var(--c-background-subtle);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mat-label.secondary {
+  color: var(--c-text-secondary);
+}
+.mat-badges .mat-badge:nth-child(3) {
+  width: 42px;
+}
+.material-results .set-field {
+  font-size: 10px;
+  margin: 0;
+}
+.material-results .set-input input,
+.material-results .set-input select {
+  font-size: 10px;
+  width: 70px;
+}
+.material-results .set-input select {
+  width: auto;
+}
+.material-results .set-input em {
+  font-size: 10px;
+  /* A fixed-width unit column, so "g" and "mm" leave the fields above one another. */
+  width: 20px;
+  min-width: 20px;
 }
 .mat-freqs {
   color: var(--c-text-secondary);
@@ -406,34 +445,36 @@
   font-size: 0.88rem;
 }
 .mat-prop-title {
-  font-weight: 600;
-  font-size: 0.86rem;
-  margin-bottom: 0.15rem;
+  font-weight: 700;
+  font-size: 10px;
+  margin-bottom: 1px;
 }
 .mat-lc {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   color: var(--c-text-secondary);
-  font-size: 0.82rem;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
 .mat-lc-sub {
   color: var(--c-text-secondary);
-  font-size: 0.82rem;
-  margin-top: 0.15rem;
+  font-size: 10px;
+  margin-top: 1px;
   font-variant-numeric: tabular-nums;
 }
 
 /* Live guitar summary — Ring-Out | Tap Ratio side by side with a divider, pinned below the peak
    list and above the export bar. Mirrors the native live panel (Python guitar-summary). */
+/* The guitar summary in a grey box, as Swift's and Python's. */
 .analysis-bar {
   flex: none;
   display: flex;
   align-items: stretch;
   gap: 0.7rem;
-  padding: 0.45rem 0.1rem 0.5rem;
-  border-top: 1px solid var(--c-separator);
+  padding: 6px 10px;
+  background: var(--c-background-subtle);
+  border-radius: 8px;
 }
 .analysis-col {
   flex: 1;
@@ -447,8 +488,10 @@
   background: var(--c-separator);
   align-self: stretch;
 }
+/* Ring-Out / Tap Ratio — Swift's sizes: caption .caption2, value .subheadline semibold, quality
+   .caption, the second line .caption2. */
 .ac-cap {
-  font-size: 0.66rem;
+  font-size: 10px;
   color: var(--c-text-secondary);
 }
 .ac-val-row {
@@ -458,18 +501,19 @@
   min-width: 0;
 }
 .ac-val {
-  font-size: 1.02rem;
-  font-weight: 700;
+  color: var(--c-text-primary);
+  font-size: 11px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .ac-qual {
-  font-size: 0.78rem;
+  font-size: 10px;
   font-weight: 600;
   white-space: nowrap;
 }
 .ac-sub {
-  font-size: 0.64rem;
+  font-size: 10px;
   color: var(--c-text-secondary);
 }
 /* No value yet — a small grey placeholder, as Swift's caption-sized secondary text. */
@@ -482,13 +526,13 @@
 .mat-specmod {
   background: var(--c-background-subtle);
   border-radius: 8px;
-  padding: 0.5rem 0.6rem;
-  margin: 0.5rem 0;
+  padding: 4px 6px;
+  margin: 4px 0;
 }
 .mat-specmod-title {
-  font-weight: 600;
-  font-size: 0.86rem;
-  margin-bottom: 0.3rem;
+  font-weight: 700;
+  font-size: 10px;
+  margin-bottom: 2px;
 }
 .mat-specmod-cols {
   display: flex;
@@ -500,38 +544,38 @@
 }
 .mat-specmod-label {
   color: var(--c-text-secondary);
-  font-size: 0.78rem;
+  font-size: 10px;
 }
 .mat-specmod-value {
-  font-size: 1.25rem;
+  font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .mat-specmod-value em {
   font-style: normal;
   font-weight: 400;
-  font-size: 0.74rem;
+  font-size: 10px;
   color: var(--c-text-secondary);
 }
 .mat-specmod-quality {
-  font-size: 0.78rem;
+  font-size: 10px;
   font-weight: 500;
 }
 
 /* Gore target thickness */
 .mat-gore-thickness {
-  font-size: 2.1rem;
+  font-size: 28px;
   font-weight: 700;
   color: var(--c-accent-text);
   background: var(--c-material-gore-box);
   border-radius: 8px;
-  padding: 0.25rem 0.5rem;
+  padding: 8px 10px;
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
 }
 .mat-gore-thickness em {
   font-style: normal;
-  font-size: 1rem;
+  font-size: 12px;
   color: var(--c-text-secondary);
   font-weight: 400;
 }
@@ -541,42 +585,45 @@
   font-size: 0.76rem;
   margin: 0.2rem 0 0;
 }
+.mat-overall .mat-label {
+  font-weight: 700;
+}
 .mat-overall .mat-value {
-  font-size: 1rem;
+  font-size: 10px;
   font-weight: 700;
 }
 
 /* Measurement Process section */
 .mat-process-head {
-  font-size: 0.82rem;
-  font-weight: 600;
-  margin-bottom: 0.4rem;
+  font-size: 9px;
+  font-weight: 700;
+  margin-bottom: 4px;
 }
 .mat-step {
   display: flex;
-  gap: 0.45rem;
-  margin-bottom: 0.45rem;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 .mat-step-dot {
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-top: 0.3rem;
+  margin-top: 2px;
 }
 .mat-step-title {
-  font-size: 0.78rem;
-  font-weight: 600;
+  font-size: 9px;
+  font-weight: 700;
 }
 .mat-step-body {
-  font-size: 0.76rem;
+  font-size: 9px;
   color: var(--c-text-secondary);
 }
 .mat-process-foot {
-  font-size: 0.76rem;
+  font-size: 9px;
   font-style: italic;
   color: var(--c-text-secondary);
-  margin: 0.3rem 0 0;
+  margin: 2px 0 0;
 }
 
 /* ── Multi-tap comparison table ───────────────────────────── */
@@ -586,21 +633,30 @@
 .multitap-table {
   display: flex;
   flex-direction: column;
-  font-size: 0.82rem;
+  /* Swift's tables (per-tap and comparison): the results panel's 10 px; 4 px around the table,
+     6 px in the title row, 5 px in each row; lines between rows only. */
+  font-size: 10px;
+  padding: 4px 0;
 }
 .mt-row {
   display: grid;
   grid-template-columns: 5.5rem 1fr 1fr 1fr;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.3rem 0;
+  padding: 5px 0;
   border-bottom: 1px solid var(--c-separator);
+}
+.mt-row:last-child {
+  border-bottom: none;
 }
 .mt-head {
   color: var(--c-text-secondary);
   font-weight: 600;
+  padding: 6px 0;
 }
-.mt-head .mt-cell {
+.mt-head .mt-cell,
+.mt-head .mt-label {
+  justify-content: center;
   text-align: center;
 }
 .mt-label {
@@ -621,20 +677,19 @@
   font-style: italic;
 }
 .mt-dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex: 0 0 auto;
 }
+/* The Averaged row's marker — Swift's Rectangle, square-cornered. */
 .mt-square {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
+  width: 8px;
+  height: 8px;
   flex: 0 0 auto;
 }
 .mt-avg {
   font-weight: 700;
-  border-bottom: none;
 }
 
 /* Comparison table: flexible label column with truncation. */
@@ -1449,6 +1504,13 @@
   position: relative;
   overflow: hidden;
 }
+/* A saved-measurement comparison widens the desktop pane so its name column gets up to ~190 px, as
+   Swift's and Python's panels widen to fit the comparison table. */
+@media (min-width: 821px) {
+  .results-pane.comparing {
+    flex-basis: 440px;
+  }
+}
 .results-inner {
   position: absolute;
   inset: 0;
@@ -1469,8 +1531,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.4rem;
-  padding: 0.5rem 0.1rem 0.1rem;
-  border-top: 1px solid var(--c-separator);
+  padding: 0 0.1rem 0.1rem;
+}
+/* The footer group: the header/footer line, then the summary box and the export row 8 px apart. */
+.results-footer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--c-divider-header-footer);
 }
 .foot-export {
   display: flex;
@@ -1500,12 +1570,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.6rem;
+  margin-bottom: 4px;
 }
+/* Swift's sizes: the title .headline bold, the microphone and range lines .caption. */
 .results-pane h2 {
-  font-size: 0.95rem;
+  font-size: 13px;
   margin: 0;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   font-weight: 600;
 }
 .type-badge {
@@ -1559,9 +1630,9 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.78rem;
+  font-size: 10px;
   color: var(--c-text-secondary);
-  margin-bottom: 0.4rem;
+  margin-bottom: 2px;
 }
 .results-mic-name {
   flex: 1;
@@ -1572,12 +1643,17 @@
 }
 
 /* ── Analysis Results sub-header + cards ──────────────────── */
+.range-text {
+  color: var(--c-text-secondary);
+}
 .results-sub {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 0.5rem;
-  font-size: 0.78rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--c-divider-header-footer);
+  font-size: 10px;
   color: var(--c-text-secondary);
 }
 .sel-buttons {
@@ -1585,17 +1661,26 @@
   gap: 0.3rem;
 }
 .btn.mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   padding: 0.12rem 0.45rem;
   font-size: 0.75rem;
 }
 /* Icon-only mini buttons (Analysis Results selection controls: All / None / Reset-to-auto).
    Mirrors Swift's icon-only .controlSize(.mini) buttons, their icons text.secondary. */
+/* Swift's small bordered button: a grey rounded square. */
 .btn.mini.icon {
   color: var(--c-text-secondary);
+  background: var(--c-background-subtle);
+  border-color: transparent;
+  border-radius: 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.2rem;
+  width: 22px;
+  height: 22px;
+  padding: 0;
 }
 .btn.mini.icon svg {
   width: 14px;
@@ -1605,14 +1690,17 @@
 .cards {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 4px;
 }
 
+/* The card's type and spacing, the same in every edition: 10 px bold for the name, frequency and
+   magnitude; 9 px for the pitch and the Q / BW line; the range mark at the icon column's foot, on the
+   Q / BW line. */
 .peak-card {
   display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.4rem 0.5rem;
+  align-items: stretch;
+  gap: 6px;
+  padding: 5px 6px;
   border-radius: 8px;
   border: 2px solid transparent;
 }
@@ -1620,30 +1708,37 @@
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 1.05rem;
-  line-height: 1.2;
+  font-size: 14px;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
   padding: 0;
+  align-self: flex-start;
 }
 .mode-icon {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: space-between;
   gap: 2px;
-  padding-top: 2px;
 }
 .mode-glyph {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
+.mode-glyph {
+  width: 26px;
+  height: 26px;
+}
 .mode-glyph svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 .range-flag {
-  font-size: 0.7rem;
-  font-weight: 700;
-  line-height: 1;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 .range-flag.ok {
   color: var(--c-peak-in-range);
@@ -1670,8 +1765,8 @@
   -webkit-appearance: none;
   background: none;
   border: none;
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   padding: 0;
   cursor: pointer;
   max-width: 60%;
@@ -1684,36 +1779,47 @@
 }
 .freq {
   color: var(--c-text-primary);
-  font-size: 1rem;
+  font-size: 10px;
   font-weight: 700;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .pitch {
   color: var(--c-peak-pitch);
-  font-size: 0.82rem;
+  font-size: 9px;
   font-weight: 600;
-  margin: 0.15rem 0;
+  margin: 1px 0;
 }
 .note-icon {
-  margin-right: 0.25rem;
+  display: inline-flex;
+  vertical-align: -1px;
+  margin-right: 3px;
+}
+.peak-info .row.details {
+  justify-content: flex-start;
+  gap: 0;
 }
 .details {
-  font-size: 0.78rem;
+  font-size: 9px;
   color: var(--c-text-secondary);
-  margin-top: 0.1rem;
+  margin-top: 1px;
 }
+/* Each piece keeps its width, so the line never wraps; only the gap before the magnitude gives way. */
 .kv {
-  margin-right: 0.75rem;
+  margin-right: 8px;
+  white-space: nowrap;
 }
 .kv b {
   color: inherit;
-  font-weight: 600;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
 }
 .mag {
   margin-left: auto;
+  font-size: 10px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ── Status bar ──────────────────────────────────────────── */
@@ -1733,6 +1839,16 @@
   display: flex;
   align-items: center;
   gap: 0.85rem;
+}
+.sb-compare-icon {
+  display: inline-flex;
+  color: var(--c-accent-text);
+}
+.sb-compare-msg {
+  font-weight: 500;
+}
+.sb-compare-exit {
+  color: var(--c-text-secondary);
 }
 .status-text {
   min-width: 14rem;
@@ -2102,6 +2218,11 @@
    (pointer: coarse) so a narrow/short DESKTOP window is unaffected. The landscape rail is a separate
    block below. */
 @media (pointer: coarse) and ((max-width: 500px) or (max-height: 500px)) {
+  /* No room for the name and version beside the icon-only toolbar; the browser tab / installed
+     app carries them. */
+  .app-title {
+    display: none;
+  }
   /* Lock the page to the viewport — the app is a fixed full-screen surface that manages its own
      internal scrolling (chart, peak list, results sheet). Without this, rotating to landscape in
      iOS standalone leaves a stale page-scroll offset ("scrolled up, drag down to fix"). */
@@ -2195,8 +2316,8 @@
    phoneLandscapeLayout). The app becomes a grid: [app toolbar / tap controls] rail on the left,
    chart filling the right, status bar spanning the bottom. Results stays a bottom sheet. */
 @media (pointer: coarse) and (orientation: landscape) and (max-height: 500px) {
-  /* Reclaim vertical space — the app name shows in the installed-app's own chrome. */
-  .app-titlebar {
+  /* Reclaim space — the app name shows in the installed-app's own chrome. */
+  .app-title {
     display: none;
   }
   /* The transient loaded-settings banner is dropped here (it would disrupt the grid, and space

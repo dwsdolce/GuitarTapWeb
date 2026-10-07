@@ -1,3 +1,4 @@
+import { MDI } from './mdiPaths'
 // Shared monochrome line icons (Lucide-style, `currentColor` so they inherit text colour and
 // disabled opacity). These mirror the native control glyphs (Swift SF Symbols / Python qtawesome)
 // and are used both on the toolbars (App.tsx) and in the Quick Start Guide, so the help icons
@@ -15,118 +16,38 @@ const ICON_SVG = {
   'aria-hidden': true,
 } as const
 
+// An icon the Python edition also draws: its Material Design glyph (mdiPaths.ts), filled in the current
+// colour, so the two editions show the same shapes — each the nearest to Swift's SF Symbol.
+function Mdi({ d, size = 14 }: { d: string; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d={d} />
+    </svg>
+  )
+}
+export const ChartLineIcon = () => <Mdi d={MDI.chartLine} />
+export const DocumentIcon = () => <Mdi d={MDI.document} />
+export const AutoDbOnIcon = () => <Mdi d={MDI.autoDbOn} />
+
 // ── Tap-control glyphs ──────────────────────────────────────────────────────
-export const TapIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M22 14a8 8 0 0 1-8 8" />
-    <path d="M18 11v-1a2 2 0 0 0-2-2 2 2 0 0 0-2 2" />
-    <path d="M14 10V9a2 2 0 0 0-2-2 2 2 0 0 0-2 2v1" />
-    <path d="M10 9.5V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v10" />
-    <path d="M18 11a2 2 0 1 1 4 0v3a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15" />
-  </svg>
-)
-export const PauseIcon = () => (
-  <svg {...ICON_SVG}>
-    <rect x="6" y="4" width="4" height="16" rx="1" />
-    <rect x="14" y="4" width="4" height="16" rx="1" />
-  </svg>
-)
-export const PlayIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M6 4 20 12 6 20 Z" />
-  </svg>
-)
-export const CancelIcon = () => (
-  <svg {...ICON_SVG}>
-    <circle cx="12" cy="12" r="10" />
-    <path d="m15 9-6 6" />
-    <path d="m9 9 6 6" />
-  </svg>
-)
-export const CheckIcon = () => (
-  <svg {...ICON_SVG}>
-    <circle cx="12" cy="12" r="10" />
-    <path d="m9 12 2 2 4-4" />
-  </svg>
-)
-export const UndoIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M3 7v6h6" />
-    <path d="M21 17a9 9 0 0 0-9-9 8.97 8.97 0 0 0-6.4 2.6L3 13" />
-  </svg>
-)
+export const TapIcon = () => <Mdi d={MDI.tap} />
+export const PauseIcon = () => <Mdi d={MDI.pauseCircle} />
+export const PlayIcon = () => <Mdi d={MDI.playCircle} />
+export const CancelIcon = () => <Mdi d={MDI.closeCircle} />
+export const CheckIcon = () => <Mdi d={MDI.checkCircle} />
+export const UndoIcon = () => <Mdi d={MDI.restore} />
 
 // ── App control-bar glyphs ──────────────────────────────────────────────────
-export const AutoDbIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="m21 16-4 4-4-4" />
-    <path d="M17 20V4" />
-    <path d="m3 8 4-4 4 4" />
-    <path d="M7 4v16" />
-  </svg>
-)
-export const EyeIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-)
-export const StarIcon = () => (
-  <svg {...ICON_SVG}>
-    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26" />
-  </svg>
-)
-export const EyeOffIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
-    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
-    <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
-    <line x1="2" x2="22" y1="2" y2="22" />
-  </svg>
-)
-export const SaveIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-    <path d="M17 21v-8H7v8" />
-    <path d="M7 3v5h8" />
-  </svg>
-)
-export const ClipboardIcon = () => (
-  <svg {...ICON_SVG}>
-    <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
-    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
-    <path d="M12 11h4" />
-    <path d="M12 16h4" />
-    <path d="M8 11h.01" />
-    <path d="M8 16h.01" />
-  </svg>
-)
-export const BarChartIcon = () => (
-  <svg {...ICON_SVG}>
-    <line x1="6" x2="6" y1="20" y2="14" />
-    <line x1="12" x2="12" y1="20" y2="8" />
-    <line x1="18" x2="18" y1="20" y2="4" />
-  </svg>
-)
-export const GearIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-)
-export const HelpIcon = () => (
-  <svg {...ICON_SVG}>
-    <circle cx="12" cy="12" r="10" />
-    <path d="M9.1 9a3 3 0 0 1 5.82 1c0 2-3 3-3 3" />
-    <line x1="12" y1="17" x2="12.01" y2="17" />
-  </svg>
-)
-export const BookIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-  </svg>
-)
+export const AutoDbIcon = () => <Mdi d={MDI.autoDb} />
+export const EyeIcon = () => <Mdi d={MDI.eye} />
+export const StarIcon = () => <Mdi d={MDI.star} />
+export const EyeOffIcon = () => <Mdi d={MDI.eyeOff} />
+export const SaveIcon = () => <Mdi d={MDI.save} />
+export const ClipboardIcon = () => <Mdi d={MDI.clipboard} />
+export const BarChartIcon = () => <Mdi d={MDI.chartBar} />
+export const GearIcon = () => <Mdi d={MDI.cog} />
+export const HelpIcon = () => <Mdi d={MDI.help} />
+export const BookIcon = () => <Mdi d={MDI.bookOpen} />
 /** Release Notes (Help menu) — a document with a folded corner and lines of text. */
 export const NotesIcon = () => (
   <svg {...ICON_SVG}>
@@ -136,20 +57,13 @@ export const NotesIcon = () => (
     <line x1="8" y1="17" x2="14" y2="17" />
   </svg>
 )
-export const FilePlayIcon = () => (
-  <svg {...ICON_SVG}>
-    <circle cx="12" cy="12" r="10" />
-    <polygon points="10 8 16 12 10 16 10 8" />
-  </svg>
-)
+export const FilePlayIcon = () => <Mdi d={MDI.waveform} />
 
 // ── Quick Start Guide extras (section headers + controls without a toolbar glyph) ──
 // What Guitar Tap Does (mdi.waveform)
-export const WaveformIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M2 12h3l2-7 4 18 3-14 2 6 2-3h4" />
-  </svg>
-)
+// A peak's pitch (music.note) — filled, as Swift's symbol is.
+export const MusicNoteIcon = () => <Mdi d={MDI.musicNote} size={10} />
+export const WaveformIcon = () => <Mdi d={MDI.waveform} />
 // First-Time Setup (mdi.wrench)
 export const WrenchIcon = () => (
   <svg {...ICON_SVG}>
@@ -241,12 +155,7 @@ export const PlusViewfinderIcon = () => (
   </svg>
 )
 // Peak Labels (a tag)
-export const TagIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M3 11.5V4a1 1 0 0 1 1-1h7.5a1 1 0 0 1 .7.3l8.5 8.5a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-1.4 0l-8.5-8.5a1 1 0 0 1-.3-.7Z" />
-    <circle cx="7.5" cy="7.5" r="1.3" />
-  </svg>
-)
+export const TagIcon = () => <Mdi d={MDI.tag} />
 // Chart Options (⋯)
 export const EllipsisIcon = () => (
   <svg {...ICON_SVG}>
@@ -275,53 +184,16 @@ export const ResultsIcon = () => (
 )
 // Re-analyze peaks — re-run detection on the loaded/frozen spectrum with the current settings.
 // Mirrors the Swift `arrow.trianglehead.2.counterclockwise` / Python `fa5s.sync-alt`.
-export const RefreshIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-    <path d="M21 3v5h-5" />
-  </svg>
-)
+export const RefreshIcon = () => <Mdi d={MDI.refresh} />
 // Reset-to-auto peak selection — mirrors the iOS SF Symbol `wand.and.stars`.
-export const WandIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="m21.64 3.64-1.28-1.28a1.2 1.2 0 0 0-1.72 0L2.36 18.64a1.2 1.2 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z" />
-    <path d="m14 7 3 3" />
-    <path d="M5 6v4" />
-    <path d="M19 14v4" />
-    <path d="M10 2v2" />
-    <path d="M7 8H3" />
-    <path d="M21 16h-4" />
-    <path d="M11 3H9" />
-  </svg>
-)
+export const WandIcon = () => <Mdi d={MDI.autoFix} />
 // ── Per-mode peak glyphs — match the Swift SF Symbols (GuitarMode.icon) / Python qtawesome:
 //    air=wind, top=arrow.up.and.down, back=square.fill, dipole=circle.lefthalf.filled,
 //    ring=circle.dashed, upper=waveform (reuse WaveformIcon), unknown=questionmark.circle (HelpIcon).
-export const WindIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="M12.8 19.6A2 2 0 1 0 14 16H2" />
-    <path d="M17.5 8a2.5 2.5 0 1 1 2 4H2" />
-    <path d="M9.8 4.4A2 2 0 1 1 11 8H2" />
-  </svg>
-)
-export const ArrowUpDownIcon = () => (
-  <svg {...ICON_SVG}>
-    <path d="m8 6 4-4 4 4" />
-    <path d="M12 2v20" />
-    <path d="m8 18 4 4 4-4" />
-  </svg>
-)
-export const SquareFilledIcon = () => (
-  <svg {...ICON_SVG}>
-    <rect x="4" y="4" width="16" height="16" rx="2" fill="currentColor" stroke="none" />
-  </svg>
-)
-export const DipoleIcon = () => (
-  <svg {...ICON_SVG}>
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor" stroke="none" />
-  </svg>
-)
+export const WindIcon = () => <Mdi d={MDI.wind} />
+export const ArrowUpDownIcon = () => <Mdi d={MDI.arrowUpDown} />
+export const SquareFilledIcon = () => <Mdi d={MDI.square} />
+export const DipoleIcon = () => <Mdi d={MDI.circleHalf} />
 export const CircleDashedIcon = () => (
   <svg {...ICON_SVG}>
     <circle cx="12" cy="12" r="9" strokeDasharray="3 3.2" />

@@ -19,7 +19,7 @@ import { QuickStartGuide } from './components/QuickStartGuide'
 import { ReleaseNotes } from './components/ReleaseNotes'
 // Toolbar + tap-control icons live in a shared module so the Quick Start Guide can render the
 // exact same glyphs next to each control (Swift SF Symbols / Python qtawesome equivalents).
-import { TapIcon, PauseIcon, PlayIcon, CancelIcon, CheckIcon, UndoIcon, AutoDbIcon, EyeIcon, StarIcon, EyeOffIcon, SaveIcon, ClipboardIcon, BarChartIcon, GearIcon, HelpIcon, BookIcon, NotesIcon, FilePlayIcon, DotViewfinderIcon, PlusViewfinderIcon, WandIcon, ResultsIcon, RefreshIcon } from './components/icons'
+import { TapIcon, PauseIcon, PlayIcon, CancelIcon, CheckIcon, UndoIcon, AutoDbIcon, EyeIcon, StarIcon, EyeOffIcon, SaveIcon, ClipboardIcon, BarChartIcon, GearIcon, HelpIcon, BookIcon, NotesIcon, FilePlayIcon, DotViewfinderIcon, PlusViewfinderIcon, WandIcon, ResultsIcon, RefreshIcon, AutoDbOnIcon, WaveformIcon, ChartLineIcon, DocumentIcon } from './components/icons'
 import { buttonRule } from './state/buttonEnablement'
 import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
@@ -120,6 +120,9 @@ export default function App() {
     snapshot.displayMode === 'comparison' && snapshot.comparisonEntries.length > 0
       ? snapshot.comparisonEntries
       : null
+  // Either kind of comparison — saved measurements or the per-tap overlay — as Swift's
+  // `displayMode == .comparison`, which switches the status bar to the comparison line.
+  const inComparison = snapshot.displayMode === 'comparison'
 
   const [settings, setSettings] = useState<Settings>(loadSettings)
   const [showSettings, setShowSettings] = useState(false)
@@ -833,16 +836,14 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* Three stacked bars like the native apps: (1) slim title, (2) app control bar,
-          (3) tap-control bar — none of them wrap (the app gets a min-content floor and
-          scrolls horizontally instead, mirroring the native window's minimum width). */}
-      <header className="app-titlebar">
-        <h1>
+      {/* Two stacked bars like the native apps: (1) the app control bar, its left end holding the
+          name and version as a native window's title bar does, (2) the tap-control bar — neither
+          wraps (the app gets a min-content floor and scrolls horizontally instead, mirroring the
+          native window's minimum width). */}
+      <div className="toolbar toolbar-app">
+        <h1 className="app-title">
           Guitar Tap <span className="app-version">{__APP_VERSION__} ({__APP_BUILD__})</span>
         </h1>
-      </header>
-
-      <div className="toolbar toolbar-app">
         {/* Phone only: open the Analysis Results bottom sheet (mirrors the iOS Results button).
             Hidden on desktop/tablet, where the results panel is always visible. */}
         <button
@@ -870,7 +871,7 @@ export default function App() {
           aria-pressed={autoDb}
           title={HINTS.autoScale(autoDb)}
         >
-          <AutoDbIcon />
+          {autoDb ? <AutoDbOnIcon /> : <AutoDbIcon />}
           <span>Auto dB</span>
         </button>
         {isTouch && (
@@ -885,7 +886,7 @@ export default function App() {
           </button>
         )}
         <button
-          className={`btn tint tint-accent toggle ${annotationMode !== 'none' ? 'on' : ''}`}
+          className="btn tint tint-accent"
           onClick={cycleAnnotations}
           // Something to annotate, and no comparison on screen: the Peak-Min projection (guitar) or the
           // identified L/C/FLC (material) — the same test as Swift's and Python's.
@@ -1155,7 +1156,7 @@ export default function App() {
 
         {/* Phone: tap outside the results sheet to close it. */}
         {showResults && <div className="results-sheet-backdrop phone-only" onClick={() => setShowResults(false)} />}
-        <aside className={`results-pane${showResults ? ' open' : ''}`}>
+        <aside className={`results-pane${showResults ? ' open' : ''}${comparison ? ' comparing' : ''}`}>
           <div className="results-inner">
           <div className="results-head">
             <h2>Analysis Results</h2>
@@ -1165,12 +1166,13 @@ export default function App() {
                 enables/disables in place instead of appearing and disappearing (all 3 platforms). */}
             {!material && !comparison && (
               <button
-                className={`btn mini tint taps-toggle ${showMultiTap ? 'tint-taps-active' : 'tint-accent'}`}
+                className={`btn mini tint taps-toggle ${showMultiTap ? 'tint-taps-active on' : 'tint-accent'}`}
                 onClick={() => analyzer.setMultiTapComparison(!showMultiTap)}
                 disabled={!(multiTapAvailable || showMultiTap)}
                 title={showMultiTap ? HINTS.showAveraged : HINTS.compareTaps}
               >
-                ∿ Taps
+                <WaveformIcon />
+                <span>Taps</span>
               </button>
             )}
             <span className={`type-badge ${comparison ? 'comparison' : material ? 'material' : 'guitar'}`}>
@@ -1183,29 +1185,27 @@ export default function App() {
               identically: any complete guitar measurement with a frozen spectrum, never material.
               Material DISABLES rather than hides (matching native) — the button is greyed, not
               absent, so the header doesn't reflow between measurement types. */}
-          {!comparison && (
-            <div className="results-mic">
-              {/* The microphone the result was captured with: the input for a live result, the recorded
-                  one — or "unknown" — for a played file or a loaded measurement. Swift
-                  TapAnalysisResultsView reading analyzer.captureMicrophoneName. */}
-              <span className="results-mic-name">
-                {snapshot.resultProvenance ? (snapshot.resultProvenance.microphoneName ?? 'unknown') : deviceLabel}
-              </span>
-              <button
-                className="btn mini icon"
-                onClick={reanalyze}
-                disabled={!snapshot.canReanalyze}
-                title={
-                  material
-                    ? 'Re-analyze applies to guitar measurements only'
-                    : 'Re-analyze peaks from the spectrum using the current settings'
-                }
-                aria-label="Re-analyze peaks"
-              >
-                <RefreshIcon />
-              </button>
-            </div>
-          )}
+          <div className="results-mic">
+            {/* The microphone the result was captured with: the input for a live result, the recorded
+                one — or "unknown" — for a played file or a loaded measurement. Swift
+                TapAnalysisResultsView reading analyzer.captureMicrophoneName. */}
+            <span className="results-mic-name">
+              {snapshot.resultProvenance ? (snapshot.resultProvenance.microphoneName ?? 'unknown') : deviceLabel}
+            </span>
+            <button
+              className="btn mini icon"
+              onClick={reanalyze}
+              disabled={!snapshot.canReanalyze}
+              title={
+                material
+                  ? 'Re-analyze applies to guitar measurements only'
+                  : 'Re-analyze peaks from the spectrum using the current settings'
+              }
+              aria-label="Re-analyze peaks"
+            >
+              <RefreshIcon />
+            </button>
+          </div>
 
           {/* The range line — always shown, as Swift's results header — and the selection controls,
               FIXED above the scroll (only peak cards scroll). The controls follow Swift's rule: shown
@@ -1216,7 +1216,8 @@ export default function App() {
             <span className="range-text">
               {displayRangeLabel(view.minHz, view.maxHz)}
             </span>
-            {resultsListPeaks.length > 0 && !showMultiTap && (
+            {/* Never for a plate or brace, where peak selection has no purpose. */}
+            {!material && resultsListPeaks.length > 0 && !showMultiTap && (
               <div className="sel-buttons">
                 <button
                   className="btn mini icon"
@@ -1284,9 +1285,14 @@ export default function App() {
           )}
           </div>
 
+          {/* The footer — the summary (guitar) over the export row, under one header/footer line, as
+              Swift's divider then footer VStack. */}
+          <div className="results-footer">
           {/* Guitar summary (Ring-Out · Tap Ratio) — pinned below the scrollable peak list, above
               the export bar, side by side. Mirrors the native live panel (guitar only). */}
-          {!material && !comparison && !showMultiTap && (
+          {/* Shown in the per-tap view too — Swift's `isGuitar && (displayMode != .comparison ||
+              showingMultiTapComparison)`; `comparison` is the saved-measurement overlay only. */}
+          {!material && !comparison && (
             <AnalysisResults decayTime={currentDecayTime} decayThreshold={analyzer.decayThreshold} ratio={tapRatio} guitarType={guitarType} />
           )}
 
@@ -1303,7 +1309,8 @@ export default function App() {
                 disabled={!snapshot.hasResultToSaveOrExport || isExporting}
                 title={HINTS.exportSpectrum}
               >
-                ∿ Export Spectrum
+                <ChartLineIcon />
+                <span>Export Spectrum</span>
               </button>
               <button
                 className="btn mini"
@@ -1311,9 +1318,11 @@ export default function App() {
                 disabled={!snapshot.hasResultToSaveOrExport || isExporting}
                 title="Export a single-page PDF report"
               >
-                ▤ Export PDF
+                <DocumentIcon />
+                <span>Export PDF</span>
               </button>
             </div>
+          </div>
           </div>
           </div>
         </aside>
@@ -1337,7 +1346,7 @@ export default function App() {
         {/* Full-width linear progress bar on its OWN ROW above the status line — mirrors Swift's macOS
             fullStatusBar, a VStack of "ProgressView when currentTapCount > 0" then the status HStack.
             Gated on the tap count alone (see sbShowBar) so it never blinks during the per-tap cooldown. */}
-        {sbShowBar && (
+        {sbShowBar && !inComparison && (
           <div
             className="sb-progress-track"
             role="progressbar"
@@ -1349,6 +1358,24 @@ export default function App() {
           </div>
         )}
         <div className="statusbar-row">
+        {inComparison ? (
+          <>
+            {/* A comparison replaces the detection line — Swift's displayMode == .comparison branch. */}
+            <span className="sb-compare-icon"><WaveformIcon /></span>
+            <span className="sb-compare-msg">
+              {showMultiTap
+                ? `Tap comparison \u2014 ${tapEntries.length} taps + averaged`
+                : `Comparing ${snapshot.comparisonEntries.length} measurements`}
+            </span>
+            <span className="spacer" />
+            <span className="sb-compare-exit">
+              {showMultiTap
+                ? 'Press \u2018Taps\u2019 to return to averaged view, or \u2018New Tap\u2019 for a new measurement'
+                : 'Press \u2018New Tap\u2019 for a new measurement'}
+            </span>
+          </>
+        ) : (
+          <>
         {/* LEFT — detection state: dot + Waiting/Detected + level (mirrors Swift order). */}
         <span className={`sb-state-dot${sbComplete ? ' complete' : ''}`} />
         {/* Swift: isMeasurementComplete ? "Tap Detected!" : "Waiting for tap...". */}
@@ -1375,6 +1402,8 @@ export default function App() {
         <span className={`sb-active-dot${sbDetecting ? ' on' : ''}`} />
         <span className={`sb-msg${sbDetecting ? '' : ' idle'}`}>{snapshot.statusMessage}</span>
         {sbProgress && <span className="sb-progress">{sbProgress}</span>}
+          </>
+        )}
         </div>
       </div>
 

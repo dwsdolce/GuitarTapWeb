@@ -5,7 +5,7 @@ import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, QUICK_PICK_MODES, ADDITIONAL_M
 import { color as roleColor, magnitudeRole, modeRole } from '../presentation/palette'
 import { hexA } from '../presentation/spectrumRender'
 import { useScheme } from '../hooks/useScheme'
-import { WindIcon, ArrowUpDownIcon, SquareFilledIcon, DipoleIcon, CircleDashedIcon, WaveformIcon, HelpIcon, TagIcon } from './icons'
+import { WindIcon, ArrowUpDownIcon, SquareFilledIcon, DipoleIcon, CircleDashedIcon, WaveformIcon, HelpIcon, TagIcon, MusicNoteIcon } from './icons'
 import type { ResonantPeak } from '../measurement/types'
 import { FieldPrecision } from '../precision'
 
@@ -185,8 +185,11 @@ export function PeakCard({
 
         {note && (
           <div className="pitch">
-            <span className="note-icon">♪</span>
-            {note} {cents !== null && `${cents >= 0 ? '+' : ''}${cents.toFixed(0)}¢`}
+            <span className="note-icon">
+              <MusicNoteIcon />
+            </span>
+            {/* Swift's ResonantPeak.formattedPitch: "G2 (-10 ¢)". */}
+            {note}{cents !== null && ` (${cents >= 0 ? '+' : ''}${cents.toFixed(0)} ¢)`}
           </div>
         )}
 
