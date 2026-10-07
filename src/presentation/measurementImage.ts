@@ -32,14 +32,20 @@ const ROLE_C = roleColor('material.cross', undefined, 'light')
 const ROLE_FLC = roleColor('material.flc', undefined, 'light')
 
 
+/** A saved measurement's annotated peaks: its own annotation mode over its own selection — Swift's
+ *  saved-measurement export (ExportableSpectrumChart) applies visiblePeaks' rule inline the same way. The
+ *  live chart and export read the analyzer's `visiblePeaks` instead. */
+export const annotatedBy = (mode: AnnoMode, selectedIds: Set<string>) => (id: string): boolean =>
+  mode === 'all' || (mode === 'selected' && selectedIds.has(id))
+
 /** Styled guitar peak markers (dot color + mode label + pitch + override/annotation) — the SAME
- *  mapping the live view uses, so the on-screen chart and exported image agree. */
+ *  mapping the live view uses, so the on-screen chart and exported image agree. `isAnnotated` says
+ *  which carry a badge (the analyzer's visiblePeaks live; {@link annotatedBy} for a saved measurement). */
 export function buildGuitarMarkers(
   peaks: ResonantPeak[],
   modeByPeak: Map<string, ResolvedMode>,
-  selectedIds: Set<string>,
+  isAnnotated: (id: string) => boolean,
   overridesById: Map<string, string>,
-  annotationMode: AnnoMode,
   offsetsById?: Map<string, [number, number]>,
 ): PeakMarker[] {
   return peaks.map((p) => {
@@ -50,7 +56,7 @@ export function buildGuitarMarkers(
     // freeform label is user-defined; else the auto-classified mode's color. Mirrors Swift peakColor /
     // Python peak_color — so the callout AND the Detected Peaks Summary chip match the override.
     const overrideMode = override != null ? MODE_BY_DISPLAY_NAME[override] : undefined
-    const annotated = annotationMode === 'all' ? true : annotationMode === 'selected' ? selectedIds.has(p.id) : false
+    const annotated = isAnnotated(p.id)
     const note = pitch.note(p.frequency)
     return {
       id: p.id,
@@ -77,16 +83,13 @@ export function buildMaterialMarkers(
     cross: ResonantPeak | null
     flc: ResonantPeak | null
   },
-  mode: AnnoMode,
+  isAnnotated: (id: string) => boolean,
   offsetsById?: Map<string, [number, number]>,
 ): PeakMarker[] {
-  // Material (plate/brace) has no per-peak selection, so All and Selected both annotate every
-  // identified peak; None hides all badges (dots remain). Mirrors Swift/Python visiblePeaks.
-  const annotated = mode !== 'none'
   const out: PeakMarker[] = []
   const push = (mp: ResonantPeak, role: Role, label: string) => {
     const key = mp.id // material offsets are id-keyed in the shared analyzer store
-    out.push({ ...mp, role, label, annotated, annoKey: key, annoOffset: offsetsById?.get(mp.id) })
+    out.push({ ...mp, role, label, annotated: isAnnotated(mp.id), annoKey: key, annoOffset: offsetsById?.get(mp.id) })
   }
   if (matPeaks.longitudinal) push(matPeaks.longitudinal, 'material.longitudinal', 'Longitudinal')
   if (matPeaks.cross) push(matPeaks.cross, 'material.cross', 'Cross-grain')
@@ -126,7 +129,8 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
       overlays,
       markers: buildMaterialMarkers(
         { longitudinal: r.selectedLongitudinalPeak, cross: r.selectedCrossPeak, flc: r.selectedFlcPeak },
-        (m.annotationVisibilityMode as AnnoMode) ?? 'all',
+        // No per-peak selection on a plate or brace: all and selected both annotate every identified peak.
+        () => ((m.annotationVisibilityMode as AnnoMode) ?? 'all') !== 'none',
         r.annotationOffsetsById,
       ),
       view: { minHz: s.minFreq, maxHz: s.maxFreq, minDb: s.minDB, maxDb: s.maxDB },
@@ -142,9 +146,8 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
   const markers = buildGuitarMarkers(
     r.loadedPeaks,
     modeByPeak,
-    r.selectedIds,
+    annotatedBy((m.annotationVisibilityMode as AnnoMode) ?? 'all', r.selectedIds),
     r.overridesById,
-    (m.annotationVisibilityMode as AnnoMode) ?? 'all',
     r.annotationOffsetsById,
   )
   return {

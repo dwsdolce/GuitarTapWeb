@@ -1,5 +1,7 @@
 // @parity view/material-results
 import { BraceProperties, MaterialDimensions, PlateProperties, type WoodQuality } from '../dsp/material'
+import { MaterialPhaseBadge } from './MaterialPhaseBadge'
+import type { MaterialPeakRole } from '../presentation/materialPeakRole'
 import { color as roleColor, qualityRole } from '../presentation/palette'
 import { STIFFNESS_LABEL, type StiffnessPreset } from '../settings'
 import { materialDimensions, materialStiffness, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
@@ -84,19 +86,14 @@ const qualityColor = (q: WoodQuality): string => roleColor(qualityRole(q))
 
 type Role = 'L' | 'C' | 'FLC'
 
-// Badge display uses the frequency notation (fL/fC/fLC), matching Swift MaterialPeakRowView.
-const ROLE_LABEL: Record<Role, string> = { L: 'fL', C: 'fC', FLC: 'fLC' }
+const BADGE_ROLE: Record<Role, MaterialPeakRole> = { L: 'longitudinal', C: 'cross', FLC: 'flc' }
 
 /** One row of the sorted peak list: star, frequency, magnitude, phase badges.
  *  Mirrors Swift MaterialPeakRowView (display-only in plate/brace mode). */
 function PeakRow({ peak, role, showCross, showFlc }: { peak: ResonantPeak | null; role: Role; showCross: boolean; showFlc: boolean }) {
   // Dashes + an unselected bubble until this phase's peak is captured.
   const found = peak != null
-  const badge = (r: Role, color: string) => (
-    <span className="mat-badge" style={role === r && found ? { background: color, color: 'var(--c-text-on-color)' } : undefined}>
-      {ROLE_LABEL[r]}
-    </span>
-  )
+  const badge = (r: Role) => <MaterialPhaseBadge role={BADGE_ROLE[r]} active={role === r && found} />
   return (
     <div className={`mat-peak-row${found ? '' : ' pending'}`}>
       <span className="mat-peak-star">{found ? '★' : '☆'}</span>
@@ -105,9 +102,9 @@ function PeakRow({ peak, role, showCross, showFlc }: { peak: ResonantPeak | null
         <span className="mat-peak-mag">{peak ? `${FieldPrecision.string(peak.magnitude, FieldPrecision.peakMagnitudeDB)} dB` : '—'}</span>
       </span>
       <span className="mat-badges">
-        {badge('L', 'var(--c-material-longitudinal)')}
-        {showCross && badge('C', 'var(--c-material-cross)')}
-        {showFlc && badge('FLC', 'var(--c-material-flc)')}
+        {badge('L')}
+        {showCross && badge('C')}
+        {showFlc && badge('FLC')}
       </span>
     </div>
   )

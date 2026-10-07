@@ -2,27 +2,24 @@
 //
 // Web side of the annotation-state parity group (Swift AnnotationStateTests.swift D4–D6,
 // Python test_annotation_state.py D4–D6). Pins the ONE rule that decides which peaks the
-// chart and the report are about — Swift `TapToneAnalyzer.visiblePeaks` / Python `visible_peaks`:
+// chart's badges and the report are about — the analyzer's `visiblePeaks`, as Swift
+// `TapToneAnalyzer.visiblePeaks` / Python `visible_peaks`:
 //
-//   all      → every peak
+//   all      → every peak above Peak Min
 //   selected → only peaks in selectedPeakIDs
 //   none     → nothing
-//
-// The web has no analyzer-owned `visiblePeaks`; it encodes the same rule as the `annotated`
-// flag on each marker (buildGuitarMarkers) and materialises the set with `reportPeaks`.
-// This side of the group was parked, and its absence is exactly why the bug below shipped:
-// Swift and Python both tested the rule and were correct; the web never did.
+//   (guitar, Show Unknown Modes off → unknown peaks dropped; plate / brace → the identified peaks)
 //
 // REGRESSION (2026-07-16, found in 1.0.2 testing): a 3-app simultaneous capture of ONE tap
 // showed the web PDF/PNG reporting "Detected Peaks: 47" against Swift's 6, summarising the
-// lowest-frequency peaks rather than the selected ones. The header/summary ignored `annotated`.
-// These tests pin `annotated` = the visiblePeaks rule, which drives the BADGE layer and the
-// report summary. (The chart DOT layer is separate — Swift Layer 1 `allPeaksInRange` dots every
-// in-range peak regardless of annotation mode; that is the renderer's job, not this flag's.)
+// lowest-frequency peaks rather than the selected ones. REGRESSION (2026-10-07): the live
+// export then counted only the peaks in the chart's range (3 against Swift's 6) — the report
+// read the chart's markers instead of the analyzer's visiblePeaks.
 import { describe, it, expect } from 'vitest'
-import { buildGuitarMarkers } from '../src/presentation/measurementImage'
+import { annotatedBy, buildGuitarMarkers } from '../src/presentation/measurementImage'
 import { reportPeaks } from '../src/presentation/spectrumExport'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import { DEFAULT_SETTINGS, type AnnotationMode } from '../src/settings'
 import type { ResolvedMode } from '../src/dsp/classify'
 import type { ResonantPeak } from '../src/measurement/types'
 
@@ -39,12 +36,17 @@ const MODES = new Map<string, ResolvedMode>([
   ['3', 'back'],
 ])
 
-const build = (mode: 'all' | 'selected' | 'none', selected: string[]) =>
-  buildGuitarMarkers(PEAKS, MODES, new Set(selected), new Map(), mode, undefined)
-
-/** The visible set = what the chart dots and the report summarise. */
-const visible = (mode: 'all' | 'selected' | 'none', selected: string[]) =>
-  reportPeaks(build(mode, selected)).map((m) => m.frequency)
+/** A guitar analyzer holding `peaks` above Peak Min, with `selected` selected and `mode` set. */
+const visibleAnalyzer = (mode: AnnotationMode, selected: string[], peaks = PEAKS, modes = MODES, showUnknownModes = true) => {
+  const a = new TapToneAnalyzer()
+  a.setSettings({ ...DEFAULT_SETTINGS, measurementType: 'classical', annotationVisibilityMode: mode, showUnknownModes })
+  a.measurementType = 'classical'
+  a.peaksAbovePeakMin = peaks
+  a.modeByPeak = modes
+  a.selectedPeakIds = new Set(selected)
+  return a
+}
+const visible = (mode: AnnotationMode, selected: string[]) => visibleAnalyzer(mode, selected).visiblePeaks.map((p) => p.frequency)
 
 describe('annotation-state — visiblePeaks rule (3-way parity)', () => {
   it("D4 — mode 'all' → every peak is visible", () => {
@@ -60,38 +62,48 @@ describe('annotation-state — visiblePeaks rule (3-way parity)', () => {
   })
 
   it("D5b — 'selected' with nothing selected → nothing visible (not a fallback to all)", () => {
-    // Guards the `?? all`-style fallback that makes an empty selection silently mean "everything".
     expect(visible('selected', [])).toEqual([])
+  })
+
+  it('Show Unknown Modes off drops unknown peaks, but not one the user named', () => {
+    const wide: ResonantPeak[] = [...PEAKS, { id: '4', frequency: 305, magnitude: -60, quality: 10, bandwidth: 30, timestamp: '2026-09-25T00:00:00Z' }]
+    const modes = new Map<string, ResolvedMode>([...MODES, ['4', 'unknown']])
+    const a = visibleAnalyzer('all', [], wide, modes, false)
+    expect(a.visiblePeaks.map((p) => p.frequency)).toEqual([97.4, 197.4, 239.6])
+    a.overrides = new Map([['4', 'Wolf note']])
+    expect(a.visiblePeaks.map((p) => p.frequency)).toEqual([97.4, 197.4, 239.6, 305])
+  })
+
+  it('cycleAnnotationVisibility advances all → selected → none → all', () => {
+    const a = visibleAnalyzer('all', [])
+    a.cycleAnnotationVisibility()
+    expect(a.annotationVisibilityMode).toBe('selected')
+    a.cycleAnnotationVisibility()
+    expect(a.annotationVisibilityMode).toBe('none')
+    a.cycleAnnotationVisibility()
+    expect(a.annotationVisibilityMode).toBe('all')
   })
 })
 
 describe('annotation-state — the report is about the visible peaks (regression)', () => {
   it('reports the selected count, not the detected count', () => {
     // The shipped bug: header read "Detected Peaks: <all>" (47 vs Swift's 6).
-    const markers = build('selected', ['2'])
+    const markers = buildGuitarMarkers(PEAKS, MODES, annotatedBy('selected', new Set(['2'])), new Map())
     expect(markers).toHaveLength(3) // markers still carry every peak…
     expect(reportPeaks(markers)).toHaveLength(1) // …but the report is about the selected one
   })
 
-  it('keeps selected peaks that sit OUTSIDE the plotted range', () => {
-    // Swift lists all selected peaks (e.g. 409/622/994 Hz under a 75–350 Hz view). The old
-    // `.slice(0, 8)`-of-all-peaks summary dropped exactly these while including unselected ones.
+  it('counts a visible peak OUTSIDE the chart\'s range', () => {
+    // Swift's export counts and lists every visible peak (e.g. 409/623/1180 Hz under a 75–350 Hz view).
+    // The report reads the analyzer's visiblePeaks, which has no range — not the chart's in-range markers.
     const wide: ResonantPeak[] = [...PEAKS, { id: '4', frequency: 994.5, magnitude: -68.6, quality: 10, bandwidth: 99.45, timestamp: '2026-09-25T00:00:00Z' }]
-    const markers = buildGuitarMarkers(
-      wide,
-      new Map<string, ResolvedMode>([...MODES, ['4', 'unknown']]),
-      new Set(['1', '4']),
-      new Map(),
-      'selected',
-      undefined,
-    )
-    expect(reportPeaks(markers).map((m) => m.frequency)).toEqual([97.4, 994.5])
+    const a = visibleAnalyzer('all', [], wide, new Map<string, ResolvedMode>([...MODES, ['4', 'dipole']]))
+    const report = reportPeaks(buildGuitarMarkers(a.visiblePeaks, a.modeByPeak, () => true, new Map()))
+    expect(report.map((m) => m.frequency)).toEqual([97.4, 197.4, 239.6, 994.5])
   })
 
   it('marks exactly the selected peaks as annotated — badges + report follow this flag', () => {
-    // `annotated` drives the BADGE layer (Swift visiblePeaks) and the report summary. The chart
-    // DOT layer is NOT gated on it (Swift Layer 1 allPeaksInRange dots every in-range peak).
-    const markers = build('selected', ['1', '3'])
+    const markers = buildGuitarMarkers(PEAKS, MODES, annotatedBy('selected', new Set(['1', '3'])), new Map())
     expect(markers.map((m) => m.annotated)).toEqual([true, false, true])
   })
 })

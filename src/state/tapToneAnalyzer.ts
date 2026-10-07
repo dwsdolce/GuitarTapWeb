@@ -28,7 +28,7 @@ import { GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
 import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type MaterialPhaseName, type EngineState } from '../audio/realtimeFFTAnalyzer'
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
-import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, type MeasurementType, type Settings } from '../settings'
+import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, ANNOTATION_NEXT, isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, type AnnotationMode, type MeasurementType, type Settings } from '../settings'
 import { materialInputsFromSettings, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { dumpCaptureWav } from '../measurement/dumpWav'
 import { FieldPrecision } from '../precision'
@@ -1483,6 +1483,46 @@ export class TapToneAnalyzer {
     )
   }
 
+  // @parity state/visible-peaks tests=test/annotation-state
+  /** Which peaks are annotated: all, the selected ones, or none. Mirrored in from settings by
+   *  `setSettings`; cycled by `cycleAnnotationVisibility`. Swift / Python `annotationVisibilityMode`. */
+  annotationVisibilityMode: AnnotationMode = DEFAULT_SETTINGS.annotationVisibilityMode
+
+  /** Advance the annotation mode — all → selected → none → all, on every measurement type. The caller
+   *  saves the new mode to the display settings, as Swift's writes TapDisplaySettings. Swift / Python
+   *  `cycleAnnotationVisibility()`. */
+  cycleAnnotationVisibility(): void {
+    this.annotationVisibilityMode = ANNOTATION_NEXT[this.annotationVisibilityMode]
+    this.notify()
+  }
+
+  /** A guitar peak whose mode is unknown and that the user has not named. Swift / Python `isUnknown`. */
+  isUnknown(peak: ResonantPeak): boolean {
+    return (this.modeByPeak.get(peak.id) ?? 'unknown') === 'unknown' && !this.overrides.has(peak.id)
+  }
+
+  /** The peaks to annotate for the current `annotationVisibilityMode` — what the chart's annotation
+   *  cards show (those in its range) and what an exported report counts and summarises (all of them).
+   *  Material: the identified L / C / FLC, which have no per-peak selection, so all and selected are the
+   *  same. Guitar: every peak above Peak Min, or only the selected ones; unknown peaks dropped when Show
+   *  Unknown Modes is off. Swift `visiblePeaks` / Python `visible_peaks`. */
+  get visiblePeaks(): ResonantPeak[] {
+    if (!this.isGuitar) return this.annotationVisibilityMode === 'none' ? [] : this.materialIdentifiedPeaks
+    let candidates: ResonantPeak[]
+    switch (this.annotationVisibilityMode) {
+      case 'all':
+        candidates = this.peaksAbovePeakMin
+        break
+      case 'selected':
+        candidates = this.peaksAbovePeakMin.filter((p) => this.selectedPeakIds.has(p.id))
+        break
+      case 'none':
+        return []
+    }
+    if (this.settings.showUnknownModes) return candidates
+    return candidates.filter((p) => !this.isUnknown(p))
+  }
+
   /** Drop the three identified material peaks (a new sequence, a reset). */
   private clearMaterialPeaks(): void {
     this.selectedLongitudinalPeak = null
@@ -2037,6 +2077,9 @@ export class TapToneAnalyzer {
   /** Mirror the settings store onto the analyzer (App drives it; see the `settings` field). */
   setSettings(s: Settings): void {
     this.settings = s
+    // Which peaks are annotated is ANALYZER state, as Swift's `@Published var annotationVisibilityMode`
+    // and Python's `annotation_visibility_mode` — seeded from the display settings, read by visiblePeaks.
+    this.annotationVisibilityMode = s.annotationVisibilityMode
     // The tap threshold is ANALYZER state, as in Swift (`@Published var tapDetectionThreshold`) and
     // Python (the `tap_detection_threshold` property) — `detectTap` reads it. The natives get it
     // from TapDisplaySettings inside the model; the web has no analyzer-visible global, so App
@@ -3223,6 +3266,8 @@ export class TapToneAnalyzer {
         peakMinThreshold: this.peakMinThreshold,
         modeByPeak: this.modeByPeak,
         overrides: this.overrides,
+        annotationVisibilityMode: this.annotationVisibilityMode,
+        visiblePeaks: this.visiblePeaks,
         annotationOffsets: this.annotationOffsets,
         selectedPeakIds: this.selectedPeakIds,
         userModifiedSelection: this.userModifiedSelection,
@@ -3626,6 +3671,10 @@ export interface TapToneSnapshot {
   modeByPeak: Map<string, ResolvedMode>
   /** Manual mode-label overrides, keyed by peak `id` (analyzer-owned). */
   overrides: Map<string, string>
+  /** Which peaks are annotated: all, the selected ones, or none. */
+  annotationVisibilityMode: AnnotationMode
+  /** The peaks to annotate for that mode — the chart's cards (in range) and a report's peaks (all). */
+  visiblePeaks: ResonantPeak[]
   /** Dragged annotation-label positions, keyed by peak `id` (one store for guitar + material). */
   annotationOffsets: Map<string, [number, number]>
   /** The definitive-peak selection, by peak `id` (concrete analyzer state). */

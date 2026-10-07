@@ -403,7 +403,7 @@
 .mat-label.secondary {
   color: var(--c-text-secondary);
 }
-.mat-badges .mat-badge:nth-child(3) {
+.mat-badge.wide {
   width: 42px;
 }
 .material-results .set-field {
@@ -762,51 +762,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-}
-.detail-peak {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  padding: 0.35rem 0;
-  border-bottom: 1px solid var(--c-separator);
-}
-.detail-peak.unselected {
-  opacity: 0.4;
-}
-.detail-peak-star {
-  color: var(--c-peak-selected-star);
-  font-size: 0.95rem;
-  line-height: 1.4;
-}
-.detail-peak-body {
-  flex: 1;
-  min-width: 0;
-}
-.detail-peak-line1 {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-}
-.detail-peak-mode {
-  font-weight: 700;
-  font-size: 0.9rem;
-}
-.detail-peak-freq {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-.detail-peak-pitch {
-  color: var(--c-peak-pitch);
-  font-size: 0.8rem;
-}
-.detail-peak-line2 {
-  display: flex;
-  gap: 1rem;
-  margin-top: 0.15rem;
-  font-size: 0.78rem;
-  color: var(--c-text-secondary);
-  font-variant-numeric: tabular-nums;
 }
 
 .field {
@@ -1773,6 +1728,10 @@
 }
 .mode-select.override {
   font-style: italic;
+}
+/* The label as plain text (Measurement Details): not a control. */
+.mode-select.static {
+  cursor: default;
 }
 .mode-select:focus {
   outline: none;

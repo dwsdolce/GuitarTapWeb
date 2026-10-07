@@ -6,6 +6,8 @@ import { color as roleColor, magnitudeRole, modeRole } from '../presentation/pal
 import { hexA } from '../presentation/spectrumRender'
 import { useScheme } from '../hooks/useScheme'
 import { WindIcon, ArrowUpDownIcon, SquareFilledIcon, DipoleIcon, CircleDashedIcon, WaveformIcon, HelpIcon, TagIcon, MusicNoteIcon } from './icons'
+import { MATERIAL_PEAK_ROLE_COLOR, type MaterialPeakRole } from '../presentation/materialPeakRole'
+import { MaterialPhaseBadge } from './MaterialPhaseBadge'
 import type { ResonantPeak } from '../measurement/types'
 import { FieldPrecision } from '../precision'
 
@@ -44,12 +46,14 @@ export interface PeakCardProps {
   cents: number | null
   /** Whether this card's peak is the selected one. */
   selected: boolean
-  /** Toggle the peak's annotation on the chart (the star). */
-  onToggle: () => void
-  /** Assign a mode label (a quick-pick name or custom text). */
-  onSetLabel: (label: string) => void
+  /** Toggle the peak's annotation on the chart (the star). No star when omitted (Measurement Details). */
+  onToggle?: () => void
+  /** Assign a mode label (a quick-pick name or custom text). The label is plain text when omitted. */
+  onSetLabel?: (label: string) => void
   /** Clear the override and revert to the auto-classified mode. */
-  onResetLabel: () => void
+  onResetLabel?: () => void
+  /** A plate or brace peak's role — its badge and colour in place of the guitar mode's glyph and colour. */
+  materialRole?: MaterialPeakRole
   /** This peak is the highlighted one (dot ↔ row cross-highlight) → the card gets a ring + scrolls
    *  into view. Distinct from `selected` (the star). */
   highlighted?: boolean
@@ -81,6 +85,7 @@ export function PeakCard({
   onResetLabel,
   highlighted = false,
   onHighlight,
+  materialRole,
 }: PeakCardProps) {
   // Scroll the card into view when it becomes the highlighted one (mirrors Swift's
   // scrollTo on highlightedPeakID change). `nearest` avoids re-scrolling an already-visible row.
@@ -93,7 +98,7 @@ export function PeakCard({
   // swaps both. A custom label that isn't a known mode gets the tag glyph in teal.
   const effMode = MODE_BY_DISPLAY_NAME[effectiveLabel]
   useScheme() // the colours below are the current scheme's
-  const role = effMode ? modeRole(effMode) : 'mode.userDefined'
+  const role = materialRole ? MATERIAL_PEAK_ROLE_COLOR[materialRole] : effMode ? modeRole(effMode) : 'mode.userDefined'
   const color = roleColor(role)
   const tint = roleColor(role, 'peak.rowTint')
   const ModeIcon = effMode ? MODE_ICON[effMode] : TagIcon
@@ -107,14 +112,14 @@ export function PeakCard({
   if (!isKnownOption) options.unshift(effectiveLabel)
 
   const onPick = (val: string) => {
-    if (val === RESET) return onResetLabel()
+    if (val === RESET) return onResetLabel?.()
     if (val === CUSTOM) {
       const t = window.prompt('Mode label', effectiveLabel)
-      if (t && t.trim()) onSetLabel(t.trim())
+      if (t && t.trim()) onSetLabel?.(t.trim())
       return
     }
-    if (val === autoName) onResetLabel()
-    else onSetLabel(val)
+    if (val === autoName) onResetLabel?.()
+    else onSetLabel?.(val)
   }
 
   return (
@@ -128,6 +133,7 @@ export function PeakCard({
       }}
       onClick={onHighlight}
     >
+      {onToggle && (
       <button
         className="star"
         style={{ color: roleColor(selected ? 'peak.selectedStar' : 'peak.unselectedStar') }}
@@ -140,11 +146,16 @@ export function PeakCard({
       >
         {selected ? '★' : '☆'}
       </button>
+      )}
 
       <div className="mode-icon">
-        <span className="mode-glyph" style={{ color }}>
-          <ModeIcon />
-        </span>
+        {materialRole ? (
+          <MaterialPhaseBadge role={materialRole} />
+        ) : (
+          <span className="mode-glyph" style={{ color }}>
+            <ModeIcon />
+          </span>
+        )}
         {inRange !== null && (
           <span className={`range-flag ${inRange ? 'ok' : 'warn'}`} title={inRange ? 'In ideal range' : 'Outside ideal range'}>
             {inRange ? '✓' : '⚠'}
@@ -154,6 +165,7 @@ export function PeakCard({
 
       <div className="peak-info">
         <div className="row">
+          {onSetLabel ? (
           <select
             className={`mode-select${isManualOverride ? ' override' : ''}`}
             style={{ color }}
@@ -180,6 +192,12 @@ export function PeakCard({
             </optgroup>
             <option value={CUSTOM}>Custom…</option>
           </select>
+          ) : (
+            <span className={`mode-select static${isManualOverride ? ' override' : ''}`} style={{ color }}>
+              {effectiveLabel}
+              {isManualOverride ? ' *' : ''}
+            </span>
+          )}
           <span className="freq">{FieldPrecision.string(peak.frequency, FieldPrecision.peakFrequencyHz)} Hz</span>
         </div>
 

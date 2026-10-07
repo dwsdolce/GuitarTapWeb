@@ -36,21 +36,14 @@ const th: ChartTheme = chartTheme('light')
 
 /**
  * The peaks a report is ABOUT — its header count, its Detected Peaks Summary, and its chart dots
- * must all agree on this one set.
+ * must all agree on this one set: the markers that carry a badge. The live export builds its markers
+ * from the analyzer's `visiblePeaks` (Swift `TapToneAnalyzer.visiblePeaks` / Python `visible_peaks`,
+ * all of them, not only those in the chart's range); a saved measurement's from its own annotation
+ * mode and selection, as Swift's saved-measurement export does.
  *
- * Mirrors Swift `TapToneAnalyzer.visiblePeaks` / Python `visible_peaks`: the `annotated` flag on each
- * marker already encodes that rule (all → every peak, selected → selectedPeakIDs only, none → nothing),
- * so honouring it here is what keeps the web report identical to the native ones.
- *
- * Regression guard: the header and summary used to use ALL detected peaks — a 3-app capture of one tap
- * reported "Detected Peaks: 47" against Swift's 6, and summarised the lowest-frequency peaks instead of
- * the selected ones (dropping selected peaks above the visible range). Pinned by
- * `test/annotation-state.test.ts` (the web side of that group, previously absent — which is why this
- * shipped while Swift/Python, which both test the rule, were correct).
- *
- * NOTE: the rule itself is untagged on every platform — Swift `visiblePeaks` and Python `visible_peaks`
- * carry no `@parity` slug, and the web re-derives it here rather than owning it on the analyzer. Giving
- * it a real 3-way `state/` slug belongs with the view-layer restructure.
+ * Regression guard: the header and summary once used ALL detected peaks ("Detected Peaks: 47"
+ * against Swift's 6), and later only the peaks in the chart's range. Pinned by
+ * `test/annotation-state.test.ts`.
  */
 export function reportPeaks(markers: PeakMarker[]): PeakMarker[] {
   return markers.filter((m) => m.annotated)

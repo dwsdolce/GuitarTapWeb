@@ -18,7 +18,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { peaksInDisplayRange, isKnown } from '../src/dsp/guitarModes'
-import { buildGuitarMarkers } from '../src/presentation/measurementImage'
+import { annotatedBy, buildGuitarMarkers } from '../src/presentation/measurementImage'
 import type { ResolvedMode } from '../src/dsp/classify'
 import type { ResonantPeak } from '../src/measurement/types'
 
@@ -100,7 +100,7 @@ describe('dot layer — the dot list is NOT the annotation list (DL6–DL7)', ()
     // …while the annotation set genuinely does vary. If this half ever stops varying, the
     // assertions above have become vacuous.
     const annotatedCount = (mode: 'all' | 'selected' | 'none') =>
-      buildGuitarMarkers(peaks, modes, selected, new Map(), mode, undefined).filter((m) => m.annotated).length
+      buildGuitarMarkers(peaks, modes, annotatedBy(mode, selected), new Map()).filter((m) => m.annotated).length
 
     expect(annotatedCount('all')).toBe(3)
     expect(annotatedCount('selected')).toBe(1)
@@ -146,7 +146,7 @@ describe('dot layer — a named peak is known (DL8–DL10)', () => {
     expect(dots([named, unnamed], true, false, overridden)).toEqual([305]) // dot only for the named one
     const dotSet = peaksInDisplayRange([named, unnamed], MIN_HZ, MAX_HZ, true, false, overridden, 'generic')
     const modes = new Map<string, ResolvedMode>([[named.id, 'unknown'], [unnamed.id, 'unknown']])
-    const markers = buildGuitarMarkers(dotSet, modes, new Set(), new Map(), 'all', undefined)
+    const markers = buildGuitarMarkers(dotSet, modes, annotatedBy('all', new Set()), new Map())
     expect(markers.filter((m) => m.annotated).map((m) => m.frequency)).toEqual([305]) // badge follows the dot
   })
 })

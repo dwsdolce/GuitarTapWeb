@@ -1,13 +1,15 @@
 // @parity view/measurement-detail
-import { measurementTypeName, comparisonEntryModeFreqs, measurementPeakModeLabels } from '../measurement/fromLive'
+import { measurementTypeName, comparisonEntryModeFreqs } from '../measurement/fromLive'
 import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
-import { color as roleColor, comparisonRole, cssVariable, magnitudeRole, modeRole, type Role } from '../presentation/palette'
-import type { ResolvedMode } from '../dsp/classify'
+import { comparisonRole, cssVariable } from '../presentation/palette'
+import { classifyAll, type ResolvedMode } from '../dsp/classify'
+import { modeBands } from '../dsp/guitarModes'
+import { MATERIAL_PEAK_ROLE_NAME, type MaterialPeakRole } from '../presentation/materialPeakRole'
+import { PeakCard } from './PeakCard'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
 import { formatDisplayDate } from '../format/date'
-import type { ResonantPeak } from '../measurement/types'
-import { FieldPrecision } from '../precision'
+import { guitarTypeNameFromRaw, type ResonantPeak } from '../measurement/types'
 import { useScheme } from '../hooks/useScheme'
 
 // Read-only measurement inspector — mirrors Swift MeasurementDetailView / Python
@@ -18,26 +20,6 @@ import { useScheme } from '../hooks/useScheme'
 export interface MeasurementDetailProps {
   measurement: TapToneMeasurementModel
   onClose: () => void
-}
-
-// Mode-label → chart color (guitar modes + material L/C/FLC).
-const MATERIAL_LABEL_ROLE: Record<string, Role> = {
-  Longitudinal: 'material.longitudinal',
-  'Cross-grain': 'material.cross',
-  Diagonal: 'material.flc',
-}
-function labelColor(label: string): string {
-  for (const [mode, name] of Object.entries(MODE_DISPLAY_NAME)) {
-    if (name === label) return roleColor(modeRole(mode as ResolvedMode))
-  }
-  return roleColor(MATERIAL_LABEL_ROLE[label] ?? 'material.unselected')
-}
-
-const pitchText = (p: ResonantPeak): string | null => {
-  if (!p.pitchNote) return null
-  const cents = p.pitchCents
-  if (cents == null) return `♪ ${p.pitchNote}`
-  return `♪ ${p.pitchNote} ${cents >= 0 ? '+' : ''}${Math.round(cents)}¢`
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -66,15 +48,29 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
   // label may be stale or absent; Swift's MeasurementDetailView derives at display time for the
   // same reason.
   const isMaterial = isMaterialMeasurement(m)
-  const modeLabels = isMaterial ? null : measurementPeakModeLabels(m)
+  // Guitar: classified among the SHOWN peaks, as Swift's Details (GuitarMode.classifyAll(shownPeaks)),
+  // so overlapping ranges get distinct modes; an override wins for the label.
+  const guitarType = guitarTypeNameFromRaw(m.spectrumSnapshot?.guitarType)
+  const autoModes = isMaterial ? null : classifyAll(shownPeaks, guitarType)
+  const bands = new Map(modeBands(guitarType).map((b) => [b.name, b]))
+  const inRangeFor = (p: ResonantPeak, mode: ResolvedMode): boolean | null => {
+    if (mode === 'unknown' || mode === 'upper') return null
+    const band = bands.get(mode)
+    return band ? p.frequency >= band.lo && p.frequency <= band.hi : null
+  }
+  const materialRoleOf = (p: ResonantPeak): MaterialPeakRole | undefined => {
+    if (!isMaterial) return undefined
+    if (p.id === m.selectedLongitudinalPeakID) return 'longitudinal'
+    if (p.id === m.selectedCrossPeakID) return 'cross'
+    if (p.id === m.selectedFlcPeakID) return 'flc'
+    return undefined
+  }
   const peakLabel = (p: ResonantPeak): string => {
     if (isMaterial) {
-      if (p.id === m.selectedLongitudinalPeakID) return 'Longitudinal'
-      if (p.id === m.selectedCrossPeakID) return 'Cross-grain'
-      if (p.id === m.selectedFlcPeakID) return 'Diagonal'
-      return 'Peak'
+      const role = materialRoleOf(p)
+      return role ? MATERIAL_PEAK_ROLE_NAME[role] : 'Peak'
     }
-    return modeLabels?.get(p.id) ?? 'Peak'
+    return m.peakModeOverrides?.[p.id] ?? MODE_DISPLAY_NAME[autoModes?.get(p.id) ?? 'unknown']
   }
 
   const comparisonRows: ComparisonRow[] = comparison
@@ -128,26 +124,24 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
                 <p className="empty">No identified peaks.</p>
               ) : (
                 <div className="detail-peaks">
+                  {/* The results panel's peak card, read-only (no star, no mode menu) — as Swift's
+                      Details reuses CombinedPeakModeRowView. */}
                   {shownPeaks.map((p) => {
-                    const label = peakLabel(p)
-                    const pitch = pitchText(p)
+                    const mode = autoModes?.get(p.id) ?? 'unknown'
+                    const role = materialRoleOf(p)
                     return (
-                      <div key={p.id} className="detail-peak">
-                        <div className="detail-peak-body">
-                          <div className="detail-peak-line1">
-                            <span className="detail-peak-mode" style={{ color: labelColor(label) }}>
-                              {label}
-                            </span>
-                            <span className="detail-peak-freq">{FieldPrecision.string(p.frequency, FieldPrecision.peakFrequencyHz)} Hz</span>
-                            {pitch && <span className="detail-peak-pitch">{pitch}</span>}
-                          </div>
-                          <div className="detail-peak-line2">
-                            <span>Q: {FieldPrecision.string(p.quality, FieldPrecision.qFactor)}</span>
-                            <span>BW: {FieldPrecision.string(p.bandwidth, FieldPrecision.bandwidthHz)} Hz</span>
-                            <span style={{ color: roleColor(magnitudeRole(p.magnitude)) }}>{FieldPrecision.string(p.magnitude, FieldPrecision.peakMagnitudeDB)} dB</span>
-                          </div>
-                        </div>
-                      </div>
+                      <PeakCard
+                        key={p.id}
+                        peak={p}
+                        mode={mode}
+                        effectiveLabel={peakLabel(p)}
+                        isManualOverride={!isMaterial && m.peakModeOverrides?.[p.id] != null}
+                        inRange={isMaterial ? null : inRangeFor(p, mode)}
+                        note={p.pitchNote ?? null}
+                        cents={p.pitchNote ? p.pitchCents ?? null : null}
+                        selected
+                        materialRole={role}
+                      />
                     )
                   })}
                 </div>

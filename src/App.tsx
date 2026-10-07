@@ -42,7 +42,7 @@ import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
 import { modeBands, peaksInDisplayRange, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
 import { FieldPrecision } from './precision'
-import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, loadSettings, saveSettings, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_NEXT, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
+import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, loadSettings, saveSettings, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
 import type { ResonantPeak } from './measurement/types'
 import { displayRangeLabel } from './presentation/frequencyFormat'
 import './App.css'
@@ -165,7 +165,13 @@ export default function App() {
   const playingFileName = snapshot.playingFileName
   const loadedName = snapshot.loadedMeasurementName
   const loadedNotes = snapshot.loadedNotes
-  const annotationMode = settings.annotationVisibilityMode
+  // Which peaks carry a badge is ANALYZER state (Swift `annotationVisibilityMode` / `visiblePeaks`).
+  const annotationMode = snapshot.annotationVisibilityMode
+  const visiblePeaks = snapshot.visiblePeaks
+  const isVisible = useMemo(() => {
+    const ids = new Set(visiblePeaks.map((p) => p.id))
+    return (id: string) => ids.has(id)
+  }, [visiblePeaks])
   const guitarType: GuitarTypeName = isGuitarType(settings.measurementType) ? settings.measurementType : 'generic'
   const material = isMaterialType(settings.measurementType)
   const brace = settings.measurementType === 'brace'
@@ -489,8 +495,8 @@ export default function App() {
   // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors). Reuses the shared
   // annotation-offset store so L/C/FLC labels drag exactly like guitar labels (Swift/Python parity).
   const materialMarkers = useMemo<PeakMarker[]>(() => {
-    return buildMaterialMarkers(matPeaks, annotationMode, annotationOffsets)
-  }, [matPeaks, annotationMode, annotationOffsets])
+    return buildMaterialMarkers(matPeaks, isVisible, annotationOffsets)
+  }, [matPeaks, isVisible, annotationOffsets])
 
   // ── Multi-tap comparison (guitar, >1 tap) ───────────────────────────────────
   const multiTapAvailable = !material && !!captured && tapEntries.length > 1
@@ -589,14 +595,22 @@ export default function App() {
     [sortedPeaks, view.minHz, view.maxHz, material, showUnknownModes, overriddenPeakIds, guitarType],
   )
   const markers = useMemo<PeakMarker[]>(
-    () => buildGuitarMarkers(chartPeaks, modeByPeak, selectedIds, overrides, annotationMode, annotationOffsets),
-    [chartPeaks, selectedIds, modeByPeak, overrides, annotationMode, annotationOffsets],
+    () => buildGuitarMarkers(chartPeaks, modeByPeak, isVisible, overrides, annotationOffsets),
+    [chartPeaks, modeByPeak, isVisible, overrides, annotationOffsets],
   )
   const chartMarkers = material ? materialMarkers : markers
+  // The exported report is about EVERY visible peak, not only those in the chart's range — its count and
+  // summary list a peak above the plotted range, as Swift's export of `tap.visiblePeaks` does.
+  const exportMarkers = useMemo<PeakMarker[]>(
+    () => (material ? materialMarkers : buildGuitarMarkers(visiblePeaks, modeByPeak, () => true, overrides, annotationOffsets)),
+    [material, materialMarkers, visiblePeaks, modeByPeak, overrides, annotationOffsets],
+  )
 
   const cycleAnnotations = useCallback(() => {
-    updateSettings({ annotationVisibilityMode: ANNOTATION_NEXT[annotationMode] })
-  }, [annotationMode, updateSettings])
+    // The analyzer advances its mode; the settings store keeps it, as Swift's writes TapDisplaySettings.
+    analyzer.cycleAnnotationVisibility()
+    updateSettings({ annotationVisibilityMode: analyzer.annotationVisibilityMode })
+  }, [analyzer, updateSettings])
 
   // ── Metrics panel inputs (FFTAnalysisMetricsView) ─────────────────────────
   const metrics = useMemo<Metrics>(() => {
@@ -805,7 +819,7 @@ export default function App() {
       title: `FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`,
       spectrum: comparison || material || showMultiTap ? null : displaySpectrum,
       overlays: comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined,
-      markers: comparison || showMultiTap ? [] : chartMarkers,
+      markers: comparison || showMultiTap ? [] : exportMarkers,
       view,
       measurementTypeName: comparison ? 'Comparison' : MEASUREMENT_FULL_NAME[settings.measurementType],
       guitarType: material || comparison ? undefined : guitarType,
@@ -822,7 +836,7 @@ export default function App() {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, chartMarkers, view, playingFileName, loadedName, settings.measurementType, guitarType, setError, setErrorKind])
+  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, exportMarkers, view, playingFileName, loadedName, settings.measurementType, guitarType, setError, setErrorKind])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
