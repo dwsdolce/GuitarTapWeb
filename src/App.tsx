@@ -25,7 +25,7 @@ import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
-import { buildComparisonEntries, comparisonEntryModeFreqs, comparisonAxisRange, measurementToLive, measurementToLiveMaterial } from './measurement/fromLive'
+import { buildComparisonEntries, comparisonEntryModeFreqs, measurementToLive, measurementToLiveMaterial } from './measurement/fromLive'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { importMeasurements, saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
@@ -714,8 +714,10 @@ export default function App() {
   // `last…ExportRef` timestamps debounce a rapid repeat (the double-click) regardless of how fast the
   // export completed. `isExporting` state only drives the button's disabled look.
   const isExportingRef = useRef(false)
-  const lastPdfExportRef = useRef(0)
-  const lastSpectrumExportRef = useRef(0)
+  // No export yet: -Infinity, not 0, since performance.now() starts near 0 when the page loads and a first
+  // click in that window would otherwise read as the second half of a double-click.
+  const lastPdfExportRef = useRef(-Infinity)
+  const lastSpectrumExportRef = useRef(-Infinity)
   const [isExporting, setIsExporting] = useState(false)
 
   const exportPdf = useCallback(async () => {
@@ -750,44 +752,48 @@ export default function App() {
     }
   }, [buildCurrentMeasurement, loadedName, setError, setErrorKind])
 
+  // A load reaches what lives outside the model — the settings store, the chart range and the device — by the
+  // analyzer publishing it and these observing it, whichever route loaded it: Load, double-click or an import's
+  // auto-load. Swift's view does the same with its `.onReceive(tap.$loadedMeasurementType / $loadedAxisRange …)`
+  // handlers. Each runs when the analyzer publishes a new value, and every load publishes a new one.
+  const loadedSettings = snapshot.loadedSettings
+  useLayoutEffect(() => {
+    if (!loadedSettings) return
+    // The measurement's own display settings (type, measureFlc, thresholds, annotation mode). The skip-ref
+    // suppresses the one-shot "reset on type change" effect so the restore stands.
+    if (loadedSettings.measurementType && loadedSettings.measurementType !== prevTypeRef.current) {
+      skipNextTypeResetRef.current = true
+    }
+    updateSettings(loadedSettings)
+    // The device is told the tap count the model restored.
+    engineRef.current?.setConfig({ numberOfTaps: analyzer.numberOfTaps })
+  }, [analyzer, loadedSettings, updateSettings])
+
+  // The saved axis range is the loaded range — for a comparison as for a single measurement — shown without
+  // changing the user's saved per-type range, and left by a new sequence the user has not moved the chart since
+  // (Swift setLoadedAxisRange → loadedChartRange). A guitar measurement's range is also the view at once.
+  const loadedAxisRange = snapshot.loadedAxisRange
+  useLayoutEffect(() => {
+    if (!loadedAxisRange) return
+    setLoadedView(loadedAxisRange)
+    const type = analyzer.loadedSettings?.measurementType
+    if (analyzer.displayMode !== 'comparison' && !(type && isMaterialType(type))) setView(loadedAxisRange)
+  }, [analyzer, loadedAxisRange, setView])
+
   const onLoadMeasurement = useCallback(
     (m: TapToneMeasurementModel) => {
       // The MODEL loads: it works out guitar / material / comparison record, converts the file,
-      // restores itself, and records what it loaded. This handler applies the parts that live
-      // outside the model — the settings store and the chart — exactly as Swift's
-      // `.onReceive(tap.$loadedMeasurementType / $loadedAxisRange)` handlers do. It used to BE the
-      // load: ~110 lines of conversion and sequencing, which is why an import could not perform one.
+      // restores itself, and publishes what it loaded, which the observers above apply.
       analyzer.loadMeasurement(m)
-
-      // The measurement's own display settings (type, measureFlc, thresholds, annotation mode).
-      // The skip-ref suppresses the one-shot "reset on type change" effect so the restore stands.
-      const patch = analyzer.loadedSettings
-      if (patch) {
-        if (patch.measurementType && patch.measurementType !== settings.measurementType) {
-          skipNextTypeResetRef.current = true
-        }
-        updateSettings(patch)
-      }
-      // The saved axis range is the loaded range — for a comparison as for a single measurement — shown
-      // without changing the user's saved per-type range, and left by a new sequence the user has not
-      // moved the chart since (Swift setLoadedAxisRange → loadedChartRange).
-      const range = analyzer.loadedAxisRange
-      setLoadedView(range)
-      if (range && !m.comparisonEntries && !m.longitudinalSnapshot) setView(range)
-      // The device is told the tap count the model restored.
-      engineRef.current?.setConfig({ numberOfTaps: analyzer.numberOfTaps })
       setShowMeasurements(false)
     },
-    [analyzer, settings.measurementType, updateSettings, setView],
+    [analyzer],
   )
 
   // Create a comparison from ≥2 selected library measurements (mirrors Swift loadComparison).
   const onCompare = useCallback((measurements: TapToneMeasurementModel[]) => {
     const entries = buildComparisonEntries(measurements)
     if (entries.length < 2) return
-    // The union of the compared measurements' ranges, as the loaded range (Swift loadComparison →
-    // setLoadedAxisRange).
-    setLoadedView(comparisonAxisRange(entries))
     setLoadedPeaks(null)
     analyzer.clearResult() // returns to live and drops any overlay...
     analyzer.loadComparison(entries) // ...then enters comparison. Order matters: clearResult
@@ -796,7 +802,7 @@ export default function App() {
     setShowMeasurements(false)
     // Freeze the comparison: stop the always-on listener so a stray tap can't clobber it
     // (mirrors Swift displayMode == .comparison). New Tap re-arms.
-  }, [analyzer, setLoadedView, setLoadedPeaks])
+  }, [analyzer, setLoadedPeaks])
 
   // Comparison chart overlays + results rows (derived from the active comparison entries).
   const comparisonOverlays = useMemo<SpectrumOverlay[]>(

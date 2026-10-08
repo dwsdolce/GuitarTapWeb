@@ -17,6 +17,10 @@ type SaveFilePicker = (opts: {
   types?: { description?: string; accept: Record<string, string[]> }[]
 }) => Promise<{ createWritable: () => Promise<{ write: (d: Blob) => Promise<void>; close: () => Promise<void> }> }>
 
+/** How long a downloaded file's object URL is kept. Released at once, a browser can cancel the download it has
+ *  only just started. */
+const DOWNLOAD_URL_LIFETIME_MS = 60_000
+
 export async function saveFile(data: Blob | string, suggestedName: string, opts: SaveOpts): Promise<void> {
   const blob = typeof data === 'string' ? new Blob([data], { type: opts.mime }) : data
   const picker = (window as unknown as { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker
@@ -40,5 +44,5 @@ export async function saveFile(data: Blob | string, suggestedName: string, opts:
   a.href = url
   a.download = suggestedName
   a.click()
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS)
 }
