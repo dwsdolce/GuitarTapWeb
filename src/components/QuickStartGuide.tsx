@@ -397,7 +397,11 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Advanced (collapsed section)',
-        body: 'Click the Advanced row to expand Display Settings, Analysis Settings, and FFT Processing. These options rarely need changing after initial setup.',
+        body: 'Click the Advanced row to expand Display Settings and Analysis Settings. These options rarely need changing after initial setup.',
+      },
+      {
+        title: 'Appearance',
+        body: "Advanced → Display Settings, the first row. System (the default) follows the operating system's Light or Dark setting and changes when it does; Light and Dark keep the app in that scheme whatever the system does. Exported images and PDF reports are always drawn light, whatever the setting.",
       },
       {
         title: 'Show Unknown Modes',
