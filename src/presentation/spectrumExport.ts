@@ -65,11 +65,14 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   const markers = opts.markers ?? []
   const visible = reportPeaks(markers)
 
-  const headerH = 116
-  const chartH = 853 // renderSpectrum lays out title + plot + axis titles within this
+  // Swift's stack: the header (padded), 16 pt, the 1400 × 800 chart frame (padded 16 each side), 16 pt,
+  // the peak summary, the legend (padded).
+  const headerH = 141
+  const chartH = 800 // Swift's chart frame; renderSpectrum lays out title + plot + axis titles within it
+  const AFTER_CHART = 32 // the frame's 16 pt padding and the stack's 16 pt spacing
   const summaryH = visible.length ? 119 : 0
-  const legendH = 44
-  const H = PAD + headerH + chartH + summaryH + legendH + PAD
+  const legendH = 40
+  const H = PAD + headerH + chartH + AFTER_CHART + summaryH + legendH + PAD
 
   // Drawn at 2x, as Swift's ImageRenderer(scale: 2.0): the canvas holds 2928 × 2376 pixels (2138 without
   // the summary) for the layout below in points.
@@ -88,23 +91,24 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
 
   // ── Header ───────────────────────────────────────────────────────────────
   ctx.fillStyle = th.title
-  ctx.font = FONT(26, 'bold')
-  ctx.fillText('Guitar Tap Tone Analysis - Frequency Response', EDGE, y + 26)
-  ctx.font = FONT(14)
+  // Swift's sizes: the title .title bold (22 pt), every header line .subheadline (11 pt).
+  ctx.font = FONT(22, 'bold')
+  ctx.fillText('Guitar Tap Tone Analysis - Frequency Response', EDGE, y + 25)
+  ctx.font = FONT(11)
   ctx.fillStyle = th.axis
-  ctx.fillText(`Date: ${opts.date ?? ''}`, EDGE, y + 52)
+  ctx.fillText(`Date: ${opts.date ?? ''}`, EDGE, y + 50)
   // Range and the dB span semibold in the text colour, the bullet secondary — right-aligned.
   const rangeRuns: [string, string, string][] = [
-    [`Range: ${fmt(minHz)} - ${fmt(maxHz)}`, FONT(14, '600'), th.title],
-    ['•', FONT(14), th.axis],
-    [`${Math.round(minDb)} to ${Math.round(maxDb)} dB`, FONT(14, '600'), th.title],
+    [`Range: ${fmt(minHz)} - ${fmt(maxHz)}`, FONT(11, '600'), th.title],
+    ['•', FONT(11), th.axis],
+    [`${Math.round(minDb)} to ${Math.round(maxDb)} dB`, FONT(11, '600'), th.title],
   ]
   ctx.textAlign = 'right'
   let rx = W - EDGE
   for (const [text, font, color] of [...rangeRuns].reverse()) {
     ctx.font = font
     ctx.fillStyle = color
-    ctx.fillText(text, rx, y + 52)
+    ctx.fillText(text, rx, y + 50)
     rx -= ctx.measureText(text).width + 8
   }
   ctx.textAlign = 'left'
@@ -118,26 +122,26 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   let mx = EDGE
   metaItems.forEach(([label, value], n) => {
     const runs: [string, string, string, number][] = [
-      ...(n ? [['•', FONT(14), th.axis, 16] as [string, string, string, number]] : []),
-      [label, FONT(14), th.axis, 4],
-      [value, FONT(14, '500'), th.title, 16],
+      ...(n ? [['•', FONT(11), th.axis, 16] as [string, string, string, number]] : []),
+      [label, FONT(11), th.axis, 4],
+      [value, FONT(11, '500'), th.title, 16],
     ]
     for (const [text, font, color, gap] of runs) {
       ctx.font = font
       ctx.fillStyle = color
-      ctx.fillText(text, mx, y + 76)
+      ctx.fillText(text, mx, y + 74)
       mx += ctx.measureText(text).width + gap
     }
   })
   ctx.fillStyle = th.axis
-  ctx.font = FONT(14)
+  ctx.font = FONT(11)
   // Subtitle — mirrors Swift ExportableSpectrumChart.swift:582-589:
   //     if !materialSpectra.isEmpty { "Comparing N measurements" }
   //     else if !peaks.isEmpty      { "Detected Peaks: N" }
   // `overlays` is the web's materialSpectra (same mapping the legend below uses). "Detected Peaks: N"
   // is CORRECT for guitar — it was only wrong for material, where the web showed it unconditionally.
-  if (overlays.length) ctx.fillText(`Comparing ${overlays.length} measurements`, EDGE, y + 98)
-  else if (visible.length) ctx.fillText(`Detected Peaks: ${visible.length}`, EDGE, y + 98)
+  if (overlays.length) ctx.fillText(`Comparing ${overlays.length} measurements`, EDGE, y + 97)
+  else if (visible.length) ctx.fillText(`Detected Peaks: ${visible.length}`, EDGE, y + 97)
   y += headerH
 
   // ── Chart (drawn by the SHARED renderer, light theme) ─────────────────────
@@ -155,13 +159,13 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
     variant: 'export',
   })
   ctx.restore()
-  y += chartH
+  y += chartH + AFTER_CHART
 
   // ── Detected Peaks Summary ────────────────────────────────────────────────
   if (visible.length) {
     ctx.fillStyle = th.title
     ctx.font = FONT(16, 'bold')
-    ctx.fillText('Detected Peaks Summary', EDGE, y + 18)
+    ctx.fillText('Detected Peaks Summary', EDGE, y + 20)
     // Every visible peak, in frequency order — including ones outside the plotted range
     // (Swift lists all selected peaks, e.g. 409/622/994 Hz under a 75–350 Hz view). Bounded by
     // WIDTH, not by an arbitrary count: the old `.slice(0, 8)` silently dropped peaks even in the
@@ -202,15 +206,15 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   }
 
   // ── Legend ────────────────────────────────────────────────────────────────
-  ctx.fillStyle = th.title
-  ctx.font = FONT(13, '600')
-  const ly = y + 22
-  // Swift: material → "Measurements:", guitar → "Guitar Modes:"
-  // (ExportableSpectrumChart.swift:650-671). The web said "Series:" for the material case.
+  // Swift: HStack(spacing: 20) { title .caption semibold; each item HStack(spacing: 4) { mark, .caption
+  // label } } — a measurement's mark a 24 × 4 rounded line in its colour, a guitar mode's a 12 pt circle.
+  const ly = y + 29
   const legendTitle = overlays.length ? 'Measurements:' : 'Guitar Modes:'
-  ctx.fillText(legendTitle, EDGE, ly + 4)
-  let lx = EDGE + ctx.measureText(legendTitle).width + 18
-  ctx.font = FONT(13)
+  ctx.fillStyle = th.title
+  ctx.font = FONT(10, '600')
+  ctx.fillText(legendTitle, EDGE, ly + 3.5)
+  let lx = EDGE + ctx.measureText(legendTitle).width + 20
+  ctx.font = FONT(10)
   const legendItems = overlays.length
     ? overlays.map((o) => ({ color: overlayColor(o, th), label: o.label }))
     : (['air', 'top', 'back', 'dipole', 'ring'] as const).map((k) => ({
@@ -220,12 +224,19 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   for (const it of legendItems) {
     ctx.fillStyle = it.color
     ctx.beginPath()
-    ctx.arc(lx + 6, ly, 6, 0, Math.PI * 2)
+    let markW: number
+    if (overlays.length) {
+      markW = 24
+      ctx.roundRect(lx, ly - 2, markW, 4, 2)
+    } else {
+      markW = 12
+      ctx.arc(lx + 6, ly, 6, 0, Math.PI * 2)
+    }
     ctx.fill()
-    lx += 16
+    lx += markW + 4
     ctx.fillStyle = th.title
-    ctx.fillText(it.label, lx, ly + 4)
-    lx += ctx.measureText(it.label).width + 22
+    ctx.fillText(it.label, lx, ly + 3.5)
+    lx += ctx.measureText(it.label).width + 20
   }
 
   return canvas

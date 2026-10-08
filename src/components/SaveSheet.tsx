@@ -37,8 +37,9 @@ export function SaveSheet({ defaultName = '', defaultNotes = '', onSave, onClose
           <h2>Save Measurement</h2>
         </div>
         <div className="settings-body">
-          <label className="set-field">
-            <span>Measurement Name</span>
+          {/* Swift's SaveMeasurementSheet: a bold title above each field, the notes hint under its box. */}
+          <label className="form-field">
+            <span className="form-label">Measurement Name</span>
             <input
               type="text"
               value={name}
@@ -48,14 +49,10 @@ export function SaveSheet({ defaultName = '', defaultNotes = '', onSave, onClose
               onKeyDown={(e) => e.key === 'Enter' && save()}
             />
           </label>
-          <label className="set-field col">
-            <span>Notes (Optional)</span>
-            <textarea
-              rows={4}
-              value={notes}
-              placeholder="Add any observations about this measurement"
-              onChange={(e) => setNotes(e.target.value)}
-            />
+          <label className="form-field">
+            <span className="form-label">Notes (Optional)</span>
+            <textarea rows={5} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <span className="form-caption">Add any observations about this measurement</span>
           </label>
         </div>
         {/* Cancel / Save sit BELOW the fields, bottom-right — where Swift puts them on macOS
@@ -66,7 +63,9 @@ export function SaveSheet({ defaultName = '', defaultNotes = '', onSave, onClose
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={save} disabled={!canSave}>
+          {/* Save commits — the accent while it can save, a plain button while it cannot (Swift's
+              disabled .confirmationAction), not a faded accent. */}
+          <button className={`btn${canSave ? ' btn-primary' : ''}`} onClick={save} disabled={!canSave}>
             Save
           </button>
         </div>

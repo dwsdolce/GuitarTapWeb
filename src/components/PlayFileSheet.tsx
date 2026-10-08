@@ -26,21 +26,16 @@ export function PlayFileSheet({ onPlay, onClose }: PlayFileSheetProps) {
       <div className="settings-modal save-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-modal-head">
           <h2>Play Audio File</h2>
-          <div className="set-head-buttons">
-            <button className="btn" onClick={onClose}>
-              Cancel
-            </button>
-            <button className="btn btn-primary" onClick={play} disabled={!audio}>
-              Play
-            </button>
-          </div>
         </div>
+        {/* Swift's PlayFileSheet: a bold title above each row; the file's name (secondary while there is
+            none) with Browse… at the right, and Clear once a calibration is chosen; the hint under the
+            calibration; Cancel and Play at the bottom right, as Save's. */}
         <div className="settings-body">
-          <div className="set-field">
-            <span>Audio File</span>
-            <span className="playfile-pick">
-              <span className="playfile-name">{audio?.name ?? 'No file selected'}</span>
-              <button className="btn mini" onClick={() => audioInput.current?.click()}>
+          <div className="form-field">
+            <span className="form-label">Audio File</span>
+            <span className="form-file-row">
+              <span className={`form-file-name${audio ? '' : ' none'}`}>{audio?.name ?? 'No file selected'}</span>
+              <button className="btn" onClick={() => audioInput.current?.click()}>
                 Browse…
               </button>
             </span>
@@ -57,16 +52,16 @@ export function PlayFileSheet({ onPlay, onClose }: PlayFileSheetProps) {
             />
           </div>
 
-          <div className="set-field">
-            <span>Calibration (optional)</span>
-            <span className="playfile-pick">
-              <span className="playfile-name">{calibration?.name ?? 'None'}</span>
+          <div className="form-field">
+            <span className="form-label">Calibration File (Optional)</span>
+            <span className="form-file-row">
+              <span className={`form-file-name${calibration ? '' : ' none'}`}>{calibration?.name ?? 'None'}</span>
               {calibration && (
-                <button className="btn mini" onClick={() => setCalibration(null)}>
+                <button className="btn" onClick={() => setCalibration(null)}>
                   Clear
                 </button>
               )}
-              <button className="btn mini" onClick={() => calInput.current?.click()}>
+              <button className="btn" onClick={() => calInput.current?.click()}>
                 Browse…
               </button>
             </span>
@@ -81,12 +76,17 @@ export function PlayFileSheet({ onPlay, onClose }: PlayFileSheetProps) {
                 if (f) setCalibration(f)
               }}
             />
+            <span className="form-caption">Select the calibration file that was active when the recording was made</span>
           </div>
-
-          <p className="set-note">
-            The file is played through the same tap-detection + FFT pipeline as the live mic. Provide
-            the calibration that was active when the recording was made for accurate magnitudes.
-          </p>
+        </div>
+        <div className="settings-modal-foot">
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          {/* Play commits — the accent while there is a file, a plain button until then. */}
+          <button className={`btn${audio ? ' btn-primary' : ''}`} onClick={play} disabled={!audio}>
+            Play
+          </button>
         </div>
       </div>
     </div>

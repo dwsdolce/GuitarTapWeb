@@ -21,7 +21,7 @@ import { exportSpectrumPng } from '../presentation/spectrumExport'
 import { measurementToImageOpts, reportForMeasurement } from '../presentation/measurementImage'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
-import { WaveformIcon } from './icons'
+import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon } from './icons'
 
 export interface MeasurementsPanelProps {
   onClose: () => void
@@ -277,67 +277,80 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: Meas
     }
   }
 
+  // The list's actions with Swift's toolbar icons — at the foot of the sheet, as Swift's bottom bar; at the
+  // top on a phone, as Settings.
+  const buttons = (
+    <>
+      {comparing ? (
+        <button
+          className="btn"
+          onClick={openComparison}
+          disabled={selected.size < 2}
+          title="Overlay the selected measurements"
+        >
+          <WaveformIcon />
+          Compare ({selected.size})
+        </button>
+      ) : (
+        <button
+          className="btn"
+          onClick={enterCompare}
+          disabled={comparableCount < 2}
+          title="Select measurements to overlay on a comparison chart"
+        >
+          <WaveformIcon />
+          Compare…
+        </button>
+      )}
+      {/* While comparing the other actions stay in place, disabled — as Swift's toolbar. */}
+      <button
+        className="btn"
+        onClick={() => fileInput.current?.click()}
+        disabled={comparing}
+        title="Import measurements from a .guitartap file (one or many)"
+      >
+        <SaveIcon />
+        Import
+      </button>
+      {items && items.length > 0 && (
+        <button
+          className="btn"
+          onClick={() => void exportAll()}
+          disabled={comparing}
+          title="Export the whole library as one .guitartap file (backup / move to another browser or device)"
+        >
+          <UploadIcon />
+          Export All
+        </button>
+      )}
+      {items && items.length > 0 && (
+        <button className="btn" onClick={() => void removeAll()} disabled={comparing} title="Delete all saved measurements">
+          <TrashIcon />
+          Delete All
+        </button>
+      )}
+      <span className="meas-buttons-gap" />
+      {/* Done only closes the list (Cancel leaves compare mode): Swift's .cancellationAction — a plain button. */}
+      <button className="btn" onClick={comparing ? exitCompare : onClose}>
+        {comparing ? 'Cancel' : 'Done'}
+      </button>
+    </>
+  )
+
   return (
     <div className="settings-overlay" role="dialog" aria-label="Saved Measurements" onClick={onClose}>
       <div className="settings-modal measurements-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-modal-head">
           <h2>Saved Measurements</h2>
-          <div className="set-head-buttons">
-            {comparing ? (
-              <>
-                <button
-                  className="btn btn-primary"
-                  onClick={openComparison}
-                  disabled={selected.size < 2}
-                  title="Overlay the selected measurements"
-                >
-                  Compare ({selected.size})
-                </button>
-                <button className="btn" onClick={exitCompare}>
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  className="btn"
-                  onClick={enterCompare}
-                  disabled={comparableCount < 2}
-                  title="Select measurements to overlay on a comparison chart"
-                >
-                  Compare…
-                </button>
-                <button className="btn" onClick={() => fileInput.current?.click()} title="Import measurements from a .guitartap file (one or many)">
-                  Import…
-                </button>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept=".guitartap,application/json"
-                  style={{ display: 'none' }}
-                  onChange={(e) => void onImportFile(e)}
-                />
-                {items && items.length > 0 && (
-                  <button
-                    className="btn"
-                    onClick={() => void exportAll()}
-                    title="Export the whole library as one .guitartap file (backup / move to another browser or device)"
-                  >
-                    Export All
-                  </button>
-                )}
-                {items && items.length > 0 && (
-                  <button className="btn" onClick={() => void removeAll()} title="Delete all saved measurements">
-                    Delete All
-                  </button>
-                )}
-                <button className="btn btn-primary" onClick={onClose}>
-                  Done
-                </button>
-              </>
-            )}
-          </div>
+          <div className="set-head-buttons meas-buttons phone-only">{buttons}</div>
         </div>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".guitartap,application/json"
+          style={{ display: 'none' }}
+          onChange={(e) => void onImportFile(e)}
+        />
 
         <div className="settings-body">
           {importError && <p className="error">⚠ {importError}</p>}
@@ -384,8 +397,10 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: Meas
                       }}
                     >
                       {comparing && (
-                        <span className="meas-check" aria-hidden="true">
-                          {!isComparable(m) ? '' : selected.has(keyOf(m)) ? '☑' : '☐'}
+                        // Swift's circle / checkmark.circle.fill — shown on every row; a row that can't be
+                        // compared is dimmed with it.
+                        <span className={`meas-check${selected.has(keyOf(m)) ? ' on' : ''}`} aria-hidden="true">
+                          {selected.has(keyOf(m)) ? <CheckCircleFillIcon /> : <CircleOutlineIcon />}
                         </span>
                       )}
                       <div
@@ -398,12 +413,23 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: Meas
                           <span className="meas-name">
                             {m.measurementName || (isComparison(m) ? 'Comparison' : 'Measurement')}
                           </span>
-                          {m.spectrumSnapshot && (
-                            <span className="meas-wave" title="Has spectrum data" aria-label="Has spectrum">
-                              <WaveformIcon />
+                          {/* Swift's marks beside the date: a comparison's chart document in the accent, a
+                              measurement's waveform (it has a spectrum) in status.complete. */}
+                          {isComparison(m) ? (
+                            <span className="meas-mark comparison" title="Comparison record" aria-label="Comparison">
+                              <FileChartIcon />
                             </span>
+                          ) : (
+                            m.spectrumSnapshot && (
+                              <span className="meas-mark meas-wave" title="Has spectrum data" aria-label="Has spectrum">
+                                <WaveformIcon />
+                              </span>
+                            )
                           )}
                           <span className="meas-date">{formatDisplayDate(m.timestamp)}</span>
+                          <span className="meas-chevron" aria-hidden="true">
+                            <ChevronRightIcon />
+                          </span>
                         </div>
                         <div className="meas-meta">
                           {isComparison(m) ? `${m.comparisonEntries!.length} spectra compared` : metaLine(m)}
@@ -438,6 +464,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: Meas
             </>
           )}
         </div>
+        <div className="settings-modal-foot meas-buttons not-phone">{buttons}</div>
       </div>
 
       {/* Row actions menu — portaled to <body> with fixed positioning so it floats above

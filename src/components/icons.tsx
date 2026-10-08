@@ -48,6 +48,26 @@ export const BarChartIcon = () => <Mdi d={MDI.chartBar} />
 export const GearIcon = () => <Mdi d={MDI.cog} />
 export const HelpIcon = () => <Mdi d={MDI.help} />
 export const BookIcon = () => <Mdi d={MDI.bookOpen} />
+// Settings section and action icons — the same Material Design shapes Python names, nearest to Swift's.
+export const MicrophoneIcon = () => <Mdi d={MDI.microphone} /> // mic.fill
+export const GuitarsIcon = () => <Mdi d={MDI.guitarAcoustic} /> // guitars
+export const MaterialLayersIcon = () => <Mdi d={MDI.layersTriple} /> // square.3.layers.3d
+export const CogsIcon = () => <Mdi d={MDI.cogs} /> // gearshape.2
+export const PulseIcon = () => <Mdi d={MDI.pulse} /> // waveform.path.ecg
+export const InfoIcon = () => <Mdi d={MDI.information} /> // info.circle
+export const FilePlusIcon = () => <Mdi d={MDI.filePlus} /> // doc.badge.plus
+export const TrashIcon = () => <Mdi d={MDI.trashCan} /> // trash
+export const ChevronDownIcon = () => <Mdi d={MDI.chevronDown} />
+export const ChevronUpIcon = () => <Mdi d={MDI.chevronUp} />
+export const ChevronRightIcon = () => <Mdi d={MDI.chevronRight} />
+export const OpenInNewIcon = () => <Mdi d={MDI.openInNew} />
+export const UnfoldMoreIcon = () => <Mdi d={MDI.unfoldMore} />
+export const PauseCircleFillIcon = () => <Mdi d={MDI.pauseCircleFill} />
+export const FileChartIcon = () => <Mdi d={MDI.fileChart} />
+export const UploadIcon = () => <Mdi d={MDI.uploadOutline} />
+export const BookClosedIcon = () => <Mdi d={MDI.bookClosed} /> // text.book.closed
+export const CheckCircleFillIcon = () => <Mdi d={MDI.checkCircleFill} /> // checkmark.circle.fill
+export const CircleOutlineIcon = () => <Mdi d={MDI.circleOutline} /> // circle
 /** Release Notes (Help menu) — a document with a folded corner and lines of text. */
 export const NotesIcon = () => (
   <svg {...ICON_SVG}>

@@ -11,6 +11,7 @@
 // @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/start-tap-race,test/measurement-complete
 // @parity audio/tap-analyzer  tests=test/tap-decisions
 import type { Spectrum } from '../dsp/guitarFFT'
+import { SampleBuffer } from '../audio/sampleBuffer'
 import type { Calibration } from '../dsp/calibration'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 // The one override-aware mode resolver (mirrors Swift GuitarMode.effectiveMode). A minor state→presentation
@@ -2067,6 +2068,7 @@ export class TapToneAnalyzer {
       if (m.numberOfTaps != null) this.setNumberOfTaps(m.numberOfTaps)
       this.showLoadedSettingsWarning = true // after both clearing hooks have run
       this.disarmDetection() // a loaded result is frozen — see enterFrozen
+      this.cancelSessionRecording()
     } finally {
       this.isLoadingMeasurement = false
     }
@@ -2211,7 +2213,7 @@ export class TapToneAnalyzer {
   // checkpoints and the write. Web had it on the engine, which is why the first tap had to be
   // signalled across the seam; both live here now, so the latch freezes where the capture starts.
 
-  private sessionSamples: number[] = []
+  private sessionSamples = new SampleBuffer()
   private sessionCheckpoints: number[] = []
   private sessionRecording = false
   private sessionActive = false
@@ -2228,15 +2230,15 @@ export class TapToneAnalyzer {
   }
 
   // ── Continuous session recording (Swift TapToneAnalyzer session WAV) ────────
-  /** Begin accumulating every pipeline chunk for the session WAV. Every sequence is recorded; the dump
-   *  setting is read when the session finishes, so turning it on mid-sequence saves that sequence
+  /** Begin accumulating every pipeline chunk for the session WAV — only when Dump Capture Audio is on, so
+   *  with it off nothing is kept, and turning it on mid-sequence takes effect from the next sequence
    *  (Swift/Python). Guitar calls this from `arm()`; live material drives it from useMaterialSession. */
   startSessionRecording(): void {
-    this.sessionSamples = []
+    this.sessionSamples = new SampleBuffer()
     this.sessionCheckpoints = [0] // first-phase truncation anchor (Swift/Python seed [0] at start)
     this.sessionRate = this.device?.sampleRate ?? 48000
-    this.sessionActive = true
-    this.sessionRecording = true
+    this.sessionActive = this.settings.dumpCaptureAudio
+    this.sessionRecording = this.sessionActive
     this.sessionPreRollActive = true // bound the pre-first-tap audio to ~2 s
   }
 
@@ -2251,7 +2253,7 @@ export class TapToneAnalyzer {
     if (!this.sessionActive) return
     const cp = this.sessionCheckpoints[this.sessionCheckpoints.length - 1] ?? 0
     if (cp < this.sessionSamples.length) {
-      this.sessionSamples.length = cp
+      this.sessionSamples.truncate(cp)
       // Redoing the FIRST phase empties the buffer back to the pre-first-tap state, so re-arm the
       // bounded pre-roll. Later phases keep the latch frozen. Mirrors Swift redoCurrentPhase.
       if (cp === 0) this.sessionPreRollActive = true
@@ -2266,7 +2268,7 @@ export class TapToneAnalyzer {
    *  phases, and the gaps between them — is completely live. Mirrors Swift maintainSessionRecording. */
   private maintainSessionRecording(s: Float32Array): void {
     if (!this.sessionRecording) return
-    for (let i = 0; i < s.length; i++) this.sessionSamples.push(s[i]!)
+    this.sessionSamples.append(s)
     if (!this.sessionPreRollActive) return // frozen after the first tap → fully live
     if (this.gatedCaptureActive) {
       // The first tap has started — freeze the pre-roll. The latch is owned HERE, as in Swift and
@@ -2274,7 +2276,7 @@ export class TapToneAnalyzer {
       this.sessionPreRollActive = false
     } else {
       const excess = this.sessionSamples.length - this.sessionPreRollSamples
-      if (excess > 0) this.sessionSamples.splice(0, excess)
+      if (excess > 0) this.sessionSamples.dropFirst(excess)
     }
   }
 
@@ -2286,10 +2288,10 @@ export class TapToneAnalyzer {
     this.sessionActive = false
     const samples = this.sessionSamples
     const rate = this.sessionRate
-    this.sessionSamples = []
+    this.sessionSamples = new SampleBuffer()
     this.sessionCheckpoints = []
     if (samples.length === 0 || !this.settings.dumpCaptureAudio) return
-    this.captureAudioSaved = dumpCaptureWav(new Float32Array(samples), rate, `session_${label}`)
+    this.captureAudioSaved = dumpCaptureWav(samples.toFloat32Array(), rate, `session_${label}`)
     this.notify()
   }
 
@@ -2300,11 +2302,12 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  /** Abandon the session without writing (cancel / measurement-type change / New Tap of a fresh kind). */
+  /** Abandon the session without writing — cancel, a measurement-type change, or a loaded measurement or
+   *  comparison that has replaced the sequence, which can no longer finish. Swift cancelSessionRecording. */
   cancelSessionRecording(): void {
     this.sessionRecording = false
     this.sessionActive = false
-    this.sessionSamples = []
+    this.sessionSamples = new SampleBuffer()
     this.sessionCheckpoints = []
   }
 
@@ -3329,7 +3332,10 @@ export class TapToneAnalyzer {
     this.loadedAxisRange = comparisonAxisRange(entries)
     // An overlay is frozen, like a loaded measurement — see enterFrozen. Empty entries mean we
     // stayed live, so there is nothing to freeze.
-    if (entries.length > 0) this.disarmDetection()
+    if (entries.length > 0) {
+      this.disarmDetection()
+      this.cancelSessionRecording()
+    }
     this.notify()
   }
 
@@ -3368,6 +3374,7 @@ export class TapToneAnalyzer {
     // alongside isMeasurementComplete (invariant I1). Mirrors Swift loadMeasurement ("Tap detection
     // is disabled", isDetecting = false) / Python load_measurement (is_detecting = False).
     this.disarmDetection()
+    this.cancelSessionRecording()
     this.notify()
   }
 

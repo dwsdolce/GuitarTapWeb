@@ -23,6 +23,7 @@ export const ROLES = {
   'background.panel': { light: '#FFFFFF', dark: '#141A22' },
   'background.control': { light: '#FFFFFF', dark: '#11161D' },
   'background.subtle': { light: '#8E8E9314', dark: '#8E8E931A' },
+  'background.picker': { light: '#00000014', dark: '#FFFFFF14' },
   'separator': { light: '#D8DEE6', dark: '#222A33' },
   'divider.section': { light: '#1A233059', dark: '#FFFFFF59' },
   'divider.headerFooter': { light: '#1A2330', dark: '#E7EBF0' },

@@ -19,7 +19,7 @@ import { QuickStartGuide } from './components/QuickStartGuide'
 import { ReleaseNotes } from './components/ReleaseNotes'
 // Toolbar + tap-control icons live in a shared module so the Quick Start Guide can render the
 // exact same glyphs next to each control (Swift SF Symbols / Python qtawesome equivalents).
-import { TapIcon, PauseIcon, PlayIcon, CancelIcon, CheckIcon, UndoIcon, AutoDbIcon, EyeIcon, StarIcon, EyeOffIcon, SaveIcon, ClipboardIcon, BarChartIcon, GearIcon, HelpIcon, BookIcon, NotesIcon, FilePlayIcon, DotViewfinderIcon, PlusViewfinderIcon, WandIcon, ResultsIcon, RefreshIcon, AutoDbOnIcon, WaveformIcon, ChartLineIcon, DocumentIcon } from './components/icons'
+import { TapIcon, PauseIcon, PlayIcon, CancelIcon, CheckIcon, UndoIcon, AutoDbIcon, EyeIcon, StarIcon, EyeOffIcon, SaveIcon, ClipboardIcon, BarChartIcon, GearIcon, HelpIcon, BookIcon, NotesIcon, FilePlayIcon, DotViewfinderIcon, PlusViewfinderIcon, WandIcon, ResultsIcon, RefreshIcon, AutoDbOnIcon, WaveformIcon, ChartLineIcon, DocumentIcon, PauseCircleFillIcon } from './components/icons'
 import { buttonRule } from './state/buttonEnablement'
 import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
@@ -42,6 +42,7 @@ import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
 import { modeBands, peaksInDisplayRange, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
 import { FieldPrecision } from './precision'
+import { formatDisplayDate } from './format/date'
 import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, loadSettings, saveSettings, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
 import type { ResonantPeak } from './measurement/types'
 import { displayRangeLabel } from './presentation/frequencyFormat'
@@ -822,8 +823,9 @@ export default function App() {
       markers: comparison || showMultiTap ? [] : exportMarkers,
       view,
       measurementTypeName: comparison ? 'Comparison' : MEASUREMENT_FULL_NAME[settings.measurementType],
-      guitarType: material || comparison ? undefined : guitarType,
-      date: new Date().toLocaleString(),
+      // A comparison is always of guitars, so its image has the mode bands, as Swift's and Python's.
+      guitarType: material ? undefined : guitarType,
+      date: formatDisplayDate(new Date().toISOString()),
     }
     try {
       await exportSpectrumPng(opts, `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'spectrum')}.png`)
@@ -1140,7 +1142,7 @@ export default function App() {
               }
               title={`FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`}
               overlays={comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined}
-              guitarType={material || comparison || showMultiTap ? undefined : guitarType}
+              guitarType={material ? undefined : guitarType}
               peakMin={peakMin}
               markers={comparison || showMultiTap ? [] : chartMarkers}
               minHz={view.minHz}
@@ -1393,7 +1395,7 @@ export default function App() {
         {/* LEFT — detection state: dot + Waiting/Detected + level (mirrors Swift order). */}
         <span className={`sb-state-dot${sbComplete ? ' complete' : ''}`} />
         {/* Swift: isMeasurementComplete ? "Tap Detected!" : "Waiting for tap...". */}
-        <span className="sb-detect">{sbComplete ? 'Tap Detected!' : 'Waiting for tap...'}</span>
+        <span className={`sb-detect${sbComplete ? ' complete' : ''}`}>{sbComplete ? 'Tap Detected!' : 'Waiting for tap...'}</span>
         <span className="sb-sep">•</span>
         {/* Swift: guitar shows peak magnitude here, material shows the input level. */}
         {/* Swift Controls: guitar shows fft.peakMagnitude, material shows fft.displayLevelDB — both at the
@@ -1405,7 +1407,15 @@ export default function App() {
         </span>
         <span className="spacer" />
         {/* RIGHT — complete badge + peak + active dot + statusMessage + progress. */}
-        {sbComplete && <span className="sb-frozen">⏸ Complete</span>}
+        {sbComplete && (
+          <>
+            <span className="sb-frozen">
+              <PauseCircleFillIcon />
+              Complete
+            </span>
+            <span className="sb-sep sb-right">•</span>
+          </>
+        )}
         {running && (
           <span className="sb-peak">
             {metrics.peakFrequency != null && metrics.peakMagnitude != null

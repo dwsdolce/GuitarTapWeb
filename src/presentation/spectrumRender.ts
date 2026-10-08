@@ -91,6 +91,14 @@ export function chartGeometry(W: number, H: number): PlotRect {
   return { l: PLOT_LEFT, t: PLOT_TOP, r: W - PLOT_RIGHT, b: H - PLOT_BOTTOM }
 }
 
+/** The export's plot inside Swift's 1400 × 800 pt chart frame, as Swift lays it out: the title and the
+ *  mode labels above (51 pt), the 16 pt y-axis title and tick labels at the left (60 pt), the x-axis tick
+ *  labels below (39 pt; the x-axis title sits at the frame's foot), the plot running to the right edge. */
+const EXPORT_PLOT = { top: 51, left: 60, bottom: 39, right: 1 }
+function exportGeometry(W: number, H: number): PlotRect {
+  return { l: EXPORT_PLOT.left, t: EXPORT_PLOT.top, r: W - EXPORT_PLOT.right, b: H - EXPORT_PLOT.bottom }
+}
+
 export interface RenderOpts {
   spectrum: Spectrum | null
   markers?: PeakMarker[]
@@ -148,22 +156,23 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   const th = opts.theme ?? chartTheme('dark')
   const style = opts.style ?? SCREEN
   const { minHz, maxHz, minDb, maxDb } = opts.view
-  const { l: plotL, t: plotT, r: plotR, b: plotB } = chartGeometry(W, H)
+  const exporting = opts.variant === 'export'
+  const { l: plotL, t: plotT, r: plotR, b: plotB } = exporting ? exportGeometry(W, H) : chartGeometry(W, H)
   const plotW = plotR - plotL
   const plotH = plotB - plotT
-  const bands = guitarType && overlays.length === 0 ? modeBands(guitarType) : []
+  // Bands for any guitar view — a comparison and a multi-tap overlay included, as Swift's and Python's;
+  // material views pass no guitar type.
+  const bands = guitarType ? modeBands(guitarType) : []
 
   ctx.fillStyle = th.bg
   ctx.fillRect(0, 0, W, H)
-
-  const exporting = opts.variant === 'export'
 
   // Centered title — Swift's export: .font(.system(size: 24, weight: .semibold)).
   if (title) {
     ctx.fillStyle = th.title
     ctx.font = exporting ? '600 24px system-ui, sans-serif' : '600 15px system-ui, sans-serif'
     ctx.textAlign = 'center'
-    ctx.fillText(title, (plotL + plotR) / 2, exporting ? 28 : 20)
+    ctx.fillText(title, (plotL + plotR) / 2, exporting ? 30 : 20)
     ctx.textAlign = 'left'
   }
 
@@ -249,13 +258,13 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   ctx.lineWidth = 1
   ctx.strokeRect(plotL, plotT, plotW, plotH)
 
-  // Axis titles.
+  // Axis titles — the export's 16 pt medium, as Swift's ExportableSpectrumChart; the screen's 13 px.
   ctx.fillStyle = th.axis
-  ctx.font = '500 13px system-ui, sans-serif'
+  ctx.font = exporting ? '500 16px system-ui, sans-serif' : '500 13px system-ui, sans-serif'
   ctx.textAlign = 'center'
-  ctx.fillText('Frequency (Hz)', (plotL + plotR) / 2, plotB + 34)
+  ctx.fillText('Frequency (Hz)', (plotL + plotR) / 2, plotB + (exporting ? 42 : 34))
   ctx.save()
-  ctx.translate(14, (plotT + plotB) / 2)
+  ctx.translate(exporting ? 17 : 14, (plotT + plotB) / 2)
   ctx.rotate(-Math.PI / 2)
   ctx.fillText('FFT Magnitude (dB)', 0, 0)
   ctx.restore()

@@ -5,8 +5,8 @@
 // header · accent bar · metadata · embedded spectrum image · peaks table · analysis
 // (guitar boxes / plate · brace properties) · tap instructions · footer.
 //
-// The embedded chart is the SAME white composite the PNG export produces
-// (renderSpectrumToCanvas), so the PDF and the standalone PNG never drift. The caller
+// The embedded chart is the SAME image the PNG export produces (renderSpectrumToCanvas — the chart on white
+// inside a transparent margin), so the PDF and the standalone PNG never drift. The caller
 // assembles a fully-resolved PdfReportData (peak rows, analysis numbers, quality
 // labels/colors) — this module is pure layout, mirroring how Swift's PDFReportData is
 // built before the view renders it.
@@ -344,14 +344,11 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
   // proportions, as Swift's does.
   const canvas = renderSpectrumToCanvas(data.image)
   const frameH = (CONTENT_W * canvas.height) / canvas.width
-  // Dark matte around the chart, mirroring Swift's `.background(Color(white: 0.05)).cornerRadius(6)`.
-  // It marks where the captured spectrum ends and the report begins. On Swift the frame is not a
-  // stroke at all — its chart PNG carries transparent padding and the near-black background shows
-  // THROUGH it. The web's canvas is opaque white, so the same look is drawn deliberately: a #0D0D0D
-  // rounded rect the size of Swift's image, with the chart inset into it.
-  const MATTE = 5
-  const innerH = frameH - MATTE * 2
-  const innerW = (innerH * canvas.width) / canvas.height
+  // Dark matte behind the chart, mirroring Swift's `.background(Color(white: 0.05)).cornerRadius(6)`.
+  // It marks where the captured spectrum ends and the report begins. The frame is not a stroke: the
+  // chart canvas carries a transparent 16 pt margin (Swift's padding outside its background) and the
+  // matte shows THROUGH it. So the image fills the matte at the content width, as Swift's does; an inset
+  // here would add a second frame inside that margin.
   doc.setFillColor(CHART_MATTE[0], CHART_MATTE[1], CHART_MATTE[2])
   doc.roundedRect(L, cur.y, CONTENT_W, frameH, 6, 6, 'F')
   // ⚠ The trailing 'MEDIUM' is load-bearing. jsPDF's `compression` argument defaults to 'NONE',
@@ -360,7 +357,7 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
   // 0.62 MB). Flate is lossless (pixels are bit-identical); FAST gives 26.9×, MEDIUM 31.1×, SLOW
   // 31.7× — MEDIUM is the knee of the curve. The `undefined` is the optional `alias` slot;
   // compression is the 8th parameter.
-  doc.addImage(canvas.toDataURL('image/png'), 'PNG', L + (CONTENT_W - innerW) / 2, cur.y + MATTE, innerW, innerH, undefined, 'MEDIUM')
+  doc.addImage(canvas.toDataURL('image/png'), 'PNG', L, cur.y, CONTENT_W, frameH, undefined, 'MEDIUM')
   cur.y += frameH + 14
 
   divider(cur)

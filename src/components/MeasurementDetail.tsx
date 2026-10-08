@@ -22,11 +22,12 @@ export interface MeasurementDetailProps {
   onClose: () => void
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+/** Swift's GroupBox row: a small secondary "Label:" then the value at body size, left to right. */
+function InfoRow({ label, value, name = false }: { label: string; value: string; name?: boolean }) {
   return (
     <div className="detail-row">
       <span className="detail-label">{label}</span>
-      <span className="detail-value">{value}</span>
+      <span className={`detail-value${name ? ' name' : ''}`}>{value}</span>
     </div>
   )
 }
@@ -86,9 +87,9 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
       <div className="settings-modal measurements-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-modal-head">
           <h2>Measurement Details</h2>
-          <div className="set-head-buttons">
-            <button className="btn btn-primary" onClick={onClose}>
-              Close
+          <div className="set-head-buttons phone-only">
+            <button className="btn" onClick={onClose}>
+              Done
             </button>
           </div>
         </div>
@@ -96,7 +97,8 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
         <div className="settings-body">
           <section className="detail-section">
             <h3>Measurement Info</h3>
-            {m.measurementName && <InfoRow label="Measurement Name:" value={m.measurementName} />}
+            <div className="detail-box detail-info">
+            {m.measurementName && <InfoRow label="Measurement Name:" value={m.measurementName} name />}
             <InfoRow label="Date:" value={formatDisplayDate(m.timestamp)} />
             <InfoRow label="Measurement Type:" value={measurementTypeName(m)} />
             {m.numberOfTaps != null && <InfoRow label="Number of Taps:" value={String(m.numberOfTaps)} />}
@@ -105,25 +107,30 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
             {!comparison && <InfoRow label="Microphone:" value={m.microphoneName || 'unknown'} />}
             {m.calibrationName && <InfoRow label="Calibration:" value={m.calibrationName} />}
             {m.notes && (
-              <div className="detail-notes">
+              <div className="detail-row">
                 <span className="detail-label">Notes:</span>
-                <p>{m.notes}</p>
+                <span className="detail-value notes">{m.notes}</span>
               </div>
             )}
+            </div>
           </section>
 
           {comparison ? (
             <section className="detail-section">
               <h3>Compared Spectra ({comparisonRows.length})</h3>
-              <ComparisonResultsView rows={comparisonRows} />
+              <div className="detail-box">
+                <ComparisonResultsView rows={comparisonRows} />
+              </div>
             </section>
           ) : (
             <section className="detail-section">
               <h3>Identified Peaks</h3>
               {shownPeaks.length === 0 ? (
-                <p className="empty">No identified peaks.</p>
+                <div className="detail-box">
+                  <p className="empty">No identified peaks</p>
+                </div>
               ) : (
-                <div className="detail-peaks">
+                <div className="detail-box detail-peaks">
                   {/* The results panel's peak card, read-only (no star, no mode menu) — as Swift's
                       Details reuses CombinedPeakModeRowView. */}
                   {shownPeaks.map((p) => {
@@ -148,6 +155,12 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
               )}
             </section>
           )}
+        </div>
+        {/* Done at the bottom right, as every form (at the top on a phone): plain, since it only closes. */}
+        <div className="settings-modal-foot not-phone">
+          <button className="btn" onClick={onClose}>
+            Done
+          </button>
         </div>
       </div>
     </div>

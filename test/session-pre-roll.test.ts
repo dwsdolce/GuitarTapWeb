@@ -7,6 +7,7 @@
 // so these assert exact sample counts.
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import { SampleBuffer } from '../src/audio/sampleBuffer'
 
 const CHUNK_LEN = 1024 // ~21 ms at 48 kHz
 
@@ -16,7 +17,7 @@ type SessionInternals = {
   sessionRecording: boolean
   sessionPreRollActive: boolean
   gatedCaptureActive: boolean
-  sessionSamples: number[]
+  sessionSamples: SampleBuffer
   maintainSessionRecording(s: Float32Array): void
   readonly sessionPreRollSamples: number
 }
@@ -28,7 +29,7 @@ function armed(): { a: TapToneAnalyzer; s: SessionInternals } {
   s.sessionRecording = true
   s.sessionPreRollActive = true
   s.gatedCaptureActive = false
-  s.sessionSamples = []
+  s.sessionSamples = new SampleBuffer()
   return { a, s }
 }
 

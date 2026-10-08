@@ -10,6 +10,10 @@
 import {
   TapIcon,
   PauseIcon,
+  PlayIcon,
+  CheckIcon,
+  StarIcon,
+  EyeOffIcon,
   CancelIcon,
   UndoIcon,
   AutoDbIcon,
@@ -34,6 +38,12 @@ import {
   SearchIcon,
   GaugeIcon,
   RefreshIcon,
+  GuitarsIcon,
+  MaterialLayersIcon,
+  BookClosedIcon,
+  DocumentIcon,
+  InfoIcon,
+  DotViewfinderIcon,
 } from './icons'
 
 // Icon registry — keys used by the section/row data below. The control glyphs (tap, pause, cancel,
@@ -42,6 +52,10 @@ import {
 const ICONS = {
   tap: TapIcon,
   pause: PauseIcon,
+  play: PlayIcon,
+  check: CheckIcon,
+  star: StarIcon,
+  eyeOff: EyeOffIcon,
   cancel: CancelIcon,
   undo: UndoIcon,
   autoDb: AutoDbIcon,
@@ -66,14 +80,21 @@ const ICONS = {
   search: SearchIcon,
   gauge: GaugeIcon,
   refresh: RefreshIcon,
+  guitars: GuitarsIcon,
+  materialLayers: MaterialLayersIcon,
+  bookClosed: BookClosedIcon,
+  document: DocumentIcon,
+  info: InfoIcon,
+  dotViewfinder: DotViewfinderIcon,
 } as const
 type IconKey = keyof typeof ICONS
 
-/** One help entry: an optional bold title, a body paragraph, and an optional leading glyph. */
+/** One help entry: an optional bold title, a body paragraph, and the glyphs of the controls it describes —
+ *  one, or several for a control that changes (Pause / Resume / Accept), as Swift's `systemImages`. */
 export interface QSRow {
   title?: string
   body: string
-  icon?: IconKey
+  icon?: IconKey | IconKey[]
 }
 /** A help section: a titled group of {@link QSRow}s with an optional intro and section glyph. */
 export interface QSSection {
@@ -86,9 +107,9 @@ export interface QSSection {
 /**
  * The Quick Start Guide content, ported from the canonical source (Swift `HelpView` /
  * Python `HelpDialog`), adapted for the web: the desktop menu bar + keyboard shortcuts
- * become the two toolbars (the web has no shortcuts), the iPhone-only and "Re-analyze
- * Peaks" notes are dropped (no web equivalent), the selection-reset control is the "Auto"
- * button, and the always-live crosshair is documented.
+ * become the two toolbars (the web has no shortcuts), the iPhone- and iPad-only notes are
+ * dropped (no web equivalent), the selection-reset control is the "Auto" button, and the
+ * always-live crosshair is documented. Sections, rows and their order are Swift's.
  */
 // eslint-disable-next-line react-refresh/only-export-components -- static quick-start content array; kept with the guide component rather than in its own data module
 export const QUICK_START_SECTIONS: QSSection[] = [
@@ -96,12 +117,12 @@ export const QUICK_START_SECTIONS: QSSection[] = [
     title: 'What Guitar Tap Does',
     icon: 'waveform',
     intro:
-      "Guitar Tap uses your device's microphone to capture the brief ring-out after you tap a guitar or wood sample. A 65,536-point FFT (approximately 0.67 Hz resolution) reveals the resonant peaks that carry information about structural modes and material stiffness.",
-    rows: [
-      { title: 'Guitar mode', body: 'Classify resonant modes of a completed instrument.' },
-      { title: 'Plate mode', body: "Measure Young's modulus and quality of a raw tonewood plate." },
-      { title: 'Brace mode', body: "Measure Young's modulus and quality of a brace strip (single longitudinal tap)." },
-    ],
+      "Guitar Tap uses your device's microphone to capture the brief ring-out after you tap a guitar or wood sample. A 65,536-point FFT (≈0.67 Hz resolution) reveals the resonant peaks that carry information about structural modes and material stiffness.\n\n" +
+      'Three main workflows are supported:\n' +
+      '• Guitar mode — classify resonant modes of a completed instrument.\n' +
+      "• Plate mode — measure Young's modulus and quality of a raw tonewood plate.\n" +
+      "• Brace mode — measure Young's modulus and quality of a brace strip (single longitudinal tap).",
+    rows: [],
   },
   {
     title: 'First-Time Setup',
@@ -131,7 +152,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
   },
   {
     title: 'Guitar Mode',
-    icon: 'music',
+    icon: 'guitars',
     rows: [
       {
         title: 'Overview',
@@ -146,7 +167,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
         body: 'The spectrum updates in real time as soon as the app opens. Set the device microphone 5–15 cm from the guitar, aimed at the sound hole or tap point.',
       },
       {
-        title: 'Step 3 — New Tap',
+        title: 'Step 3 — Tap New Tap',
         body: 'Click the New Tap button to arm the detector, then give the guitar top (or back, side, etc.) a firm knuckle rap. The spectrum freezes automatically when a tap is detected.',
       },
       {
@@ -163,6 +184,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Multi-Tap Comparison',
+        icon: 'waveform',
         body: "After a multi-tap guitar sequence (2–10 taps), the Results panel header shows a Taps button. Click it to switch to Multi-Tap Comparison view: the chart overlays each individual tap's spectrum in a distinct colour alongside the averaged spectrum, and the Results panel shows an Air / Top / Back frequency table with one row per tap plus a final Averaged row. Click the button again to return to the normal averaged view. The per-tap data is saved with the measurement and reloads correctly — the Taps button reappears whenever a measurement with multi-tap data is loaded.",
       },
       {
@@ -177,7 +199,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
   },
   {
     title: 'Plate Mode',
-    icon: 'layers',
+    icon: 'materialLayers',
     rows: [
       {
         title: 'Overview',
@@ -254,26 +276,21 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Pause / Resume • Accept (plate/brace review)',
-        icon: 'pause',
+        icon: ['pause', 'play', 'check'],
         body: 'Pause temporarily suspends tap detection while keeping the spectrum live — use it to let the ring-out decay between taps in a multi-tap sequence, or to reposition a plate or brace before continuing. Resume re-arms the detector. In plate and brace mode, after each phase is captured the spectrum freezes for review; while in a review state the button changes to Accept. Click Accept to confirm the captured spectrum and advance to the next phase (or complete the measurement if it was the last phase).',
       },
       {
         title: 'Cancel • Redo (plate/brace review)',
-        icon: 'cancel',
+        icon: ['cancel', 'undo'],
         body: "Cancel restarts the measurement — it discards all partial data and immediately re-arms a fresh sequence, so you can tap again without clicking New Tap. Cancel is available while a measurement is in progress. In plate and brace mode, while reviewing a captured phase the button changes to Redo — click Redo to discard only the current phase's data and re-capture it, preserving earlier phases. Either way the detector re-arms immediately.",
       },
       {
-        title: 'Crosshair',
-        icon: 'crosshair',
-        body: 'Move the pointer over the chart and a crosshair follows it, reading out the frequency and magnitude under the cursor. On a frozen spectrum it snaps to the nearest FFT bin; when comparing measurements or viewing material overlays it locks onto the nearest curve and takes that curve’s colour. With a mouse, trackpad, or pen the crosshair is always live and pressing-and-dragging pans. On a touchscreen, a Crosshair button appears on the toolbar (between Auto dB and Annotations) that switches a one-finger drag between moving the crosshair and panning.',
-      },
-      {
         title: 'Analysis Results',
-        icon: 'waveform',
+        icon: 'document',
         body: 'The Analysis Results panel shows the peak list, decay time, plate properties, quality rating, and (for Plate mode) the Gore target thickness. It also contains Export Spectrum and Export PDF Report buttons. The panel is to the right of the chart on a wide window and below it on a narrow one.',
       },
       {
-        title: 'Re-analyze',
+        title: 'Re-analyze Peaks',
         icon: 'refresh',
         body: 'Shown in the results panel header next to the microphone name. Re-runs peak detection on the frozen spectrum of any completed guitar measurement — live or loaded — re-classifies the modes from scratch, and returns peak selection to automatic. Custom mode names you have assigned are kept, though the peak carrying one may end up deselected. Useful for trying a different guitar type without re-tapping, or for a clean classification after manual changes. It no longer disables itself after one press, and does not apply to Plate or Brace measurements.',
       },
@@ -284,17 +301,16 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Annotations',
-        icon: 'eye',
+        icon: ['eye', 'star', 'eyeOff'],
         body: 'Cycles through three label modes: All peaks annotated, Selected peaks only, or None. For plate and brace there is no per-peak selection, so All and Selected show the same thing — all three identified frequencies (Longitudinal, Cross-grain, and Diagonal) — while None hides them.',
       },
       {
         title: 'Peak Labels',
-        icon: 'tag',
         body: 'Drag any peak label to reposition it and avoid overlaps. To reset an individual label: right-click it and choose "Reset Position". To reset all labels at once: right-click the chart area (not a label) and choose "Reset Labels".',
       },
       {
-        title: 'Play File',
-        icon: 'filePlay',
+        title: 'Play Audio File',
+        icon: 'play',
         body:
           "Click the Play File button in the toolbar to feed a WAV or audio file through the FFT pipeline instead of the microphone. The file's tap is analysed exactly as a live microphone tap — tap detection fires automatically, peaks are found, and results appear in the panel. The chart title shows the filename while the file plays. After playback the microphone restarts automatically.\n\n" +
           '⚠️ Plate and brace files need half a second of room tone before the first tap. Those modes measure the room’s noise floor from the audio ahead of the tap and detect relative to it, so the file must actually contain that lead-in. Recordings made by Guitar Tap always do. A file recorded elsewhere may not: if its first tap falls inside that opening half-second the tap is treated as part of the settling period, is not detected, and nothing is captured — re-record with a moment of silence in front of the first tap. Guitar files are unaffected.',
@@ -311,7 +327,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Compare Measurements',
-        icon: 'layers',
+        icon: 'waveform',
         body: 'In the Measurements list, click Compare to enter selection mode. Select 2–5 saved guitar measurements (plate and brace measurements cannot be compared). Click Compare Selected to overlay all selected spectra on the main chart as colour-coded curves with a legend. The chart, cursor, zoom, and pan all work normally. Press New Tap to exit comparison and return to single-measurement mode. While comparing: Annotations is disabled; Threshold and Peak Min sliders are disabled. Export Spectrum produces an overlay image with all curves, their colours, and a legend. Export PDF Report generates a comparison report showing the spectrum image and an Air / Top / Back peak frequency table for each spectrum. Save stores the entire comparison as a single record in the Measurements list — it can be reloaded later to restore the overlay view exactly as it was, and can itself be exported as a PDF or spectrum image from the list.',
       },
       {
@@ -321,7 +337,6 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Toolbar',
-        icon: 'sliders',
         body: 'All commands live on the two toolbars at the top of the window — the web app has no menu bar and no keyboard shortcuts. The upper (app) toolbar has Play File, Auto dB, Annotations, Save, Measurements, Metrics, Settings, and Help (Quick Start Guide / User Manual); on a touchscreen a Crosshair toggle also appears between Auto dB and Annotations. The lower (tap-control) toolbar has the Taps stepper, the Threshold and Peak Min sliders, and the New Tap, Pause/Resume, and Cancel buttons. Save and Export actions are disabled until a measurement is complete.',
       },
       {
@@ -330,14 +345,19 @@ export const QUICK_START_SECTIONS: QSSection[] = [
         body: 'For a complete reference — every measurement mode walked through in detail, full settings and controls reference, troubleshooting, glossary, and file-format specs — see the User Manual, hosted at dolcesfogato.com. Open it from Help → User Manual in the toolbar, or from Settings → About & Help. It opens in a new browser tab.',
       },
       {
-        title: 'Chart Options (⋯)',
+        title: 'Crosshair',
+        icon: 'dotViewfinder',
+        body: 'Move the pointer over the chart and a crosshair follows it, reading out the frequency and magnitude under the cursor. On a frozen spectrum it snaps to the nearest FFT bin; when comparing measurements or viewing material overlays it locks onto the nearest curve and takes that curve’s colour. With a mouse, trackpad, or pen the crosshair is always live and pressing-and-dragging pans. On a touchscreen, a Crosshair button appears on the toolbar (between Auto dB and Annotations) that switches a one-finger drag between moving the crosshair and panning.',
+      },
+      {
+        title: 'Chart Options',
         icon: 'ellipsis',
         body: 'The ellipsis (⋯) button in the top-right corner of the spectrum opens the Chart Options menu. From here you can reset either or both axes to the values you last saved in Settings ("Reset to Saved"), or restore the factory defaults ("Reset to Defaults"). If peak labels have been dragged from their auto-positions, "Reset Labels" moves them back. Right-clicking the chart opens the same menu.',
       },
       {
-        title: 'Zoom & Pan',
-        icon: 'search',
-        body: 'Scroll over the chart to zoom — the axis depends on where the pointer is: over the plot area it zooms both axes; over the frequency axis (bottom) it zooms frequency only; over the magnitude axis (left) it zooms magnitude only. Drag to pan the same way. Modifier keys: Shift+Scroll — pan frequency; Alt+Scroll — pan magnitude; Cmd/Ctrl+Scroll — zoom both axes. To reset the axes, click the ⋯ Chart Options button (top-right) or right-click anywhere inside the chart.',
+        title: 'Zoom & Pan Help',
+        icon: 'info',
+        body: "The info (ⓘ) button in the top-right corner of the spectrum shows a full reference card for navigating the chart. Scroll wheel and drag gestures are context-sensitive: position the pointer over the plot to operate on both axes, over the frequency axis (bottom) to operate on frequency only, or over the magnitude axis (left) to operate on magnitude only. Modifier-key shortcuts are also available: Shift+Scroll — pan frequency; Alt+Scroll — pan magnitude; Cmd/Ctrl+Scroll — zoom both axes. Right-click the chart area to reset axes and labels; right-click a label to reset just that label's position.",
       },
     ],
   },
@@ -347,22 +367,18 @@ export const QUICK_START_SECTIONS: QSSection[] = [
     rows: [
       {
         title: 'Taps (stepper)',
-        icon: 'tap',
         body: 'How many taps to average together (1–10). Averaging reduces noise from tap-position variability and ambient sound. Values of 3–5 are a good starting point for material work.',
       },
       {
         title: 'Threshold (slider)',
-        icon: 'gauge',
         body: 'The signal level that triggers tap detection. If taps are being missed, move the slider left (lower). If ambient noise triggers false detections, move it right (higher). Displayed in dB. In Plate and Brace mode the threshold is relative — it sets the headroom above an adaptive noise floor estimate, so the trigger adapts to the ambient noise level.',
       },
       {
         title: 'Peak Min (slider)',
-        icon: 'sliders',
         body: "Minimum magnitude a peak must reach to be shown — in the results list and annotated on the chart. Peak Min is a display filter over the measurement's stored peaks: moving it shows or hides peaks but never re-detects them, changes which are selected, or how they are classified — so a peak hidden then revealed returns exactly as it was. (Every detected peak is kept with the saved measurement regardless of Peak Min.) In brace/plate mode the tap capture uses its own adaptive noise floor, and Peak Min affects only what is visible on the chart. Move the slider left to show quieter peaks; right to suppress noise. Displayed in dB.",
       },
       {
         title: 'Reset arrows',
-        icon: 'undo',
         body: 'Each slider has a small reset button that resets it to the factory default value.',
       },
     ],
@@ -377,7 +393,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Measurement Type',
-        body: 'Shown below Audio Input. Choose Generic Guitar (the default), Acoustic/Steel String, Classical, Flamenco, Material (Plate), or Material (Brace). Determines which mode frequency windows are applied and which calculations appear in Results.',
+        body: 'Shown below Audio Input. Choose Generic Guitar (broad ranges covering all guitar types, default), Acoustic/Steel String, Classical, Flamenco, Material (Plate), or Material (Brace). Determines which mode frequency windows are applied and which calculations appear in Results.',
       },
       {
         title: 'Advanced (collapsed section)',
@@ -423,17 +439,22 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Comparing Guitar Measurements',
-        body: 'Save a measurement for each build stage or measurement name with a descriptive label. Use the Measurements list Compare button to overlay 2–5 saved guitar measurements as colour-coded spectra on the main chart — ideal for tracking how bracing or finishing changes the resonant modes over time.',
+        body: 'Save a measurement for each build stage or measurement name with a descriptive label. Use the Measurements list Compare button to overlay 2–5 saved guitar measurements as colour-coded spectra on the main chart — ideal for tracking how bracing or finishing changes the resonant modes over time. Export measurements as .guitartap files for transfer between devices.',
       },
       {
         title: 'PDF Reports',
         body: 'Each saved measurement can generate a PDF report containing the spectrum chart, peak table, and analysis summary. Open Measurements, select a measurement, then use the PDF export button. Saved comparison records generate a comparison PDF showing the overlay spectrum and an Air / Top / Back frequency table for each spectrum. A comparison PDF can also be exported directly from the main view while a live comparison is active, using Export PDF Report in the Analysis Results panel.',
       },
+      {
+        title: 'Zooming the Spectrum',
+        icon: 'info',
+        body: 'Scroll over the chart to zoom — the axis depends on where the pointer is: over the plot area it zooms both axes; over the frequency axis (bottom) it zooms frequency only; over the magnitude axis (left) it zooms magnitude only. Drag to pan the same way. Modifier keys: Shift+Scroll — pan frequency; Alt+Scroll — pan magnitude; Cmd/Ctrl+Scroll — zoom both axes. To reset the axes, click the ⋯ Chart Options button (top-right) or right-click anywhere inside the chart.',
+      },
     ],
   },
   {
     title: 'Glossary',
-    icon: 'bookOpen',
+    icon: 'bookClosed',
     rows: [
       {
         title: 'Air (Helmholtz) mode',
@@ -519,18 +540,24 @@ export function QuickStartGuide({ onClose }: { onClose: () => void }) {
                 </h3>
                 {s.intro && <p className="qs-intro">{s.intro}</p>}
                 {s.rows.map((r, i) => {
-                  const RowIcon = r.icon ? ICONS[r.icon] : null
+                  // Swift's helpRow: the icons and the title on one line, the body under both.
+                  const keys = r.icon == null ? [] : Array.isArray(r.icon) ? r.icon : [r.icon]
                   return (
-                    <div key={i} className={`qs-row${RowIcon ? ' has-icon' : ''}`}>
-                      {RowIcon && (
-                        <span className="qs-row-icon">
-                          <RowIcon />
-                        </span>
+                    <div key={i} className="qs-row">
+                      {r.title && (
+                        <div className="qs-row-title">
+                          {keys.map((k) => {
+                            const RowIcon = ICONS[k]
+                            return (
+                              <span key={k} className="qs-row-icon">
+                                <RowIcon />
+                              </span>
+                            )
+                          })}
+                          {r.title}
+                        </div>
                       )}
-                      <div className="qs-row-main">
-                        {r.title && <div className="qs-row-title">{r.title}</div>}
-                        <div className="qs-row-body">{r.body}</div>
-                      </div>
+                      <div className="qs-row-body">{r.body}</div>
                     </div>
                   )
                 })}

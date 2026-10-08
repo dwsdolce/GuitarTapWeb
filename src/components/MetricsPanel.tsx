@@ -72,7 +72,7 @@ export function MetricsPanel({ metrics: m, onClose }: MetricsPanelProps) {
         <div className="settings-modal-head">
           <h2>Analysis Metrics</h2>
           <div className="set-head-buttons">
-            <button className="btn btn-primary" onClick={onClose}>
+            <button className="btn" onClick={onClose}>
               Done
             </button>
           </div>

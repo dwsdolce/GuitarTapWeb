@@ -1,8 +1,9 @@
 // @parity none
-// Dump Capture Audio on the web: a download, not a folder. Every sequence is recorded and the setting
-// is read when the session finishes, so turning it on mid-sequence saves that sequence (as Swift and
-// Python). The page is not told whether the browser saved the download, so the analyzer names the
-// file it handed over and the page shows it.
+// Dump Capture Audio on the web: a download, not a folder. Recording is decided when a sequence starts, from
+// the setting: with it off nothing is kept, and turning it on mid-sequence takes effect from the next sequence;
+// a loaded measurement or comparison ends the sequence and its recording (as Swift and Python). The page is
+// not told whether the browser saved the download, so the analyzer names the file it handed over and the page
+// shows it.
 import { afterEach, describe, it, expect, vi } from 'vitest'
 
 const dumped: string[] = []
@@ -25,12 +26,28 @@ function recordingAnalyzer(dumpCaptureAudio: boolean): TapToneAnalyzer {
   return analyzer
 }
 
-describe('Dump Capture Audio — the setting is read when the session finishes', () => {
-  it('saving turned on after the sequence started saves that sequence', () => {
+const held = (a: TapToneAnalyzer): number => (a['sessionSamples'] as { length: number }).length
+
+describe('Dump Capture Audio — recording is decided when the sequence starts', () => {
+  it('saving off records nothing', () => {
+    const analyzer = recordingAnalyzer(false)
+    expect(held(analyzer)).toBe(0)
+  })
+
+  it('saving turned on mid-sequence takes effect from the next sequence', () => {
     const analyzer = recordingAnalyzer(false)
     analyzer.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio: true })
+    // A pause and resume does not start it either.
+    analyzer['suspendSessionRecording']()
+    analyzer['resumeSessionRecording']()
+    analyzer['maintainSessionRecording'](new Float32Array(1024).fill(0.1))
+    expect(held(analyzer)).toBe(0)
     analyzer.finishSessionRecording('Guitar_1tap')
-    expect(dumped).toEqual(['session_Guitar_1tap'])
+    expect(dumped).toEqual([])
+    // The next sequence records.
+    analyzer.startSessionRecording()
+    analyzer['maintainSessionRecording'](new Float32Array(1024).fill(0.1))
+    expect(held(analyzer)).toBe(1024)
   })
 
   it('saving turned off after the sequence started saves nothing', () => {
@@ -38,6 +55,16 @@ describe('Dump Capture Audio — the setting is read when the session finishes',
     analyzer.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio: false })
     analyzer.finishSessionRecording('Guitar_1tap')
     expect(dumped).toEqual([])
+  })
+
+  it('a loaded measurement ends the recording', () => {
+    const analyzer = recordingAnalyzer(true)
+    expect(held(analyzer)).toBe(1024)
+    analyzer.enterFrozen()
+    expect(held(analyzer)).toBe(0)
+    // Audio after the load is not kept.
+    analyzer['maintainSessionRecording'](new Float32Array(1024).fill(0.1))
+    expect(held(analyzer)).toBe(0)
   })
 })
 

@@ -1,5 +1,5 @@
 // @parity view/settings
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useRef, useState, type ChangeEvent, type ReactNode, type SelectHTMLAttributes } from 'react'
 import { NumberField } from './NumberField'
 import { FieldPrecision } from '../precision'
 import { formattedAsWholeHertz } from '../presentation/frequencyFormat'
@@ -31,8 +31,9 @@ import {
 } from '../settings'
 import type { ChartView } from '../presentation/chartTypes'
 import { enteredValue } from '../presentation/displayRange'
-import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 import { APPEARANCES, APPEARANCE_LABEL, type Appearance } from '../presentation/appearance'
+import { AlertModal } from './AlertModal'
+import { MicrophoneIcon, GuitarsIcon, MaterialLayersIcon, CogsIcon, ChartLineIcon, PulseIcon, InfoIcon, FilePlusIcon, TrashIcon, SaveIcon, UndoIcon, HelpIcon, BookIcon, ChevronUpIcon, ChevronDownIcon, ChevronRightIcon, OpenInNewIcon, UnfoldMoreIcon } from './icons'
 
 /**
  * Props for {@link SettingsPanel}. Display/analysis/measurement edits are buffered and
@@ -73,6 +74,9 @@ export interface SettingsPanelProps {
   /** Delete a stored calibration profile. */
   onDeleteCalibration: (id: string) => void
 }
+
+/** The short mode names of Settings' Mode Frequency Ranges, as Swift's. */
+const MODE_RANGE_LABEL: Record<string, string> = { air: 'Air', top: 'Top', back: 'Back', dipole: 'Dipole', ring: 'Ring' }
 
 const STIFFNESS_PRESETS: StiffnessPreset[] = [
   'steelStringTop',
@@ -123,19 +127,81 @@ function RangeField({
 }) {
   return (
     <div className="set-range">
-      <div className="set-range-title">{title}</div>
-      <div className="set-range-inputs">
-        <span className="set-input">
-          <input type="text" inputMode="decimal" value={FieldPrecision.string(min, decimals)} onChange={(e) => restrictNumberInput(e, min, decimals, onMin)} />
-          <em>{unit}</em>
-        </span>
-        <span className="set-range-dash">–</span>
-        <span className="set-input">
-          <input type="text" inputMode="decimal" value={FieldPrecision.string(max, decimals)} onChange={(e) => restrictNumberInput(e, max, decimals, onMax)} />
-          <em>{unit}</em>
-        </span>
+      {/* The title and its fields on one row, the fields right-aligned — Swift's "min to max unit". */}
+      <div className="ts-row">
+        <span>{title}</span>
+        <div className="set-range-inputs">
+          <span className="set-input">
+            <input type="text" inputMode="decimal" aria-label={`${title} minimum`} value={FieldPrecision.string(min, decimals)} onChange={(e) => restrictNumberInput(e, min, decimals, onMin)} />
+          </span>
+          <span className="set-range-dash">to</span>
+          <span className="set-input">
+            <input type="text" inputMode="decimal" aria-label={`${title} maximum`} value={FieldPrecision.string(max, decimals)} onChange={(e) => restrictNumberInput(e, max, decimals, onMax)} />
+            <em>{unit}</em>
+          </span>
+      </div>
       </div>
       <p className="set-desc">{description}</p>
+    </div>
+  )
+}
+
+/** A Settings section — Swift's grouped Form section: an icon and a bold title, its rows in a grey
+ *  box with no lines between them, and an optional note under the box. */
+function SetSection({ icon, title, note, children }: { icon: ReactNode; title: string; note?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="ts-sec">
+      <div className="ts-title">
+        <span className="ts-icon">{icon}</span>
+        {title}
+      </div>
+      <div className="ts-box">{children}</div>
+      {note && <p className="ts-note">{note}</p>}
+    </section>
+  )
+}
+
+/** A group inside a section — a bold title, without an icon, over its own box. */
+function SetGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="ts-sec ts-group">
+      <div className="ts-title">{title}</div>
+      <div className="ts-box">{children}</div>
+    </section>
+  )
+}
+
+/** A setting that is on or off: its label and description on the left, the checkbox right-aligned —
+ *  as every other control (Swift's checkbox toggle, Python's). */
+function SetToggle({ label, description, checked, onChange, disabled = false }: { label: string; description?: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <label className="ts-toggle">
+      <span className="ts-toggle-text">
+        <span>{label}</span>
+        {description && <span className="ts-toggle-desc">{description}</span>}
+      </span>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+    </label>
+  )
+}
+
+/** A label on the left, its value or control on the right. */
+/** A menu picker drawn as Swift's: a filled rounded box with the value and a ⌃⌄ at its right. The menu is the
+ *  browser's own. */
+function MenuPicker(props: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <span className="menu-picker">
+      <select {...props} />
+      <UnfoldMoreIcon />
+    </span>
+  )
+}
+
+function SetRow({ label, children, secondary = false }: { label: string; children: ReactNode; secondary?: boolean }) {
+  return (
+    <div className="ts-row">
+      <span className={secondary ? 'ts-secondary' : undefined}>{label}</span>
+      {children}
     </div>
   )
 }
@@ -167,6 +233,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const calFileInput = useRef<HTMLInputElement>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [confirmDeleteAll, setConfirmDeleteAll] = useState(false)
   // Buffered edits — applied on Done, discarded on Cancel (mirrors Swift's dialog).
   const [d, setD] = useState<Settings>(settings)
   const patch = (p: Partial<Settings>) => setD((cur) => ({ ...cur, ...p }))
@@ -234,12 +301,23 @@ export function SettingsPanel({
     onClose()
   }
 
+  const isGuitar = isGuitarType(d.measurementType)
+  const activeCalibration = calibrations.find((c) => c.id === activeCalibrationId) ?? null
+  const guitarBands = isGuitarType(d.measurementType) ? modeBands(d.measurementType) : []
+  const density = (dims: Dimensions) => (
+    <SetRow label="Calculated Density" secondary>
+      <b className="ts-value">{FieldPrecision.string(new MaterialDimensions(dims).densityGPerCm3, FieldPrecision.densityGPerCm3)} g/cm³</b>
+    </SetRow>
+  )
+
   return (
     <div className="settings-overlay" role="dialog" aria-label="Settings" onClick={onClose}>
-      <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="settings-modal tap-settings" onClick={(e) => e.stopPropagation()}>
         <div className="settings-modal-head">
           <h2>Tap Settings</h2>
-          <div className="set-head-buttons">
+          {/* On a phone Cancel / Done sit at the top, as an iPhone's navigation bar; elsewhere at the
+              bottom, as a macOS sheet's. */}
+          <div className="set-head-buttons phone-only">
             <button className="btn" onClick={onClose}>
               Cancel
             </button>
@@ -251,12 +329,13 @@ export function SettingsPanel({
 
         <div className="settings-body">
           {/* ── Audio Input & Calibration (applies immediately — not buffered) ── */}
-          <section>
-            <h3>Audio Input &amp; Calibration</h3>
-            <label className="set-field">
-              <span>Audio Input Device</span>
-              <select
-                className="set-input-select"
+          <SetSection
+            icon={<MicrophoneIcon />}
+            title="Audio Input & Calibration"
+            note="Audio input and calibration changes take effect immediately and are not affected by Cancel. Calibrations are automatically associated with each device."
+          >
+            <SetRow label="Audio Input Device">
+              <MenuPicker
                 value={currentDeviceId ?? ''}
                 onChange={(e) => onSelectDevice(e.target.value)}
                 disabled={inputDevices.length === 0}
@@ -267,15 +346,13 @@ export function SettingsPanel({
                     {dvc.label || `Microphone ${i + 1}`}
                   </option>
                 ))}
-              </select>
-            </label>
-            <div className="set-readout">
-              Sample rate <b>{sampleRate ? formattedAsWholeHertz(sampleRate) : '—'}</b>
-            </div>
-            <label className="set-field">
-              <span>Calibration</span>
-              <select
-                className="set-input-select"
+              </MenuPicker>
+            </SetRow>
+            <SetRow label="Sample Rate">
+              <span className="ts-value">{sampleRate ? formattedAsWholeHertz(sampleRate) : '—'}</span>
+            </SetRow>
+            <SetRow label="Calibration">
+              <MenuPicker
                 value={activeCalibrationId ?? ''}
                 onChange={(e) => onSelectCalibration(e.target.value || null)}
               >
@@ -285,15 +362,30 @@ export function SettingsPanel({
                     {c.name}
                   </option>
                 ))}
-              </select>
-            </label>
-            <div className="set-cal-actions">
-              <button className="btn mini" onClick={() => calFileInput.current?.click()}>
-                Import…
+              </MenuPicker>
+            </SetRow>
+            {activeCalibration && (
+              <div className="ts-cal-details">
+                <span>
+                  {activeCalibration.sensitivityFactor != null && <>Sensitivity: {activeCalibration.sensitivityFactor.toFixed(2)} dB<br /></>}
+                  Data points: {activeCalibration.points.length}
+                </span>
+                {activeCalibration.points.length > 0 && (
+                  <span>
+                    {activeCalibration.points[0]!.frequency.toFixed(0)}-{activeCalibration.points[activeCalibration.points.length - 1]!.frequency.toFixed(0)} Hz
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="ts-actions">
+              <button className="btn mini tint tint-accent" onClick={() => calFileInput.current?.click()}>
+                <FilePlusIcon />
+                <span>Import Calibration File…</span>
               </button>
-              {activeCalibrationId && (
-                <button className="btn mini danger" onClick={() => onDeleteCalibration(activeCalibrationId)}>
-                  Delete
+              {calibrations.length > 0 && (
+                <button className="btn mini tint tint-accent" onClick={() => setConfirmDeleteAll(true)}>
+                  <TrashIcon />
+                  <span>Delete All Calibrations</span>
                 </button>
               )}
               <input
@@ -308,80 +400,99 @@ export function SettingsPanel({
                 }}
               />
             </div>
-            <p className="set-note">
-              Applied immediately (not via Done). Import a UMIK-1 / REW calibration file; corrections
-              are added to the spectrum and remembered for this microphone.
-            </p>
-          </section>
+          </SetSection>
+          {confirmDeleteAll && (
+            <AlertModal
+              title="Delete All Calibrations?"
+              message={`This will permanently delete all ${calibrations.length} saved calibrations. This cannot be undone.`}
+              buttons={[
+                {
+                  label: 'Delete All',
+                  primary: true,
+                  onClick: () => {
+                    for (const c of calibrations) onDeleteCalibration(c.id)
+                    setConfirmDeleteAll(false)
+                  },
+                },
+                { label: 'Cancel', onClick: () => setConfirmDeleteAll(false) },
+              ]}
+              onDismiss={() => setConfirmDeleteAll(false)}
+            />
+          )}
 
-          {/* ── Measurement Type (with type-conditional inputs nested) ── */}
-          <section>
-            <h3>Measurement Type</h3>
-            <select
-              className="set-select"
-              value={d.measurementType}
-              onChange={(e) => patch({ measurementType: e.target.value as MeasurementType })}
-            >
-              {MEASUREMENT_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {MEASUREMENT_FULL_NAME[t]}
-                </option>
-              ))}
-            </select>
+          {/* ── Measurement Type, then one titled box per group of its settings ── */}
+          <SetSection
+            icon={isGuitar ? <GuitarsIcon /> : <MaterialLayersIcon />}
+            title="Measurement Type"
+            note={
+              isGuitar
+                ? 'Select your guitar type for accurate mode classification.'
+                : 'Enter the dimensions and mass of your rectangular wood sample. The app will calculate stiffness, speed of sound, and radiation ratio from the tap frequencies.'
+            }
+          >
+            <SetRow label="Measurement Type">
+              <MenuPicker
+                value={d.measurementType}
+                onChange={(e) => patch({ measurementType: e.target.value as MeasurementType })}
+              >
+                {MEASUREMENT_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {MEASUREMENT_FULL_NAME[t]}
+                  </option>
+                ))}
+              </MenuPicker>
+            </SetRow>
             <p className="set-desc">{MEASUREMENT_DESCRIPTION[d.measurementType]}</p>
+          </SetSection>
 
-            {isGuitarType(d.measurementType) && (
-              <>
-                <h4>Mode Frequency Ranges</h4>
-                <table className="mode-range-table">
-                  <tbody>
-                    {modeBands(d.measurementType)
-                      .filter((b) => b.name !== 'upper')
-                      .map((b) => (
-                        <tr key={b.name}>
-                          <td>{MODE_DISPLAY_NAME[b.name]}</td>
-                          <td>
-                            {b.lo} – {b.hi} Hz
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </>
-            )}
+          {isGuitarType(d.measurementType) && (
+            <SetGroup title="Mode Frequency Ranges">
+              {/* Swift's two columns: Air / Top / Back, then Dipole / Ring. */}
+              <div className="ts-mode-ranges">
+                {[['air', 'top', 'back'], ['dipole', 'ring']].map((col) => (
+                  <div key={col[0]} className="ts-mode-col">
+                    {col.map((name) => {
+                      const b = guitarBands.find((band) => band.name === name)
+                      return b ? (
+                        <div key={name} className="ts-mode-row">
+                          <span className="ts-secondary">{MODE_RANGE_LABEL[name]}:</span>
+                          <span>
+                            {b.lo}-{b.hi} Hz
+                          </span>
+                        </div>
+                      ) : null
+                    })}
+                  </div>
+                ))}
+              </div>
+            </SetGroup>
+          )}
 
-            {d.measurementType === 'plate' && (
-              <>
-                <h4>Sample Dimensions</h4>
+          {d.measurementType === 'plate' && (
+            <>
+              <SetGroup title="Sample Dimensions">
                 <NumberField label="Length (along grain)" unit="mm" value={d.plateLength} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ plateLength: v })} />
                 <NumberField label="Width (cross grain)" unit="mm" value={d.plateWidth} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ plateWidth: v })} />
                 <NumberField label="Thickness" unit="mm" value={d.plateThickness} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ plateThickness: v })} />
                 <NumberField label="Mass" unit="g" value={d.plateMass} decimals={FieldPrecision.massG} onChange={(v) => patch({ plateMass: v })} />
-                <div className="set-readout">
-                  Density <b>{FieldPrecision.string(new MaterialDimensions(plateDims).densityGPerCm3, FieldPrecision.densityGPerCm3)}</b> g/cm³
-                </div>
-
-                <label className="set-field check">
-                  <input type="checkbox" checked={d.measureFlc} onChange={(e) => patch({ measureFlc: e.target.checked })} />
-                  <span>Measure Diagonal (fLC) Tap</span>
-                </label>
-                <p className="set-desc">
-                  Add a 3rd tap: hold plate at midpoint of one long edge, tap near opposite corner. Measures
-                  shear stiffness for Gore target thickness.
-                </p>
-
-                <h4>Gore Target Thickness — Body Dimensions</h4>
+                {density(plateDims)}
+                <SetToggle
+                  label="Measure Diagonal (fLC) Tap"
+                  description="Add a 3rd tap: hold plate at midpoint of one long edge, tap near opposite corner. Measures shear stiffness for Gore target thickness."
+                  checked={d.measureFlc}
+                  onChange={(v) => patch({ measureFlc: v })}
+                />
+              </SetGroup>
+              <SetGroup title="Gore Target Thickness — Body Dimensions">
                 <p className="set-desc">
                   Finished guitar body dimensions used in Gore's Eq. 4.5-7 to calculate target plate thickness.
                 </p>
                 <NumberField label="Body Length (a)" unit="mm" value={d.guitarBodyLength} decimals={FieldPrecision.bodyDimensionMM} onChange={(v) => patch({ guitarBodyLength: v })} />
                 <NumberField label="Lower Bout Width (b)" unit="mm" value={d.guitarBodyWidth} decimals={FieldPrecision.bodyDimensionMM} onChange={(v) => patch({ guitarBodyWidth: v })} />
-
-                <h4>Plate Vibrational Stiffness (f_vs)</h4>
-                <label className="set-field">
-                  <span>Panel Type</span>
-                  <select
-                    className="set-input-select"
+              </SetGroup>
+              <SetGroup title="Plate Vibrational Stiffness (f_vs)">
+                <SetRow label="Panel Type">
+                  <MenuPicker
                     value={d.plateStiffnessPreset}
                     onChange={(e) => patch({ plateStiffnessPreset: e.target.value as StiffnessPreset })}
                   >
@@ -390,47 +501,45 @@ export function SettingsPanel({
                         {STIFFNESS_LABEL[p]}
                       </option>
                     ))}
-                  </select>
-                </label>
+                  </MenuPicker>
+                </SetRow>
                 {d.plateStiffnessPreset === 'custom' && (
                   <NumberField label="Custom f_vs value" unit="" value={d.customPlateStiffness} decimals={FieldPrecision.stiffness} onChange={(v) => patch({ customPlateStiffness: v })} />
                 )}
-              </>
-            )}
+              </SetGroup>
+            </>
+          )}
 
-            {d.measurementType === 'brace' && (
-              <>
-                <h4>Brace Dimensions</h4>
-                <NumberField label="Length (along grain)" unit="mm" value={d.braceLength} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ braceLength: v })} />
-                <NumberField label="Width (breadth)" unit="mm" value={d.braceWidth} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ braceWidth: v })} />
-                <NumberField label="Height (tap direction)" unit="mm" value={d.braceThickness} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ braceThickness: v })} />
-                <p className="set-desc">Brace height when lying flat — this is the t dimension in the stiffness formula</p>
-                <NumberField label="Mass" unit="g" value={d.braceMass} decimals={FieldPrecision.massG} onChange={(v) => patch({ braceMass: v })} />
-                <div className="set-readout">
-                  Density <b>{FieldPrecision.string(new MaterialDimensions(braceDims).densityGPerCm3, FieldPrecision.densityGPerCm3)}</b> g/cm³
-                </div>
-              </>
-            )}
-            <p className="set-note">
-              {isGuitarType(d.measurementType)
-                ? 'Select your guitar type for accurate mode classification.'
-                : 'Enter the dimensions and mass of your rectangular wood sample. The app will calculate stiffness, speed of sound, and radiation ratio from the tap frequencies.'}
-            </p>
+          {d.measurementType === 'brace' && (
+            <SetGroup title="Brace Dimensions">
+              <NumberField label="Length (along grain)" unit="mm" value={d.braceLength} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ braceLength: v })} />
+              <NumberField label="Width (breadth)" unit="mm" value={d.braceWidth} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ braceWidth: v })} />
+              <NumberField label="Height (tap direction)" unit="mm" value={d.braceThickness} decimals={FieldPrecision.linearDimensionMM} onChange={(v) => patch({ braceThickness: v })} />
+              <p className="set-desc">Brace height when lying flat — this is the t dimension in the stiffness formula</p>
+              <NumberField label="Mass" unit="g" value={d.braceMass} decimals={FieldPrecision.massG} onChange={(v) => patch({ braceMass: v })} />
+              {density(braceDims)}
+            </SetGroup>
+          )}
+
+          {/* ── Advanced (collapsible): Display and Analysis settings ── */}
+          {/* Swift's disclosure row: the label, then the chevron at the right edge (down closed, up open). */}
+          <section className="ts-sec">
+            <div className="ts-box">
+              <button className="ts-disclosure" onClick={() => setShowAdvanced((v) => !v)} aria-expanded={showAdvanced}>
+                <span className="ts-icon">
+                  <CogsIcon />
+                </span>
+                <span>Advanced</span>
+                <span className="ts-chevron">{showAdvanced ? <ChevronUpIcon /> : <ChevronDownIcon />}</span>
+              </button>
+            </div>
           </section>
 
-          {/* ── Advanced (collapsible) ───────────────────────── */}
-          <section>
-            <button className="set-disclosure" onClick={() => setShowAdvanced((v) => !v)}>
-              <span>{showAdvanced ? '▾' : '▸'}</span> Advanced
-            </button>
-
-            {showAdvanced && (
-              <>
-                <h4>Display Settings</h4>
-                <label className="set-field">
-                  <span>Appearance</span>
-                  <select
-                    className="set-input-select"
+          {showAdvanced && (
+            <>
+              <SetSection icon={<ChartLineIcon />} title="Display Settings">
+                <SetRow label="Appearance">
+                  <MenuPicker
                     value={d.appearance}
                     onChange={(e) => patch({ appearance: e.target.value as Appearance })}
                   >
@@ -439,12 +548,12 @@ export function SettingsPanel({
                         {APPEARANCE_LABEL[a]}
                       </option>
                     ))}
-                  </select>
-                </label>
+                  </MenuPicker>
+                </SetRow>
                 <p className="set-desc">System follows the operating system&apos;s Light or Dark setting</p>
                 <RangeField
                   title="Frequency Range"
-                  description={`Frequency range shown in the spectrum chart for ${MEASUREMENT_FULL_NAME[d.measurementType]} (saved per measurement type)`}
+                  description="Frequency range shown in the spectrum chart"
                   unit="Hz"
                   min={minFrequency(d, d.measurementType)}
                   max={maxFrequency(d, d.measurementType)}
@@ -462,80 +571,98 @@ export function SettingsPanel({
                   onMax={(v) => patch({ maxDb: v })}
                   decimals={FieldPrecision.magnitudeDB}
                 />
-                <div className="set-buttons">
-                  <button className="btn mini" onClick={saveCurrentView} title="Save the spectrum chart's current zoom as the display range">
-                    Save Current View
+                <div className="ts-actions">
+                  <button className="btn mini tint tint-accent" onClick={saveCurrentView} title="Save the spectrum chart's current zoom as the display range">
+                    <SaveIcon />
+                    <span>Save Current View</span>
                   </button>
-                  <button className="btn mini" onClick={resetDisplay}>
-                    Reset to Defaults
+                  <button className="btn mini tint tint-accent" onClick={resetDisplay}>
+                    <UndoIcon />
+                    <span>Reset to Defaults</span>
                   </button>
                 </div>
+              </SetSection>
 
-                <h4>Analysis Settings</h4>
-                {isGuitarType(d.measurementType) && (
-                  <label className="set-field check">
-                    <input type="checkbox" checked={d.showUnknownModes} onChange={(e) => patch({ showUnknownModes: e.target.checked })} />
-                    <span>
-                      Show unknown modes
-                      <em className="set-inline-desc"> — peaks outside known mode ranges</em>
-                    </span>
-                  </label>
+              <SetSection icon={<PulseIcon />} title="Analysis Settings">
+                {isGuitar && (
+                  <SetToggle
+                    label="Show Unknown Modes"
+                    description="Display peaks that don't fall within known mode ranges"
+                    checked={d.showUnknownModes}
+                    onChange={(v) => patch({ showUnknownModes: v })}
+                  />
                 )}
                 {/* The analysis frequency range is a fixed 30–2000 Hz constant, not a user setting — it
                     bounds the useful modal region and never needs changing (see ANALYSIS_MIN_HZ /
                     ANALYSIS_MAX_HZ). The control was removed; detection still restricts to the range. */}
-                <div className={`set-range${isGuitarType(d.measurementType) ? '' : ' disabled'}`}>
-                  <div className="set-range-title">Peak Detection Minimum</div>
-                  <span className="set-input">
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={d.peakMinThreshold}
-                      disabled={!isGuitarType(d.measurementType)}
-                      onChange={(e) => restrictNumberInput(e, d.peakMinThreshold, FieldPrecision.magnitudeDB, (v) => patch({ peakMinThreshold: v }))}
-                    />
-                    <em>dB</em>
-                  </span>
+                <div className={`set-range${isGuitar ? '' : ' disabled'}`}>
+                  <div className="ts-row">
+                    <span>Peak Detection Minimum</span>
+                    <span className="set-input">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        aria-label="Peak Detection Minimum"
+                        value={d.peakMinThreshold}
+                        disabled={!isGuitar}
+                        onChange={(e) => restrictNumberInput(e, d.peakMinThreshold, FieldPrecision.magnitudeDB, (v) => patch({ peakMinThreshold: v }))}
+                      />
+                      <em>dB</em>
+                    </span>
+                  </div>
                   <p className="set-desc">Minimum magnitude for peak detection. Typical range: −60 to −40 dB</p>
                 </div>
-                <label className="set-field check">
-                  <input type="checkbox" checked={d.dumpCaptureAudio} onChange={(e) => patch({ dumpCaptureAudio: e.target.checked })} />
-                  <span>
-                    Dump capture audio
-                    {/* One WAV per measurement, not per tap/phase (session recording). The browser
-                        hides the Downloads path from the page and offers no way to open a folder, so
-                        the caption naming Downloads is the most the web can truthfully show — there is
-                        no path field or Open button here (unlike the native apps). */}
-                    <em className="set-inline-desc"> — download each measurement's captured audio as a 32-bit-float WAV, to your browser's Downloads folder</em>
-                  </span>
-                </label>
-                <button className="btn mini" onClick={() => resetKeys(ANALYSIS_KEYS)}>
-                  Reset analysis settings
-                </button>
-              </>
-            )}
-          </section>
+                {/* One WAV per measurement, not per tap/phase (session recording). The browser hides the
+                    Downloads path from the page and offers no way to open a folder, so naming Downloads is
+                    the most the web can truthfully show — no path field or Open button (unlike the native apps). */}
+                <SetToggle
+                  label="Dump Capture Audio"
+                  description="Download each measurement's captured audio as a 32-bit-float WAV, to your browser's Downloads folder"
+                  checked={d.dumpCaptureAudio}
+                  onChange={(v) => patch({ dumpCaptureAudio: v })}
+                />
+                <div className="ts-actions">
+                  <button className="btn mini tint tint-accent" onClick={() => resetKeys(ANALYSIS_KEYS)}>
+                    <UndoIcon />
+                    <span>Reset Analysis Settings</span>
+                  </button>
+                </div>
+              </SetSection>
+            </>
+          )}
 
           {/* ── About & Help ─────────────────────────────────── */}
-          <section>
-            <h3>About &amp; Help</h3>
-            <div className="set-readout">
-              Version <b>{__APP_VERSION__} ({__APP_BUILD__})</b>
-            </div>
-            <p className="set-note">
-              An acoustic analysis tool for guitar makers. Tap-tone analysis using real-time FFT to identify resonant
-              frequencies of guitar top and back plates.
-            </p>
-            <div className="set-help-links">
-              <button className="btn" onClick={onShowQuickStart}>
-                Quick Start Guide
-              </button>
-              <button className="btn" onClick={() => window.open(userManualUrl, '_blank', 'noopener,noreferrer')}>
-                User Manual
-              </button>
-            </div>
-            <p className="set-note">Copyright © 2026 David W. Smith dba Dolce Sfogato</p>
-          </section>
+          <SetSection icon={<InfoIcon />} title="About & Help">
+            <SetRow label="Version">
+              <span className="ts-secondary">
+                {__APP_VERSION__} ({__APP_BUILD__})
+              </span>
+            </SetRow>
+            <p className="set-desc">Copyright © 2026 David W. Smith dba Dolce Sfogato</p>
+            <button className="ts-link" onClick={onShowQuickStart}>
+              <HelpIcon />
+              <span>Quick Start Guide</span>
+              <span className="ts-chevron ts-trailing">
+                <ChevronRightIcon />
+              </span>
+            </button>
+            <button className="ts-link" onClick={() => window.open(userManualUrl, '_blank', 'noopener,noreferrer')}>
+              <BookIcon />
+              <span>User Manual</span>
+              <span className="ts-chevron ts-trailing">
+                <OpenInNewIcon />
+              </span>
+            </button>
+          </SetSection>
+        </div>
+
+        <div className="settings-modal-foot not-phone">
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" onClick={done}>
+            Done
+          </button>
         </div>
       </div>
     </div>

@@ -8,8 +8,10 @@
   /* Base padding + the iOS safe-area insets (notch, translucent status bar, home indicator) so the
      installed standalone PWA doesn't tuck content under the system UI. env(...) is 0 on desktop and
      non-notch devices, so this is a no-op there. */
-  padding: calc(1rem + env(safe-area-inset-top)) calc(1rem + env(safe-area-inset-right))
-    calc(1.25rem + env(safe-area-inset-bottom)) calc(1rem + env(safe-area-inset-left));
+  --app-pad-side: 1rem;
+  --app-pad-bottom: 1.25rem;
+  padding: calc(1rem + env(safe-area-inset-top)) calc(var(--app-pad-side) + env(safe-area-inset-right))
+    calc(var(--app-pad-bottom) + env(safe-area-inset-bottom)) calc(var(--app-pad-side) + env(safe-area-inset-left));
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
@@ -98,74 +100,82 @@
 }
 .qs-scroll {
   overflow-y: auto;
-  padding: 0.5rem 1.25rem 1.25rem;
+  padding: 0 1.25rem 1.25rem;
 }
+/* Swift's HelpView list: each section a small secondary header with a line under it; the overview body text
+   (13 px, primary); each entry a row — an 11 px semibold title over a 10 px secondary description — with a
+   line between rows. */
 .qs-section {
-  padding: 0.85rem 0;
-  border-bottom: 1px solid var(--c-separator);
+  padding: 12px 0 4px;
 }
-.qs-section:last-child {
-  border-bottom: none;
-}
+/* The header pins to the top while its section scrolls, and the next section's header replaces it — Swift's
+   list section headers. */
 .qs-h {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--c-background-panel);
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 0.6rem;
-  font-size: 1rem;
-  color: var(--c-accent-text);
+  gap: 6px;
+  margin: 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--c-separator);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
 }
 .qs-h-icon {
   display: inline-flex;
-  color: var(--c-accent-text);
+  color: var(--c-text-secondary);
 }
 .qs-h-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
 }
-.qs-row.has-icon {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-}
+/* Swift's helpRow icons: each in a 20 px slot, 6 px apart, before the title. */
 .qs-row-icon {
-  flex: 0 0 auto;
+  flex: none;
   display: inline-flex;
-  margin-top: 0.1rem;
-  color: var(--c-text-secondary);
+  justify-content: center;
+  width: 20px;
+  color: var(--c-accent-text);
 }
 .qs-row-icon svg {
-  width: 16px;
-  height: 16px;
-}
-.qs-row-main {
-  min-width: 0;
+  width: 13px;
+  height: 13px;
 }
 .qs-intro {
-  margin: 0 0 0.75rem;
-  color: var(--c-text-secondary);
-  line-height: 1.55;
-  font-size: 0.92rem;
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--c-separator);
+  color: var(--c-text-primary);
+  line-height: 1.35;
+  font-size: 13px;
+  white-space: pre-line;
 }
 .qs-row {
-  margin: 0 0 0.7rem;
-}
-.qs-row:last-child {
-  margin-bottom: 0;
+  margin: 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--c-separator);
 }
 .qs-row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
   color: var(--c-text-primary);
-  font-size: 0.92rem;
-  margin-bottom: 0.15rem;
+  font-size: 11px;
+  margin-bottom: 2px;
 }
 /* Release Notes (ReleaseNotes.tsx) — reuses the Quick Start shell; these two rules add the
    "what's new since" line under the version header and the New Features / Improvements /
    Bug Fixes group headings within a release. */
 .rn-since {
-  margin: -0.35rem 0 0.6rem;
+  margin: 6px 0 0;
   color: var(--c-text-secondary);
-  font-size: 0.85rem;
+  font-size: 11px;
 }
 .rn-group {
   margin-bottom: 1rem;
@@ -176,15 +186,15 @@
 .rn-group-h {
   font-weight: 600;
   color: var(--c-text-primary);
-  font-size: 0.95rem;
-  margin: 0 0 0.5rem;
-  padding-bottom: 0.25rem;
+  font-size: 12px;
+  margin: 10px 0 0;
+  padding-bottom: 4px;
   border-bottom: 1px solid var(--c-separator);
 }
 .qs-row-body {
   color: var(--c-text-secondary);
-  line-height: 1.55;
-  font-size: 0.9rem;
+  line-height: 1.35;
+  font-size: 10px;
   /* Preserve paragraph breaks (\n\n) inside a help body — used where an entry carries a note or
      warning after its main text. Collapses ordinary whitespace, so entries without newlines are
      unaffected. */
@@ -703,16 +713,19 @@
 }
 
 /* Measurements compare mode */
+/* Compare mode, as Swift's: an empty circle in the secondary colour, or the accent with a check; no row tint. */
 .meas-check {
   align-self: center;
-  font-size: 1.1rem;
-  width: 1.4rem;
-  text-align: center;
+  display: inline-flex;
+  flex: none;
+  color: var(--c-text-secondary);
+}
+.meas-check.on {
   color: var(--c-accent-text);
 }
-.meas-row.selected {
-  background: color-mix(in srgb, var(--c-accent) 16%, transparent);
-  border-radius: 8px;
+.meas-check svg {
+  width: 18px;
+  height: 18px;
 }
 .meas-row.disabled {
   opacity: 0.4;
@@ -725,37 +738,49 @@
 }
 
 /* ── Measurement detail (read-only inspector) ─────────────── */
-.detail-section {
+/* Swift's GroupBox: a plain title in the text colour over a grey rounded box; the Measurement Info box fits its
+   content, each row a small secondary "Label:" then the value at body size. */
+/* Scoped under .settings-body so they win over its general section line and blue h3 (later in this file). */
+.settings-body .detail-section {
   margin-bottom: 1rem;
+  padding: 0;
+  border-bottom: none;
 }
-.detail-section h3 {
-  font-size: 0.85rem;
-  margin: 0 0 0.4rem;
-  color: var(--c-accent-text);
-  font-weight: 600;
+.settings-body .detail-section h3 {
+  font-size: 13px;
+  margin: 0 0 6px 2px;
+  color: var(--c-text-primary);
+  font-weight: 400;
+}
+.detail-box {
+  background: var(--c-background-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.detail-info {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 100%;
 }
 .detail-row {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.22rem 0;
-  border-bottom: 1px solid var(--c-separator);
-  font-size: 0.88rem;
+  align-items: baseline;
+  gap: 6px;
 }
 .detail-label {
+  flex: none;
+  font-size: 10px;
   color: var(--c-text-secondary);
 }
 .detail-value {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
+  font-size: 13px;
+  color: var(--c-text-primary);
 }
-.detail-notes {
-  padding: 0.35rem 0;
+.detail-value.name {
+  font-weight: 500;
 }
-.detail-notes p {
-  margin: 0.25rem 0 0;
-  font-size: 0.86rem;
+.detail-value.notes {
   white-space: pre-wrap;
 }
 .detail-peaks {
@@ -856,9 +881,11 @@
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--c-separator);
 }
+/* A modal's title at the size of the native windows' titles (13 px bold), as Swift's and Python's. */
 .settings-modal-head h2 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 13px;
+  font-weight: 700;
 }
 .set-head-buttons {
   display: flex;
@@ -899,16 +926,44 @@
   margin: 0.75rem 0 0.4rem;
   color: var(--c-text-primary);
 }
-.set-select,
-.set-input-select {
-  background: var(--c-background-control);
-  color: var(--c-text-primary);
-  border: 1px solid var(--c-separator);
-  border-radius: 6px;
-  padding: 0.35rem 0.5rem;
+/* A menu picker as Swift draws one on macOS: no border, the picker fill, 24 px tall, radius 6, 13 px text, a ⌃⌄
+   at the right in the text colour. */
+.menu-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
 }
-.set-select {
-  width: 100%;
+.menu-picker select {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 24px;
+  max-width: 100%;
+  border: none;
+  border-radius: 6px;
+  background: var(--c-background-picker);
+  color: var(--c-text-primary);
+  font: inherit;
+  font-size: 13px;
+  padding: 0 28px 0 10px;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.menu-picker select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.menu-picker select:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+.menu-picker svg {
+  position: absolute;
+  right: 7px;
+  width: 14px;
+  height: 14px;
+  color: var(--c-text-primary);
+  pointer-events: none;
 }
 .set-field {
   display: flex;
@@ -961,19 +1016,6 @@
   display: flex;
   gap: 0.4rem;
   margin-top: 0.4rem;
-}
-.playfile-pick {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.playfile-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--c-text-secondary);
 }
 .set-disclosure {
   background: none;
@@ -1029,19 +1071,201 @@
   cursor: not-allowed;
 }
 
-.mode-range-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
+/* ── Tap Settings: Swift's grouped Form at the web's density ─────────────────────
+   Each section an icon and a bold title, its rows in a grey box with no lines between them, a note
+   under the box; a group inside a section a plain bold title over its own box. Scoped to the Settings
+   dialog — the other dialogs share .settings-body. */
+.tap-settings .settings-body {
+  padding: 0.75rem 1rem 1rem;
 }
-.mode-range-table td {
-  padding: 0.2rem 0;
-  border-bottom: 1px solid var(--c-separator);
+.tap-settings .settings-body section.ts-sec {
+  border-bottom: none;
+  padding: 0;
+  margin: 0 0 14px;
 }
-.mode-range-table td:last-child {
-  text-align: right;
+.tap-settings .ts-group {
+  margin-top: -4px;
+}
+.ts-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+}
+.ts-icon {
+  display: inline-flex;
+}
+.ts-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.ts-box {
+  background: var(--c-background-subtle);
+  border-radius: 8px;
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ts-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-height: 28px;
+  font-size: 13px;
+}
+.ts-secondary {
   color: var(--c-text-secondary);
+}
+.ts-value {
   font-variant-numeric: tabular-nums;
+}
+.ts-note {
+  margin: 6px 2px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--c-text-secondary);
+}
+.ts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+}
+.tap-settings .set-field {
+  font-size: 13px;
+  margin: 0;
+  min-height: 28px;
+}
+.tap-settings .set-desc {
+  font-size: 11px;
+  margin: 0 0 2px;
+}
+.tap-settings .set-range {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.tap-settings .set-range-title {
+  font-size: 13px;
+}
+/* A fixed unit column, so the fields line up whatever the unit. */
+.tap-settings .set-input em {
+  width: 20px;
+  min-width: 20px;
+  font-size: 11px;
+}
+.ts-disclosure {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 4px 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  cursor: pointer;
+}
+.ts-disclosure .ts-chevron,
+.ts-trailing {
+  margin-left: auto;
+}
+.ts-link {
+  width: 100%;
+}
+.ts-mode-ranges {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  padding: 2px 0;
+}
+.ts-mode-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ts-mode-row {
+  display: flex;
+  gap: 4px;
+}
+.ts-mode-row .ts-secondary {
+  width: 50px;
+}
+.ts-cal-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--c-text-secondary);
+}
+.ts-chevron {
+  display: inline-flex;
+  color: var(--c-text-secondary);
+}
+.ts-chevron svg {
+  width: 14px;
+  height: 14px;
+}
+/* A row that opens something: the icon in the accent, the title in the text colour, a trailing icon in
+   the secondary colour — as Swift's and Python's. */
+.ts-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--c-text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+.ts-link svg {
+  width: 16px;
+  height: 16px;
+  color: var(--c-accent-text);
+}
+.ts-link .ts-trailing svg {
+  width: 14px;
+  height: 14px;
+  color: var(--c-text-secondary);
+}
+.ts-toggle {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  padding: 4px 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ts-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ts-toggle-desc {
+  font-size: 11px;
+  color: var(--c-text-secondary);
+}
+.ts-toggle input {
+  margin: 2px 0 0;
+  flex: none;
+  accent-color: var(--c-accent);
+}
+.ts-link:focus-visible,
+.ts-disclosure:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
 }
 
 .toolbar .divider {
@@ -1446,8 +1670,9 @@
   margin: 0.25rem 0;
 }
 
+/* Swift's ideal results width (360 pt), so the footer's status and both export buttons fit on one row. */
 .results-pane {
-  flex: 0 0 320px;
+  flex: 0 0 360px;
   color: var(--c-text-primary);
   background: var(--c-background-panel);
   border: 1px solid var(--c-separator);
@@ -1501,13 +1726,28 @@
   display: flex;
   gap: 0.4rem;
 }
+/* Swift's export buttons: .tintedBordered with no tint at .controlSize(.small) — the plain bordered button,
+   macOS's control fill (background.picker, black / white at 8 %) with no outline, the text colour, 11 pt text;
+   a pointer adds the style's 10 % accent wash. */
+.foot-export .btn.mini {
+  font-size: 11px;
+  background: var(--c-background-picker);
+  border-color: transparent;
+  color: var(--c-text-primary);
+}
+@media (hover: hover) {
+  .foot-export .btn.mini:hover:not(:disabled) {
+    background: linear-gradient(color-mix(in srgb, var(--c-accent) 10%, transparent), color-mix(in srgb, var(--c-accent) 10%, transparent)), var(--c-background-picker);
+    border-color: transparent;
+  }
+}
 /* Running/stopped indicator — green ● "Analyzing" while the mic is live, else gray ● "Stopped".
    Mirrors the Swift/Python results-footer status. */
 .foot-status {
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  font-size: 0.78rem;
+  font-size: 10px; /* Swift's .caption */
   color: var(--c-text-secondary);
   white-space: nowrap;
 }
@@ -1784,20 +2024,24 @@
 /* ── Status bar ──────────────────────────────────────────── */
 /* Mirrors Swift's macOS fullStatusBar: a VStack of the (optional) full-width progress bar above the
    status HStack. `.statusbar` is the stack; `.statusbar-row` is the row that used to be `.statusbar`. */
+/* Swift's fullStatusBar: a flat strip across the window's foot — background.subtle over the panel, no border —
+   padded 16 x 8, its rows 6 px apart; the left of the row 11 px (Swift's .subheadline), the right 10 px (.caption).
+   The negative margins take it out to the window's edges through .app's padding (--app-pad-*). */
 .statusbar {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 0.5rem 0.85rem;
-  background: var(--c-background-subtle);
-  border: 1px solid var(--c-separator);
-  border-radius: 8px;
-  font-size: 0.85rem;
+  margin: 0 calc(-1 * var(--app-pad-side) - env(safe-area-inset-right))
+    calc(-1 * var(--app-pad-bottom) - env(safe-area-inset-bottom)) calc(-1 * var(--app-pad-side) - env(safe-area-inset-left));
+  padding: 8px calc(16px + env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom))
+    calc(16px + env(safe-area-inset-left));
+  background: linear-gradient(var(--c-background-subtle), var(--c-background-subtle)), var(--c-background-panel);
+  font-size: 11px;
 }
 .statusbar-row {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
+  gap: 12px;
 }
 .sb-compare-icon {
   display: inline-flex;
@@ -1807,6 +2051,7 @@
   font-weight: 500;
 }
 .sb-compare-exit {
+  font-size: 10px;
   color: var(--c-text-secondary);
 }
 .status-text {
@@ -1820,6 +2065,10 @@
   height: 8px;
   border-radius: 50%;
   flex: 0 0 auto;
+}
+.sb-state-dot {
+  width: 10px;
+  height: 10px;
 }
 .sb-state-dot {
   background: var(--c-status-inactive-dot);
@@ -1838,10 +2087,16 @@
   color: var(--c-text-secondary);
   white-space: nowrap;
 }
+.sb-detect.complete {
+  color: var(--c-status-tap-detected);
+}
 .sb-msg {
-  font-weight: 500;
+  font-size: 10px;
   color: var(--c-text-primary);
   white-space: nowrap;
+}
+.sb-sep.sb-right {
+  font-size: 10px;
 }
 .sb-msg.idle {
   color: var(--c-status-warning);
@@ -1858,6 +2113,7 @@
 /* Status-bar widgets (mirror Swift status bar: phase/tap progress, frozen badge, peak readout). */
 /* The phase/tap label: status.tapCount, as Swift's. */
 .sb-progress {
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--c-status-tap-count);
@@ -1881,12 +2137,20 @@
   transition: width 120ms linear;
 }
 .sb-frozen {
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
   color: var(--c-status-warning);
   white-space: nowrap;
 }
+.sb-frozen svg {
+  width: 12px;
+  height: 12px;
+}
 /* The Peak readout: status.peakReadout, as Swift's. */
 .sb-peak {
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   color: var(--c-status-peak-readout);
   white-space: nowrap;
@@ -1965,6 +2229,52 @@
   border-radius: 8px;
   padding: 0.4rem 0.55rem;
 }
+/* A sheet's fields, as Swift's Save and Play sheets: a bold title (.headline) above each, full width, and a
+   caption hint under it. */
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.form-label {
+  font-weight: 700;
+  color: var(--c-text-primary);
+}
+.form-field input[type='text'],
+.form-field textarea {
+  width: 100%;
+  font: inherit;
+  background: var(--c-background-control);
+  color: var(--c-text-primary);
+  border: 1px solid var(--c-separator);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.form-field textarea {
+  resize: vertical;
+}
+.form-caption {
+  font-size: 10px;
+  color: var(--c-text-secondary);
+}
+.form-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.form-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--c-text-primary);
+}
+.form-file-name.none {
+  color: var(--c-text-secondary);
+}
 .measurements-modal {
   max-width: 560px;
 }
@@ -1980,28 +2290,32 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+/* Swift's measurements List: plain rows on the panel with a line between them — no cards, no frame; the
+   name 13 px bold (.headline), the date, details and notes 10 px secondary (.caption). */
 .meas-list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
 }
 .meas-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.55rem 0.7rem;
-  border: 1px solid var(--c-separator);
-  border-radius: 10px;
-  background: var(--c-background-control);
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--c-separator);
+}
+.meas-row:last-child {
+  border-bottom: none;
 }
 .meas-total {
-  margin: 0 0 0.5rem;
-  font-size: 0.78rem;
+  margin: 0;
+  padding: 4px 4px 8px;
+  font-size: 10px;
   color: var(--c-text-secondary);
+  border-bottom: 1px solid var(--c-separator);
 }
 .meas-hint {
   margin: 0 0 0.6rem;
@@ -2019,43 +2333,78 @@
 .meas-info {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 8px; /* Swift's row VStack spacing */
   min-width: 0;
   flex: 1 1 auto;
   cursor: pointer; /* double-press to load */
 }
 .meas-line1 {
   display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
 }
 .meas-name {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+.meas-mark {
+  display: inline-flex;
+  flex: none;
+}
+.meas-mark svg {
+  width: 12px;
+  height: 12px;
 }
 .meas-wave {
   color: var(--c-status-complete);
-  font-weight: 700;
+}
+.meas-mark.comparison {
+  color: var(--c-accent-text);
 }
 .meas-date {
-  margin-left: auto;
-  font-size: 0.78rem;
+  font-size: 10px;
   color: var(--c-text-secondary);
   white-space: nowrap;
 }
+.meas-chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--c-text-secondary);
+}
+.meas-chevron svg {
+  width: 12px;
+  height: 12px;
+}
 .meas-meta {
-  font-size: 0.78rem;
+  font-size: 10px;
   color: var(--c-text-secondary);
 }
 .meas-notes {
-  font-size: 0.82rem;
+  font-size: 10px;
   color: var(--c-text-secondary);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+/* The list's buttons: icon and label, Done pushed to the far end. */
+.meas-buttons .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.meas-buttons .btn svg {
+  width: 14px;
+  height: 14px;
+}
+.meas-buttons-gap {
+  flex: 1;
+}
+.settings-modal-foot.meas-buttons {
+  justify-content: flex-start;
 }
 .meas-actions {
   display: flex;
@@ -2068,11 +2417,18 @@
   position: relative;
   flex-shrink: 0;
 }
+/* The ⋯ shows on hover where there is a pointer, as Swift's and Python's; a touch screen has no hover, so
+   there it stays. */
+@media (hover: hover) {
+  .meas-row:not(:hover) .meas-menu-btn:not([aria-expanded='true']) {
+    color: transparent;
+  }
+}
 .meas-menu-btn {
   appearance: none;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--c-text-primary);
+  color: var(--c-text-secondary);
   font-size: 1.1rem;
   line-height: 1;
   padding: 0.25rem 0.5rem;
@@ -2195,8 +2551,10 @@
     min-width: 0; /* drop the desktop "minimum window width" floor so the app fits the screen */
     overflow: hidden;
     gap: 0.4rem;
-    padding: calc(0.4rem + env(safe-area-inset-top)) calc(0.5rem + env(safe-area-inset-right))
-      calc(0.4rem + env(safe-area-inset-bottom)) calc(0.5rem + env(safe-area-inset-left));
+    --app-pad-side: 0.5rem;
+    --app-pad-bottom: 0.4rem;
+    padding: calc(0.4rem + env(safe-area-inset-top)) calc(var(--app-pad-side) + env(safe-area-inset-right))
+      calc(var(--app-pad-bottom) + env(safe-area-inset-bottom)) calc(var(--app-pad-side) + env(safe-area-inset-left));
   }
   .toolbar {
     flex-wrap: wrap;
@@ -2211,6 +2569,9 @@
   }
   .phone-only {
     display: inline-flex;
+  }
+  .not-phone {
+    display: none;
   }
   /* Re-show the toolbar Results button at the phone breakpoint (matches the hide rule's specificity). */
   .toolbar-app .btn.phone-only {

@@ -112,7 +112,8 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
       label: e.label,
     }))
     const view = comparisonAxisRange(entries) ?? { minHz: 30, maxHz: 2000, minDb: -100, maxDb: 0 }
-    return { title, spectrum: null, overlays, markers: [], view, measurementTypeName: 'Comparison', date }
+    // Swift's saved-comparison export: the generic guitar bands.
+    return { title, spectrum: null, overlays, markers: [], view, measurementTypeName: 'Comparison', guitarType: 'generic', date }
   }
 
   // Material (plate / brace)
