@@ -13,8 +13,8 @@ import type { Scheme } from './appearance'
 import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect, DotHit } from './chartTypes'
 import { formattedAsFrequency } from './frequencyFormat'
 import { FieldPrecision } from '../precision'
-import { SCREEN, EXPORT, diameter, type ChartLines } from './chartStyle'
-import { formatTickLabel, formatTickLabels, generateTicks, magnitudeStride } from './axisTicks'
+import { SCREEN, diameter, type ChartLines } from './chartStyle'
+import { formatTickLabels, generateTicks, magnitudeStride } from './axisTicks'
 
 /** Fill a `points`-pointed star centred at (cx, cy) between `outerR` and `innerR`. Used for the
  *  highlighted peak dot (mirrors Swift's `star.fill`). */
@@ -197,8 +197,8 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
   ctx.textAlign = 'center'
   const ticks = generateTicks(minHz, maxHz, 8).filter((hz) => hz >= minHz && hz <= maxHz)
-  const screenLabels = formatTickLabels(ticks)
-  const tickLabel = (hz: number) => (style === EXPORT ? formatTickLabel(hz) : screenLabels.get(hz)!)
+  const labels = formatTickLabels(ticks)
+  const tickLabel = (hz: number) => labels.get(hz)!
   for (const hz of ticks) {
     const x = xFor(hz)
     ctx.strokeStyle = th.grid

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { catchDownload, importMeasurement, openApp, openRowMenu } from './app'
+import { catchDownload, exportPath, importMeasurement, openApp, openRowMenu } from './app'
 
 // Each case is imported, then exported as the spectrum image and the PDF report from both places the app offers
 // them: the main window, with the import loaded, and the row's menu in Saved Measurements.
@@ -16,7 +16,7 @@ for (const c of cases) {
   test(`${c.name}: export from the main window`, async ({ page }) => {
     await openApp(page)
     await importMeasurement(page, c.fixture)
-    const out = (name: string) => test.info().outputPath(`main-${name}`)
+    const out = exportPath((name) => test.info().outputPath(name), c.name, 'main')
 
     const png = await catchDownload(page, out, () => page.getByRole('button', { name: 'Export Spectrum' }).click())
     const pdf = await catchDownload(page, out, () => page.getByRole('button', { name: 'Export PDF' }).click())
@@ -27,7 +27,7 @@ for (const c of cases) {
   test(`${c.name}: export from Saved Measurements`, async ({ page }) => {
     await openApp(page)
     await importMeasurement(page, c.fixture)
-    const out = (name: string) => test.info().outputPath(`saved-${name}`)
+    const out = exportPath((name) => test.info().outputPath(name), c.name, 'saved')
 
     await openRowMenu(page)
     const png = await catchDownload(page, out, () => page.getByRole('menuitem', { name: 'Export Spectrum' }).click())

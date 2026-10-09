@@ -559,6 +559,10 @@ export class TapToneAnalyzer {
   /** The loaded measurement's name / notes (Swift `loadedMeasurementName` / `loadedNotes`). */
   loadedMeasurementName: string | null = null
   loadedNotes: string | null = null
+  /** When the result on screen was measured (ISO), if it is a saved one — loaded, or just saved: its exports show
+   *  this date and are named by it; null for an unsaved result, whose exports use the time of export. Swift
+   *  `sourceMeasurementTimestamp`. */
+  sourceMeasurementTimestamp: string | null = null
   /** The loaded measurement's saved axis range — a TRANSIENT override of the persisted display
    *  range, which is left untouched (Swift `loadedAxisRange`). */
   loadedAxisRange: ChartView | null = null
@@ -711,6 +715,7 @@ export class TapToneAnalyzer {
     // "the loaded one". Mirrors Swift startTapSequence (Control.swift:135-136, :163).
     this.loadedMeasurementName = null
     this.loadedNotes = null
+    this.sourceMeasurementTimestamp = null
     this.loadedAxisRange = null
     this.loadedSettings = null
     this.currentDecayTime = null
@@ -926,7 +931,11 @@ export class TapToneAnalyzer {
   /** Save the current measurement to the measurement store. Mirrors Swift `saveMeasurement`. */
   async saveMeasurement(name: string, notes: string, view: ChartView): Promise<void> {
     const m = this.buildMeasurement(name, notes, view)
-    if (m) await storeMeasurement(m)
+    if (!m) return
+    await storeMeasurement(m)
+    // The result on screen is now this saved measurement: its exports show its date and are named by it.
+    this.sourceMeasurementTimestamp = m.timestamp
+    this.notify()
   }
 
   /** The current comparison as a saved record — its entries as they are, no peaks of its own — or null
@@ -939,7 +948,11 @@ export class TapToneAnalyzer {
   /** Save the current comparison to the measurement store. Mirrors Swift `saveComparison(measurementName:notes:)`. */
   async saveComparison(name: string, notes: string): Promise<void> {
     const m = this.buildComparisonMeasurement(name, notes)
-    if (m) await storeMeasurement(m)
+    if (!m) return
+    await storeMeasurement(m)
+    // The comparison on screen is now this saved one: its exports show its date and are named by it.
+    this.sourceMeasurementTimestamp = m.timestamp
+    this.notify()
   }
 
   /** Load a saved measurement — guitar, material or comparison record. THE load entry point.
@@ -968,6 +981,7 @@ export class TapToneAnalyzer {
       this.loadComparisonRecord(m.comparisonEntries) // ...then enters comparison (clears loaded state)
       this.loadedMeasurementName = m.measurementName ?? null // ...but a SAVED record has a name
       this.loadedNotes = m.notes ?? null
+      this.sourceMeasurementTimestamp = m.timestamp || null // ...and a date of its own
       this.resultProvenance = null // a comparison has no microphone of its own
       this.notify()
       return
@@ -1015,6 +1029,7 @@ export class TapToneAnalyzer {
     this.showingMultiTapComparison = false
     this.loadedMeasurementName = m.measurementName ?? null
     this.loadedNotes = m.notes ?? null
+    this.sourceMeasurementTimestamp = m.timestamp || null
     // The FILE's stored ring-out, not whatever the live tracker last reported.
     this.currentDecayTime = m.decayTime ?? null
     // The loaded result's provenance is what the file recorded; no microphone means unknown.
@@ -3296,6 +3311,7 @@ export class TapToneAnalyzer {
         showLoadedSettingsWarning: this.showLoadedSettingsWarning,
         loadedMeasurementName: this.loadedMeasurementName,
         loadedNotes: this.loadedNotes,
+        sourceMeasurementTimestamp: this.sourceMeasurementTimestamp,
         loadedAxisRange: this.loadedAxisRange,
         loadedSettings: this.loadedSettings,
         microphoneWarning: this.microphoneWarning,
@@ -3327,6 +3343,7 @@ export class TapToneAnalyzer {
     // a SAVED comparison record, which is the one case that has one.
     this.loadedMeasurementName = null
     this.loadedNotes = null
+    this.sourceMeasurementTimestamp = null
     this.microphoneWarning = null
     this.currentDecayTime = null
     this.loadedAxisRange = comparisonAxisRange(entries)
@@ -3736,6 +3753,7 @@ export interface TapToneSnapshot {
    *  when nothing is loaded (a new sequence clears them all). */
   loadedMeasurementName: string | null
   loadedNotes: string | null
+  sourceMeasurementTimestamp: string | null
   loadedAxisRange: ChartView | null
   loadedSettings: Partial<Settings> | null
   /** The loaded measurement's microphone is missing, or its calibration / sample rate differs. */

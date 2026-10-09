@@ -165,6 +165,9 @@ export default function App() {
   // "New" — Swift chartTitle: fft.playingFileName ?? tap.loadedMeasurementName ?? "New".
   const playingFileName = snapshot.playingFileName
   const loadedName = snapshot.loadedMeasurementName
+  // A saved result's own date (loaded, or just saved): its exports show it and are named by it. Null for an
+  // unsaved result, whose exports use the time of export.
+  const sourceTimestamp = snapshot.sourceMeasurementTimestamp
   const loadedNotes = snapshot.loadedNotes
   // Which peaks carry a badge is ANALYZER state (Swift `annotationVisibilityMode` / `visiblePeaks`).
   const annotationMode = snapshot.annotationVisibilityMode
@@ -721,8 +724,10 @@ export default function App() {
   const [isExporting, setIsExporting] = useState(false)
 
   const exportPdf = useCallback(async () => {
-    const m = buildCurrentMeasurement(loadedName ?? '', '')
-    if (!m) return
+    // The loaded measurement's name, notes and date, as its Saved Measurements export has them.
+    const built = buildCurrentMeasurement(loadedName ?? '', snapshot.loadedNotes ?? '')
+    if (!built) return
+    const m = sourceTimestamp ? { ...built, timestamp: sourceTimestamp } : built
     const now = performance.now()
     if (isExportingRef.current || now - lastPdfExportRef.current < 700) return  // in-flight or double-click
     isExportingRef.current = true
@@ -730,7 +735,7 @@ export default function App() {
     setIsExporting(true)
     // A report is a report — multi-tap and comparison included: no `-multitap-`/`-report-` infix,
     // "report" only as the unnamed default.
-    const filename = `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'report')}.pdf`
+    const filename = `${exportStem(loadedName, Math.floor(Date.parse(m.timestamp) / 1000), 'report')}.pdf`
     // Multi-tap guitar measurements always produce the two-page report (averaged + per-tap
     // comparison), mirroring Swift exportMultiTapPDFReport (gated on tapEntries, not the on-screen toggle).
     try {
@@ -750,7 +755,7 @@ export default function App() {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [buildCurrentMeasurement, loadedName, setError, setErrorKind])
+  }, [buildCurrentMeasurement, loadedName, snapshot.loadedNotes, sourceTimestamp, setError, setErrorKind])
 
   // A load reaches what lives outside the model — the settings store, the chart range and the device — by the
   // analyzer publishing it and these observing it, whichever route loaded it: Load, double-click or an import's
@@ -822,6 +827,7 @@ export default function App() {
     isExportingRef.current = true
     lastSpectrumExportRef.current = now
     setIsExporting(true)
+    const stamp = sourceTimestamp ?? new Date().toISOString()
     const opts: SpectrumImageOpts = {
       title: `FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`,
       spectrum: comparison || material || showMultiTap ? null : displaySpectrum,
@@ -831,10 +837,10 @@ export default function App() {
       measurementTypeName: comparison ? 'Comparison' : MEASUREMENT_FULL_NAME[settings.measurementType],
       // A comparison is always of guitars, so its image has the mode bands, as Swift's and Python's.
       guitarType: material ? undefined : guitarType,
-      date: formatDisplayDate(new Date().toISOString()),
+      date: formatDisplayDate(stamp),
     }
     try {
-      await exportSpectrumPng(opts, `${exportStem(loadedName, Math.floor(Date.now() / 1000), 'spectrum')}.png`)
+      await exportSpectrumPng(opts, `${exportStem(loadedName, Math.floor(Date.parse(stamp) / 1000), 'spectrum')}.png`)
     } catch (e) {
       // Surface the failure instead of a console-only rejection (mirrors the PDF path). No jsPDF/lazy
       // chunk here, so no reload hint — a plain image/save error.
@@ -844,7 +850,7 @@ export default function App() {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, exportMarkers, view, playingFileName, loadedName, settings.measurementType, guitarType, setError, setErrorKind])
+  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, exportMarkers, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, setError, setErrorKind])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>

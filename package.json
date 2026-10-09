@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "sync-oracle": "./tooling/sync-oracle.sh",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "npm run build && playwright test",
+    "test:exports": "./tooling/run-export-check.sh"
   },
   "dependencies": {
     "jspdf": "^4.2.1",

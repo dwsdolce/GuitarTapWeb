@@ -7,7 +7,7 @@ import { color as roleColor, comparisonRole, modeRole, qualityRole, type Role } 
 import { FieldPrecision } from '../precision'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
-import { measurementToLive, measurementToLiveMaterial, measurementTypeName, comparisonAxisRange, comparisonEntryModeFreqs, multiTapComparisonEntries, measurementTapToneRatio } from '../measurement/fromLive'
+import { measurementToLive, measurementToLiveMaterial, measurementTypeName, comparisonAxisRange, comparisonEntryModeFreqs, multiTapComparisonEntries, measurementOverriddenModes, measurementTapToneRatio } from '../measurement/fromLive'
 import { isGuitarType, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, DEFAULT_SETTINGS } from '../settings'
 import { materialDimensions, materialStiffness } from '../measurement/materialMeasurementInputs'
 import { formatDisplayDate } from '../format/date'
@@ -225,10 +225,21 @@ export function measurementToPdfData(m: TapToneMeasurementModel): PdfReportData 
  *  PDF path by synthesizing comparison entries from the measurement's `tapEntries` + an "Averaged"
  *  entry — so it stays identical to a saved-comparison report. Callers use it for a measurement with tap entries. */
 export function multiTapPdfData(m: TapToneMeasurementModel): { averaged: PdfReportData; comparison: PdfReportData } {
-  return {
-    averaged: measurementToPdfData(m),
-    comparison: measurementToPdfData({ ...m, comparisonEntries: multiTapComparisonEntries(m) }),
+  const comparison = measurementToPdfData({ ...m, comparisonEntries: multiTapComparisonEntries(m) })
+  // Page 2's chart is of one guitar's taps: titled as a tap comparison, typed and banded by the measurement's own
+  // guitar type (Swift renderMultiTapComparisonImage).
+  const type = measurementToLive(m).measurementType
+  comparison.image = {
+    ...comparison.image,
+    title: `Tap Comparison — ${m.measurementName?.trim() || 'Multi-Tap'}`,
+    measurementTypeName: MEASUREMENT_FULL_NAME[type],
+    guitarType: isGuitarType(type) ? type : 'generic',
   }
+  // The Averaged row's definitive values mark any manual override, as Swift's do; tap rows are automatic.
+  const rows = comparison.comparison?.rows
+  const averaged = rows?.find((r) => r.label === 'Averaged')
+  if (averaged) averaged.overrideModes = measurementOverriddenModes(m)
+  return { averaged: measurementToPdfData(m), comparison }
 }
 
 /** A saved measurement's PDF report and its file name (without extension): a multi-tap measurement's two

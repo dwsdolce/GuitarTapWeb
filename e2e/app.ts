@@ -1,4 +1,6 @@
 import { expect, type Page } from '@playwright/test'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /** A file in the unit tests' fixtures. */
@@ -43,4 +45,14 @@ export async function openRowMenu(page: Page): Promise<void> {
   const panel = page.getByRole('dialog', { name: 'Saved Measurements' })
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Measurements' }).click()
   await panel.getByRole('button', { name: 'Actions' }).click()
+}
+
+/** Where a test keeps an export: with GT_EXPORT_DIR set, the export checker's layout
+ *  `<dir>/<case>/<main|saved>/<file>`; otherwise the test's own output folder. */
+export function exportPath(outputPath: (name: string) => string, kase: string, path: 'main' | 'saved') {
+  const dir = process.env.GT_EXPORT_DIR
+  if (!dir) return (name: string) => outputPath(`${path}-${name}`)
+  const folder = join(dir, kase, path)
+  mkdirSync(folder, { recursive: true })
+  return (name: string) => join(folder, name)
 }

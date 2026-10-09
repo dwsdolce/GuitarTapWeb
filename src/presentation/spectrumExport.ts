@@ -32,6 +32,9 @@ export interface SpectrumImageOpts {
 const PIXEL_SCALE = 2
 
 const FONT = (s: number, w = '') => `${w ? w + ' ' : ''}${s}px system-ui, sans-serif`
+/** The alphabetic baseline of `size` px text centred in a line box `lineHeight` tall from `top`: capitals sit
+ *  centred in the line, as SwiftUI's Text in its line height. */
+const baseline = (top: number, lineHeight: number, size: number) => top + lineHeight / 2 + size * 0.35
 const th: ChartTheme = chartTheme('light')
 
 /**
@@ -65,14 +68,26 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   const markers = opts.markers ?? []
   const visible = reportPeaks(markers)
 
-  // Swift's stack: the header (padded), 16 pt, the 1400 × 800 chart frame (padded 16 each side), 16 pt,
-  // the peak summary, the legend (padded).
+  // Swift's stack: the header (padded), the 1400 × 800 chart frame, then the peak summary and the legend, each
+  // a block 16 pt below the one above, built from its content as Swift's VStacks are.
   const headerH = 141
   const chartH = 800 // Swift's chart frame; renderSpectrum lays out title + plot + axis titles within it
-  const AFTER_CHART = 32 // the frame's 16 pt padding and the stack's 16 pt spacing
-  const summaryH = visible.length ? 119 : 0
-  const legendH = 40
-  const H = PAD + headerH + chartH + AFTER_CHART + summaryH + legendH + PAD
+  // From the chart frame's bottom to the first block below it, as Swift's image places it.
+  const BELOW_CHART = 39
+  const BLOCK_GAP = 16
+  // Swift's text sizes and line heights (macOS): .headline 13 pt bold in a 16 pt line; .caption and
+  // .caption2 10 pt in a 13 pt line.
+  const HEADLINE_LINE = 16
+  const CAPTION_LINE = 13
+  // The summary: padded 8 above and below; the heading, 8 pt, then the cards — each padded 8, three lines
+  // 4 pt apart, 20 pt between cards, at most 8.
+  const CARD_PAD = 8
+  const CARD_H = CARD_PAD * 2 + CAPTION_LINE * 3 + 4 * 2
+  const summaryH = visible.length ? 8 + HEADLINE_LINE + 8 + CARD_H + 8 : 0
+  // The legend: one caption line padded 16 all round.
+  const legendH = 16 + CAPTION_LINE + 16
+  const BOTTOM = 16
+  const H = PAD + headerH + chartH + BELOW_CHART + (summaryH ? summaryH + BLOCK_GAP : 0) + legendH + BOTTOM
 
   // Drawn at 2x, as Swift's ImageRenderer(scale: 2.0): the canvas holds 2928 × 2376 pixels (2138 without
   // the summary) for the layout below in points.
@@ -159,60 +174,58 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
     variant: 'export',
   })
   ctx.restore()
-  y += chartH + AFTER_CHART
+  y += chartH + BELOW_CHART
 
   // ── Detected Peaks Summary ────────────────────────────────────────────────
   if (visible.length) {
     ctx.fillStyle = th.title
-    ctx.font = FONT(16, 'bold')
-    ctx.fillText('Detected Peaks Summary', EDGE, y + 20)
-    // Every visible peak, in frequency order — including ones outside the plotted range
-    // (Swift lists all selected peaks, e.g. 409/622/994 Hz under a 75–350 Hz view). Bounded by
-    // WIDTH, not by an arbitrary count: the old `.slice(0, 8)` silently dropped peaks even in the
-    // normal selected case. The row doesn't wrap, so stop when the next chip won't fit.
-    const chips = [...visible].sort((a, b) => a.frequency - b.frequency)
+    ctx.font = FONT(13, 'bold')
+    ctx.fillText('Detected Peaks Summary', EDGE, baseline(y + 8, HEADLINE_LINE, 13))
+    // The first 8 visible peaks, in frequency order — including ones outside the plotted range (Swift lists
+    // the selected peaks, e.g. 409/622/994 Hz under a 75–350 Hz view): Swift's `peaks.prefix(8).sorted`.
+    const chips = visible.slice(0, 8).sort((a, b) => a.frequency - b.frequency)
     let cx = EDGE
-    const cy = y + 32
+    const cy = y + 8 + HEADLINE_LINE + 8
     for (const m of chips) {
       const color = m.role ? roleColor(m.role, undefined, 'light') : (m.color ?? roleColor('mode.unknown', undefined, 'light'))
       // Override-aware, matching the callout and the results list: an overridden mode chip is italic
       // with a trailing " *" (m.label + m.color are already override-aware from buildGuitarMarkers).
       const modeText = (m.label ?? '') + (m.isOverride ? ' *' : '')
-      const modeFont = FONT(12, m.isOverride ? 'italic' : '')
+      const modeFont = FONT(10, m.isOverride ? 'italic' : '')
       const lines = [`${FieldPrecision.string(m.frequency, FieldPrecision.peakFrequencyHz)} Hz`, modeText, `${FieldPrecision.string(m.magnitude, FieldPrecision.peakMagnitudeDB)} dB`]
-      ctx.font = FONT(13, 'bold')
+      ctx.font = FONT(10, 'bold')
       let cw = ctx.measureText(lines[0]!).width
       ctx.font = modeFont
-      cw = Math.max(cw, ctx.measureText(lines[1]!).width, ctx.measureText(lines[2]!).width) + 20
-      if (cx + cw > W - EDGE) break
+      cw = Math.max(cw, ctx.measureText(lines[1]!).width, ctx.measureText(lines[2]!).width) + CARD_PAD * 2
       ctx.fillStyle = hexA(color, 0.1)
       ctx.beginPath()
-      ctx.roundRect(cx, cy, cw, 56, 6)
+      ctx.roundRect(cx, cy, cw, CARD_H, 6)
       ctx.fill()
       ctx.textAlign = 'center'
+      const row = (i: number) => baseline(cy + CARD_PAD + i * (CAPTION_LINE + 4), CAPTION_LINE, 10)
       ctx.fillStyle = th.title
-      ctx.font = FONT(13, 'bold')
-      ctx.fillText(lines[0]!, cx + cw / 2, cy + 18)
+      ctx.font = FONT(10, 'bold')
+      ctx.fillText(lines[0]!, cx + cw / 2, row(0))
       ctx.fillStyle = color
       ctx.font = modeFont
-      ctx.fillText(lines[1]!, cx + cw / 2, cy + 34)
+      ctx.fillText(lines[1]!, cx + cw / 2, row(1))
       ctx.fillStyle = th.axis
-      ctx.fillText(lines[2]!, cx + cw / 2, cy + 50)
+      ctx.fillText(lines[2]!, cx + cw / 2, row(2))
       ctx.textAlign = 'left'
-      cx += cw + 14
-      if (cx > W - EDGE - 80) break
+      cx += cw + 20
     }
-    y += summaryH
+    y += summaryH + BLOCK_GAP
   }
 
   // ── Legend ────────────────────────────────────────────────────────────────
   // Swift: HStack(spacing: 20) { title .caption semibold; each item HStack(spacing: 4) { mark, .caption
   // label } } — a measurement's mark a 24 × 4 rounded line in its colour, a guitar mode's a 12 pt circle.
-  const ly = y + 29
+  // The legend's line, at the centre of its 13 pt line inside the block's 16 pt padding.
+  const ly = y + 16 + CAPTION_LINE / 2
   const legendTitle = overlays.length ? 'Measurements:' : 'Guitar Modes:'
   ctx.fillStyle = th.title
   ctx.font = FONT(10, '600')
-  ctx.fillText(legendTitle, EDGE, ly + 3.5)
+  ctx.fillText(legendTitle, EDGE, baseline(y + 16, CAPTION_LINE, 10))
   let lx = EDGE + ctx.measureText(legendTitle).width + 20
   ctx.font = FONT(10)
   const legendItems = overlays.length
@@ -235,7 +248,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
     ctx.fill()
     lx += markW + 4
     ctx.fillStyle = th.title
-    ctx.fillText(it.label, lx, ly + 3.5)
+    ctx.fillText(it.label, lx, baseline(y + 16, CAPTION_LINE, 10))
     lx += ctx.measureText(it.label).width + 20
   }
 

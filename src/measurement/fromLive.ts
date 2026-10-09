@@ -381,6 +381,15 @@ function modeIDMap(m: TapToneMeasurementModel): Record<string, string> {
   return map
 }
 
+/** The Air/Top/Back modes whose definitive peak carries a manual override — the ones the multi-tap report's
+ *  Averaged row marks. Swift `definitiveModeInfo()`'s `isOverride`. */
+export function measurementOverriddenModes(m: TapToneMeasurementModel): ('air' | 'top' | 'back')[] {
+  return (['air', 'top', 'back'] as const).filter((mode) => {
+    const p = measurementDefinitivePeak(m, mode)
+    return p != null && m.peakModeOverrides?.[p.id] != null
+  })
+}
+
 /** Build comparison entries from selected library measurements — mirrors Swift/Python
  *  loadComparison: filter to those with a spectrum, disambiguate duplicate labels with
  *  " (2)", assign palette colors by index, and keep each measurement's selected peaks. */

@@ -30,7 +30,8 @@ function niceNumber(x: number, round: boolean): number {
 }
 
 /**
- * The screen's frequency labels: whole Hz below 1 kHz, kHz above, with more decimals until every label is
+ * The frequency ticks' labels — the same on screen and in the exported image: whole hertz below 1 kHz and
+ * thousands with a k above (`1.2k`), the axis title carrying the unit; with more decimals until every label is
  * different. Mirrors Swift `AxisTickGenerator.formatTickLabels`.
  */
 export function formatTickLabels(values: number[]): Map<number, string> {
@@ -38,21 +39,11 @@ export function formatTickLabels(values: number[]): Map<number, string> {
     const labels = new Map(values.map((v) => [v, frequencyLabel(v, 1 + extra)] as const))
     if (new Set(labels.values()).size === labels.size) return labels
   }
-  return new Map(values.map((v) => [v, `${formatFixed(v, 1)} Hz`] as const))
+  return new Map(values.map((v) => [v, formatFixed(v, 1)] as const))
 }
 
-function frequencyLabel(value: number, kHzDecimals: number): string {
-  return value >= 1000 ? `${formatFixed(value / 1000, kHzDecimals)} kHz` : `${formatFixed(value, 0)} Hz`
-}
-
-/** The exported image's compact frequency label. Mirrors Swift `AxisTickGenerator.formatTickLabel`. */
-export function formatTickLabel(value: number): string {
-  const magnitude = Math.abs(value)
-  if (magnitude === 0) return '0'
-  if (magnitude >= 1000) return `${formatFixed(value / 1000, 1)}k`
-  if (magnitude >= 10) return formatFixed(value, 0)
-  if (magnitude >= 0.1) return formatFixed(value, 1)
-  return formatFixed(value, 2)
+function frequencyLabel(value: number, thousandsDecimals: number): string {
+  return value >= 1000 ? `${formatFixed(value / 1000, thousandsDecimals)}k` : formatFixed(value, 0)
 }
 
 /**

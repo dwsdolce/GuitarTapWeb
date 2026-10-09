@@ -29,6 +29,9 @@ export default defineConfig({
         // The service worker would serve a cached build; the tests must see the one just built.
         serviceWorkers: 'block',
         acceptDownloads: true,
+        // Dates print in the browser's time zone; UTC everywhere, so an export's date is the same on any
+        // machine and the export checker can compare it.
+        timezoneId: 'UTC',
       },
     },
   ],

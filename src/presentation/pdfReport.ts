@@ -99,7 +99,15 @@ export interface PdfTapInstructions {
 export interface PdfComparison {
   spectraCount: number
   /** One row per overlaid spectrum: colored dot + label, and the Air/Top/Back peak freqs. */
-  rows: { label: string; color: string; air: number | null; top: number | null; back: number | null }[]
+  rows: {
+    label: string
+    color: string
+    air: number | null
+    top: number | null
+    back: number | null
+    /** Modes whose value is a manual override: shown italic with " *", as page 1's mode labels are. */
+    overrideModes?: ('air' | 'top' | 'back')[]
+  }[]
 }
 
 export interface PdfReportData {
@@ -813,9 +821,13 @@ function drawComparisonTable(cur: Cur, comp: PdfComparison) {
     const label = wrapLines(doc, row.label, labelMax)
     textAt(doc, label, labelX, top)
     const freqs = [row.air, row.top, row.back]
+    const modes = ['air', 'top', 'back'] as const
     freqs.forEach((f, i) => {
+      const overridden = f != null && (row.overrideModes?.includes(modes[i]!) ?? false)
+      font(doc, 10, overridden ? 'italic' : 'normal')
       setColor(doc, f != null ? PRIMARY : SECONDARY)
-      textAt(doc, f != null ? `${FieldPrecision.string(f, FieldPrecision.peakFrequencyHz)} Hz` : '—', right[i]!, top, { align: 'right' })
+      const value = f != null ? `${FieldPrecision.string(f, FieldPrecision.peakFrequencyHz)} Hz${overridden ? ' *' : ''}` : '—'
+      textAt(doc, value, right[i]!, top, { align: 'right' })
     })
     cur.y += 4 + 10 * label.length + 4
   }
