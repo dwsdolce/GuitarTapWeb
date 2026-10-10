@@ -30,6 +30,25 @@ export const oracle = JSON.parse(
   reviveNonFinite, // GFFT4's "-Infinity" → -Infinity
 )
 
+/** Which tolerance class governs a value, by the leaf its path ends in — the hub's
+ *  parity-report.py uses the same table. */
+const TOLERANCE_CLASS: Record<string, string> = {
+  frequency: 'freqHz',
+  magnitude: 'magDb',
+  q: 'q',
+  ringOutSec: 'ringOutSec',
+  db: 'gatedFftDb',
+  deltaDb: 'gatedFftDb',
+  maxDb: 'gatedFftDb',
+}
+
+/** The same-configuration bar (oracle `selfTolerances`) for one value, by its path; a leaf with
+ *  no class is held exactly. */
+export function selfTolerance(path: string): number {
+  const kind = TOLERANCE_CLASS[path.slice(path.lastIndexOf('/') + 1)]
+  return kind ? (oracle.selfTolerances[kind] as number) : 0
+}
+
 export interface RegSettings {
   peakMinThreshold?: number
   tapDetectionThreshold: number

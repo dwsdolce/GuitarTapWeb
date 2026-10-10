@@ -5,8 +5,9 @@
 //   * The PARITY bar (parity-oracle.json `tolerances`, 1 dB / 1 Hz) asks whether the editions
 //     agree. It is necessarily loose — the web DSP and Swift's are different implementations
 //     on different runtimes, and they genuinely differ.
-//   * The REGRESSION bar, here, asks whether THIS edition on THIS machine still computes what
-//     it computed before. Nothing legitimately moves it, so it is ZERO.
+//   * The REGRESSION bar, here, asks whether THIS edition on THIS configuration still computes
+//     what it computed before. Nothing legitimately moves it, so it is the oracle's
+//     `selfTolerances` (1e-12): only the last-bit differences between CPUs of one configuration.
 //
 // The web edition cannot use the oracle for the second question: the oracle holds Swift's
 // numbers, and the distance to them is the very thing the parity bar measures. So each

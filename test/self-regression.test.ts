@@ -1,5 +1,5 @@
 // @parity test/self-regression
-// Zero-tolerance regression check against this configuration's own baseline.
+// Regression check against this configuration's own baseline, at the same-configuration bar.
 //
 // The parity suites ask whether the web edition still agrees with Swift, and must allow
 // 1 dB / 1 Hz to do it — the editions genuinely differ. That looseness is not a bar this
@@ -7,7 +7,9 @@
 // drift of exactly that size sat in the Swift goldens undetected until the oracle was re-minted.
 //
 // So this compares what the web edition computes now against what it computed when this
-// machine's baseline was minted, and allows NOTHING. Any movement is either a deliberate
+// configuration's baseline was minted, and allows only the oracle's `selfTolerances` (1e-12): the
+// last-bit differences between CPUs of one configuration (GitHub's runners, different people's
+// machines), a million times below any real change. Any larger movement is either a deliberate
 // algorithm change — re-mint, review the diff, commit it — or a regression.
 //
 // Minting is never automatic (tooling/mint-baseline.sh). A suite that wrote its own
@@ -15,7 +17,7 @@
 // answer it is checked against.
 
 import { describe, it, expect, beforeAll } from 'vitest'
-import { computeAll } from './parityRunner'
+import { computeAll, selfTolerance } from './parityRunner'
 import { configKey, flatten, load } from './selfBaseline'
 
 const baseline = load()
@@ -24,7 +26,7 @@ let computed: Record<string, number> = {}
 let expectedValues: Record<string, number> = {}
 
 describe.skipIf(baseline === null)(
-  `zero-tolerance regression — ${configKey()}`,
+  `self-regression — ${configKey()}`,
   () => {
     beforeAll(async () => {
       computed = flatten(await computeAll())
@@ -41,7 +43,12 @@ describe.skipIf(baseline === null)(
     it('every value is unchanged', () => {
       const drifted = Object.keys(expectedValues)
         .sort()
-        .filter((k) => k in computed && computed[k] !== expectedValues[k])
+        .filter(
+          (k) =>
+            k in computed &&
+            computed[k] !== expectedValues[k] &&
+            !(Math.abs(computed[k]! - expectedValues[k]!) <= selfTolerance(k)),
+        )
       if (drifted.length > 0) {
         const lines = drifted
           .slice(0, 20)
