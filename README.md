@@ -60,15 +60,33 @@ test/            Vitest oracle-driven parity tests (g0–g11 + regressions).
 tooling/sync-oracle.sh          Maintainer script: refresh the vendored oracle.
 ```
 
-## Getting started
+## Setting up on a new machine
 
-Prerequisites: **Node.js ≥ 20** (the repo's `.nvmrc` pins v26.3.1) and **git**.
+All commands run in **bash**: Terminal on macOS, a shell on Linux, Cygwin bash (or Git Bash) on Windows. Every
+repo has its own Python environment, `.venv`, made from its own requirements files; nothing uses another repo's
+Python or the system's. The repo's scripts find `.venv` themselves (`.venv/bin`, or `.venv/Scripts` on Windows) and
+stop if it is missing; `PYTHON=…` names another interpreter.
+
+1. **Prerequisites:** **Node.js** at the version in `.nvmrc` (pinned: other versions have broken the build —
+   `nvm install` / `nvm use` reads it), Python 3.14, and git.
+2. **Clone and install:**
+   ```bash
+   git clone https://github.com/dwsdolce/GuitarTapWeb.git
+   cd GuitarTapWeb
+   npm ci                              # exact, lockfile-pinned install
+   npx playwright install chromium     # the browser the end-to-end and export tests drive
+   ```
+3. **Python environment** — the export checker (`tooling/export-check/`), run by `npm run test:exports`:
+   ```bash
+   python3.14 -m venv .venv
+   .venv/bin/pip install -r requirements-dev.txt        # on Windows: .venv/Scripts/pip
+   ```
+4. **VS Code:** open the folder and select `.venv` as the Python interpreter.
+5. **Check it works:** `npm run test:fast`.
+
+Day to day:
 
 ```bash
-git clone https://github.com/dwsdolce/GuitarTapWeb.git
-cd GuitarTapWeb
-npm install          # or `npm ci` for an exact, lockfile-pinned install
-
 npm run dev          # start the dev server (http://localhost:5173)
 npm test             # run the Vitest parity suite
 npm run typecheck    # strict TypeScript check (no emit)

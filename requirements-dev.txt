@@ -1,0 +1,10 @@
+# Testing dependencies: the Python the export checker needs (tooling/run-export-check.sh, npm run test:exports).
+#
+# Setup:
+#   python3.14 -m venv .venv
+#   .venv/bin/pip install -r requirements-dev.txt
+#
+# Python version: 3.14 (match /Users/dws/src/guitar_tap)
+
+# The export checker's packages, pinned once for all three editions (synced from the hub).
+-r tooling/export-check/requirements.txt

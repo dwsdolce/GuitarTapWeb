@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the OUT-4 noisy plate fixture — the test that separates the two detection models.
 
-    python3 tooling/make-noisy-fixture.py
+    .venv/bin/python tooling/make-noisy-fixture.py
 
 Writes `test/fixtures/plate-umik-1-noisy-52.wav`: the clean plate session WAV with broadband noise
 mixed in to lift its noise floor from -77 dBFS to **-52 dBFS**. Deterministic (fixed seed), so every
