@@ -1,0 +1,43 @@
+# Mint each runner's self-baseline — the regression reference — by hand, never as a side effect of a test run.
+# Nothing is committed here: each job uploads the mint's log (the diff against the committed baseline) and, if
+# it changed, the runner's test/fixtures/self-baseline-<os>-<arch>.json; review the diff, then commit the file.
+name: Mint self-baselines
+
+on:
+  workflow_dispatch:
+
+jobs:
+  mint:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The whole history and its tags: the build number is the commit count, and the release guard
+      # compares the version with the last release's tag.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Node packages
+        run: npm ci
+
+      - name: Mint
+        run: |
+          tooling/mint-baseline.sh --yes 2>&1 | tee mint.log
+          mkdir -p minted
+          cp mint.log minted/
+          git status --porcelain test/fixtures | awk '{ print $2 }' | grep 'self-baseline-' | xargs -r -I{} cp {} minted/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: self-baseline-${{ runner.os }}
+          path: minted

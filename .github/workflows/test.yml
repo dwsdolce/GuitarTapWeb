@@ -1,0 +1,71 @@
+# The web edition's tests on Linux and Windows: typecheck, lint, the full Vitest suite, then the export tests
+# against Swift's expected values (tooling/run-export-check.sh — it builds the app and drives it in Playwright).
+# Set up as the README's "Setting up on a new machine" says, in bash on every OS.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The whole history and its tags: the build number is the commit count, and the release guard
+      # compares the version with the last release's tag.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      # npm runs package scripts in cmd.exe on Windows; ours are bash, as everything here is.
+      - name: npm scripts in bash (Windows)
+        if: runner.os == 'Windows'
+        run: npm config set script-shell "$(cygpath -w "$(which bash)")"
+
+      - name: Node packages and the browser
+        run: |
+          npm ci
+          if [ "$RUNNER_OS" = Linux ]; then npx playwright install --with-deps chromium; else npx playwright install chromium; fi
+
+      - name: Python environment (the export checker)
+        run: |
+          python -m venv .venv
+          bin=.venv/bin; [ -d .venv/Scripts ] && bin=.venv/Scripts
+          "$bin/python" -m pip install --upgrade pip
+          "$bin/python" -m pip install -r requirements-dev.txt
+
+      - name: Typecheck and lint
+        run: |
+          npm run typecheck
+          npm run lint
+
+      - name: Tests
+        run: npm test
+
+      - name: Export check
+        run: tooling/run-export-check.sh
+
+      - name: Exports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: exports-${{ runner.os }}
+          path: test-results/export-check
+          if-no-files-found: ignore
