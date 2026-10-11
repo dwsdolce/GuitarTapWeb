@@ -1,4 +1,20 @@
-# Guitar Tap (Web)
+<p align="center">
+  <img src="public/icons/pwa-512.png" width="120" alt="Guitar Tap icon">
+</p>
+
+<h1 align="center">Guitar Tap — Web edition</h1>
+
+<p align="center">
+  <b>Tap-tone analysis for luthiers — capture a tap, run an FFT, and reveal a guitar's resonant modes and a tonewood's stiffness.</b>
+</p>
+
+<p align="center">
+  <a href="https://www.dolcesfogato.com/guitar_tap/guitar_tap_web/">Open the web app</a> ·
+  <a href="https://www.dolcesfogato.com/guitar_tap/">Website</a> ·
+  <a href="https://www.dolcesfogato.com/guitar_tap/manual/">User Manual</a>
+</p>
+
+---
 
 Tap-tone spectrum analysis for luthiers, running entirely in the browser. Tap a
 guitar, tonewood plate, or brace; Guitar Tap captures the sound, runs a
@@ -6,12 +22,11 @@ high-resolution FFT, and reveals the resonant peaks and material properties that
 guide bracing, mass distribution, and plate thickness — the methodology from
 *Contemporary Acoustic Guitar Design and Build* by Trevor Gore and Gerard Gilet.
 
-**▶ Live app: <https://www.dolcesfogato.com/guitar_tap/guitar_tap_web/>**
-
 This is the **web edition** of Guitar Tap. It is a long-term parallel port of the
-native **Swift** app ([GuitarTap], the canonical reference for both algorithm and
-UX) and the **Python** desktop app ([guitar_tap], the mirror). All three are kept
-at numeric/behavioural parity (see [Parity](#parity) below).
+**Apple edition** ([GuitarTap], Swift — the canonical reference for both algorithm and
+UX), alongside the **desktop edition** ([guitar_tap], Python). All three are kept at
+numeric and behavioural parity (see [Parity](#parity) below) and are open source under
+the GNU GPL v3.
 
 Everything runs client-side: the DSP happens in the browser, and your saved
 measurement library lives in the browser's IndexedDB — no server, no accounts, no
@@ -109,7 +124,7 @@ effect-cleanup) that a single run hides:
 
 Runs under bash on macOS, Linux, and Windows (Cygwin / Git-Bash). A green soak is
 **confidence, not proof** — use a few hundred to ~1000 runs. See
-`SOAK-STRESS-HARNESS.md` in the project hub repo (`guitar-tap-project`) for the
+`SOAK-STRESS-HARNESS.md` in the project's planning repository (private) for the
 cross-platform rationale.
 
 ## Build
@@ -168,13 +183,14 @@ together, with the oracle regenerated.
 
 - **User manual** (shared across editions): <https://www.dolcesfogato.com/guitar_tap/manual/>
 - **In-app Quick Start**: the Help menu inside the app.
-- **Design & planning docs**: maintained in the project hub repo `guitar-tap-project`
-  (`PLAN.md`, `PARITY-MAP.md`, `WEB-UI-GUIDELINES.md`, the specs, …).
+- **Design & planning docs** (`PLAN.md`, `PARITY-MAP.md`, `WEB-UI-GUIDELINES.md`, the specs, …) live in
+  the project's own repository, which is private.
 
 ## Related projects
 
-- **[GuitarTap]** — native app for iPhone, iPad, and Mac (Swift; the canonical reference).
-- **[guitar_tap]** — open-source desktop app for Windows, macOS, and Linux (Python).
+- **[GuitarTap]** — the Apple edition: the native app for iPhone, iPad, and Mac (Swift; the canonical
+  reference), on the [App Store](https://apps.apple.com/app/guitar-tap/id6759410596).
+- **[guitar_tap]** — the desktop edition, for Windows, macOS, and Linux (Python).
 
 ## Contributing
 
@@ -191,7 +207,7 @@ Copyright © 2026 Dolce Sfogato (David Smith).
 GNU General Public License v3.0, matching the [guitar_tap] project. See the
 [LICENSE](LICENSE) file.
 
-[GuitarTap]: https://apps.apple.com/app/guitar-tap/id6759410596
+[GuitarTap]: https://github.com/dwsdolce/GuitarTap
 [guitar_tap]: https://github.com/dwsdolce/guitar_tap
 [Vite]: https://vitejs.dev/
 [vite-plugin-pwa]: https://vite-pwa-org.netlify.app/
