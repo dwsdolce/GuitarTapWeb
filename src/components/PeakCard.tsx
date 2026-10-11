@@ -1,5 +1,5 @@
 // @parity view/peak-card
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, type JSX } from 'react'
 import type { ResolvedMode } from '../dsp/classify'
 import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS } from '../presentation/modeColors'
 import { color as roleColor, magnitudeRole, modeRole } from '../presentation/palette'
