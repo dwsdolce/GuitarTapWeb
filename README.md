@@ -84,20 +84,26 @@ stop if it is missing; `PYTHON=…` names another interpreter.
 
 1. **Prerequisites:** **Node.js** at the version in `.nvmrc` (pinned: other versions have broken the build —
    `nvm install` / `nvm use` reads it), Python 3.14, and git.
-2. **Clone and install:**
+2. **Windows only — npm scripts in bash.** npm runs package scripts in `cmd.exe` on Windows, and ours are bash
+   (`npm run build` stops with "'.' is not recognized…"). Once per machine, from any folder:
+   ```bash
+   npm config set script-shell "$(cygpath -w "$(which bash)")"
+   ```
+   It is saved in your user `~/.npmrc`, so it holds for every project; `npm config get script-shell` shows it.
+3. **Clone and install:**
    ```bash
    git clone https://github.com/dwsdolce/GuitarTapWeb.git
    cd GuitarTapWeb
    npm ci                              # exact, lockfile-pinned install
    npx playwright install chromium     # the browser the end-to-end and export tests drive
    ```
-3. **Python environment** — the export checker (`tooling/export-check/`), run by `npm run test:exports`:
+4. **Python environment** — the export checker (`tooling/export-check/`), run by `npm run test:exports`:
    ```bash
    python3.14 -m venv .venv
    .venv/bin/pip install -r requirements-dev.txt        # on Windows: .venv/Scripts/pip
    ```
-4. **VS Code:** open the folder and select `.venv` as the Python interpreter.
-5. **Check it works:** `npm run test:fast`.
+5. **VS Code:** open the folder and select `.venv` as the Python interpreter.
+6. **Check it works:** `npm run test:fast`.
 
 Day to day:
 
