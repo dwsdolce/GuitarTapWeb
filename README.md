@@ -119,19 +119,18 @@ leaves the browser.
 
 ## Soak / stress testing
 
-`Tooling/soak.sh` is an on-demand **dev tool** (not CI) that loops the fast Vitest
+`tooling/soak.sh` is an on-demand **dev tool** (not CI) that loops the fast Vitest
 suite many times to surface nondeterministic teardown/async races (React
 effect-cleanup) that a single run hides:
 
 ```bash
-./Tooling/soak.sh 200        # 200 runs; exits non-zero on any failure or hang
-./Tooling/soak.sh 200 15000  # …with a 15 s per-test timeout (default 10 s)
+./tooling/soak.sh 200        # 200 runs; exits non-zero on any failure or hang
+./tooling/soak.sh 200 15000  # …with a 15 s per-test timeout (default 10 s)
 ```
 
 Runs under bash on macOS, Linux, and Windows (Cygwin / Git-Bash). A green soak is
-**confidence, not proof** — use a few hundred to ~1000 runs. See
-`SOAK-STRESS-HARNESS.md` in the project's planning repository (private) for the
-cross-platform rationale.
+**confidence, not proof** — use a few hundred to ~1000 runs. Why it works the way it
+does, and what it detects, is in the script's own header.
 
 ## Build
 

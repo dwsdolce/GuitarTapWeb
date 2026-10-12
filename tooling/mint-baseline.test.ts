@@ -3,10 +3,10 @@
 //
 // NOT part of the suite. It lives in tooling/, outside the `test/**/*.test.ts` glob, so a normal
 // `vitest run` never loads it — the surest form of "this does not write during a test run". It was
-// in test/ behind a MINT_BASELINE=1 env gate until #17; that worked, but it left a permanently
+// in test/ behind a MINT_BASELINE=1 env gate at first; that worked, but it left a permanently
 // skipped test in every run, and a standing skip teaches people to scroll past skips. The oracle
-// staleness check had been skipping loudly on every machine for months before anyone noticed
-// (SLUG-SWEEP.md F3), so the habit is not hypothetical.
+// staleness check had been skipping loudly on every machine for months before anyone noticed, so
+// the habit is not hypothetical.
 //
 // Drive it through tooling/mint-baseline.sh, which points vitest at tooling/vitest.mint.config.ts.
 // This mirrors Python's Tooling/mint-baseline.py, which pytest likewise never sees: running the
@@ -143,7 +143,7 @@ describe('mint the self-baseline', () => {
       if (lines.length === 0) {
         // Same values, but the baseline names a different oracle than the one it was just checked
         // against — e.g. a -dirty mint superseded by a clean one. Rewrite it so its provenance names
-        // an oracle anyone can check out; no value changes, so no confirmation is needed (#17 F44).
+        // an oracle anyone can check out; no value changes, so no confirmation is needed.
         console.log(`\nEvery value is identical, but the baseline names oracle ${checkedAgainst}, not the`)
         console.log(`current ${current}. Rewriting the provenance; no value changes.`)
       }

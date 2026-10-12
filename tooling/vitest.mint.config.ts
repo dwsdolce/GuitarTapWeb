@@ -9,7 +9,7 @@
 // and is used only by tooling/mint-baseline.sh.
 //
 // Vitest 2.x has no `--include` CLI flag and `--dir` does not override the glob, so a second
-// config is the way to run a file outside the suite. See SLUG-SWEEP.md F2.
+// config is the way to run a file outside the suite.
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({

@@ -5,7 +5,7 @@
 # Loops the FAST vitest suite (playback excluded) N times with a per-test timeout, hunting
 # nondeterministic FAILURES and HANGS that a single run hides. This is the web analog of the Swift
 # Combine-`deinit` race (Tooling/deinit-soak.sh) and the Python QObject-GC race — here the class is
-# React effect-cleanup / async-teardown. See Development/SOAK-STRESS-HARNESS.md.
+# React effect-cleanup / async-teardown.
 #
 # Three caveats (baked into the design):
 #   1. Optional/on-demand, NOT CI — it is N× slower and probabilistic.
@@ -19,7 +19,8 @@
 #   - HANG  — `--testTimeout` fails a single stuck test; and a fully-wedged run is killed by the
 #             per-run wall-clock cap (macOS has no `timeout`, so the cap is done with a background killer).
 #
-# Usage:  Tooling/soak.sh [N] [per-test-timeout-ms]      (defaults: N=100, per-test 10000ms)
+# Usage:  tooling/soak.sh [N] [per-test-timeout-ms]      (defaults: N=100, per-test 10000ms)
+#         A real soak is a few hundred to ~1000 runs; 100 is a quick check.
 #         SOAK_RUN_TIMEOUT=<seconds>  caps one fully-wedged run (default 180).
 #
 # Exits 0 only if every run passed with no failures and no hangs.
