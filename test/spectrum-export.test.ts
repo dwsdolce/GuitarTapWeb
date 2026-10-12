@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseGuitarTapFile } from '../src/measurement'
 import { measurementToImageOpts } from '../src/presentation/measurementImage'
-import { renderSpectrumToCanvas, spectrumPng } from '../src/presentation/spectrumExport'
+import { ExportRenderError, renderSpectrumToCanvas, spectrumPng } from '../src/presentation/spectrumExport'
 import { installCanvasStandIn } from './support/canvasStandIn'
 
 /** The shared cases: each fixture and the image it exports — pixels wide and high, and pixels per inch. */
@@ -34,7 +34,19 @@ describe('spectrum export', () => {
       const opts = measurementToImageOpts(parseGuitarTapFile(readFileSync(`test/fixtures/${fixture}.guitartap`, 'utf8'))[0]!)
       const canvas = renderSpectrumToCanvas(opts)
       expect([canvas.width, canvas.height]).toEqual([width, height])
-      expect(pixelsPerInch((await spectrumPng(opts))!)).toBe(ppi)
+      expect(pixelsPerInch(await spectrumPng(opts))).toBe(ppi)
     })
   }
+
+  // A chart that renders to nothing stops the export with ExportRenderError, rather than saving the
+  // image without its chart.
+  it('a chart that cannot be drawn stops the export', async () => {
+    installCanvasStandIn({ drawsNothing: true })
+    try {
+      const opts = measurementToImageOpts(parseGuitarTapFile(readFileSync(`test/fixtures/${CASES[0]![0]}.guitartap`, 'utf8'))[0]!)
+      await expect(spectrumPng(opts)).rejects.toThrow(ExportRenderError)
+    } finally {
+      installCanvasStandIn()
+    }
+  })
 })

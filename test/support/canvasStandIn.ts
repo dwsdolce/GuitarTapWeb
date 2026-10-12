@@ -22,16 +22,18 @@ function context(): unknown {
   })
 }
 
-/** Install the stand-in as the global `document`. */
-export function installCanvasStandIn(): void {
+/** Install the stand-in as the global `document`. With `drawsNothing`, its canvases give back what a
+ *  browser gives for a canvas it could not draw: a null Blob and an empty data URL. */
+export function installCanvasStandIn({ drawsNothing = false } = {}): void {
   ;(globalThis as unknown as { document: unknown }).document = {
     createElement: () => ({
       width: 0,
       height: 0,
       style: {},
       getContext: () => context(),
-      toDataURL: () => PNG,
-      toBlob: (done: (blob: Blob) => void) => done(new Blob([Buffer.from(PNG.split(',')[1]!, 'base64')], { type: 'image/png' })),
+      toDataURL: () => (drawsNothing ? 'data:,' : PNG),
+      toBlob: (done: (blob: Blob | null) => void) =>
+        done(drawsNothing ? null : new Blob([Buffer.from(PNG.split(',')[1]!, 'base64')], { type: 'image/png' })),
     }),
   }
 }

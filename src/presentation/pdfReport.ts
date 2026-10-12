@@ -16,7 +16,7 @@
 // y-position, so sections can never overdraw each other.
 
 import type { SpectrumImageOpts } from './spectrumExport'
-import { renderSpectrumToCanvas } from './spectrumExport'
+import { ExportRenderError, renderSpectrumToCanvas } from './spectrumExport'
 import { saveFile } from '../saveFile'
 import { formattedAsFrequency } from './frequencyFormat'
 import { formatDisplayDate } from '../format/date'
@@ -365,7 +365,11 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
   // 0.62 MB). Flate is lossless (pixels are bit-identical); FAST gives 26.9×, MEDIUM 31.1×, SLOW
   // 31.7× — MEDIUM is the knee of the curve. The `undefined` is the optional `alias` slot;
   // compression is the 8th parameter.
-  doc.addImage(canvas.toDataURL('image/png'), 'PNG', L, cur.y, CONTENT_W, frameH, undefined, 'MEDIUM')
+  // A canvas the browser could not draw gives 'data:,' — the report is refused rather than written
+  // without its chart.
+  const chartPng = canvas.toDataURL('image/png')
+  if (chartPng === 'data:,') throw new ExportRenderError()
+  doc.addImage(chartPng, 'PNG', L, cur.y, CONTENT_W, frameH, undefined, 'MEDIUM')
   cur.y += frameH + 14
 
   divider(cur)

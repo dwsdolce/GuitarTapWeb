@@ -268,18 +268,30 @@ function fmt(hz: number): string {
   return hz >= 1000 ? `${(hz / 1000).toFixed(1)}k Hz` : `${hz.toFixed(0)} Hz`
 }
 
+/** What the user is told when an export's chart cannot be drawn. Mirrors Swift `ExportRenderError.message`. */
+export const EXPORT_RENDER_FAILED = 'The chart could not be drawn, so nothing was saved. Please try again.'
+
+/** An export's chart could not be drawn; the export is refused rather than written without it.
+ *  Mirrors Swift `ExportRenderError`. */
+export class ExportRenderError extends Error {
+  constructor() {
+    super(EXPORT_RENDER_FAILED)
+    this.name = 'ExportRenderError'
+  }
+}
+
 /** The spectrum report image as a PNG file, as Swift's export writes it: 2x pixels stating 144 pixels per
- *  inch, so a viewer that honours the figure shows it at its point size. */
-export async function spectrumPng(opts: SpectrumImageOpts): Promise<Uint8Array<ArrayBuffer> | null> {
+ *  inch, so a viewer that honours the figure shows it at its point size.
+ *  @throws {@link ExportRenderError} when the browser produces no image. */
+export async function spectrumPng(opts: SpectrumImageOpts): Promise<Uint8Array<ArrayBuffer>> {
   const canvas = renderSpectrumToCanvas(opts)
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) return null
+  if (!blob) throw new ExportRenderError()
   return withPixelsPerInch(new Uint8Array(await blob.arrayBuffer()), 72 * PIXEL_SCALE)
 }
 
 /** Save the composed spectrum report image as a PNG (Chromium "Save As…" dialog / download fallback). */
 export async function exportSpectrumPng(opts: SpectrumImageOpts, filename: string): Promise<void> {
   const png = await spectrumPng(opts)
-  if (!png) return
   await saveFile(new Blob([png], { type: 'image/png' }), filename, { description: 'PNG image', mime: 'image/png', ext: '.png' })
 }
