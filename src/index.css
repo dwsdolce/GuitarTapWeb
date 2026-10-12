@@ -13,6 +13,14 @@
   color-scheme: dark;
 }
 
+/* A select's open list, which Chrome on Windows draws from the select's own colours: the pickers' background is a
+   translucent tint, so the list came out white under the dark scheme's near-white text. An opaque panel colour
+   keeps it readable in both schemes; browsers that draw a native menu ignore it. */
+select option {
+  background: var(--c-background-panel);
+  color: var(--c-text-primary);
+}
+
 * {
   box-sizing: border-box;
 }
