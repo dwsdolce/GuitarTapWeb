@@ -1,5 +1,6 @@
 // @parity view/threshold-slider
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
+import type { InputLevel } from '../audio/inputLevel'
 import { useScheme } from '../hooks/useScheme'
 import { color } from '../presentation/palette'
 
@@ -15,16 +16,18 @@ import { color } from '../presentation/palette'
 
 /** Props for {@link ThresholdMeter}. */
 export interface ThresholdMeterProps {
-  /** Live input level (dBFS). */
-  level: number
+  /** The engine's input level, observed here alone: it changes on every audio buffer, so only the
+   *  meter re-renders for it, not the app around it (Swift `ThresholdSlider`'s `inputLevel`). Null
+   *  until the engine exists. */
+  inputLevel: InputLevel | null
   /** Threshold value (dB) — the handle. */
   value: number
   onChange: (db: number) => void
   min?: number
   max?: number
-  /** Rightmost 10% turns red when the input clips. */
-  clipping?: boolean
 }
+
+const NO_SUBSCRIPTION = () => () => {}
 
 // Visual / behaviour constants (mirror the native ThresholdSlider).
 const PEAK_HOLD_SECONDS = 0.5
@@ -36,10 +39,19 @@ const HANDLE_H = 22
 
 /**
  * Renders the level-meter + threshold slider on a canvas. Drives the peak-hold decay
- * and repaint from the `level`/`value`/`clipping`/range props, and reports handle
+ * and repaint from the input level, the `value`/range props, and reports handle
  * drags (click or drag anywhere jumps the handle) via {@link ThresholdMeterProps.onChange}.
  */
-export function ThresholdMeter({ level, value, onChange, min = -80, max = -20, clipping = false }: ThresholdMeterProps) {
+export function ThresholdMeter({ inputLevel, value, onChange, min = -80, max = -20 }: ThresholdMeterProps) {
+  // The level on every buffer, clipping on each change — the rightmost 10% turns red when it clips.
+  const level = useSyncExternalStore(
+    inputLevel ? (cb) => inputLevel.onInputLevel(cb) : NO_SUBSCRIPTION,
+    () => inputLevel?.inputLevelDB ?? -100,
+  )
+  const clipping = useSyncExternalStore(
+    inputLevel ? (cb) => inputLevel.onClipping(cb) : NO_SUBSCRIPTION,
+    () => inputLevel?.isClipping ?? false,
+  )
   const scheme = useScheme() // drawn in the meter roles of the current scheme
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const peak = useRef({ db: min, setTime: 0, last: 0 })

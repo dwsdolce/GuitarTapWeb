@@ -1,6 +1,6 @@
 // ViewModel for the audio engine — the web counterpart of Swift's RealtimeFFTAnalyzer /
 // Python's tap_tone_analyzer (the audio *model* layer). Owns the engine instance lifecycle
-// (auto-start on mount, stop on unmount), the live telemetry state (running / level / spectrum /
+// (auto-start on mount, stop on unmount), the live telemetry state (running / input level / spectrum /
 // engine state / clipping / multi-tap progress / FFT metrics / sample rate / device label / error),
 // and the calibration store's picker actions (import/select/delete). The engine owns the input
 // devices — their list, the selection, what is saved and each device's calibration — and this hook
@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import { RealtimeFFTAnalyzer, failedOpenMessage, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
+import type { InputLevel } from '../audio/inputLevel'
 import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 import type { Spectrum } from '../dsp/guitarFFT'
 import {
@@ -40,7 +41,8 @@ interface UseAudioEngineArgs {
 
 export interface AudioEngineModel {
   running: boolean
-  level: number
+  /** The engine's input level, for the threshold meter to observe; null until the engine exists. */
+  inputLevel: InputLevel | null
   liveSpectrum: Spectrum | null
   sampleRate: number | null
   audioSettings: MediaTrackSettings | null
@@ -76,7 +78,7 @@ export function useAudioEngine({
   analyzer,
 }: UseAudioEngineArgs): AudioEngineModel {
   const [running, setRunning] = useState(false)
-  const [level, setLevel] = useState(-100)
+  const [inputLevel, setInputLevel] = useState<InputLevel | null>(null)
   const [liveSpectrum, setLiveSpectrum] = useState<Spectrum | null>(null)
   const [sampleRate, setSampleRate] = useState<number | null>(null)
   const [audioSettings, setAudioSettings] = useState<MediaTrackSettings | null>(null)
@@ -155,7 +157,6 @@ export function useAudioEngine({
     setErrorKind(null)
     const engine = new RealtimeFFTAnalyzer(
       {
-        onLevel: setLevel,
         // Each live spectrum is shown AND handed to the analyzer, which finds the live peaks from it
         // while a sequence runs (Swift onFftFrame → analyzeMagnitudes).
         onSpectrum: (spectrum) => {
@@ -166,9 +167,6 @@ export function useAudioEngine({
         // TapToneAnalyzer does the rest: pre-roll, detection, gated capture, the tap count, the
         // status strings and the L→C→FLC phase machine. That is Swift's split.
         onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime),
-        // Edge-triggered clipping → the analyzer's status override/restore AND the snapshot's isClipping
-        // (which drives the threshold-slider red zone), from one source. Swift `$isClipping` sink.
-        onClipping: (c) => analyzer.setClipping(c),
         onMetrics: setEngineMetrics,
         onDeviceStateChanged: syncDeviceState,
         // A device plugged in while running could not be opened; the previous input is kept.
@@ -195,6 +193,7 @@ export function useAudioEngine({
     // warning in the status line as both natives do. Swift `$inputAppearsDead` sink / Python
     // `inputAppearsDeadChanged` → `_set_input_appears_dead`.
     engine.onInputAppearsDeadChange = (dead) => analyzer.setInputAppearsDead(dead)
+    setInputLevel(engine.level)
     analyzer.setDevice(engine) // the analyzer holds the device to orchestrate material
     try {
       await engine.start()
@@ -237,7 +236,7 @@ export function useAudioEngine({
 
   return {
     running,
-    level,
+    inputLevel,
     liveSpectrum,
     sampleRate,
     audioSettings,

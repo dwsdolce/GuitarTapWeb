@@ -1,5 +1,6 @@
 // @parity audio/realtime-analyzer
 import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, watchdogDecision } from './deadInput'
+import { InputLevel } from './inputLevel'
 import { GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { fftInPlace } from '../dsp/fft'
@@ -39,13 +40,10 @@ export type EngineState = 'idle' | 'listening' | 'capturing' | 'paused'
 /** Optional callbacks the caller supplies to observe the engine (spectrum, level, captures, state…). */
 export interface RealtimeFFTAnalyzerCallbacks {
   onSpectrum?: (spectrum: Spectrum) => void
-  onLevel?: (db: number) => void
   /** Every pipeline chunk, with its level and audio-clock value. The TapToneAnalyzer owns the
    *  pre-roll, the detector and the capture window (Swift's split), so this is the whole seam
    *  between the device and the model. */
   onAudioFrame?: (samples: Float32Array, levelDb: number, audioTime: number) => void
-  /** Edge-triggered input clipping (peak ≥ 0.99 or RMS ≥ 0 dBFS, 1.5 s hold). */
-  onClipping?: (clipping: boolean) => void
   /** Continuous session recording for the "Dump Capture Audio" diagnostic — fired ONCE at the end of a
    *  measurement with every chunk that flowed through the pipeline while recording (minus paused
    *  segments and redone phases), so replaying it reproduces the session. `label` identifies the
@@ -80,7 +78,7 @@ export interface EngineMetrics {
   frameRate: number
   /** Input level (dBFS) sampled at the FFT-frame rate — the status-bar / Metrics readout updates at the
    *  same cadence as the spectrum + Peak, mirroring Swift `displayLevelDB` (readoutLevelDB gated by the
-   *  graph publish rate), NOT the fast per-chunk `onLevel` (which drives the responsive threshold meter).
+   *  graph publish rate), NOT the fast per-chunk `level` (which drives the responsive threshold meter).
    *  True digital silence is -Infinity here; every other consumer of the level gets Swift's -100. */
   displayLevelDB: number
   /** The live spectrum's loudest bin — Swift `peakFrequency` / `peakMagnitude`, owned by the FFT
@@ -103,7 +101,7 @@ const DEFAULT_CONFIG: RealtimeFFTAnalyzerConfig = {
 }
 
 const CLIP_HOLD_SECONDS = 1.5
-// Decay-seed peak hold (Swift `peakHoldDuration`): how long recentPeakDb latches its max before
+// Decay-seed peak hold (Swift `peakHoldDuration`): how long level.recentPeakLevelDB latches its max before
 // releasing to the current level. Canonical value is Swift's CODE (2.0 s); the Swift "0.5 s" comment
 // was stale (never updated after the value changed during testing).
 const PEAK_HOLD_SECONDS = 2.0
@@ -178,10 +176,9 @@ export class RealtimeFFTAnalyzer {
     return this.audioElapsed
   }
 
-  /** Peak-held input level, the ring-out decay seed (Swift `recentPeakLevelDB`). */
-  get recentPeakLevelDb(): number {
-    return this.recentPeakDb
-  }
+  /** The latest buffer's input level — level, clipping, recent peak — on an object of its own so that
+   *  only the threshold meter observes it. Swift `level`. */
+  readonly level = new InputLevel()
 
   /** Per-bin calibration corrections for the current input, or null. The analyzer APPLIES these,
    *  mirroring Swift reading `fftAnalyzer.calibrationCorrections` in finishGuitarGatedCapture. */
@@ -272,12 +269,11 @@ export class RealtimeFFTAnalyzer {
 
 
   private audioElapsed = 0 // accumulated audio time (s) — the audio clock each chunk is stamped with
-  // Peak-held broadband level for the decay SEED — mirrors Swift `recentPeakLevelDB`
-  // (RealtimeFFTAnalyzer+FFTProcessing.swift): latch the running max, release to the current level
-  // only after PEAK_HOLD_SECONDS without a higher peak. Captures the true tap strike even though tap
-  // detection confirms a couple of chunks late, so the −15 dB reference isn't under-stated. Uses the
-  // audio clock (deterministic / file-playback-safe), not wall-clock. Canonical value = Swift's CODE.
-  private recentPeakDb = -100
+  // Peak-held broadband level for the decay SEED (`level.recentPeakLevelDB`) — mirrors Swift
+  // `recentPeakLevelDB` (RealtimeFFTAnalyzer+FFTProcessing.swift): latch the running max, release to the
+  // current level only after PEAK_HOLD_SECONDS without a higher peak. Captures the true tap strike even
+  // though tap detection confirms a couple of chunks late, so the −15 dB reference isn't under-stated.
+  // Uses the audio clock (deterministic / file-playback-safe), not wall-clock.
   private recentPeakTime = 0
 
   // Continuous session recording — a flat sample buffer, mirroring Swift `sessionRecordingBuffer`
@@ -299,7 +295,6 @@ export class RealtimeFFTAnalyzer {
 
   // Clipping detection.
   private lastClipTime: number | null = null
-  private clipState = false
   // Latest per-chunk input level (dBFS), sampled into the FFT-frame metrics as displayLevelDB.
   private readoutLevelDb = -100
 
@@ -871,14 +866,7 @@ export class RealtimeFFTAnalyzer {
     }
   }
 
-  /** The level of the last chunk, in dBFS, for detection, the meter and decay; silence is −100.
-   *  Swift `inputLevelDB`. */
-  get inputLevelDB(): number {
-    return this.inputLevelDb
-  }
-  private inputLevelDb = -100
-
-  /** The readout's level: `inputLevelDB`, except true digital silence is −∞. Swift `readoutLevelDB`. */
+  /** The readout's level: `level.inputLevelDB`, except true digital silence is −∞. Swift `readoutLevelDB`. */
   get readoutLevelDB(): number {
     return this.readoutLevelDb
   }
@@ -897,20 +885,19 @@ export class RealtimeFFTAnalyzer {
     // `max(rms, 1e-10)`, i.e. -200 — copied from Python, not Swift — so detection saw a different
     // level on true digital silence than Swift's did.
     const db = rms > 0 ? 20 * Math.log10(rms) : -100
-    this.inputLevelDb = db
     // The READOUT's level — Swift readoutLevelDB: the same value, except true silence is -Infinity,
     // because -100 dB is a real level a quiet UMIK-1 reaches. Sampled into the FFT-frame metrics
     // (displayLevelDB) at the graph rate. Detection, the meter and decay keep `db`.
     this.readoutLevelDb = rms > 0 ? db : -Infinity
-    this.callbacks.onLevel?.(db)
+    this.level.inputLevelDB = db
     this.detectClipping(s, db)
 
     // The audio clock: every chunk carries its audio time up to the analyzer.
     this.audioElapsed += s.length / this.sampleRate
     // Recent-peak hold for the decay seed (Swift recentPeakLevelDB): latch the max, release to the
     // current level after 2.0 s without a higher peak.
-    if (db > this.recentPeakDb || this.audioElapsed - this.recentPeakTime > PEAK_HOLD_SECONDS) {
-      this.recentPeakDb = db
+    if (db > this.level.recentPeakLevelDB || this.audioElapsed - this.recentPeakTime > PEAK_HOLD_SECONDS) {
+      this.level.recentPeakLevelDB = db
       this.recentPeakTime = this.audioElapsed
     }
 
@@ -1036,10 +1023,7 @@ export class RealtimeFFTAnalyzer {
     const now = performance.now() / 1000
     if (peakAbs >= 0.99 || db >= 0) this.lastClipTime = now
     const next = this.lastClipTime !== null && now - this.lastClipTime < CLIP_HOLD_SECONDS
-    if (next !== this.clipState) {
-      this.clipState = next
-      this.callbacks.onClipping?.(next)
-    }
+    this.level.isClipping = next
   }
 
   private recordProcessing(ms: number): void {
@@ -1096,7 +1080,6 @@ export class RealtimeFFTAnalyzer {
     this.context = null
     this.accumIdx = 0
     this.lastClipTime = null
-    this.clipState = false
     await ctx?.close()
   }
 }

@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
+import { InputLevel } from '../src/audio/inputLevel'
 import type { Spectrum } from '../src/dsp/guitarFFT'
 import { advanceAudio } from './audioClockFeed'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
@@ -36,12 +37,14 @@ function spectrum(peakHz: number | null): Spectrum {
 }
 const mp = (f: number): ResonantPeak => ({ id: '0', frequency: f, magnitude: -40, quality: 8, bandwidth: 2, timestamp: '2026-09-25T00:00:00Z' })
 
-/** A minimal device stand-in — the analyzer only needs playingFile + activeCalibration + no-op session/arm
- *  hooks (armMaterial etc. re-arm the real device; here they do nothing). */
+/** A minimal device stand-in — the analyzer only needs playingFile + activeCalibration + its input level
+ *  (observed for clipping) + no-op session/arm hooks (armMaterial etc. re-arm the real device; here they do
+ *  nothing). */
 function fakeDevice(playingFile = false): RealtimeFFTAnalyzer {
   return {
     playingFile,
     activeCalibration: null,
+    level: new InputLevel(),
     armMaterial() {},
     arm() {},
     disarm() {},
@@ -56,6 +59,23 @@ function fakeDevice(playingFile = false): RealtimeFFTAnalyzer {
 describe('statusMessage — initial + clipping override/restore', () => {
   it('starts at the canonical initial message (NOT "Requesting microphone…")', () => {
     expect(new TapToneAnalyzer().statusMessage).toBe('Tap the guitar to begin')
+  })
+
+  // Arming straight after the analyzer is made writes the armed prompt in the same pass as the initial
+  // status. The status must settle on the prompt and stay there — Swift's once alternated between the
+  // two for good. Mirrors Swift twoWritesInOnePass_settleOnTheSecondAndStay.
+  it('two writes in one pass settle on the second and stay', async () => {
+    const a = new TapToneAnalyzer()
+    a.startTapSequence({ arm: false })
+    await new Promise((r) => setTimeout(r, 0))
+    expect(a.statusMessage).toBe('Tap the guitar...')
+
+    let writes = 0
+    const unsubscribe = a.subscribe(() => writes++)
+    await new Promise((r) => setTimeout(r, 50))
+    unsubscribe()
+    expect(a.statusMessage).toBe('Tap the guitar...')
+    expect(writes, `the status kept changing with nothing happening: ${writes} notifications`).toBe(0)
   })
 
   it('clipping overrides the display and restores the latest real status when it clears', () => {

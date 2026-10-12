@@ -1715,10 +1715,19 @@ export class TapToneAnalyzer {
    *  analyzer sets `fftAnalyzer.preMicRestartHandler`, it asks the engine to flush its gated capture
    *  when a played file ends. */
   setDevice(device: RealtimeFFTAnalyzer | null): void {
-    if (this.device && this.device !== device) this.device.preMicRestartHandler = null
+    if (this.device === device) return
+    if (this.device) this.device.preMicRestartHandler = null
+    this.stopObservingClipping?.()
+    this.stopObservingClipping = null
     this.device = device
-    if (device) device.preMicRestartHandler = () => this.flushGatedCaptureOnFileEnd()
+    if (device) {
+      device.preMicRestartHandler = () => this.flushGatedCaptureOnFileEnd()
+      // Input clipping → the status override (Swift `fftAnalyzer.level.$isClipping` sink /
+      // Python `level.clippingChanged` → `_set_clipping`).
+      this.stopObservingClipping = device.level.onClipping((c) => this.setClipping(c))
+    }
   }
+  private stopObservingClipping: (() => void) | null = null
 
   /** Play a decoded audio file through the live pipeline — the Play File action. Plays with the
    *  calibration given for the file, or with none: the microphone the file was recorded with is unknown,
@@ -2171,7 +2180,7 @@ export class TapToneAnalyzer {
 
   // Detector state (Swift TapToneAnalyzer+TapDetection).
   private isAboveThreshold = false
-  /** The latest chunk's input level — Swift `fftAnalyzer.inputLevelDB`; seeds the latch at Accept/Redo. */
+  /** The latest chunk's input level — Swift `fftAnalyzer.level.inputLevelDB`; seeds the latch at Accept/Redo. */
   private inputLevelDb = -100
   /** The audio clock as the analyzer has seen it: the audio time of the latest chunk to reach
    *  detection, recorded on every chunk before any guard. The tap-lifecycle timers run on THIS clock,
@@ -2619,7 +2628,7 @@ export class TapToneAnalyzer {
         // The ring-out's reference is the PEAK-HELD level (Swift `tapPeakLevel = recentPeakLevelDB`),
         // not this chunk's: confirmation lags the strike by ~2 chunks, so the true peak would otherwise
         // be missed and the −15 dB target under-stated.
-        if (this.device) this.tapPeakLevel = this.device.recentPeakLevelDb
+        if (this.device) this.tapPeakLevel = this.device.level.recentPeakLevelDB
         this.handleTapDetection(audioTime)
       }
     } else {
@@ -3441,8 +3450,8 @@ export class TapToneAnalyzer {
         : this.latestRealStatus
   }
 
-  /** The device forwards edge-triggered input clipping here (Swift `fftAnalyzer.$isClipping` sink /
-   *  Python `clippingChanged` → `_set_clipping`). Overrides the status with the warning, restores on clear. */
+  /** Edge-triggered input clipping, from the device's input level (Swift `fftAnalyzer.level.$isClipping`
+   *  sink / Python `level.clippingChanged` → `_set_clipping`). Overrides the status with the warning, restores on clear. */
   setClipping(clipping: boolean): void {
     if (clipping === this.isClipping) return
     this.isClipping = clipping

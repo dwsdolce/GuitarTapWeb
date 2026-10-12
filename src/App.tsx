@@ -103,9 +103,6 @@ export default function App() {
   const { analyzer, snapshot } = useTapToneAnalyzer()
   const numberOfTaps = snapshot.numberOfTaps
   const currentTapCount = snapshot.currentTapCount
-  // Clipping is an analyzer fact (no duplicate React state in useAudioEngine) — the threshold-slider
-  // red zone reads the snapshot.
-  const clipping = snapshot.isClipping
   // The frozen guitar result + per-tap comparison spectra live on the analyzer (mirrors Swift
   // frozenMagnitudes/Frequencies + tapEntries), exposed via the snapshot. App reads them through
   // these aliases; writes go through analyzer transitions
@@ -323,7 +320,7 @@ export default function App() {
   // Audio engine: lifecycle + telemetry + audio-input/calibration — see hooks/useAudioEngine.
   const {
     running,
-    level,
+    inputLevel,
     liveSpectrum,
     sampleRate,
     deviceLabel,
@@ -1036,9 +1033,8 @@ export default function App() {
             <div className="field" title={HINTS.threshold}>
               <label>Threshold</label>
               <ThresholdMeter
-                level={level}
+                inputLevel={inputLevel}
                 value={tapThreshold}
-                clipping={clipping}
                 onChange={(v) => {
                   updateSettings({ tapDetectionThreshold: v })
                   engineRef.current?.setConfig({ tapDetectionThreshold: v })

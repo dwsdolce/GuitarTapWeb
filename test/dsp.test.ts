@@ -124,7 +124,7 @@ describe('dsp — shared cases', () => {
           break
         case 'processRawSamples':
           engine.processRawSamples(samples)
-          expect(close(engine.inputLevelDB, e.inputLevelDB), `inputLevelDB ${engine.inputLevelDB}`).toBe(true)
+          expect(close(engine.level.inputLevelDB, e.inputLevelDB), `inputLevelDB ${engine.level.inputLevelDB}`).toBe(true)
           expect(close(engine.readoutLevelDB, e.readoutLevelDB), `readoutLevelDB ${engine.readoutLevelDB}`).toBe(true)
           break
         default:
