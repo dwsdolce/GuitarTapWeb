@@ -833,6 +833,9 @@
   align-items: flex-start;
   justify-content: center;
   padding: 4vh 1rem;
+  /* The visible height: iPad Safari's vh is the viewport WITHOUT its address and tab bars, so a panel
+     sized in vh ran past the bottom of the screen in landscape, its Cancel/Done row out of reach. */
+  padding: 4dvh 1rem;
   z-index: 50;
 }
 .settings-modal {
@@ -842,6 +845,7 @@
   width: 100%;
   max-width: 460px;
   max-height: 92vh;
+  max-height: 92dvh;
   display: flex;
   flex-direction: column;
 }
