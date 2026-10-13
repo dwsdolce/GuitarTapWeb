@@ -31,8 +31,9 @@ import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type Mater
 // store owns them; the analyzer no longer duplicates the type.
 import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, ANNOTATION_NEXT, isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, type AnnotationMode, type MeasurementType, type Settings } from '../settings'
 import { materialInputsFromSettings, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
-import { dumpCaptureWav } from '../measurement/dumpWav'
+import { dumpCaptureProbe, dumpCaptureWav } from '../measurement/dumpWav'
 import { FieldPrecision } from '../precision'
+import { captureProbe } from './captureProbe'
 
 /** The tap detector's state. Mirrors Swift `DetectionState` (DetectionState.swift) and Python
  *  `DetectionState` (models/detection_state.py).
@@ -2264,6 +2265,7 @@ export class TapToneAnalyzer {
     this.sessionActive = this.settings.dumpCaptureAudio
     this.sessionRecording = this.sessionActive
     this.sessionPreRollActive = true // bound the pre-first-tap audio to ~2 s
+    captureProbe.beginLiveSession(this.settings.dumpCaptureAudio) // diagnostic
   }
 
   /** Mark a phase boundary (SAMPLE count) so a later redo can truncate the rejected phase's audio
@@ -2316,6 +2318,8 @@ export class TapToneAnalyzer {
     this.sessionCheckpoints = []
     if (samples.length === 0 || !this.settings.dumpCaptureAudio) return
     this.captureAudioSaved = dumpCaptureWav(samples.toFloat32Array(), rate, `session_${label}`)
+    const probeFile = captureProbe.liveRecordsFile(this.captureAudioSaved) // diagnostic; null in a released build
+    if (probeFile) dumpCaptureProbe(probeFile)
     this.notify()
   }
 
@@ -2439,7 +2443,7 @@ export class TapToneAnalyzer {
    *  `fftAnalyzer.actualSampleRate` on demand, so a file at another rate re-sizes them. */
   private resizeCaptureBuffers(rate: number): void {
     this.mpmSampleRate = rate
-    this.prerollSamples = Math.round(rate * 0.2)
+    this.prerollSamples = Math.round(rate * TapToneAnalyzer.preRollDuration)
     this.preroll = new Float32Array(this.prerollSamples)
     this.prerollIdx = 0
     this.prerollFilled = 0
@@ -2846,6 +2850,31 @@ export class TapToneAnalyzer {
   static readonly gatedFFTWindowDuration = 0.4
   /** Silence kept before the onset, in seconds. Swift `preOnsetDuration`. */
   static readonly preOnsetDuration = 0.1
+  /** Audio kept before the trigger, in seconds — the pre-roll ring's length. Swift `preRollDuration`. */
+  static readonly preRollDuration = 0.2
+
+  /**
+   * How many samples of a guitar tap's FFT window are audio; the rest of the window, to fftSize, is
+   * always zeros.
+   *
+   * A guitar capture is fftSize samples beginning the pre-roll before the trigger, and
+   * `alignCaptureToOnset` starts the window `preOnsetDuration` before the onset — so the window
+   * starts up to (pre-roll − pre-onset) into the capture, depending on how long after the onset the
+   * trigger's chunk boundary fell, and that many samples short of its end the capture runs out.
+   * Ending the audio that margin before the window's end, always, makes the window the same samples
+   * wherever the boundary fell: the same tap gives the same spectrum on every run and in every
+   * edition. What is left out is the last tenth of a second of a 1.4-second window.
+   *
+   * Mirrors Swift `guitarWindowAudioSamples(sampleRate:)`.
+   *
+   * @param sampleRate The capture's sample rate in Hz.
+   * @returns The number of leading samples of the window that are audio.
+   */
+  guitarWindowAudioSamples(sampleRate: number): number {
+    const margin =
+      Math.round(sampleRate * TapToneAnalyzer.preRollDuration) - Math.round(sampleRate * TapToneAnalyzer.preOnsetDuration)
+    return (this.device?.fftSize ?? GUITAR_FFT_SIZE) - Math.max(0, margin)
+  }
   /** Samples at the start of a capture used to estimate its noise. Swift `onsetNoiseEstimateSamples`. */
   static readonly onsetNoiseEstimateSamples = 2048
   /** The onset is the first sample above this multiple of the noise RMS. Swift `onsetThresholdMultiplier`. */
@@ -2854,13 +2883,20 @@ export class TapToneAnalyzer {
   static readonly onsetMinThreshold = 0.001
   /** Samples the onset is moved back, to keep the attack. Swift `onsetBackupSamples`. */
   static readonly onsetBackupSamples = 32
+  /** Samples left between the noise re-measured before the tap and the tap's first sample above the
+   *  threshold, so the measured stretch holds none of the tap's own rise. Swift `onsetNoiseGuardSamples`. */
+  static readonly onsetNoiseGuardSamples = 256
+  /** How many times the onset may be found again from the noise just before it. It settles in one or
+   *  two. Swift `onsetRefinementPasses`. */
+  static readonly onsetRefinementPasses = 4
 
   /**
    * Re-anchor a captured buffer so the tap onset sits at a fixed index, making the FFT input independent
    * of level-crossing chunk boundaries. Swift `alignCaptureToOnset(_:windowSize:preOnsetSamples:)`:
    * estimate the noise from the first `onsetNoiseEstimateSamples`, set the onset threshold at
    * `onsetThresholdMultiplier` × that RMS (floored at `onsetMinThreshold`), scan for the first sample
-   * above it, back up `onsetBackupSamples`, then extract `windowSize` samples with the onset at
+   * above it; measure the noise again just before that sample and scan again, until the sample stops
+   * moving; back up `onsetBackupSamples`, then extract `windowSize` samples with the onset at
    * `preOnsetSamples` — zero-padding either edge if it does not fit.
    * @param samples Raw captured buffer (pre-roll + post-crossing).
    * @param windowSize Output length (e.g. 19200 = 400 ms at 48 kHz).
@@ -2879,21 +2915,33 @@ export class TapToneAnalyzer {
       copyInto(0, 0, Math.min(n, windowSize))
       return out
     }
-    let sumSq = 0
-    for (let i = 0; i < T.onsetNoiseEstimateSamples; i++) sumSq += (samples[i] as number) ** 2
-    const noiseRms = Math.sqrt(sumSq / T.onsetNoiseEstimateSamples)
-    const threshold = Math.max(noiseRms * T.onsetThresholdMultiplier, T.onsetMinThreshold)
-
-    let onset = -1
-    for (let i = 0; i < n; i++) {
-      if (Math.abs(samples[i] as number) > threshold) {
-        onset = i
-        break
-      }
+    // The onset threshold for a stretch of noise: 10× its RMS, floored for digital silence.
+    const thresholdForNoiseAt = (start: number): number => {
+      let sumSq = 0
+      for (let i = start; i < start + T.onsetNoiseEstimateSamples; i++) sumSq += (samples[i] as number) ** 2
+      return Math.max(Math.sqrt(sumSq / T.onsetNoiseEstimateSamples) * T.onsetThresholdMultiplier, T.onsetMinThreshold)
     }
+    const firstSampleAbove = (threshold: number): number => {
+      for (let i = 0; i < n; i++) if (Math.abs(samples[i] as number) > threshold) return i
+      return -1
+    }
+    // A first estimate: the noise at the start of the buffer, and the first sample above its threshold.
+    let onset = firstSampleAbove(thresholdForNoiseAt(0))
     if (onset < 0) {
       copyInto(0, 0, Math.min(n, windowSize))
       return out
+    }
+    // Then the noise is measured again just before the tap, and the onset found again, until it stops
+    // moving. Where the buffer starts depends on the chunk boundary the trigger fired on, so the noise
+    // at its start is a different stretch of audio from one capture of a tap to another, and its
+    // threshold can put the onset a sample or two apart. The noise just before the tap is the same
+    // stretch whichever capture it is. Mirrors Swift alignCaptureToOnset.
+    for (let pass = 0; pass < T.onsetRefinementPasses; pass++) {
+      const noiseStart = onset - T.onsetNoiseGuardSamples - T.onsetNoiseEstimateSamples
+      if (noiseStart < 0) break
+      const refined = firstSampleAbove(thresholdForNoiseAt(noiseStart))
+      if (refined < 0 || refined === onset) break
+      onset = refined
     }
     onset = Math.max(0, onset - T.onsetBackupSamples)
     const extractStart = onset - preOnsetSamples
@@ -3174,6 +3222,10 @@ export class TapToneAnalyzer {
       Math.round(sampleRate * TapToneAnalyzer.gatedFFTWindowDuration),
       Math.round(sampleRate * TapToneAnalyzer.preOnsetDuration),
     )
+    // Diagnostic for cross-edition material multi-tap differences: fingerprint the buffer on both
+    // sides of the alignment step. Inert unless captureProbe.enabled. Mirrors Swift's
+    // CaptureProbe.record call in the material capture.
+    captureProbe.record(samples, aligned)
     const { magnitudesDb, frequencies } = (this.device ?? new RealtimeFFTAnalyzer()).computeGatedFFT(aligned, sampleRate)
     // Disarm BEFORE recording, so the analyzer's re-arm (guarded on state !== 'capturing') isn't
     // blocked; during file playback the next phase is armed synchronously from here.
@@ -3196,6 +3248,14 @@ export class TapToneAnalyzer {
   finishGuitarGatedCapture(samples: Float32Array, sampleRate: number): void {
     const fftSize = this.device?.fftSize ?? GUITAR_FFT_SIZE
     const aligned = this.alignCaptureToOnset(samples, fftSize, Math.round(sampleRate * TapToneAnalyzer.preOnsetDuration))
+    // The window's audio ends at a fixed length, and zeros follow: where the capture ran out depends
+    // on the trigger's chunk boundary, and the window must not. Mirrors Swift finishGuitarGatedCapture.
+    aligned.fill(0, this.guitarWindowAudioSamples(sampleRate))
+    // Diagnostic for capture-window alignment: fingerprint the buffer on both sides of the alignment
+    // step, so a cross-edition comparison can say whether the editions captured the same samples,
+    // aligned them differently, or differ only in the arithmetic afterwards. Inert unless
+    // captureProbe.enabled. Mirrors Swift finishGuitarGatedCapture's CaptureProbe.record call.
+    captureProbe.record(samples, aligned)
     // The live path's rectangular window and fftSize, so the spectrum is bin-compatible with the live
     // frames (Swift `fftAnalyzer.computeFFT(on: chunk)`), then the input's calibration.
     const engine = this.device ?? new RealtimeFFTAnalyzer()

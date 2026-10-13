@@ -22,6 +22,9 @@
 #      re-render under the new build number. Rolling over means pinning that entry
 #      to the literal build it shipped as and adding a new top entry.
 #
+# And, for `npm run build` only, a third: the capture probe's developer switch
+# (LIVE_PROBE) must be off. See the check itself, below.
+#
 # Both are gated on HEAD having moved past the last release, so at the tag itself
 # nothing fires — rebuilding or redeploying the release you just cut is legitimate.
 # They fire together on the first commit after a release and go quiet once the
@@ -43,6 +46,31 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NOTES_REL="src/components/ReleaseNotes.tsx"
 NOTES="$ROOT/$NOTES_REL"
 PKG="$ROOT/package.json"
+
+#===============================================
+# 0. Capture probe left on — production builds only.
+#===============================================
+# LIVE_PROBE makes the app download a diagnostic file with every capture recording. It is switched
+# on in the source for a diagnostic run under `npm run dev`, which this must not block, so the
+# check applies to `npm run build` alone — what gets deployed. It needs no git history, so it runs
+# before the checks below can skip.
+PROBE_REL="src/state/captureProbe.ts"
+if [ "${npm_lifecycle_event:-}" = "prebuild" ] \
+    && grep -qE '^export const LIVE_PROBE(: boolean)? = true' "$ROOT/$PROBE_REL" 2>/dev/null; then
+    {
+        echo "======================================================================"
+        echo "BLOCKED — this tree is not ready to be built for deployment."
+        echo
+        echo "CAPTURE PROBE SWITCHED ON"
+        echo
+        echo "  $PROBE_REL has LIVE_PROBE = true, so the deployed app would download a"
+        echo "  diagnostic file with every capture recording."
+        echo
+        echo "  FIX: set LIVE_PROBE to false."
+        echo "======================================================================"
+    } >&2
+    exit 1
+fi
 
 # Not a git work tree — nothing to compare a version against. `git rev-parse`
 # rather than a .git directory test, so a git worktree (where .git is a file) is

@@ -17,13 +17,27 @@ const DOWNLOAD_URL_LIFETIME_MS = 60_000
 export function dumpCaptureWav(samples: Float32Array, sampleRate: number, label: string): string {
   // Integer-second ISO, ":" → "-", matching Swift/Python (drop the milliseconds toISOString adds).
   const ts = new Date().toISOString().replace(/\.\d+Z$/, 'Z').replace(/:/g, '-')
-  const blob = new Blob([encodeWavFloat32(samples, sampleRate).buffer as ArrayBuffer], { type: 'audio/wav' })
+  const name = `web_${label}_${ts}.wav`
+  download(new Blob([encodeWavFloat32(samples, sampleRate).buffer as ArrayBuffer], { type: 'audio/wav' }), name)
+  return name
+}
+
+/** How long after a recording's download the probe's file is offered. Two downloads started together
+ *  leave only the second: the browser drops the first. */
+const PROBE_DOWNLOAD_DELAY_MS = 1_000
+
+/** Download the capture probe's records for one measurement, a moment after its recording.
+ *  Diagnostic: the analyzer has a file to pass only in a build made with the probe's developer
+ *  switch on. */
+export function dumpCaptureProbe(file: { name: string; text: string }): void {
+  setTimeout(() => download(new Blob([file.text], { type: 'application/json' }), file.name), PROBE_DOWNLOAD_DELAY_MS)
+}
+
+function download(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  const name = `web_${label}_${ts}.wav`
   a.download = name
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS)
-  return name
 }

@@ -13,6 +13,8 @@ vi.mock('../src/measurement/dumpWav', async (importOriginal) => ({
     dumped.push(label)
     return `web_${label}.wav`
   },
+  // The capture probe's file, when a diagnostic build has the probe switched on: not a session WAV.
+  dumpCaptureProbe: () => {},
 }))
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { DEFAULT_SETTINGS } from '../src/settings'
