@@ -6,8 +6,8 @@
     "arch": "x86_64"
   },
   "provenance": {
-    "mintedAt": "2026-10-14T01:36:45Z",
-    "oracleVersion": "6489b1b",
+    "mintedAt": "2026-10-14T19:32:53Z",
+    "oracleVersion": "777a951",
     "node": "26.11.1",
     "v8": "14.6.202.34-node.37",
     "platform": "win32-x64",
@@ -53,7 +53,7 @@
             "magnitude": -54.56825454707607
           }
         ],
-        "ringOutSec": 0.08533333333333334
+        "ringOutSec": 0.07610081848675977
       },
       "REG-G2": {
         "averagedPeaks": [

@@ -6,12 +6,12 @@
     "arch": "x86_64"
   },
   "provenance": {
-    "mintedAt": "2026-10-14T01:35:43Z",
-    "oracleVersion": "6489b1b",
+    "mintedAt": "2026-10-14T19:31:56Z",
+    "oracleVersion": "777a951",
     "node": "26.11.1",
     "v8": "14.6.202.34-node.37",
     "platform": "linux-x64",
-    "cpu": "AMD EPYC 9V45 96-Core Processor"
+    "cpu": "AMD EPYC 7763 64-Core Processor"
   },
   "values": {
     "filePlayback": {
@@ -53,7 +53,7 @@
             "magnitude": -54.56825454707607
           }
         ],
-        "ringOutSec": 0.08533333333333334
+        "ringOutSec": 0.07610081848675977
       },
       "REG-G2": {
         "averagedPeaks": [
