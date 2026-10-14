@@ -2837,7 +2837,7 @@ export class TapToneAnalyzer {
   }
 
   // ── The gated capture's alignment and peak selection ──────────────────────────────────────────
-  // @parity dsp/gated-capture tests=test/file-playback,test/tap-decisions
+  // @parity dsp/gated-capture tests=test/file-playback,test/tap-decisions,test/guitar-capture-window
   // @parity dsp/gated-fft tests=test/gated-fft
   // Swift keeps these on the analyzer (TapToneAnalyzer statics and +SpectrumCapture), as does Python,
   // and so does the web. The gated TRANSFORM is the engine's `computeGatedFFT`, as Swift's is its FFT
