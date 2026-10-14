@@ -7,7 +7,7 @@
  * onset, which takes that out of its start — but the capture is exactly as long as the window, so it
  * runs out before the window's end, by an amount that depends on the boundary. The window's audio
  * therefore ends at a fixed length, short of the window's end by the most that amount can be, and
- * zeros follow: the same tap, the same window.
+ * zeros follow: the same tap, the same window — and, measured from that window, the same ring-out.
  *
  * Mirrors: GuitarTapTests/GuitarCaptureWindowTests.swift · tests/test_guitar_capture_window.py
  */
@@ -39,8 +39,8 @@ function recording(): Float32Array {
 
 /** Play the recording with its first `dropped` samples removed — the same tap, its chunk boundaries
  *  `dropped` samples elsewhere — and return the fingerprint of the window the capture handed to the
- *  transform. */
-async function windowFingerprint(samples: Float32Array, dropped: number): Promise<string | undefined> {
+ *  transform, and the ring-out measured. */
+async function capture(samples: Float32Array, dropped: number): Promise<{ window: string | undefined; ringOut: number | null }> {
   captureProbe.reset()
   captureProbe.enabled = true
   try {
@@ -56,7 +56,7 @@ async function windowFingerprint(samples: Float32Array, dropped: number): Promis
     analyzer.setDevice(engine)
     await analyzer.playFile(samples.subarray(dropped), SAMPLE_RATE, null)
     await waitForCompletion(analyzer)
-    return captureProbe.records[0]?.windowHash
+    return { window: captureProbe.records[0]?.windowHash, ringOut: analyzer.currentDecayTime }
   } finally {
     captureProbe.enabled = false
   }
@@ -68,9 +68,18 @@ describe('guitar capture window', () => {
   it('gives the same window wherever the chunk boundaries fall', async () => {
     const samples = recording()
     const seen: Record<number, string | undefined> = {}
-    for (const dropped of [0, 300, 700, 1000]) seen[dropped] = await windowFingerprint(samples, dropped)
+    for (const dropped of [0, 300, 700, 1000]) seen[dropped] = (await capture(samples, dropped)).window
     expect(Object.values(seen).every(Boolean), `no capture for some chunk boundary: ${JSON.stringify(seen)}`).toBe(true)
     expect(new Set(Object.values(seen)).size, `REGRESSION: the window differs with the chunk boundary — ${JSON.stringify(seen)}`).toBe(1)
+  }, 120_000)
+
+  // GW3: the same tap, with its chunk boundaries at four different places, measures the same ring-out.
+  it('measures the same ring-out wherever the chunk boundaries fall', async () => {
+    const samples = recording()
+    const seen: Record<number, number | null> = {}
+    for (const dropped of [0, 300, 700, 1000]) seen[dropped] = (await capture(samples, dropped)).ringOut
+    expect(Object.values(seen).every((v) => v !== null), `no ring-out for some chunk boundary: ${JSON.stringify(seen)}`).toBe(true)
+    expect(new Set(Object.values(seen)).size, `REGRESSION: the ring-out differs with the chunk boundary — ${JSON.stringify(seen)}`).toBe(1)
   }, 120_000)
 
   /** Noise whose level rises and falls, then a tap that grows from nothing: the noise measured at one

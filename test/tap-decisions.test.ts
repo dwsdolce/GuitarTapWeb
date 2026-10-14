@@ -107,13 +107,6 @@ describe("the detector's decisions", () => {
     expect(a.gatedCaptureActive, 'a tap should start a capture after crossing the rising threshold').toBe(true)
   })
 
-  it("T1b: the tap is stamped with the confirming chunk's audio time", () => {
-    const a = armed(-40)
-    settled(a)
-    chunks(a, -35, a.confirmChunks)
-    expect(a.decayTapAudioTime, "the tap's time is the confirming chunk's audio time").toBe(a.lastAudioTime)
-  })
-
   // T1c–T1e: the detector uses the threshold the APPLICATION configured — `tapDetectionThreshold`, which
   // the slider writes — not the -40 dB default.
 

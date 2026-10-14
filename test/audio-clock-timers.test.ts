@@ -181,22 +181,6 @@ describe('the tap lifecycle runs on the audio clock', () => {
     await done
   })
 
-  // T7: ring-out tracking stops once a chunk arrives `decayTrackingDuration` of audio after the tap,
-  // and that chunk is not recorded.
-  it('ring-out tracking stops on the audio clock', () => {
-    const a = new TapToneAnalyzer()
-    a.startDecayTracking(10.0)
-    const end = 10.0 + a.decayTrackingDuration
-
-    a.trackDecayFast(-40, end - 0.01)
-    expect(a.isTrackingDecay, 'still inside the window').toBe(true)
-    const samplesBefore = a.peakMagnitudeHistory.length
-
-    a.trackDecayFast(-40, end)
-    expect(a.isTrackingDecay, 'stopped by the audio clock alone').toBe(false)
-    expect(a.peakMagnitudeHistory.length, 'the stopping chunk is not recorded').toBe(samplesBefore)
-  })
-
   // File end: the capture window is released at once, so a measurement whose last capture ends with
   // the file still completes — the audio clock stops with the file.
   it('file end releases the pending capture window', () => {

@@ -579,7 +579,7 @@ export class TapToneAnalyzer {
   /** The title of the alert that shows `microphoneWarning`; set with it. Swift `microphoneWarningTitle`. */
   microphoneWarningTitle = 'Microphone Not Found'
   /** Ring-out (decay) time in seconds of what is on screen: the file's when a measurement is loaded,
-   *  the live ring-out's during a capture (`trackDecayFast` writes it). ONE value, as
+   *  the last captured guitar tap's otherwise (`finishGuitarGatedCapture` writes it). ONE value, as
    *  Swift `currentDecayTime` and Python `current_decay_time` — the view used to hold two and choose
    *  between them. Cleared by startTapSequence, as in Swift. */
   currentDecayTime: number | null = null
@@ -720,8 +720,6 @@ export class TapToneAnalyzer {
     this.loadedAxisRange = null
     this.loadedSettings = null
     this.currentDecayTime = null
-    this.peakMagnitudeHistory = []
-    this.resetDecayTracking()
     this.showingMultiTapComparison = false
     this.captureAudioSaved = null
     this.materialPeaksFromLoad = false
@@ -2202,16 +2200,6 @@ export class TapToneAnalyzer {
   private consecutive = 0
   /** dB drop that defines "rung out". Swift `decayThreshold` (15). */
   decayThreshold = 15
-  /** The post-tap level history, audio time + dB. Swift `peakMagnitudeHistory`. */
-  peakMagnitudeHistory: { time: number; magnitude: number }[] = []
-  /** Audio time of the tap the ring-out is measured from. Swift `decayTapAudioTime`. */
-  decayTapAudioTime: number | null = null
-  /** The peak-held level at the tap — the ring-out's first entry. Swift `tapPeakLevel`. */
-  tapPeakLevel = -100
-  /** Stop recording this long, in audio, after the tap. Swift `decayTrackingDuration`. */
-  readonly decayTrackingDuration = 3.0
-  /** Swift `isTrackingDecay`. */
-  isTrackingDecay = false
   /** The EMA-tracked input noise floor (dBFS) the relative detector rises from. Swift/Python
    *  `noiseFloorEstimate` — readable, as there (the noisy-plate regression checks it converged). */
   noiseFloorEstimate = -60
@@ -2375,11 +2363,6 @@ export class TapToneAnalyzer {
       // `handleTapDetection` does, and the capture's finish and the rest keep it off until the re-arm.
       if (this.isDetecting && !this.isDetectionPaused && !this.isMeasurementComplete) this.detectTap(levelDb, audioTime)
     }
-    // Ring-out tracking rides the same chunk and its audio time, AFTER detection and outside its
-    // guards — Swift's rmsLevelHandler calls `onRmsLevelChanged` and then `trackDecayFast`. It gates
-    // itself on `isTrackingDecay`, and runs on past the measurement's completion, which is exactly the
-    // window it measures.
-    this.trackDecayFast(levelDb, audioTime)
   }
 
   // ── Audio-clock lifecycle timers — Swift afterAudio / runDueAudioActions ─────────────────────────
@@ -2629,71 +2612,70 @@ export class TapToneAnalyzer {
       if (this.consecutive >= this.confirmChunks) {
         this.isAboveThreshold = true
         this.consecutive = 0
-        // The ring-out's reference is the PEAK-HELD level (Swift `tapPeakLevel = recentPeakLevelDB`),
-        // not this chunk's: confirmation lags the strike by ~2 chunks, so the true peak would otherwise
-        // be missed and the −15 dB target under-stated.
-        if (this.device) this.tapPeakLevel = this.device.level.recentPeakLevelDB
-        this.handleTapDetection(audioTime)
+        this.handleTapDetection()
       }
     } else {
       this.consecutive = 0
     }
   }
 
-  // ── Ring-out (decay) tracking ─────────────────────────────────────────────────────────────────
-  // @parity dsp/decay tests=test/decay-tracking
-  // Swift TapToneAnalyzer+DecayTracking / Python tap_tone_analyzer_decay_tracking. After a guitar tap
-  // the per-chunk broadband level (the same dB detection sees) is recorded against AUDIO time; the
-  // ring-out is the time from the post-tap peak down to peak − `decayThreshold`. It is on the analyzer,
-  // as in the natives, and starts from the confirming chunk's audio time.
+  // ── Ring-out ──────────────────────────────────────────────────────────────────────────────────
+  // @parity dsp/decay tests=test/decay-tracking,test/guitar-capture-window
+  // Swift TapToneAnalyzer+DecayTracking / Python tap_tone_analyzer_decay_tracking. The ring-out of a
+  // guitar tap, from the samples of its FFT window. The level is the mean square over a window of
+  // `ringOutWindowSamples` samples, taken at every sample from the tap's onset; the ring-out is the
+  // time from the window where that level is highest to the first window after it whose level is
+  // `decayThreshold` dB lower, interpolated between samples.
+  //
+  // The guitar window starts a fixed distance before the onset and its audio ends a fixed distance
+  // after it, whichever chunk the trigger fired on — so, measured on it, the ring-out depends on the
+  // tap alone, not on where the audio's chunk boundaries fell. Measured once per chunk, it could only
+  // come out in whole chunks, and the same tap read a chunk apart. The window's audio lasts about
+  // 1.16 s after the onset; a ring-out longer than that is not measured.
 
-  /** Start a fresh ring-out window for a tap confirmed at `tapAudioTime`, seeded with the peak-held
-   *  level. Swift `startDecayTracking(tapAudioTime:)`. */
-  startDecayTracking(tapAudioTime: number): void {
-    this.peakMagnitudeHistory = [{ time: tapAudioTime, magnitude: this.tapPeakLevel }]
-    this.decayTapAudioTime = tapAudioTime
-    this.setDecayTime(null)
-    this.isTrackingDecay = true
-  }
+  /** The number of samples the ring-out level is measured over. Swift `ringOutWindowSamples`. */
+  static readonly ringOutWindowSamples = 1024
 
-  /** Swift `stopDecayTracking()`. */
-  stopDecayTracking(): void {
-    this.isTrackingDecay = false
-  }
+  /** The ring-out time of the audio in `samples[start, end)`, in seconds — or null if there is too
+   *  little audio, it is silent, or its level does not fall by `threshold` dB before `end`.
+   *
+   *  The energy of every `ringOutWindowSamples`-sample window from `start`, from a running sum of the
+   *  squares (in order, from `start`); the peak is the first window with the most energy; the crossing
+   *  is the first window after it with less than the peak's energy `threshold` dB lower, interpolated
+   *  in dB from the window before it. Swift `ringOutTime(_:from:to:sampleRate:threshold:)`. */
+  static ringOutTime(samples: ArrayLike<number>, start: number, end: number, sampleRate: number,
+                     threshold: number): number | null {
+    const window = TapToneAnalyzer.ringOutWindowSamples
+    end = Math.min(end, samples.length)
+    if (start < 0 || sampleRate <= 0 || end - start <= window) return null
 
-  /** Stops any active ring-out tracking — a new sequence must not keep measuring the previous tap. Swift
-   *  `resetDecayTracking()`. */
-  private resetDecayTracking(): void {
-    this.isTrackingDecay = false
-  }
-
-  /** Record one chunk's level, and re-measure. Stops — without recording — once the chunk is
-   *  `decayTrackingDuration` of audio after the tap. Swift `trackDecayFast(inputLevel:audioTime:)`. */
-  trackDecayFast(inputLevel: number, audioTime: number): void {
-    if (!this.isTrackingDecay) return
-    const tapTime = this.decayTapAudioTime
-    if (tapTime !== null && audioTime - tapTime >= this.decayTrackingDuration) {
-      this.stopDecayTracking()
-      return
+    const sums = new Float64Array(end - start + 1)
+    let total = 0
+    for (let k = start; k < end; k++) {
+      const x = samples[k]!
+      total += x * x
+      sums[k - start + 1] = total
     }
-    this.peakMagnitudeHistory.push({ time: audioTime, magnitude: inputLevel })
-    const minimumDecayHistoryCount = 10
-    if (tapTime !== null && this.peakMagnitudeHistory.length > minimumDecayHistoryCount) {
-      this.setDecayTime(this.measureDecayTime(tapTime))
-    }
-  }
+    const windows = end - start - window + 1
+    const energy = (i: number): number => sums[i + window]! - sums[i]!
 
-  /** Ring-out = post-tap PEAK → first later entry below (peak − `decayThreshold`), in seconds, or null
-   *  if the level has not dropped that far. Only entries at or after `tapTime` count. Swift
-   *  `measureDecayTime(tapTime:)`. */
-  measureDecayTime(tapTime: number): number | null {
-    const postTap = this.peakMagnitudeHistory.filter((e) => e.time >= tapTime)
-    let peak: { time: number; magnitude: number } | null = null
-    for (const e of postTap) if (peak === null || e.magnitude > peak.magnitude) peak = e
-    if (peak === null) return null
-    const target = peak.magnitude - this.decayThreshold
-    const decayed = postTap.find((e) => e.magnitude < target && e.time > peak!.time)
-    return decayed ? decayed.time - peak.time : null
+    let peak = 0
+    for (let i = 1; i < windows; i++) if (energy(i) > energy(peak)) peak = i
+    const peakEnergy = energy(peak)
+    if (!(peakEnergy > 0)) return null
+
+    const target = peakEnergy * Math.pow(10, -threshold / 10)
+    let crossing = -1
+    for (let i = peak + 1; i < windows; i++) {
+      if (energy(i) < target) { crossing = i; break }
+    }
+    if (crossing < 0) return null
+
+    const before = energy(crossing - 1), after = energy(crossing)
+    const fraction = after > 0
+      ? (Math.log10(before) - Math.log10(target)) / (Math.log10(before) - Math.log10(after))
+      : 0
+    return (crossing - 1 - peak + fraction) / sampleRate
   }
 
   private armWarmup(skip: boolean): void {
@@ -2710,16 +2692,15 @@ export class TapToneAnalyzer {
   }
 
   /** A confirmed tap: detection goes off first — it stays off through the capture and the rest — then
-   *  the tap is routed by capture kind. Swift `handleTapDetection(magnitudes:frequencies:time:audioTime:)`:
-   *  a guitar tap starts the ring-out at its audio time, shows "capturing", and opens the guitar capture;
-   *  a plate/brace tap goes to `handlePlateTapDetection`. */
-  private handleTapDetection(audioTime: number): void {
+   *  the tap is routed by capture kind. Swift `handleTapDetection(magnitudes:frequencies:time:)`:
+   *  a guitar tap shows "capturing" and opens the guitar capture, whose window gives both its spectrum
+   *  and its ring-out; a plate/brace tap goes to `handlePlateTapDetection`. */
+  private handleTapDetection(): void {
     this.detectionState = 'idle'
     if (!this.isGuitar) {
       this.handlePlateTapDetection()
       return
     }
-    this.startDecayTracking(audioTime)
     this.setStatusMessage(this.guitarLoopStatus(true))
     this.startGuitarGatedCapture()
   }
@@ -3247,10 +3228,12 @@ export class TapToneAnalyzer {
    *  vs file playback) don't shift the FFT input. */
   finishGuitarGatedCapture(samples: Float32Array, sampleRate: number): void {
     const fftSize = this.device?.fftSize ?? GUITAR_FFT_SIZE
-    const aligned = this.alignCaptureToOnset(samples, fftSize, Math.round(sampleRate * TapToneAnalyzer.preOnsetDuration))
+    const preOnsetSamples = Math.round(sampleRate * TapToneAnalyzer.preOnsetDuration)
+    const aligned = this.alignCaptureToOnset(samples, fftSize, preOnsetSamples)
     // The window's audio ends at a fixed length, and zeros follow: where the capture ran out depends
     // on the trigger's chunk boundary, and the window must not. Mirrors Swift finishGuitarGatedCapture.
-    aligned.fill(0, this.guitarWindowAudioSamples(sampleRate))
+    const audioSamples = this.guitarWindowAudioSamples(sampleRate)
+    aligned.fill(0, audioSamples)
     // Diagnostic for capture-window alignment: fingerprint the buffer on both sides of the alignment
     // step, so a cross-edition comparison can say whether the editions captured the same samples,
     // aligned them differently, or differ only in the arithmetic afterwards. Inert unless
@@ -3263,6 +3246,10 @@ export class TapToneAnalyzer {
     this.gatedCaptureActive = false
     this.guitarTapCount += 1
     this.recordGuitarTap(spectrum)
+    // The ring-out, from the window's audio: from the onset to where the audio ends. Mirrors Swift
+    // finishGuitarGatedCapture.
+    this.setDecayTime(TapToneAnalyzer.ringOutTime(aligned, preOnsetSamples, Math.min(audioSamples, aligned.length),
+      sampleRate, this.decayThreshold))
     this.tapProgress = Math.min(1, this.currentTapCount / this.numberOfTaps)
 
     const total = this.numberOfTaps
