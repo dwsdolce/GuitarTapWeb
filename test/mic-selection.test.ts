@@ -1,8 +1,9 @@
 // @parity test/mic-selection
 //
-// Which input device the engine uses and what it saves: the start-up rule acquireInputToUse (MS1–MS3),
-// the engine driven through setInputDevice and the hardware-change handler (MS6–MS11), a measurement
-// load switching to its recorded microphone (MS14–MS17), and choosing a calibration for the selected
+// Which input device the engine uses and what it saves: the start-up rule acquireInputToUse (MS1–MS3, the
+// shared cases in mic-selection.json), the engine driven through setInputDevice and the hardware-change
+// handler (MS6–MS11), a measurement load switching to its recorded microphone (MS14–MS17), and
+// choosing a calibration for the selected
 // input (MS18–MS20), the thresholds a load restores (MS21), and a device that cannot be opened
 // (MS23–MS25).
 //
@@ -11,7 +12,8 @@
 // the default. Every selection is saved, so what Settings shows is what the next start uses.
 //
 // The same list, ids and devices as Swift MicSelectionTests and Python test_mic_selection.py, except:
-//   MS4, MS5 — the browser resolves the default input itself; there is no first-device step.
+//   MS4, MS5 — the browser resolves the default input itself; there is no first-device step (marked
+//              in mic-selection.json).
 //   MS12, MS13 — Python only (which PortAudio default is the system default).
 //   MS21     — the web's settings are App's store: the analyzer hands App the loaded settings
 //              (`loadedSettings`) and App saves them, so the test checks what the load hands over.
@@ -20,6 +22,7 @@
 // The browser's media devices are replaced by a fake: a set of connected inputs and a default.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { RealtimeFFTAnalyzer, failedOpenMessage } from '../src/audio/realtimeFFTAnalyzer'
 import {
   calibrationIdForDevice,
@@ -36,6 +39,13 @@ const BUILT_IN = 'macbook-mic'
 const BLACK_HOLE = 'blackhole-2ch'
 const UMIK = 'umik-1'
 const USB2 = 'usb-mic-2'
+
+interface RuleRow { id: string; note: string; devices: string[]; saved: string | null; default: string | null; expect: string | null; editions?: string[] }
+const RULE = (JSON.parse(readFileSync('test/fixtures/mic-selection.json', 'utf8')) as { inputDeviceToUse: RuleRow[] }).inputDeviceToUse
+
+/** This file's device id for a case file's device key. */
+const deviceId = (key: string | null): string | null =>
+  key === null ? null : ({ builtIn: BUILT_IN, blackHole: BLACK_HOLE, umik: UMIK, usb2: USB2 } as Record<string, string>)[key]!
 
 /** The fake browser: which inputs are connected, and which is the default. */
 const media = { connected: [] as string[], defaultId: null as string | null, failing: [] as string[] }
@@ -126,21 +136,13 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('the rule', () => {
-  it('MS1: the saved device wins when it is present — over the default and any other device', async () => {
-    const engine = await makeSUT(BUILT_IN, [BLACK_HOLE, BUILT_IN, UMIK], UMIK)
-    expect(engine.inputDeviceId).toBe(BUILT_IN)
-  })
-
-  it('MS2: the saved device is not connected — the default input', async () => {
-    const engine = await makeSUT(UMIK, [BLACK_HOLE, BUILT_IN], BUILT_IN)
-    expect(engine.inputDeviceId).toBe(BUILT_IN)
-  })
-
-  it('MS3: nothing saved — the default input, not a device listed ahead of it (BlackHole)', async () => {
-    const engine = await makeSUT(null, [BLACK_HOLE, BUILT_IN], BUILT_IN)
-    expect(engine.inputDeviceId).toBe(BUILT_IN)
-  })
+describe('the rule — the shared cases in mic-selection.json (MS1–MS3)', () => {
+  for (const row of RULE.filter((r) => (r.editions ?? ['web']).includes('web'))) {
+    it(`${row.id}: ${row.note}`, async () => {
+      const engine = await makeSUT(deviceId(row.saved), row.devices.map((k) => deviceId(k)!), deviceId(row.default)!)
+      expect(engine.inputDeviceId).toBe(deviceId(row.expect))
+    })
+  }
 })
 
 describe('the engine: what is selected, and what is saved', () => {
