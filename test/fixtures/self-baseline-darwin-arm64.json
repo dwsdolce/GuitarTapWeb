@@ -6,8 +6,8 @@
     "arch": "arm64"
   },
   "provenance": {
-    "mintedAt": "2026-10-14T00:08:58Z",
-    "oracleVersion": "698ce7a",
+    "mintedAt": "2026-10-14T02:23:58Z",
+    "oracleVersion": "6489b1b",
     "node": "26.11.1",
     "v8": "14.6.202.34-node.37",
     "platform": "darwin-arm64",
