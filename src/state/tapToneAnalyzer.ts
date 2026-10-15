@@ -1460,10 +1460,9 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  /** Re-run the frozen-spectrum peak analysis — reached only through Re-analyze ({@link reanalyzePeaks}).
-   *  A loaded measurement's saved peaks are authoritative (stored whole, never re-detected); otherwise the
-   *  FULL set is re-detected at the floor and per-peak state carried across by frequency. Mirrors Swift
-   *  `recalculateFrozenPeaksIfNeeded`. */
+  /** Re-run the frozen-spectrum peak analysis — reached only through Re-analyze ({@link reanalyzePeaks}),
+   *  which drops a loaded measurement's saved peaks first: the FULL set is re-detected at the floor and
+   *  per-peak state carried across by frequency. Mirrors Swift `recalculateFrozenPeaksIfNeeded`. */
   recalculateFrozenPeaksIfNeeded(): void {
     // Loading guard. `loadMeasurement` applies the spectrum, the peaks and the per-peak state as one
     // step; until it finishes there is no coherent measurement to recalculate against. Mirrors Swift
@@ -1471,16 +1470,7 @@ export class TapToneAnalyzer {
     if (this.isLoadingMeasurement) return
     if (!this.isMeasurementComplete || this.frozenFrequencies.length === 0 || this.frozenMagnitudes.length === 0) return
     const guitarType = this.guitarType
-    if (this.loadedPeaks) {
-      // Loaded-measurement path: the saved peaks are the durable set, stored whole; ids are stable, so
-      // no per-peak state needs carrying.
-      this.peaks = this.loadedPeaks
-      this.modeByPeak = classifyAll(this.peaks, guitarType)
-      this.refreshDisplayedPeaks()
-      this.notify()
-      return
-    }
-    // Live-tap path: detect the FULL set (floor -100) on the frozen spectrum; Peak Min only projects it.
+    // Detect the FULL set (floor -100) on the frozen spectrum; Peak Min only projects it.
     const oldPeaks = this.peaks
     const peaks = this.findPeaks(this.frozenMagnitudes, this.frozenFrequencies, {
       peakMinOverride: TapToneAnalyzer.peakDetectionFloor,
