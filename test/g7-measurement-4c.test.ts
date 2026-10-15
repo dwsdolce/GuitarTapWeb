@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { guitarTapFilename } from '../src/measurement/fromLive'
+import { guitarTapFilename } from '../src/measurement/types'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 
 // Export file names and the export → import round-trip. (The load-time microphone warning is

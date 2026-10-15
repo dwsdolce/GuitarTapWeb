@@ -88,6 +88,6 @@ export function saveMaterial(s: MaterialState): TapToneMeasurementModel {
 /** The record a comparison save writes for `entries`. */
 export function saveComparison(s: { name: string; notes: string; entries: ComparisonEntryModel[] }): TapToneMeasurementModel {
   const a = new TapToneAnalyzer()
-  a.loadComparison(s.entries)
+  a.loadComparisonRecord(s.entries)
   return a.buildComparisonMeasurement(s.name, s.notes)!
 }

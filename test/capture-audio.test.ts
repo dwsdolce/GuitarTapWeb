@@ -1,7 +1,8 @@
 // @parity none
-// Dump Capture Audio on the web: a download, not a folder. Recording is decided when a sequence starts, from
-// the setting: with it off nothing is kept, and turning it on mid-sequence takes effect from the next sequence;
-// a loaded measurement or comparison ends the sequence and its recording (as Swift and Python). The page is
+// Dump Capture Audio on the web: a download, not a folder. Whether the recording is saved is read from the
+// setting when a sequence starts, and again when it changes before the first tap (the shared cases in
+// session-pre-roll.json); a loaded measurement or comparison ends the sequence and its recording (as Swift and
+// Python). The page is
 // not told whether the browser saved the download, so the analyzer names the file it handed over and the page
 // shows it.
 import { afterEach, describe, it, expect, vi } from 'vitest'
@@ -30,14 +31,21 @@ function recordingAnalyzer(dumpCaptureAudio: boolean): TapToneAnalyzer {
 
 const held = (a: TapToneAnalyzer): number => (a['sessionSamples'] as { length: number }).length
 
+const firstTap = (a: TapToneAnalyzer): void => {
+  a['gatedCaptureActive'] = true
+  a['maintainSessionRecording'](new Float32Array(1024).fill(0.1))
+}
+
 describe('Dump Capture Audio — recording is decided when the sequence starts', () => {
   it('saving off records nothing', () => {
     const analyzer = recordingAnalyzer(false)
+    firstTap(analyzer)
     expect(held(analyzer)).toBe(0)
   })
 
-  it('saving turned on mid-sequence takes effect from the next sequence', () => {
+  it('saving turned on after the first tap takes effect from the next sequence', () => {
     const analyzer = recordingAnalyzer(false)
+    firstTap(analyzer)
     analyzer.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio: true })
     // A pause and resume does not start it either.
     analyzer['suspendSessionRecording']()
@@ -47,9 +55,11 @@ describe('Dump Capture Audio — recording is decided when the sequence starts',
     analyzer.finishSessionRecording('Guitar_1tap')
     expect(dumped).toEqual([])
     // The next sequence records.
+    analyzer['gatedCaptureActive'] = false
     analyzer.startSessionRecording()
     analyzer['maintainSessionRecording'](new Float32Array(1024).fill(0.1))
     expect(held(analyzer)).toBe(1024)
+    expect(analyzer['sessionActive']).toBe(true)
   })
 
   it('saving turned off after the sequence started saves nothing', () => {

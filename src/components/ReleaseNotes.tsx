@@ -66,7 +66,7 @@ export const RELEASES: RNRelease[] = [
           },
           {
             title: 'Capture Audio Saved Notice',
-            body: 'With Dump Capture Audio on, the status bar now names the recording just downloaded (“Capture audio saved: … (Downloads)”) until you dismiss it or start a new measurement. A measurement is recorded only when the setting is on as it starts; turning it on part-way takes effect from the next measurement.',
+            body: 'With Dump Capture Audio on, the status bar now names the recording just downloaded (“Capture audio saved: … (Downloads)”) until you dismiss it or start a new measurement. A measurement is recorded when the setting is on as it starts, or is turned on before its first tap; turned on after that, it takes effect from the next measurement.',
           },
           {
             title: 'Microphone Unavailable',

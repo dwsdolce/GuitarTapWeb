@@ -14,12 +14,12 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { isAmended, amendMeasurement } from '../src/measurement/amend'
 import { normalizedMeasurementName, normalizedMeasurementNotes } from '../src/measurement/measurementName'
-import { newMeasurementId } from '../src/measurement/fromLive'
+import { newId } from '../src/measurement/newId'
 import type { TapToneMeasurementModel } from '../src/measurement/types'
 
 function make(measurementName?: string, notes?: string): TapToneMeasurementModel {
   return {
-    id: newMeasurementId(),
+    id: newId(),
     timestamp: '2026-01-01T00:00:00.000Z',
     peaks: [],
     measurementName,

@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { exportStem } from '../src/measurement/exportFilename'
-import { guitarTapFilename } from '../src/measurement/fromLive'
+import { guitarTapFilename } from '../src/measurement/types'
 import type { TapToneMeasurementModel } from '../src/measurement/types'
 
 const DATA = JSON.parse(readFileSync('test/fixtures/export-filename.json', 'utf8')) as {

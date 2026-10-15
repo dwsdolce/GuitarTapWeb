@@ -6,7 +6,9 @@
 // only matters when writing). Unknown fields are ignored.
 
 import { base64ToFloats } from './base64'
-import { healSelection, healComparisonModes } from './fromLive'
+import { classificationGuitarType, guitarTypeNameFromRaw, isMaterialMeasurement } from './types'
+import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
+import { MODE_DISPLAY_NAME, effectiveMode } from '../presentation/modeColors'
 import type { AnnotationOffsets, ComparisonEntryModel, PeakModeOverrides, ResonantPeak, SpectrumSnapshotModel, TapEntryModel, TapToneMeasurementModel } from './types'
 import type { AnnotationMode } from '../settings'
 
@@ -313,4 +315,77 @@ export function parseGuitarTapFile(text: string): TapToneMeasurementModel[] {
   const root: unknown = JSON.parse(text)
   const list = Array.isArray(root) ? root : [root]
   return list.map((m) => decodeMeasurement(obj(m) ?? {}))
+}
+
+/** Heal a decoded GUITAR measurement's selection to a valid DEFINITIVE set, mirroring Swift's
+ *  `TapToneMeasurement` decode heal. Legacy files predate the selection model two ways:
+ *   • no saved selection (nil) — older code treated that as "all selected", i.e. every Air/Top/Back at
+ *     once, exactly what the invariant forbids → set it to the strongest peak per EFFECTIVE mode;
+ *   • a pre-uniqueness selection could hold two selected Tops → prune to at most the strongest selected
+ *     peak per single-holder mode (cluster modes + unknown untouched).
+ *  Guitar-only (material has no per-peak selection). Mutates `m.selectedPeakIDs`; returns true if changed. */
+export function healSelection(m: TapToneMeasurementModel): boolean {
+  if (isMaterialMeasurement(m)) return false
+  const autoMap = classifyAll(m.peaks, classificationGuitarType(m))
+  const effOf = (p: ResonantPeak): ResolvedMode => effectiveMode(m.peakModeOverrides?.[p.id], autoMap.get(p.id) ?? 'unknown')
+  const singleHolder: ReadonlySet<ResolvedMode> = new Set(['air', 'top', 'back'])
+
+  if (m.selectedPeakIDs == null) {
+    // No saved selection → the auto definitive set: strongest peak per effective mode (skip unknown).
+    const strongest = new Map<ResolvedMode, ResonantPeak>()
+    m.peaks.forEach((peakModel) => {
+      const mode = effOf(peakModel)
+      if (mode === 'unknown') return
+      const cur = strongest.get(mode)
+      if (!cur || peakModel.magnitude > cur.magnitude) strongest.set(mode, peakModel)
+    })
+    m.selectedPeakIDs = [...strongest.values()].map((peakModel) => peakModel.id)
+    return true
+  }
+
+  // Prune a pre-uniqueness selection to the strongest selected peak per single-holder mode.
+  const selected = new Set(m.selectedPeakIDs)
+  const winner = new Map<ResolvedMode, ResonantPeak>()
+  const peakById = new Map(m.peaks.map((peakModel) => [peakModel.id, peakModel]))
+  m.peaks.forEach((peakModel) => {
+    if (!selected.has(peakModel.id)) return
+    const mode = effOf(peakModel)
+    if (!singleHolder.has(mode)) return
+    const cur = winner.get(mode)
+    if (!cur || peakModel.magnitude > cur.magnitude) winner.set(mode, peakModel)
+  })
+  const winnerIds = new Set([...winner.values()].map((peakModel) => peakModel.id))
+  const pruned = m.selectedPeakIDs.filter((id) => {
+    const peakModel = peakById.get(id)
+    if (peakModel == null) return false
+    const mode = effOf(peakModel)
+    return !singleHolder.has(mode) || winnerIds.has(id)
+  })
+  if (pruned.length !== m.selectedPeakIDs.length) {
+    m.selectedPeakIDs = pruned
+    return true
+  }
+  return false
+}
+
+/** Heal a decoded COMPARISON measurement: fill each entry's `modePeakIDs` positionally when absent (a
+ *  pre-6b file stored none). Override-BLIND by necessity — an old comparison never saved the sources'
+ *  overrides, so this only freezes what the old app showed and makes the file self-describing from here
+ *  on. Mutates entries; returns true if any changed. Mirrors Swift's decode comparison-heal. */
+export function healComparisonModes(m: TapToneMeasurementModel): boolean {
+  if (!m.comparisonEntries?.length) return false
+  let changed = false
+  for (const entry of m.comparisonEntries) {
+    if (entry.modePeakIDs != null) continue
+    const gt = guitarTypeNameFromRaw(entry.guitarType)
+    const resolved = resolvedModePeaks(entry.peaks, gt)
+    const map: Record<string, string> = {}
+    for (const mode of ['air', 'top', 'back'] as const) {
+      const id = resolved.get(mode)?.id
+      if (id != null) map[MODE_DISPLAY_NAME[mode]] = id
+    }
+    entry.modePeakIDs = map
+    changed = true
+  }
+  return changed
 }

@@ -18,11 +18,13 @@ import { classifyAll, type ResolvedMode } from '../dsp/classify'
 // import (precedent: MaterialPeaks from components) — the resolver lives with the mode↔label map it needs.
 import { effectiveMode as resolveEffectiveMode } from '../presentation/modeColors'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import { guitarTypeNameFromRaw, isoNow, makeResonantPeak, TapEntry, type AnnotationOffsets, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapEntryModel, type TapToneMeasurementModel } from '../measurement/types'
+import { comparisonAxisRange, comparisonModeIDMap, effectiveSelectedPeakIDs, MEASUREMENT_TYPE_FROM_RAW, measurementMultiTapComparisonEntries, storedComponents, guitarTypeNameFromRaw, isoNow, makeResonantPeak, TapEntry, type AnnotationOffsets, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapEntryModel, type TapToneMeasurementModel } from '../measurement/types'
 import { normalizedMeasurementNotes } from '../measurement/measurementName'
 import { newId } from '../measurement/newId'
 import { Pitch } from '../dsp/pitch'
-import { comparisonAxisRange, GUITAR_TYPE_RAW, measurementToLive, measurementToLiveMaterial } from '../measurement/fromLive'
+import { formatDisplayDateCompact } from '../format/date'
+import { seriesRole } from '../presentation/palette'
+import { GUITAR_TYPE_RAW } from '../dsp/guitarModes'
 import { saveMeasurement as storeMeasurement } from '../measurement/store'
 import type { ChartView } from '../presentation/chartTypes'
 import { GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
@@ -30,7 +32,7 @@ import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type Mater
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
 import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, ANNOTATION_NEXT, isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, type AnnotationMode, type MeasurementType, type Settings } from '../settings'
-import { materialInputsFromSettings, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
+import { materialInputsFromSettings, materialInputsFromSnapshot, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { dumpCaptureProbe, dumpCaptureWav } from '../measurement/dumpWav'
 import { FieldPrecision } from '../precision'
 import { captureProbe } from './captureProbe'
@@ -170,6 +172,166 @@ export function setupDiffersMessage(
     lines.join('\n') +
     '\n\nA tap captured now may not match the saved result. In a browser, the sample rate follows your output device: set the output and input to the same rate in Audio MIDI Setup (Mac) or Sound settings (Windows).'
   )
+}
+
+// ── Restoring a saved measurement ───────────────────────────────────────────────────────────
+// The pieces `loadMeasurement` applies — Swift does this inside `loadMeasurement` itself. A peak keeps
+// one id (a UUID, as Swift's `ResonantPeak.id`) live and on file, so the id-keyed selection, overrides
+// and label offsets restore without remapping.
+
+export interface LiveRestore {
+  measurementType: MeasurementType
+  captured: Spectrum
+  view: ChartView
+  settingsPatch: Partial<Settings>
+  /** The saved peaks, authoritative — never re-derived from the spectrum — each with its saved id. Peak
+   *  Min only filters these by magnitude (matching Swift recalculateFrozenPeaksIfNeeded / Python
+   *  recalculate_frozen_peaks_if_needed). */
+  loadedPeaks: ResonantPeak[]
+  /** Ids of the selected peaks. */
+  selectedIds: Set<string>
+  /** Whether the saved selection was hand-modified (default true for legacy files). */
+  userModified: boolean
+  /** Manual overrides to restore, keyed by peak `id`. */
+  overridesById: Map<string, string>
+  /** Dragged annotation-label positions to restore, keyed by peak `id`. */
+  annotationOffsetsById: Map<string, [number, number]>
+  /** The per-tap entries, restored as saved — each tap's peaks and auto-selection included. */
+  tapEntries: TapEntry[]
+}
+
+/** Decompose a saved guitar measurement into the pieces the App restores into the view.
+ *  The saved peaks are injected verbatim, ids included; selection, overrides and label offsets
+ *  restore by those same ids, as Swift's do. */
+export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
+  const snap = m.spectrumSnapshot
+  if (!snap) throw new Error('Measurement has no guitar spectrum snapshot')
+
+  const measurementType = MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'generic'
+
+  const loadedPeaks: ResonantPeak[] = [...m.peaks]
+
+  // Overrides, offsets and selection name peaks by id; an id with no matching peak is dropped.
+  const peakIds = new Set(m.peaks.map((p) => p.id))
+  const overridesById = new Map<string, string>()
+  const annotationOffsetsById = new Map<string, [number, number]>()
+  for (const [id, label] of Object.entries(m.peakModeOverrides ?? {})) {
+    if (peakIds.has(id)) overridesById.set(id, label)
+  }
+  for (const [id, pos] of Object.entries(m.peakAnnotationOffsets ?? {})) {
+    if (peakIds.has(id)) annotationOffsetsById.set(id, pos)
+  }
+
+  // Selection restores from the saved ids; if none were saved, default to selecting all peaks (matches
+  // Swift loadMeasurement).
+  const selectedIds = new Set<string>(
+    m.selectedPeakIDs ? m.selectedPeakIDs.filter((id) => peakIds.has(id)) : peakIds,
+  )
+
+  // The loaded axis range (freq AND dB) is carried in `view` and applied as a TRANSIENT
+  // override by the caller (Swift loadedAxisRange) — it is NOT persisted to settings, so
+  // no display range goes in the patch here.
+  const settingsPatch: Partial<Settings> = {
+    measurementType,
+    showUnknownModes: snap.showUnknownModes ?? DEFAULT_SETTINGS.showUnknownModes,
+    peakMinThreshold: m.peakMinThreshold ?? DEFAULT_SETTINGS.peakMinThreshold,
+  }
+  if (m.tapDetectionThreshold != null) settingsPatch.tapDetectionThreshold = m.tapDetectionThreshold
+  if (m.annotationVisibilityMode != null) settingsPatch.annotationVisibilityMode = m.annotationVisibilityMode
+
+  return {
+    measurementType,
+    userModified: m.userModifiedSelection ?? true,
+    captured: { magnitudesDb: snap.magnitudes, frequencies: snap.frequencies },
+    view: { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB },
+    settingsPatch,
+    loadedPeaks,
+    selectedIds,
+    overridesById,
+    annotationOffsetsById,
+    tapEntries: (m.tapEntries ?? []).map(
+      (e) =>
+        new TapEntry(
+          e.id,
+          e.tapIndex,
+          e.snapshot,
+          e.peaks,
+          e.selectedPeakIDs,
+        ),
+    ),
+  }
+}
+
+export interface MaterialRestore {
+  measurementType: MeasurementType
+  /** Per-phase spectra for the chart overlay. */
+  matSpectra: { longitudinal: Spectrum | null; cross: Spectrum | null; flc: Spectrum | null }
+  /** The identified L/C/FLC peaks — the measurement's peaks (Swift selected…Peak, restored by id). */
+  selectedLongitudinalPeak: ResonantPeak | null
+  selectedCrossPeak: ResonantPeak | null
+  selectedFlcPeak: ResonantPeak | null
+  /** The measurement's OWN material dimensions (Store B) — restored here, NOT into Settings, so the
+   *  calc/display/PDF read the measurement's values and loading never clobbers the Settings defaults. */
+  materialInputs: MaterialMeasurementInputs
+  /** Only the type (+ measureFlc, a capture setting) is restored into Settings; dims go to `materialInputs`. */
+  settingsPatch: Partial<Settings>
+  /** The saved axis range — applied as a transient override (not persisted), like guitar. */
+  view: ChartView
+  /** Dragged L/C/FLC label positions, keyed by the restored material peak `id` (the shared store). */
+  annotationOffsetsById: Map<string, [number, number]>
+}
+
+/** Decompose a saved plate/brace measurement for restore into the view. Mirrors Swift
+ *  `loadMeasurement`'s material branch (per-phase spectra + selected peaks + dims). */
+export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialRestore {
+  const snap = m.longitudinalSnapshot
+  if (!snap) throw new Error('Not a material measurement (no longitudinal snapshot)')
+  const measurementType = MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'plate'
+
+  const toSpectrum = (s: SpectrumSnapshotModel | undefined): Spectrum | null =>
+    s ? { magnitudesDb: s.magnitudes, frequencies: s.frequencies } : null
+
+  const byId = new Map(m.peaks.map((p) => [p.id, p]))
+  // Each restored material peak keeps its saved id, so the dragged offsets restore by that id into the
+  // shared id-keyed store. Stale ids (no matching restored peak) are dropped.
+  const toMatPeak = (id: string | undefined): ResonantPeak | null => {
+    const p = id != null ? byId.get(id) : undefined
+    return p ?? null
+  }
+  const selectedLongitudinalPeak = toMatPeak(m.selectedLongitudinalPeakID)
+  const selectedCrossPeak = toMatPeak(m.selectedCrossPeakID)
+  const selectedFlcPeak = toMatPeak(m.selectedFlcPeakID)
+  const restoredIds = new Set(
+    [selectedLongitudinalPeak, selectedCrossPeak, selectedFlcPeak].filter((p) => p != null).map((p) => p.id),
+  )
+  const annotationOffsetsById = new Map<string, [number, number]>()
+  for (const [id, pos] of Object.entries(m.peakAnnotationOffsets ?? {})) {
+    if (restoredIds.has(id)) annotationOffsetsById.set(id, pos)
+  }
+
+  // Store B ← the measurement's OWN dims from the snapshot (the calc/display/PDF read this). Loading no
+  // longer writes the dims into Settings (Store A) — that was the clobber that silently overwrote the
+  // user's next-measurement defaults. Only the type and measureFlc (a capture setting the process/slot
+  // display reads) go into the Settings patch; the axis range is transient (see `view` below).
+  const materialInputs = materialInputsFromSnapshot(measurementType === 'brace' ? 'brace' : 'plate', snap)
+  const patch: Partial<Settings> = { measurementType }
+  if (snap.measureFlc != null) patch.measureFlc = snap.measureFlc
+
+  return {
+    measurementType,
+    materialInputs,
+    matSpectra: {
+      longitudinal: toSpectrum(m.longitudinalSnapshot),
+      cross: toSpectrum(m.crossSnapshot),
+      flc: toSpectrum(m.flcSnapshot),
+    },
+    selectedLongitudinalPeak,
+    selectedCrossPeak,
+    selectedFlcPeak,
+    settingsPatch: patch,
+    view: { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB },
+    annotationOffsetsById,
+  }
 }
 
 // ── The saved record ────────────────────────────────────────────────────────────────────────
@@ -989,6 +1151,7 @@ export class TapToneAnalyzer {
     if (m.longitudinalSnapshot) {
       // Material (plate/brace): per-phase snapshots, no guitar spectrum.
       const mat = measurementToLiveMaterial(m)
+      this.measurementType = mat.measurementType // the measurement's own type, as Swift applies it first
       this.loadedSettings = mat.settingsPatch // only the type (+ measureFlc); NOT the dims
       this.loadedAxisRange = mat.view
       this.loadedPeaks = null
@@ -1005,6 +1168,10 @@ export class TapToneAnalyzer {
     } else {
       if (!m.spectrumSnapshot) return // neither guitar nor material: nothing to show
       const live = measurementToLive(m)
+      // The measurement's own type first, so its peaks are classified under it — not under whatever
+      // the app is set to. Swift loadMeasurement applies TapDisplaySettings.guitarType / measurementType
+      // before reclassifyPeaks; App applies the rest of the settings afterwards.
+      this.measurementType = live.measurementType
       this.loadedSettings = live.settingsPatch
       this.loadedAxisRange = live.view
       this.restoreSnapshot({
@@ -2101,7 +2268,9 @@ export class TapToneAnalyzer {
 
   /** Mirror the settings store onto the analyzer (App drives it; see the `settings` field). */
   setSettings(s: Settings): void {
+    const dumpChanged = s.dumpCaptureAudio !== this.settings.dumpCaptureAudio
     this.settings = s
+    if (dumpChanged) this.applyDumpCaptureAudioSetting()
     // Which peaks are annotated is ANALYZER state, as Swift's `@Published var annotationVisibilityMode`
     // and Python's `annotation_visibility_mode` — seeded from the display settings, read by visiblePeaks.
     this.annotationVisibilityMode = s.annotationVisibilityMode
@@ -2243,15 +2412,17 @@ export class TapToneAnalyzer {
   }
 
   // ── Continuous session recording (Swift TapToneAnalyzer session WAV) ────────
-  /** Begin accumulating every pipeline chunk for the session WAV — only when Dump Capture Audio is on, so
-   *  with it off nothing is kept, and turning it on mid-sequence takes effect from the next sequence
-   *  (Swift/Python). Guitar calls this from `arm()`; live material drives it from useMaterialSession. */
+  /** Begin accumulating every pipeline chunk for the session WAV. Whether it is saved (`sessionActive`)
+   *  is read from Dump Capture Audio here and again when the setting changes before the first tap; with
+   *  it off only the bounded pre-roll is kept, and it is dropped at the first tap unless the setting has
+   *  been turned on by then (Swift/Python). Guitar calls this from `arm()`; live material drives it from
+   *  useMaterialSession. */
   startSessionRecording(): void {
     this.sessionSamples = new SampleBuffer()
     this.sessionCheckpoints = [0] // first-phase truncation anchor (Swift/Python seed [0] at start)
     this.sessionRate = this.device?.sampleRate ?? 48000
     this.sessionActive = this.settings.dumpCaptureAudio
-    this.sessionRecording = this.sessionActive
+    this.sessionRecording = true
     this.sessionPreRollActive = true // bound the pre-first-tap audio to ~2 s
     captureProbe.beginLiveSession(this.settings.dumpCaptureAudio) // diagnostic
   }
@@ -2278,7 +2449,8 @@ export class TapToneAnalyzer {
    *
    *  Before the first tap (sessionPreRollActive): keep only the last ~2 s — the tap is always in
    *  the tail, so trimming the head never eats it; this just discards accumulated idle. The first
-   *  capture (state === 'capturing') freezes the latch. Everything after — subsequent taps, plate
+   *  capture freezes the latch; a sequence that is not being saved (Dump Capture Audio off) stops
+   *  recording there and drops what it kept. Everything after — subsequent taps, plate
    *  phases, and the gaps between them — is completely live. Mirrors Swift maintainSessionRecording. */
   private maintainSessionRecording(s: Float32Array): void {
     if (!this.sessionRecording) return
@@ -2288,6 +2460,10 @@ export class TapToneAnalyzer {
       // The first tap has started — freeze the pre-roll. The latch is owned HERE, as in Swift and
       // Python (`if gatedCaptureActive { sessionPreRollActive = false }`), so one rule has one owner.
       this.sessionPreRollActive = false
+      if (!this.sessionActive) {
+        this.sessionRecording = false
+        this.sessionSamples = new SampleBuffer()
+      }
     } else {
       const excess = this.sessionSamples.length - this.sessionPreRollSamples
       if (excess > 0) this.sessionSamples.dropFirst(excess)
@@ -2298,13 +2474,15 @@ export class TapToneAnalyzer {
    *  and name it in `captureAudioSaved`; then clear. Swift's analyzer calls its own dumpCaptureWAV
    *  helper here, gated on the dump setting. */
   finishSessionRecording(label: string): void {
+    const wasActive = this.sessionActive
     this.sessionRecording = false
     this.sessionActive = false
+    this.sessionPreRollActive = false
     const samples = this.sessionSamples
     const rate = this.sessionRate
     this.sessionSamples = new SampleBuffer()
     this.sessionCheckpoints = []
-    if (samples.length === 0 || !this.settings.dumpCaptureAudio) return
+    if (!wasActive || samples.length === 0 || !this.settings.dumpCaptureAudio) return
     this.captureAudioSaved = dumpCaptureWav(samples.toFloat32Array(), rate, `session_${label}`)
     const probeFile = captureProbe.liveRecordsFile(this.captureAudioSaved) // diagnostic; null in a released build
     if (probeFile) dumpCaptureProbe(probeFile)
@@ -2323,8 +2501,34 @@ export class TapToneAnalyzer {
   cancelSessionRecording(): void {
     this.sessionRecording = false
     this.sessionActive = false
+    this.sessionPreRollActive = false
     this.sessionSamples = new SampleBuffer()
     this.sessionCheckpoints = []
+  }
+
+  /** Apply a change of Dump Capture Audio to the sequence in progress. Called whenever the setting is
+   *  changed (Swift applyDumpCaptureAudioSetting).
+   *
+   *  Turned on before the first tap: this sequence is saved. Only the pre-roll exists so far, and it has
+   *  been kept, so the recording is the same as if the setting had been on when the sequence started.
+   *  Turned on after the first tap: nothing changes; it takes effect when the next sequence starts (New
+   *  Tap, Cancel, or anything else that starts one). Turned off: this sequence is not saved. After the
+   *  first tap the recording stops and what it held is dropped; before it, the pre-roll is still kept in
+   *  case it is turned on again. */
+  applyDumpCaptureAudioSetting(): void {
+    if (this.settings.dumpCaptureAudio) {
+      if (this.sessionPreRollActive && !this.sessionActive) {
+        this.sessionActive = true
+        captureProbe.beginLiveSession(true) // diagnostic
+      }
+    } else {
+      this.sessionActive = false
+      captureProbe.beginLiveSession(false) // diagnostic
+      if (!this.sessionPreRollActive) {
+        this.sessionRecording = false
+        this.sessionSamples = new SampleBuffer()
+      }
+    }
   }
 
   /** Exclude a paused segment from the session WAV (Swift clears its flag in pauseTapDetection). */
@@ -2332,9 +2536,10 @@ export class TapToneAnalyzer {
     this.sessionRecording = false
   }
 
-  /** Resume accumulating into the session WAV after a pause. */
+  /** Resume accumulating into the session WAV after a pause — the saved recording, or the pre-roll
+   *  before the first tap. */
   resumeSessionRecording(): void {
-    if (this.sessionActive) this.sessionRecording = true
+    if (this.sessionActive || this.sessionPreRollActive) this.sessionRecording = true
   }
 
   /** The audio pipeline hands every chunk here: the analyzer keeps the pre-roll, judges the level
@@ -3389,7 +3594,47 @@ export class TapToneAnalyzer {
 
   /** Overlay saved measurements. An EMPTY list leaves the mode 'live', matching
    *  `comparisonSpectra.isEmpty ? .live : .comparison` — the mode follows the data. */
-  loadComparison(entries: ComparisonEntryModel[]): void {
+  /** Compare saved measurements: one entry per measurement with a spectrum — its label (made unique
+   *  with " (2)" …), a series colour by position, its selected peaks, and its definitive Air/Top/Back
+   *  resolved from the measurement itself (selection and overrides) — then shown as an overlay. Mirrors
+   *  Swift `loadComparison(measurements:)`, which builds the entries in the analyzer. */
+  loadComparison(measurements: TapToneMeasurementModel[]): void {
+    const withSnapshots = measurements.filter((m) => m.spectrumSnapshot)
+    const baseLabels = withSnapshots.map((m) => m.measurementName?.trim() || formatDisplayDateCompact(m.timestamp))
+    const counts = new Map<string, number>()
+    for (const label of baseLabels) counts.set(label, (counts.get(label) ?? 0) + 1)
+    const occurrence = new Map<string, number>()
+    const labels = baseLabels.map((label) => {
+      if ((counts.get(label) ?? 0) <= 1) return label
+      occurrence.set(label, (occurrence.get(label) ?? 0) + 1)
+      return `${label} (${occurrence.get(label)})`
+    })
+    this.applyComparison(withSnapshots.map((m, i) => {
+      const snapshot = m.spectrumSnapshot!
+      const selected = effectiveSelectedPeakIDs(m)
+      return {
+        id: newId(),
+        label: labels[i]!,
+        colorComponents: storedComponents(seriesRole(i)),
+        snapshot,
+        peaks: m.peaks.filter((p) => selected.has(p.id)),
+        guitarType: snapshot.guitarType,
+        sourceMeasurementID: m.id,
+        modePeakIDs: comparisonModeIDMap(m),
+      }
+    }))
+  }
+
+  /** The current measurement's tap comparison — the entries its report and its saved form show, from
+   *  the one builder ({@link measurementMultiTapComparisonEntries}). What the on-screen per-tap overlay
+   *  draws. Swift `applyMultiTapComparisonOverlays`. */
+  multiTapComparisonEntries(view: ChartView): ComparisonEntryModel[] {
+    const m = this.buildMeasurement('', '', view)
+    return m ? measurementMultiTapComparisonEntries(m) : []
+  }
+
+  /** Show `entries` as the comparison overlay — a new comparison or a saved comparison record. */
+  private applyComparison(entries: ComparisonEntryModel[]): void {
     this.comparisonEntries = entries
     this.showingMultiTapComparison = false
     this.displayMode = entries.length === 0 ? 'live' : 'comparison'
@@ -3416,7 +3661,7 @@ export class TapToneAnalyzer {
    *  first (Swift clears tapEntries and showingMultiTapComparison at :545). */
   loadComparisonRecord(entries: ComparisonEntryModel[]): void {
     this.tapEntries = []
-    this.loadComparison(entries)
+    this.applyComparison(entries)
   }
 
   /** Stop comparing; back to live. Swift clearComparison. */

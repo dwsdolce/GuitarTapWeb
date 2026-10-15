@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { measurementPeakModeLabels, measurementToLive } from '../src/measurement/fromLive'
+import { measurementToLive } from '../src/state/tapToneAnalyzer'
+import { measurementPeakModeLabels } from '../src/measurement/types'
 import { serializeGuitarTapFile, parseGuitarTapFile } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import type { ResolvedMode } from '../src/dsp/classify'

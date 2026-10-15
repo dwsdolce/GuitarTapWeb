@@ -2,7 +2,8 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseGuitarTapFile, serializeGuitarTapFile, encodeMeasurement, encodeSnapshot, f32, type TapToneMeasurementModel } from '../src/measurement'
-import { measurementDefinitivePeak, measurementTapToneRatio, healSelection, measurementPeakModeLabels } from '../src/measurement/fromLive'
+import { measurementDefinitivePeak, measurementTapToneRatio, measurementPeakModeLabels } from '../src/measurement/types'
+import { healSelection } from '../src/measurement/decode'
 import { classifyAll } from '../src/dsp/classify'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { ResonantPeak } from '../src/measurement/types'
@@ -162,149 +163,93 @@ describe('semantic round-trip (decode → encode → decode)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Definitive saved-measurement ratio + legacy selection heal. The saved-list/PDF ratio uses
-// the same DEFINITIVE rule as the live analyzer (selected + override-aware), so they cannot disagree;
-// decode heals a legacy selection to a valid definitive set. Mirrors Swift TapToneMeasurement
-// definitivePeak / tapToneRatio + the decode heal. Classical bands: air 80–110, top 170–230, back 190–280.
-// ---------------------------------------------------------------------------
-const rp = (id: string, frequency: number, magnitude: number): ResonantPeak => ({
-  id, frequency, magnitude, quality: 10, bandwidth: 5, timestamp: '2026-01-01T00:00:00Z',
-})
-const guitarModel = (
-  peaks: ResonantPeak[],
-  opts: { selectedPeakIDs?: string[]; peakModeOverrides?: Record<string, string> } = {},
-): TapToneMeasurementModel => ({
-  id: 'M', timestamp: '2026-01-01T00:00:00Z', peaks,
-  spectrumSnapshot: {
-    frequencies: [], magnitudes: [], minFreq: 0, maxFreq: 500, minDB: -100, maxDB: 0,
-    isLogarithmic: false, guitarType: 'Classical', measurementType: 'Classical Guitar',
-  },
-  ...opts,
-})
-
-describe('measurement-codable — definitive saved ratio', () => {
-  it('divides the definitive Top by the definitive Air (over the selection)', () => {
-    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a', 't'] })
-    expect(measurementTapToneRatio(m)).toBeCloseTo(200 / 90, 5)
-  })
-
-  it('a freeform override on the Top drops the ratio', () => {
-    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a', 't'], peakModeOverrides: { t: 'Wolf note' } })
-    expect(measurementDefinitivePeak(m, 'top')).toBeNull()
-    expect(measurementTapToneRatio(m)).toBeNull()
-  })
-
-  it('overriding a selected non-Top peak TO Top retargets the ratio onto it', () => {
-    const m = guitarModel([rp('a', 90, -20), rp('d', 380, -20)], { selectedPeakIDs: ['a', 'd'], peakModeOverrides: { d: 'Top' } })
-    expect(measurementDefinitivePeak(m, 'top')?.id).toBe('d')
-    expect(measurementTapToneRatio(m)).toBeCloseTo(380 / 90, 5)
-  })
-
-  it('a deselected Top drops the ratio', () => {
-    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a'] })
-    expect(measurementTapToneRatio(m)).toBeNull()
-  })
-
-  it('the saved ratio equals the live analyzer ratio for the same measurement', () => {
-    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a', 't'] })
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'classical'
-    a.peaks = [
-      { id: '0', frequency: 90, magnitude: -20, quality: 10, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' },
-      { id: '1', frequency: 200, magnitude: -20, quality: 10, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' },
-    ]
-    a.modeByPeak = classifyAll(a.peaks, 'classical')
-    a.restoreSelection(new Set(['0', '1']), [90, 200], true)
-    expect(a.tapToneRatio()).toBeCloseTo(measurementTapToneRatio(m)!, 6)
-  })
-})
-
-describe('measurement-codable — legacy selection heal on decode', () => {
-  it('a nil selection is healed to the strongest peak per effective mode', () => {
-    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20), rp('b', 250, -20)]) // no selectedPeakIDs
-    expect(healSelection(m)).toBe(true)
-    expect(new Set(m.selectedPeakIDs)).toEqual(new Set(['a', 't', 'b'])) // one definitive per mode
-  })
-
-  it('a pre-uniqueness selection with two Tops is pruned to the strongest', () => {
-    // Two peaks made Top by override (the only way a legacy file could select two); prune to the louder.
-    const m = guitarModel(
-      [rp('a', 90, -20), rp('t', 200, -20), rp('t2', 220, -50)],
-      { selectedPeakIDs: ['a', 't', 't2'], peakModeOverrides: { t2: 'Top' } },
-    )
-    expect(healSelection(m)).toBe(true)
-    expect(new Set(m.selectedPeakIDs)).toEqual(new Set(['a', 't'])) // the weaker Top (t2) is dropped
-  })
-
-  it('a valid one-per-mode selection is left untouched (not reflagged)', () => {
-    const m = guitarModel([rp('a', 90, -20), rp('t', 200, -20)], { selectedPeakIDs: ['a', 't'] })
-    expect(healSelection(m)).toBe(false)
-  })
-
-  it('material measurements are never touched by the selection heal', () => {
-    const m = guitarModel([rp('a', 90, -20)], { selectedPeakIDs: ['a'] })
-    // Make it look material: a longitudinal snapshot + no guitar spectrum snapshot.
-    delete (m as { spectrumSnapshot?: unknown }).spectrumSnapshot
-    ;(m as { longitudinalSnapshot?: unknown }).longitudinalSnapshot = { frequencies: [], magnitudes: [], minFreq: 0, maxFreq: 500, minDB: -100, maxDB: 0, isLogarithmic: false }
-    expect(healSelection(m)).toBe(false)
-  })
-})
-
-// ── modeLabel is derived, never carried through ────────────────────────────────────────────
+// The measurement's logic — the shared cases in measurement-codable.json
 //
-// A decoded label is never preferred over reclassifying. Swift pins this rule in
-// MeasurementExportModeLabel.
+// The tap-tone ratio (TR), the mode label each peak is written with (ML), and the selection heal on
+// decode (SH): the same cases as Swift and Python. Mirrors Swift MeasurementLogicTests.
+// ---------------------------------------------------------------------------
 
-describe('measurement-codable — modeLabel is derived, not carried through', () => {
-  const overlapMeasurement = (staleLabelOnStronger?: string): TapToneMeasurementModel =>
-    ({
-      id: 'x',
-      timestamp: '2026-01-01T00:00:00Z',
-      peaks: [
-        { id: 'a', frequency: 210, magnitude: -18, quality: 1, bandwidth: 1, modeLabel: staleLabelOnStronger },
-        { id: 'b', frequency: 220, magnitude: -26, quality: 1, bandwidth: 1 },
-      ],
-      spectrumSnapshot: {
-        frequencies: new Float32Array(),
-        magnitudes: new Float32Array(),
-        minFreq: 50,
-        maxFreq: 500,
-        minDB: -100,
-        maxDB: 0,
-        isLogarithmic: false,
-        guitarType: 'Classical',
-        measurementType: 'Classical Guitar',
-      },
-    }) as unknown as TapToneMeasurementModel
+interface CasePeak { id: string; frequency: number; magnitude: number }
+interface LogicRow {
+  id: string; note: string; peaks: CasePeak[]; selected: string[] | null; overrides: Record<string, string>
+  material?: boolean; live?: boolean; expect?: number | null | string[]
+  storedLabels?: (string | null)[]; expectHealed?: boolean; expectSelected?: string[]
+}
+const LOGIC = JSON.parse(readFileSync('test/fixtures/measurement-codable.json', 'utf8')) as {
+  guitarType: string; measurementType: string; ratioTolerance: number
+  tapToneRatio: LogicRow[]; modeLabels: LogicRow[]; selectionHeal: LogicRow[]
+}
 
-  const labelsOf = (m: TapToneMeasurementModel): string[] =>
-    ((encodeMeasurement(m) as Record<string, unknown>).peaks as Record<string, unknown>[]).map(
-      (p) => p.modeLabel as string,
-    )
-
-  it('two overlap-zone peaks get distinct labels from classifyAll', () => {
-    // Classical Top 170-230 and Back 190-280 overlap; the stronger peak claims Top.
-    expect(labelsOf(overlapMeasurement())).toEqual(['Top', 'Back'])
+/** A case's measurement, and its peak ids by the case's peak names. */
+function caseMeasurement(row: LogicRow): { m: TapToneMeasurementModel; ids: Record<string, string> } {
+  const ids: Record<string, string> = {}
+  const peaks: ResonantPeak[] = row.peaks.map((p) => {
+    ids[p.id] = crypto.randomUUID().toUpperCase()
+    return { id: ids[p.id]!, frequency: p.frequency, magnitude: p.magnitude, quality: 0, bandwidth: 0, timestamp: '2026-01-01T00:00:00Z' }
   })
+  const snapshot = {
+    frequencies: new Float32Array(), magnitudes: new Float32Array(), minFreq: 50, maxFreq: 500, minDB: -100, maxDB: 0,
+    isLogarithmic: false,
+    ...(row.material ? {} : { guitarType: LOGIC.guitarType, measurementType: LOGIC.measurementType }),
+  }
+  const overrides = Object.fromEntries(Object.entries(row.overrides).map(([name, label]) => [ids[name]!, label]))
+  const m = {
+    id: crypto.randomUUID().toUpperCase(), timestamp: '2026-01-01T00:00:00Z', peaks,
+    ...(row.material ? { longitudinalSnapshot: snapshot } : { spectrumSnapshot: snapshot }),
+    ...(row.selected !== null ? { selectedPeakIDs: row.selected.map((n) => ids[n]!) } : {}),
+    ...(Object.keys(overrides).length ? { peakModeOverrides: overrides } : {}),
+  } as unknown as TapToneMeasurementModel
+  return { m, ids }
+}
 
-  it('a STALE carried-through label does not win — the peak is reclassified', () => {
-    // The exact case that diverged: the stronger overlap peak carries "Back" from an older save.
-    // Swift and Python write Top; this wrote Back, and kept writing it on every later save
-    // because the label was read on decode and preferred on encode.
-    expect(labelsOf(overlapMeasurement('Back'))).toEqual(['Top', 'Back'])
-  })
+const ratioMatches = (ratio: number | null, expected: number | null): boolean =>
+  expected === null ? ratio === null : ratio !== null && Math.abs(ratio - expected) <= LOGIC.ratioTolerance
 
-  it('a user override DOES win over classification', () => {
-    const m = overlapMeasurement()
-    m.peakModeOverrides = { a: 'Dipole' }
-    expect(labelsOf(m)).toEqual(['Dipole', 'Back'])
-  })
+describe('measurement-codable — the tap-tone ratio (measurement-codable.json)', () => {
+  for (const row of LOGIC.tapToneRatio) {
+    it(`${row.id}: ${row.note}`, () => {
+      const { m, ids } = caseMeasurement(row)
+      const expected = row.expect as number | null
+      expect(ratioMatches(measurementTapToneRatio(m), expected), `saved ratio ${measurementTapToneRatio(m)}`).toBe(true)
+      if (!row.live) return
+      const a = new TapToneAnalyzer()
+      a.measurementType = 'classical'
+      a.peaks = m.peaks.map((p) => ({ ...p }))
+      a.modeByPeak = classifyAll(a.peaks, 'classical')
+      const selected = new Set(m.selectedPeakIDs ?? [])
+      a.restoreSelection(selected, a.peaks.filter((p) => selected.has(p.id)).map((p) => p.frequency), true)
+      for (const [name, label] of Object.entries(row.overrides)) a.setModeOverride(ids[name]!, label)
+      expect(ratioMatches(a.tapToneRatio(), expected), `live ratio ${a.tapToneRatio()} — the saved and live ratios must agree`).toBe(true)
+    })
+  }
+})
 
-  it('the displayed label matches the written one', () => {
-    // Display and file resolve through the same rule, so they cannot disagree. Before the fix
-    // the detail pane read the stored label while the writer reclassified.
-    const m = overlapMeasurement('Back')
-    const shown = measurementPeakModeLabels(m)
-    expect([shown.get('a'), shown.get('b')]).toEqual(labelsOf(m))
-  })
+describe('measurement-codable — the mode label each peak is written with (measurement-codable.json)', () => {
+  for (const row of LOGIC.modeLabels) {
+    it(`${row.id}: ${row.note}`, () => {
+      const { m } = caseMeasurement(row)
+      // A file whose peaks already carry `storedLabels`: written, the labels set, read back.
+      const written = encodeMeasurement(m) as { peaks: Record<string, unknown>[] }
+      row.storedLabels!.forEach((label, i) => {
+        if (label === null) delete written.peaks[i]!.modeLabel
+        else written.peaks[i]!.modeLabel = label
+      })
+      const read = parseGuitarTapFile(JSON.stringify([written]))[0]!
+      const labels = ((encodeMeasurement(read) as { peaks: Record<string, unknown>[] }).peaks).map((p) => p.modeLabel)
+      expect(labels, 'written').toEqual(row.expect)
+      const shown = measurementPeakModeLabels(read)
+      expect(read.peaks.map((p) => shown.get(p.id)), 'displayed').toEqual(row.expect)
+    })
+  }
+})
+
+describe('measurement-codable — the selection heal on decode (measurement-codable.json)', () => {
+  for (const row of LOGIC.selectionHeal) {
+    it(`${row.id}: ${row.note}`, () => {
+      const { m, ids } = caseMeasurement(row)
+      const read = parseGuitarTapFile(serializeGuitarTapFile([m]))[0]!
+      expect(read.wasHealed ?? false, 'healed').toBe(row.expectHealed)
+      expect(new Set(read.selectedPeakIDs ?? [])).toEqual(new Set(row.expectSelected!.map((n) => ids[n]!)))
+    })
+  }
 })

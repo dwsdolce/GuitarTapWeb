@@ -153,3 +153,11 @@ export function peaksInDisplayRange<T extends { frequency: number; id: string }>
   if (!isGuitar || showUnknownModes) return inRange
   return inRange.filter((p) => overriddenPeakIds.has(p.id) || isKnown(p.frequency, guitarType))
 }
+
+/** A measurement type's guitar-type raw name as a snapshot records it ("Generic" … "Flamenco"). */
+export const GUITAR_TYPE_RAW: Record<string, string> = {
+  generic: 'Generic',
+  acoustic: 'Acoustic',
+  classical: 'Classical',
+  flamenco: 'Flamenco',
+}

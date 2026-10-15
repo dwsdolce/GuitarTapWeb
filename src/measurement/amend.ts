@@ -11,7 +11,7 @@
 // not be shared.
 
 import type { TapToneMeasurementModel } from './types'
-import { newMeasurementId } from './fromLive'
+import { newId } from './newId'
 
 /**
  * Whether the supplied values differ from what this measurement stores — the gate on the edit
@@ -48,5 +48,5 @@ export function amendMeasurement(
   measurementName: string | undefined,
   notes: string | undefined,
 ): TapToneMeasurementModel {
-  return { ...m, id: newMeasurementId(), measurementName, notes }
+  return { ...m, id: newId(), measurementName, notes }
 }

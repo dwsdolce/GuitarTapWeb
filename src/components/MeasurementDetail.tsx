@@ -1,15 +1,14 @@
 // @parity view/measurement-detail
-import { measurementTypeName, comparisonEntryModeFreqs } from '../measurement/fromLive'
 import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 import { comparisonRole, cssVariable } from '../presentation/palette'
-import { classifyAll, type ResolvedMode } from '../dsp/classify'
+import type { ResolvedMode } from '../dsp/classify'
 import { modeBands } from '../dsp/guitarModes'
-import { MATERIAL_PEAK_ROLE_NAME, type MaterialPeakRole } from '../presentation/materialPeakRole'
+import type { MaterialPeakRole } from '../presentation/materialPeakRole'
 import { PeakCard } from './PeakCard'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
 import { formatDisplayDate } from '../format/date'
-import { guitarTypeNameFromRaw, type ResonantPeak } from '../measurement/types'
+import { classificationGuitarType, comparisonEntryModeFreqs, measurementAutoModes, measurementPeakModeLabels, measurementTypeName, type ResonantPeak } from '../measurement/types'
 import { useScheme } from '../hooks/useScheme'
 
 // Read-only measurement inspector — mirrors Swift MeasurementDetailView / Python
@@ -49,10 +48,11 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
   // label may be stale or absent; Swift's MeasurementDetailView derives at display time for the
   // same reason.
   const isMaterial = isMaterialMeasurement(m)
-  // Guitar: classified among the SHOWN peaks, as Swift's Details (GuitarMode.classifyAll(shownPeaks)),
-  // so overlapping ranges get distinct modes; an override wins for the label.
-  const guitarType = guitarTypeNameFromRaw(m.spectrumSnapshot?.guitarType)
-  const autoModes = isMaterial ? null : classifyAll(shownPeaks, guitarType)
+  // The measurement's own modes and labels — classified among all its peaks, as the file is written
+  // and the live view showed them, not among the shown ones.
+  const guitarType = classificationGuitarType(m)
+  const autoModes = measurementAutoModes(m)
+  const labels = measurementPeakModeLabels(m)
   const bands = new Map(modeBands(guitarType).map((b) => [b.name, b]))
   const inRangeFor = (p: ResonantPeak, mode: ResolvedMode): boolean | null => {
     if (mode === 'unknown' || mode === 'upper') return null
@@ -66,13 +66,7 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
     if (p.id === m.selectedFlcPeakID) return 'flc'
     return undefined
   }
-  const peakLabel = (p: ResonantPeak): string => {
-    if (isMaterial) {
-      const role = materialRoleOf(p)
-      return role ? MATERIAL_PEAK_ROLE_NAME[role] : 'Peak'
-    }
-    return m.peakModeOverrides?.[p.id] ?? MODE_DISPLAY_NAME[autoModes?.get(p.id) ?? 'unknown']
-  }
+  const peakLabel = (p: ResonantPeak): string => labels.get(p.id) ?? (isMaterial ? 'Peak' : MODE_DISPLAY_NAME.unknown)
 
   const comparisonRows: ComparisonRow[] = comparison
     ? (m.comparisonEntries ?? []).map((e, i) => ({

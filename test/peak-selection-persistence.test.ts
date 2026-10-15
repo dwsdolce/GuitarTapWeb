@@ -7,7 +7,7 @@
 // the flag is written on save, round-trips, and restores on load (default manual for legacy files).
 
 import { describe, it, expect } from 'vitest'
-import { measurementToLive } from '../src/measurement/fromLive'
+import { measurementToLive } from '../src/state/tapToneAnalyzer'
 import { serializeGuitarTapFile, parseGuitarTapFile } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { saveGuitar, type GuitarState } from './saveFromAnalyzer'

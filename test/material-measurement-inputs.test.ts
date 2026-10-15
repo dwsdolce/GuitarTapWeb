@@ -9,7 +9,7 @@
 // lives on the analyzer and the seed runs in `isMeasurementComplete`'s setter.
 //
 // The loadedNotes STATE cases (`loadRestoresNotesForReSave` / `loadTreatsBlankNotesAsNil`) are not
-// covered in this file. The SOURCING cases at the pure `fromLive`/helper
+// covered in this file. The SOURCING cases at the pure restore/helper
 // layer — the seed's data mapping, load → Store B, "Settings untouched" (= settingsPatch carries no
 // dimensions), and save reading Store B — are here too.
 
@@ -19,7 +19,7 @@ import {
   materialInputsFromSettings,
   type MaterialMeasurementInputs,
 } from '../src/measurement/materialMeasurementInputs'
-import { measurementToLiveMaterial } from '../src/measurement/fromLive'
+import { measurementToLiveMaterial } from '../src/state/tapToneAnalyzer'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 import { saveMaterial } from './saveFromAnalyzer'

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { measurementToLiveMaterial } from '../src/measurement/fromLive'
+import { measurementToLiveMaterial } from '../src/state/tapToneAnalyzer'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { materialInputsFromSettings } from '../src/measurement/materialMeasurementInputs'

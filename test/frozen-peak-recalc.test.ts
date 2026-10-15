@@ -258,6 +258,24 @@ describe('frozen-peak-recalc — per-tap entries computed once', () => {
     expect(a.tapEntries[0]!.peaks.map((p) => p.frequency)).toEqual([777]) // absent from the snapshot → the saved set
   })
 
+  it("PR46: a load classifies the saved peaks under the measurement's own guitar type, not the app's", () => {
+    // 88 Hz is Air for Generic (70–135 Hz) but outside Acoustic's Air band (90–120 Hz). Mirrors Swift
+    // PR46_loadMeasurement_classifiesUnderTheMeasurementsOwnType / Python test_PR46.
+    const a = new TapToneAnalyzer()
+    a.measurementType = 'acoustic'
+    const air = { id: newId(), frequency: 88, magnitude: -25, quality: 10, bandwidth: 5, timestamp: '2026-09-25T00:00:00Z' }
+    a.loadMeasurement({
+      id: newId(),
+      timestamp: '2026-09-25T00:00:00Z',
+      peaks: [air],
+      spectrumSnapshot: {
+        frequencies: [100, 200, 300, 400], magnitudes: [-40, -20, -50, -60], minFreq: 80, maxFreq: 1200, minDB: -90,
+        maxDB: 0, isLogarithmic: false, guitarType: 'Generic', measurementType: 'Generic Guitar',
+      },
+    } as TapToneMeasurementModel)
+    expect(a.modeByPeak.get(air.id), "classified under the measurement's Generic bands").toBe('air')
+  })
+
   it('PR38: a tap entry resolves its modes over its SELECTED peaks only', () => {
     // At capture a tap's selection is the strongest peak per mode, so resolving over all of its peaks
     // gives the same answer and no other case tells the two apart. Here the selected Top is the weaker

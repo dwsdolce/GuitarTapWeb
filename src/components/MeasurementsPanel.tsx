@@ -9,7 +9,7 @@ import {
   clearMeasurements,
   importMeasurements,
 } from '../measurement/store'
-import { measurementTapToneRatio, guitarTapFilename } from '../measurement/fromLive'
+import { measurementTapToneRatio, guitarTapFilename } from '../measurement/types'
 import { amendMeasurement } from '../measurement/amend'
 import { EditMeasurementSheet } from './EditMeasurementSheet'
 import { exportStem } from '../measurement/exportFilename'

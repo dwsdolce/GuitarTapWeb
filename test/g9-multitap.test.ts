@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { measurementToLive, multiTapComparisonEntries, colorComponentsToCss } from '../src/measurement/fromLive'
+import { measurementToLive } from '../src/state/tapToneAnalyzer'
+import { measurementMultiTapComparisonEntries } from '../src/measurement/types'
 import { multiTapPdfData } from '../src/presentation/measurementImage'
 import { serializeGuitarTapFile, parseGuitarTapFile } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
@@ -78,17 +79,17 @@ describe('buildGuitarMeasurement — multi-tap entries', () => {
 // 6e: a multi-tap guitar measurement exports a TWO-page PDF — page 1 the averaged single-measurement
 // report, page 2 the per-tap comparison (each "Tap N" plus a trailing "Averaged"), mirroring Swift
 // generateMultiTapReport / exportMultiTapPDFReport.
-describe('multiTapComparisonEntries — per-tap + averaged (6e)', () => {
-  const entries = multiTapComparisonEntries(saveGuitar(args))
+describe('measurementMultiTapComparisonEntries — per-tap + averaged (6e)', () => {
+  const entries = measurementMultiTapComparisonEntries(saveGuitar(args))
 
   it('is one entry per tap plus a trailing Averaged entry', () => {
     expect(entries.map((e) => e.label)).toEqual(['Tap 1', 'Tap 2', 'Averaged'])
   })
 
   it('stores each tap its series slot\'s light colour, and the average the average\'s', () => {
-    expect(colorComponentsToCss(entries[0]!.colorComponents)).toBe('rgba(0, 122, 255, 1)') // series.1 #007AFF
-    expect(colorComponentsToCss(entries[1]!.colorComponents)).toBe('rgba(224, 120, 0, 1)') // series.2 #E07800
-    expect(colorComponentsToCss(entries[2]!.colorComponents)).toBe('rgba(235, 195, 0, 1)') // series.average #EBC300
+    expect(entries[0]!.colorComponents).toEqual([0, 122 / 255, 1, 1]) // series.1 #007AFF
+    expect(entries[1]!.colorComponents).toEqual([224 / 255, 120 / 255, 0, 1]) // series.2 #E07800
+    expect(entries[2]!.colorComponents).toEqual([235 / 255, 195 / 255, 0, 1]) // series.average #EBC300
   })
 
   it('the Averaged entry keeps the measurement’s selected peaks', () => {

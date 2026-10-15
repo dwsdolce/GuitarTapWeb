@@ -157,9 +157,12 @@ export class RealtimeFFTAnalyzer {
 
   // Active mic calibration, applied to the continuous and guitar-capture spectra and, inside
   // computeGatedFFT, to the material gated spectrum at the moment it is computed. guitarCorr caches
-  // the per-bin corrections for the fixed guitar FFT bins; null = recompute on next use.
+  // the per-bin corrections for the fixed guitar FFT bins at guitarCorrSampleRate; see
+  // calibrationCorrections.
   private calibration: Calibration | null = null
   private guitarCorr: number[] | null = null
+  /** The sample rate `guitarCorr` was computed for. */
+  private guitarCorrSampleRate: number | null = null
 
   // Continuous live spectrum (0% overlap).
   private readonly accum = new Float32Array(GUITAR_FFT_SIZE)
@@ -180,9 +183,17 @@ export class RealtimeFFTAnalyzer {
    *  only the threshold meter observes it. Swift `level`. */
   readonly level = new InputLevel()
 
-  /** Per-bin calibration corrections for the current input, or null. The analyzer APPLIES these,
-   *  mirroring Swift reading `fftAnalyzer.calibrationCorrections` in finishGuitarGatedCapture. */
+  /** The active calibration's per-bin dB corrections for the guitar FFT's bins, or null without one —
+   *  computed by the engine from its own bin frequencies (`frequencies`, bin i at i · sampleRate /
+   *  fftSize, its exact frequency) and computed again when the sample rate changes. The analyzer
+   *  applies them in finishGuitarGatedCapture, as Swift reads `fftAnalyzer.calibrationCorrections`
+   *  (`updateCalibrationCorrections`). */
   get calibrationCorrections(): number[] | null {
+    if (!this.calibration) return null
+    if (!this.guitarCorr || this.guitarCorrSampleRate !== this.sampleRate) {
+      this.guitarCorr = interpolateToBins(this.calibration, this.frequencies)
+      this.guitarCorrSampleRate = this.sampleRate
+    }
     return this.guitarCorr
   }
 
@@ -443,8 +454,7 @@ export class RealtimeFFTAnalyzer {
     const guitarBins = GUITAR_FFT_SIZE >> 1
     let corr: number[]
     if (spec.magnitudesDb.length === guitarBins) {
-      if (!this.guitarCorr) this.guitarCorr = interpolateToBins(this.calibration, spec.frequencies)
-      corr = this.guitarCorr
+      corr = this.calibrationCorrections!
     } else {
       corr = interpolateToBins(this.calibration, spec.frequencies)
     }
@@ -665,7 +675,7 @@ export class RealtimeFFTAnalyzer {
     // device, so input AND output must be set to the same rate). The DSP reads the
     // actual ctx.sampleRate — there is no forced/expected rate. (Provenance is
     // recorded per measurement; a load-time warning compares a saved measurement's
-    // recorded rate against the current one — see measurement/fromLive.ts.)
+    // recorded rate against the current one — see the analyzer's loadMeasurement.)
     const savedId = getSavedInputDeviceId()
     console.info(`[engine] 🎤 Starting — saved input id ${savedId ?? 'none'}`)
     this.stream = await this.acquireInputToUse()

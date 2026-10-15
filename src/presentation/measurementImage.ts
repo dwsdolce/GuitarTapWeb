@@ -1,15 +1,15 @@
 // @parity view/pdf-report tests=test/pdf-report
 
-import { classifyAll, type ResolvedMode } from '../dsp/classify'
+import type { ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME } from './modeColors'
 import { color as roleColor, comparisonRole, modeRole, qualityRole, type Role } from './palette'
 import { FieldPrecision } from '../precision'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
-import { measurementToLive, measurementToLiveMaterial, measurementTypeName, comparisonAxisRange, comparisonEntryModeFreqs, multiTapComparisonEntries, measurementOverriddenModes, measurementTapToneRatio } from '../measurement/fromLive'
+import { comparisonAxisRange, measurementAutoModes, measurementMultiTapComparisonEntries, measurementTypeName, comparisonEntryModeFreqs, measurementTapToneRatio, measurementDefinitiveModeInfo, MEASUREMENT_TYPE_FROM_RAW } from '../measurement/types'
 import { isGuitarType, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, DEFAULT_SETTINGS } from '../settings'
-import { materialDimensions, materialStiffness } from '../measurement/materialMeasurementInputs'
+import { materialDimensions, materialInputsFromSnapshot, materialStiffness } from '../measurement/materialMeasurementInputs'
 import { formatDisplayDate } from '../format/date'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { effectiveSelectedPeakIDs, type TapToneMeasurementModel } from '../measurement'
@@ -20,6 +20,46 @@ import type { PdfReportData, PdfPeakRow, PdfMaterialAnalysis, PdfMaterialProp, P
 import { generateMultiTapPdfReport, generatePdfReport } from './pdfReport'
 import { exportStem } from '../measurement/exportFilename'
 import type { ResonantPeak } from '../measurement/types'
+
+// ── A saved measurement, read as its exports show it ────────────────────────────────────────────
+// Read from the measurement itself, as Swift's renderers (`renderSpectrumImageForMeasurement`,
+// `PDFReportData.from(measurement:)`) read it — never through the analyzer's restore. Its modes are
+// the measurement's own (`measurementAutoModes`): classified among all its peaks, as the file, the
+// Details pane and the live screen have them.
+
+/** A saved guitar measurement as its image and report show it. */
+function savedGuitar(m: TapToneMeasurementModel) {
+  const snap = m.spectrumSnapshot!
+  return {
+    measurementType: MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'generic',
+    captured: { magnitudesDb: snap.magnitudes, frequencies: snap.frequencies },
+    view: { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB },
+    peaks: m.peaks,
+    selectedIds: effectiveSelectedPeakIDs(m),
+    modes: measurementAutoModes(m),
+    overridesById: new Map(Object.entries(m.peakModeOverrides ?? {})),
+    annotationOffsetsById: new Map(Object.entries(m.peakAnnotationOffsets ?? {})),
+  }
+}
+
+/** A saved plate/brace measurement as its image and report show it. */
+function savedMaterial(m: TapToneMeasurementModel) {
+  const snap = m.longitudinalSnapshot!
+  const measurementType = MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'plate'
+  const byId = new Map(m.peaks.map((p) => [p.id, p]))
+  const peak = (id: string | undefined): ResonantPeak | null => (id != null ? byId.get(id) ?? null : null)
+  const spectrum = (s: typeof snap | undefined) => (s ? { magnitudesDb: s.magnitudes, frequencies: s.frequencies } : null)
+  return {
+    measurementType,
+    matSpectra: { longitudinal: spectrum(m.longitudinalSnapshot), cross: spectrum(m.crossSnapshot), flc: spectrum(m.flcSnapshot) },
+    selectedLongitudinalPeak: peak(m.selectedLongitudinalPeakID),
+    selectedCrossPeak: peak(m.selectedCrossPeakID),
+    selectedFlcPeak: peak(m.selectedFlcPeakID),
+    materialInputs: materialInputsFromSnapshot(measurementType === 'brace' ? 'brace' : 'plate', snap),
+    measureFlc: snap.measureFlc ?? DEFAULT_SETTINGS.measureFlc,
+    annotationOffsetsById: new Map(Object.entries(m.peakAnnotationOffsets ?? {})),
+  }
+}
 
 const pitch = new Pitch(440)
 type AnnoMode = 'all' | 'selected' | 'none'
@@ -118,7 +158,7 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
 
   // Material (plate / brace)
   if (m.longitudinalSnapshot) {
-    const r = measurementToLiveMaterial(m)
+    const r = savedMaterial(m)
     const overlays: SpectrumOverlay[] = []
     if (r.matSpectra.longitudinal) overlays.push({ ...r.matSpectra.longitudinal, role: 'material.longitudinal', label: 'Longitudinal (fL)' })
     if (r.matSpectra.cross) overlays.push({ ...r.matSpectra.cross, role: 'material.cross', label: 'Cross-grain (fC)' })
@@ -141,12 +181,11 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
   }
 
   // Guitar
-  const r = measurementToLive(m)
+  const r = savedGuitar(m)
   const guitarType: GuitarTypeName = isGuitarType(r.measurementType) ? r.measurementType : 'generic'
-  const modeByPeak = classifyAll(r.loadedPeaks, guitarType)
   const markers = buildGuitarMarkers(
-    r.loadedPeaks,
-    modeByPeak,
+    r.peaks,
+    r.modes,
     annotatedBy((m.annotationVisibilityMode as AnnoMode) ?? 'all', r.selectedIds),
     r.overridesById,
     r.annotationOffsetsById,
@@ -225,20 +264,27 @@ export function measurementToPdfData(m: TapToneMeasurementModel): PdfReportData 
  *  PDF path by synthesizing comparison entries from the measurement's `tapEntries` + an "Averaged"
  *  entry — so it stays identical to a saved-comparison report. Callers use it for a measurement with tap entries. */
 export function multiTapPdfData(m: TapToneMeasurementModel): { averaged: PdfReportData; comparison: PdfReportData } {
-  const comparison = measurementToPdfData({ ...m, comparisonEntries: multiTapComparisonEntries(m) })
+  const comparison = measurementToPdfData({ ...m, comparisonEntries: measurementMultiTapComparisonEntries(m) })
   // Page 2's chart is of one guitar's taps: titled as a tap comparison, typed and banded by the measurement's own
   // guitar type (Swift renderMultiTapComparisonImage).
-  const type = measurementToLive(m).measurementType
+  const type = savedGuitar(m).measurementType
   comparison.image = {
     ...comparison.image,
     title: `Tap Comparison — ${m.measurementName?.trim() || 'Multi-Tap'}`,
     measurementTypeName: MEASUREMENT_FULL_NAME[type],
     guitarType: isGuitarType(type) ? type : 'generic',
   }
-  // The Averaged row's definitive values mark any manual override, as Swift's do; tap rows are automatic.
+  // Tap rows show each tap's own modes; the Averaged row the DEFINITIVE (override-aware) ones, marking any
+  // manual override — Swift multiTapComparisonData's rule.
   const rows = comparison.comparison?.rows
   const averaged = rows?.find((r) => r.label === 'Averaged')
-  if (averaged) averaged.overrideModes = measurementOverriddenModes(m)
+  if (averaged) {
+    const info = measurementDefinitiveModeInfo(m)
+    averaged.air = info.get('air')?.frequency ?? null
+    averaged.top = info.get('top')?.frequency ?? null
+    averaged.back = info.get('back')?.frequency ?? null
+    averaged.overrideModes = [...info].filter(([, i]) => i.isOverride).map(([mode]) => mode)
+  }
   return { averaged: measurementToPdfData(m), comparison }
 }
 
@@ -260,14 +306,14 @@ type PdfBase = Pick<
 >
 
 function guitarPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData {
-  const r = measurementToLive(m)
+  const r = savedGuitar(m)
   const guitarType: GuitarTypeName = isGuitarType(r.measurementType) ? r.measurementType : 'generic'
-  const modeByPeak = classifyAll(r.loadedPeaks, guitarType)
+  const modeByPeak = r.modes
 
   // Swift's PDF table = rangeFilteredPeaks ∩ selectedPeakIDs, low → high: only SELECTED peaks that
   // fall within the displayed frequency range (Swift PDFReportGenerator.rangeFilteredPeaks +
   // visibleSortedPeaks). Peaks outside [minFreq, maxFreq] are excluded.
-  const visible = r.loadedPeaks
+  const visible = r.peaks
     .filter((p) => r.selectedIds.has(p.id) && p.frequency >= base.freqRange.min && p.frequency <= base.freqRange.max)
     .sort((a, b) => a.frequency - b.frequency)
   const peaks: PdfPeakRow[] = visible.map((p) => {
@@ -302,7 +348,7 @@ function guitarPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData
 }
 
 function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportData {
-  const r = measurementToLiveMaterial(m)
+  const r = savedMaterial(m)
   const plate = r.measurementType === 'plate'
   // Dimensions, body size, and stiffness ALL come from the measurement's own Store B (materialInputs),
   // never the live/default Settings — mirrors buildMaterialMeasurement + Swift's PDFReportData.from,
@@ -316,7 +362,7 @@ function materialPdfData(m: TapToneMeasurementModel, base: PdfBase): PdfReportDa
   const fL = r.selectedLongitudinalPeak?.frequency ?? null
   const fC = r.selectedCrossPeak?.frequency ?? null
   const fLC = r.selectedFlcPeak?.frequency ?? null
-  const measureFlc = r.settingsPatch.measureFlc ?? DEFAULT_SETTINGS.measureFlc
+  const measureFlc = r.measureFlc
   const showFlc = plate && measureFlc
 
   // Peaks table — as Swift's report: the measurement's peaks within the frequency range, by the effective

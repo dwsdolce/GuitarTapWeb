@@ -5,7 +5,7 @@
 // `measurement-type-name.json`, the same cases the Swift and Python suites run.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { measurementTypeName } from '../src/measurement/fromLive'
+import { measurementTypeName } from '../src/measurement/types'
 import { isMaterialMeasurement, type TapToneMeasurementModel, type SpectrumSnapshotModel } from '../src/measurement/types'
 
 type Row = { id?: string; spectrum: string | null; longitudinal: string | null; isComparison?: boolean; topLevelType?: string; expect: string | boolean; editions?: string[] }

@@ -25,11 +25,11 @@ import {
   importMeasurements,
 } from '../src/measurement/store'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
-import { newMeasurementId } from '../src/measurement/fromLive'
+import { newId } from '../src/measurement/newId'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 
 function minimal(name = 'Test'): TapToneMeasurementModel {
-  return { id: newMeasurementId(), timestamp: '2026-01-01T00:00:00.000Z', peaks: [], measurementName: name }
+  return { id: newId(), timestamp: '2026-01-01T00:00:00.000Z', peaks: [], measurementName: name }
 }
 
 beforeEach(async () => {
@@ -90,7 +90,7 @@ describe('import-persistence — dataset identity vs row handle', () => {
     const stored = (await listMeasurements())[0]!
     // Mirrors MeasurementsPanel.commitEdit: new `id` (amended data is a different dataset),
     // same `rowKey` (it is still that row).
-    await saveMeasurement({ ...stored, id: newMeasurementId(), measurementName: 'After' })
+    await saveMeasurement({ ...stored, id: newId(), measurementName: 'After' })
     const list = await listMeasurements()
     expect(list).toHaveLength(1)
     expect(list[0]!.measurementName).toBe('After')
@@ -104,7 +104,7 @@ describe('import-persistence — dataset identity vs row handle', () => {
     await importMeasurements(text)
     await importMeasurements(text)
     const [first, second] = await listMeasurements()
-    await saveMeasurement({ ...second!, id: newMeasurementId(), measurementName: 'Edited' })
+    await saveMeasurement({ ...second!, id: newId(), measurementName: 'Edited' })
     const list = await listMeasurements()
     expect(list.map((m) => m.measurementName)).toEqual(['Twin', 'Edited'])
     expect(list[0]!.id).toBe(first!.id)
@@ -142,7 +142,7 @@ describe('import-persistence — library save semantics', () => {
     await saveMeasurement(minimal('B'))
     // Edit A the way the app does — load it back (carries its rowKey and insertion stamp) then re-save.
     const loadedA = (await listMeasurements()).find((m) => m.measurementName === 'A')!
-    await saveMeasurement({ ...loadedA, id: newMeasurementId(), measurementName: 'A-edited' })
+    await saveMeasurement({ ...loadedA, id: newId(), measurementName: 'A-edited' })
     const list = await listMeasurements()
     expect(list).toHaveLength(2)
     // A stays in its original position (edit keeps its insertion stamp), with the new name.

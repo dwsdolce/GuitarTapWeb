@@ -25,7 +25,7 @@ import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
 import { MaterialResults, type MaterialPeaks } from './components/MaterialResults'
 import { AnalysisResults } from './components/AnalysisResults'
-import { buildComparisonEntries, comparisonEntryModeFreqs, measurementToLive, measurementToLiveMaterial } from './measurement/fromLive'
+import { comparisonEntryModeFreqs } from './measurement/types'
 import { ComparisonResultsView, type ComparisonRow } from './components/ComparisonResultsView'
 import { importMeasurements, saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
@@ -519,16 +519,6 @@ export default function App() {
   // so exhaustive-deps flags it; removing it would stop the averaged modes updating on selection/override changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const avgModes = useMemo<DefinitiveModeInfo>(() => analyzer.definitiveModeInfo(), [analyzer, snapshot])
-  const multiTapOverlays = useMemo<SpectrumOverlay[]>(() => {
-    const out: SpectrumOverlay[] = tapEntries.map((e, i) => ({
-      magnitudesDb: e.snapshot.magnitudes,
-      frequencies: e.snapshot.frequencies,
-      role: seriesRole(i),
-      label: `Tap ${e.tapIndex}`,
-    }))
-    if (captured) out.push({ magnitudesDb: captured.magnitudesDb, frequencies: captured.frequencies, role: 'series.average', label: 'Averaged' })
-    return out
-  }, [tapEntries, captured])
 
   const binHz = sampleRate ? sampleRate / GUITAR_FFT_SIZE : null
   // For auto-dB / metrics, use the primary material spectrum; the chart itself draws all
@@ -569,6 +559,23 @@ export default function App() {
     sequenceStarts: snapshot.sequenceStarts,
     materialPeaksFromLoad: snapshot.materialPeaksFromLoad,
   })
+
+  // The current measurement's tap comparison, from the analyzer — the same entries its report and its
+  // saved form show (Swift applyMultiTapComparisonOverlays).
+  const multiTapOverlays = useMemo<SpectrumOverlay[]>(
+    () =>
+      showMultiTap
+        ? analyzer.multiTapComparisonEntries(view).map((e, i) => ({
+            magnitudesDb: e.snapshot.magnitudes,
+            frequencies: e.snapshot.frequencies,
+            role: comparisonRole(i, e.label),
+            label: e.label,
+          }))
+        : [],
+    // `snapshot` is the analyzer's change signal: the entries follow its result.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [analyzer, snapshot, showMultiTap, view],
+  )
   // The guitar peak list: the peaks within the chart's live range, so zoom, pan, a load or a widening
   // changes what is listed (Swift TapAnalysisResultsView.sortedPeaksWithModes → [minFreq, maxFreq],
   // the view's range).
@@ -794,11 +801,10 @@ export default function App() {
 
   // Create a comparison from ≥2 selected library measurements (mirrors Swift loadComparison).
   const onCompare = useCallback((measurements: TapToneMeasurementModel[]) => {
-    const entries = buildComparisonEntries(measurements)
-    if (entries.length < 2) return
+    if (measurements.filter((m) => m.spectrumSnapshot).length < 2) return
     setLoadedPeaks(null)
     analyzer.clearResult() // returns to live and drops any overlay...
-    analyzer.loadComparison(entries) // ...then enters comparison. Order matters: clearResult
+    analyzer.loadComparison(measurements) // ...then enters comparison. Order matters: clearResult
     // would otherwise wipe what we just set. The analyzer is readable synchronously, so the
     // in-flight-capture guard in onGuitarCapture sees this immediately — no ref to keep in sync.
     setShowMeasurements(false)

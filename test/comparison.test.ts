@@ -1,11 +1,11 @@
 // @parity test/comparison
 import { describe, it, expect } from 'vitest'
-import { buildComparisonEntries, comparisonEntryModeFreqs } from '../src/measurement/fromLive'
+import { comparisonEntryModeFreqs } from '../src/measurement/types'
 import { serializeGuitarTapFile, parseGuitarTapFile, isComparison, type ComparisonEntryModel } from '../src/measurement'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { ResolvedMode } from '../src/dsp/classify'
-import type { ResonantPeak } from '../src/measurement/types'
+import type { ResonantPeak, TapToneMeasurementModel } from '../src/measurement/types'
 import { saveGuitar, saveComparison } from './saveFromAnalyzer'
 
 // A comparison measurement overlays several measurements. Building it from a
@@ -37,8 +37,15 @@ const src = (name: string) =>
     deviceLabel: 'Mic',
   })
 
-describe('buildComparisonEntries — from a selection', () => {
-  const entries = buildComparisonEntries([src('Top'), src('Top')])
+/** The entries a comparison of `sources` shows — the analyzer builds them, as Swift's loadComparison does. */
+function comparisonEntriesOf(sources: TapToneMeasurementModel[]): ComparisonEntryModel[] {
+  const a = new TapToneAnalyzer()
+  a.loadComparison(sources)
+  return a.comparisonEntries
+}
+
+describe('loadComparison — the entries from a selection', () => {
+  const entries = comparisonEntriesOf([src('Top'), src('Top')])
 
   it('makes one entry per source with disambiguated labels and palette colors', () => {
     expect(entries).toHaveLength(2)
@@ -59,7 +66,7 @@ describe('buildComparisonEntries — from a selection', () => {
 
 describe('comparison measurement round-trip', () => {
   it('saves as a comparison record and survives the .guitartap round-trip', () => {
-    const entries = buildComparisonEntries([src('A'), src('B')])
+    const entries = comparisonEntriesOf([src('A'), src('B')])
     const m = saveComparison({ name: 'A vs B', notes: 'test', entries })
     expect(isComparison(m)).toBe(true)
     expect(m.peaks).toEqual([])
@@ -96,7 +103,7 @@ describe('comparison modePeakIDs — self-describing definitive modes', () => {
   })
 
   it("uses the source's OVERRIDDEN Top, not the auto classification", () => {
-    const [entry] = buildComparisonEntries([srcOverride])
+    const [entry] = comparisonEntriesOf([srcOverride])
     const f = comparisonEntryModeFreqs(entry!)
     expect(f.top).toBe(380) // the overridden Dipole-band peak — positional would find no Top at all
     expect(f.air).toBe(90)
@@ -115,7 +122,7 @@ describe('comparison modePeakIDs — self-describing definitive modes', () => {
   })
 
   it('modePeakIDs round-trips through the .guitartap format', () => {
-    const entries = buildComparisonEntries([srcOverride])
+    const entries = comparisonEntriesOf([srcOverride])
     const topId = entries[0]!.modePeakIDs!.Top
     expect(topId).toBeDefined()
     const m = saveComparison({ name: 'C', notes: '', entries })
@@ -125,7 +132,7 @@ describe('comparison modePeakIDs — self-describing definitive modes', () => {
   })
 
   it('a legacy comparison (no modePeakIDs) heals positionally on decode + flags re-save', () => {
-    const m = saveComparison({ name: 'Legacy', notes: '', entries: buildComparisonEntries([src('A')]) })
+    const m = saveComparison({ name: 'Legacy', notes: '', entries: comparisonEntriesOf([src('A')]) })
     const json = JSON.parse(serializeGuitarTapFile([m]))
     for (const e of json[0].comparisonEntries) delete e.modePeakIDs // simulate a pre-6b file
     const back = parseGuitarTapFile(JSON.stringify(json))[0]!
@@ -158,7 +165,7 @@ describe('display mode — transitions', () => {
 
   it('loadComparison enters comparison', () => {
     const a = sut()
-    a.loadComparison(entries(2))
+    a.loadComparisonRecord(entries(2))
     expect(a.displayMode).toBe('comparison')
     expect(a.comparisonEntries).toHaveLength(2)
   })
@@ -166,7 +173,7 @@ describe('display mode — transitions', () => {
   it('an EMPTY comparison stays live — the mode follows the data', () => {
     // Swift: displayMode = comparisonSpectra.isEmpty ? .live : .comparison
     const a = sut()
-    a.loadComparison([])
+    a.loadComparisonRecord([])
     expect(a.displayMode).toBe('live')
   })
 
@@ -176,7 +183,7 @@ describe('display mode — transitions', () => {
   it('loadComparison disarms an armed detector', () => {
     const a = sut()
     a.detectionState = 'listening'
-    a.loadComparison(entries(2))
+    a.loadComparisonRecord(entries(2))
     expect(a.displayMode).toBe('comparison')
     expect(a.detectionState).toBe('idle')
   })
@@ -186,14 +193,14 @@ describe('display mode — transitions', () => {
   it('an EMPTY comparison leaves the detector alone', () => {
     const a = sut()
     a.detectionState = 'listening'
-    a.loadComparison([])
+    a.loadComparisonRecord([])
     expect(a.displayMode).toBe('live')
     expect(a.detectionState).toBe('listening')
   })
 
   it('clearComparison returns to live and drops the entries', () => {
     const a = sut()
-    a.loadComparison(entries(2))
+    a.loadComparisonRecord(entries(2))
     a.clearComparison()
     expect(a.displayMode).toBe('live')
     expect(a.comparisonEntries).toHaveLength(0)
@@ -202,7 +209,7 @@ describe('display mode — transitions', () => {
   it('loading a measurement DURING a comparison exits it and freezes', () => {
     // The transition the view maintained by hand at eight call sites, pinned by nothing.
     const a = sut()
-    a.loadComparison(entries(2))
+    a.loadComparisonRecord(entries(2))
     a.restoreSnapshot({ magnitudes: [-30, -20], frequencies: [100, 200] })
     expect(a.displayMode).toBe('live')
     expect(a.comparisonEntries).toHaveLength(0)
@@ -210,7 +217,7 @@ describe('display mode — transitions', () => {
 
   it('clearResult (New Tap) returns to live from a comparison', () => {
     const a = sut()
-    a.loadComparison(entries(2))
+    a.loadComparisonRecord(entries(2))
     a.clearResult()
     expect(a.displayMode).toBe('live')
     expect(a.comparisonEntries).toHaveLength(0)
@@ -222,7 +229,7 @@ describe('display mode — transitions', () => {
   it('New Tap returns to live from a comparison — MATERIAL type', () => {
     const a = sut()
     a.measurementType = 'plate'
-    a.loadComparison(entries(2))
+    a.loadComparisonRecord(entries(2))
     expect(a.displayMode).toBe('comparison')
     a.startTapSequence({ arm: false })
     expect(a.displayMode).toBe('live')
@@ -233,7 +240,7 @@ describe('display mode — transitions', () => {
   it('New Tap returns to live from a comparison — GUITAR type', () => {
     const a = sut()
     a.measurementType = 'classical'
-    a.loadComparison(entries(2))
+    a.loadComparisonRecord(entries(2))
     a.startTapSequence({ arm: false })
     expect(a.displayMode).toBe('live')
     expect(a.comparisonEntries).toHaveLength(0)
@@ -251,7 +258,7 @@ describe('display mode — transitions', () => {
     // Both set displayMode to 'comparison'; only the saved-measurement overlay is "the"
     // comparison for save/export/annotation routing. Swift isSavedMeasurementComparison.
     const a = sut()
-    a.loadComparison(entries(2))
+    a.loadComparisonRecord(entries(2))
     expect(a.isSavedMeasurementComparison).toBe(true)
     a.setMultiTapComparison(true)
     expect(a.displayMode).toBe('comparison')
@@ -271,7 +278,7 @@ describe('display mode — transitions', () => {
     const a = sut()
     a.restoreSnapshot({ magnitudes: [-30, -20], frequencies: [100, 200] })
     expect(a.displayMode).toBe('live')
-    a.loadComparison(entries(2))
+    a.loadComparisonRecord(entries(2))
     expect(a.displayMode).toBe('comparison') // one value, so it cannot be both
   })
 })
