@@ -1,7 +1,7 @@
 // @parity test/measurement-codable
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { parseGuitarTapFile, serializeGuitarTapFile, encodeMeasurement, encodeSnapshot, f32, type TapToneMeasurementModel } from '../src/measurement'
+import { parseGuitarTapFile, serializeGuitarTapFile, encodeMeasurement, encodeSnapshot, isComparison, type TapToneMeasurementModel } from '../src/measurement'
 import { measurementDefinitivePeak, measurementTapToneRatio, measurementPeakModeLabels } from '../src/measurement/types'
 import { healSelection } from '../src/measurement/decode'
 import { classifyAll } from '../src/dsp/classify'
@@ -21,25 +21,6 @@ const raw = JSON.parse(rawText)[0]
 const measurements = parseGuitarTapFile(rawText)
 const m = measurements[0]!
 
-// Mode overrides, read from files the APPS actually wrote — one saved by Swift, one by Python — so
-// the reader is tested against real overrides, not only hand-built fixtures.
-describe.each([
-  ['annotation-override-1790037028.guitartap', 'Fred'],          // written by Swift
-  ['annotation-override-python-1790037332.guitartap', 'Fred2'],  // written by Python
-])('real override fixture — %s', (file, expectedLabel) => {
-  it('decodes its label, keyed to a peak the file still contains', () => {
-    const text = readFileSync(new URL(`./fixtures/${file}`, import.meta.url), 'utf8')
-    const one = parseGuitarTapFile(text)[0]!
-    const overrides = one.peakModeOverrides
-    expect(overrides).toBeDefined()
-    const entries = Object.entries(overrides!)
-    expect(entries).toHaveLength(1)
-    const [peakId, label] = entries[0]!
-    expect(label).toBe(expectedLabel)
-    expect(one.peaks.some((p) => p.id === peakId)).toBe(true)
-  })
-})
-
 describe('decode — canonical fields + legacy compromises', () => {
   it('reads the array-wrapped document into one measurement', () => {
     expect(measurements).toHaveLength(1)
@@ -50,34 +31,6 @@ describe('decode — canonical fields + legacy compromises', () => {
     expect(m.measurementName).toBe('Contreras Classical')
     expect(m.notes).toBe('Umik-1')
     expect(m.tapDetectionThreshold).toBe(-64)
-  })
-
-  // Covered only by ACCIDENT until 2026-07-21: the Python copy of this fixture still carried the
-  // pre-rename `tapLocation` key while the Swift and web copies had been updated to
-  // `measurementName`, so the three platforms' "same" parity test silently exercised different
-  // branches. The fixture is now byte-identical everywhere and the fallback is pinned deliberately,
-  // here and in the Swift/Python twins.
-  it('maps the legacy `tapLocation` key onto `measurementName`', () => {
-    const legacy = [{
-      id: '6B29FC40-CA47-1067-B31D-00DD010662DA',
-      timestamp: 1774731564,
-      peaks: [],
-      tapLocation: 'Contreras Classical',
-    }]
-    const [decoded] = parseGuitarTapFile(JSON.stringify(legacy))
-    expect(decoded!.measurementName).toBe('Contreras Classical')
-  })
-
-  it('never writes the legacy `tapLocation` key back out', () => {
-    const legacy = [{
-      id: '6B29FC40-CA47-1067-B31D-00DD010662DA',
-      timestamp: 1774731564,
-      peaks: [],
-      tapLocation: 'Contreras Classical',
-    }]
-    const out = serializeGuitarTapFile(parseGuitarTapFile(JSON.stringify(legacy)))
-    expect(out).not.toContain('tapLocation')
-    expect(out).toContain('measurementName')
   })
 
   it('maps the legacy `peakThreshold` key onto `peakMinThreshold`', () => {
@@ -119,14 +72,6 @@ describe('decode — canonical fields + legacy compromises', () => {
   })
 })
 
-describe('binary spectrum encoding round-trips byte-for-byte', () => {
-  it('re-encodes frequenciesData / magnitudesData to the exact base64 of the file', () => {
-    const enc = encodeSnapshot(m.spectrumSnapshot!)
-    expect(enc.frequenciesData).toBe(raw.spectrumSnapshot.frequenciesData)
-    expect(enc.magnitudesData).toBe(raw.spectrumSnapshot.magnitudesData)
-  })
-})
-
 describe('writer — minimal canonical output', () => {
   const enc = encodeMeasurement(m)
 
@@ -137,22 +82,12 @@ describe('writer — minimal canonical output', () => {
     expect((enc.spectrumSnapshot as Record<string, unknown>).maxPeaks).toBeUndefined()
   })
 
-  it('omits an unset optional rather than writing null', () => {
-    expect('sampleRate' in enc).toBe(false)
-  })
-
   it('writes the convenience type fields and per-peak modeLabel', () => {
     expect(enc.measurementType).toBe('Classical Guitar')
     expect(enc.guitarType).toBe('Classical')
     expect((enc.peaks as Record<string, unknown>[])[0]!.modeLabel).toBe('Top')
   })
 
-  it('writes Float fields as shortest float32 text (no float64 expansion)', () => {
-    expect(JSON.stringify(f32(212.24847))).toBe('212.24847')
-    const text = serializeGuitarTapFile(measurements)
-    expect(text).toContain('"frequency": 212.24847')
-    expect(text).toContain('"decayTime": 0.09321606')
-  })
 })
 
 describe('semantic round-trip (decode → encode → decode)', () => {
@@ -252,4 +187,133 @@ describe('measurement-codable — the selection heal on decode (measurement-coda
       expect(new Set(read.selectedPeakIDs ?? [])).toEqual(new Set(row.expectSelected!.map((n) => ids[n]!)))
     })
   }
+})
+
+// ── The file format — the shared cases in measurement-codable.json ──────────────────────────────
+//
+// The spectrum's bytes (SB), what a file reads to (DC), what the writer emits (WR), and the real
+// fixtures every edition carries: the same cases as Swift and Python. Mirrors Swift
+// MeasurementCodecTests.
+
+type Json = unknown
+const CODEC = JSON.parse(readFileSync('test/fixtures/measurement-codable.json', 'utf8')) as {
+  snapshotBytes: { id: string; note: string; frequencies: number[]; magnitudes: number[]; frequenciesData: string; magnitudesData: string }[]
+  decode: { id: string; note: string; file: Json; expect: Record<string, unknown> }[]
+  write: { id: string; note: string; file: Json; present?: string[]; absent?: string[]; text?: Record<string, string>; contains?: string[] }[]
+  fixtures: { file: string; measurements: number; measurementName: string | null; peakCount: number; sampleRate: number | null; isComparison: boolean; overrideLabels: string[] }[]
+}
+const LEGACY_KEYS = ['tapLocation', 'peakThreshold', 'hysteresisMargin', 'maxPeaks']
+const asF32 = (v: Iterable<number>): number[] => Array.from(v, (x) => Math.fround(x))
+
+/** Whether `key` appears anywhere in a JSON document. */
+function hasKey(key: string, value: Json): boolean {
+  if (Array.isArray(value)) return value.some((v) => hasKey(key, v))
+  if (value && typeof value === 'object') {
+    return key in value || Object.values(value).some((v) => hasKey(key, v))
+  }
+  return false
+}
+
+/** `peaks[].k` — the key on every peak of every measurement; otherwise the key anywhere. */
+function present(path: string, doc: Json): boolean {
+  if (path.startsWith('peaks[].')) {
+    const k = path.slice('peaks[].'.length)
+    const peaks = (doc as { peaks?: object[] }[]).flatMap((m) => m.peaks ?? [])
+    return peaks.length > 0 && peaks.every((p) => k in p)
+  }
+  return hasKey(path, doc)
+}
+
+describe('measurement-codable — the spectrum bytes (measurement-codable.json)', () => {
+  it.each(CODEC.snapshotBytes.map((r) => [r.id, r] as const))('%s', (_id, r) => {
+    const d = encodeSnapshot({
+      frequencies: r.frequencies, magnitudes: r.magnitudes,
+      minFreq: 50, maxFreq: 500, minDB: -100, maxDB: 0, isLogarithmic: false,
+    }) as Record<string, unknown>
+    expect(d.frequenciesData).toBe(r.frequenciesData)
+    expect(d.magnitudesData).toBe(r.magnitudesData)
+    expect('frequencies' in d || 'magnitudes' in d).toBe(false)
+    const back = parseGuitarTapFile(JSON.stringify([{ id: 'x', timestamp: '2026-01-01T00:00:00Z', peaks: [], spectrumSnapshot: d }]))[0]!
+    expect(asF32(back.spectrumSnapshot!.frequencies)).toEqual(asF32(r.frequencies))
+    expect(asF32(back.spectrumSnapshot!.magnitudes)).toEqual(asF32(r.magnitudes))
+  })
+})
+
+describe('measurement-codable — what a file reads to (measurement-codable.json)', () => {
+  it.each(CODEC.decode.map((r) => [r.id, r] as const))('%s', (_id, r) => {
+    const m = parseGuitarTapFile(JSON.stringify(r.file))[0]!
+    for (const [field, want] of Object.entries(r.expect)) {
+      switch (field) {
+        case 'measurementName': expect(m.measurementName ?? null, field).toBe(want); break
+        case 'peakMinThreshold': expect(m.peakMinThreshold ?? null, field).toBe(want); break
+        case 'sampleRate': expect(m.sampleRate ?? null, field).toBe(want); break
+        case 'frequencies': expect(asF32(m.spectrumSnapshot!.frequencies), field).toEqual(asF32(want as number[])); break
+        case 'magnitudes': expect(asF32(m.spectrumSnapshot!.magnitudes), field).toEqual(asF32(want as number[])); break
+        case 'overrides': {
+          const lower = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k.toLowerCase(), v]))
+          expect(lower(m.peakModeOverrides ?? {}), field).toEqual(lower(want as Record<string, string>))
+          break
+        }
+        case 'peakCount': expect(m.peaks.length, field).toBe(want); break
+        case 'pitchNote': expect(m.peaks[0]!.pitchNote ?? null, field).toBe(want); break
+        case 'annotationVisibilityMode': expect(m.annotationVisibilityMode ?? null, field).toBe(want); break
+        default: throw new Error(`unknown field ${field}`)
+      }
+    }
+  })
+})
+
+describe('measurement-codable — what the writer emits (measurement-codable.json)', () => {
+  it.each(CODEC.write.map((r) => [r.id, r] as const))('%s', (_id, r) => {
+    const text = serializeGuitarTapFile(parseGuitarTapFile(JSON.stringify(r.file)))
+    const doc = JSON.parse(text) as Json
+    for (const key of r.present ?? []) expect(present(key, doc), `${key} written`).toBe(true)
+    for (const key of r.absent ?? []) expect(hasKey(key, doc), `${key} not written`).toBe(false)
+    for (const [key, number] of Object.entries(r.text ?? {})) {
+      const found = new RegExp(`"${key}":\\s*([^,}\\]\\s]+)`).exec(text)
+      expect(found?.[1], `${key} written as ${number}`).toBe(number)
+    }
+    const compact = JSON.stringify(doc)
+    for (const s of r.contains ?? []) expect(compact.includes(s), `contains ${s}`).toBe(true)
+  })
+})
+
+describe('measurement-codable — the real fixtures (measurement-codable.json)', () => {
+  it.each(CODEC.fixtures.map((r) => [r.file, r] as const))('%s', (file, r) => {
+    const ms = parseGuitarTapFile(readFileSync(`test/fixtures/${file}`, 'utf8'))
+    expect(ms.length).toBe(r.measurements)
+    const m = ms[0]!
+    expect(m.measurementName ?? null).toBe(r.measurementName)
+    expect(m.peaks.length).toBe(r.peakCount)
+    expect(m.sampleRate ?? null).toBe(r.sampleRate)
+    expect(isComparison(m)).toBe(r.isComparison)
+    expect(Object.values(m.peakModeOverrides ?? {}).sort()).toEqual([...r.overrideLabels].sort())
+    const peakIds = new Set(m.peaks.map((p) => p.id.toLowerCase()))
+    for (const peakId of Object.keys(m.peakModeOverrides ?? {})) {
+      expect(peakIds.has(peakId.toLowerCase()), 'the override names a peak the file contains').toBe(true)
+    }
+
+    const text = serializeGuitarTapFile(ms)
+    const doc = JSON.parse(text) as Record<string, Record<string, unknown> | undefined>[]
+    for (const legacy of LEGACY_KEYS) expect(hasKey(legacy, doc), `${legacy} not written`).toBe(false)
+    const original = JSON.parse(readFileSync(`test/fixtures/${file}`, 'utf8')) as typeof doc
+    original.forEach((read, i) => {
+      const readSnap = read.spectrumSnapshot
+      if (!readSnap || !('frequenciesData' in readSnap)) return
+      for (const key of ['frequenciesData', 'magnitudesData']) {
+        expect(doc[i]!.spectrumSnapshot?.[key], `${key} written as read`).toBe(readSnap[key])
+      }
+    })
+    const again = parseGuitarTapFile(text)
+    expect(again.length).toBe(ms.length)
+    again.forEach((a, i) => {
+      const b = ms[i]!
+      expect(asF32(a.peaks.map((p) => p.frequency))).toEqual(asF32(b.peaks.map((p) => p.frequency)))
+      expect(a.spectrumSnapshot == null).toBe(b.spectrumSnapshot == null)
+      if (a.spectrumSnapshot && b.spectrumSnapshot) {
+        expect(asF32(a.spectrumSnapshot.frequencies)).toEqual(asF32(b.spectrumSnapshot.frequencies))
+        expect(asF32(a.spectrumSnapshot.magnitudes)).toEqual(asF32(b.spectrumSnapshot.magnitudes))
+      }
+    })
+  })
 })
