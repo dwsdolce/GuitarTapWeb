@@ -18,6 +18,8 @@ export type AnalyzerStep = {
   setThreshold?: number
   setPeakMin?: number
   newTap?: boolean
+  /** The start a guitar file's playback makes. */
+  newTapSkippingWarmUp?: boolean
   pause?: boolean
   resume?: boolean
   cancel?: boolean
@@ -29,8 +31,12 @@ export type AnalyzerStep = {
   fraction?: number
   extra?: number
   level?: number
+  /** Exactly n chunks of audio at `level`, each one chunk after the last (two loud ones are a tap). */
   audioChunks?: number
 }
+
+/** One chunk's samples; the level a chunk is fed at is given with it. */
+const CHUNK_SAMPLES = new Float32Array(1024)
 
 const MATERIAL_PHASES: Record<string, MaterialTapPhase> = { L: 'capturingL', C: 'capturingC', FLC: 'capturingFlc' }
 
@@ -60,6 +66,7 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer, store: S
   else if (step.setThreshold !== undefined) store.update({ tapDetectionThreshold: step.setThreshold })
   else if (step.setPeakMin !== undefined) store.update({ peakMinThreshold: step.setPeakMin })
   else if (step.newTap) a.startTapSequence()
+  else if (step.newTapSkippingWarmUp) a.startTapSequence({ skipWarmup: true })
   else if (step.pause) a.pauseTapDetection()
   else if (step.resume) a.resumeTapDetection()
   else if (step.cancel) a.cancelTapSequence()
@@ -75,7 +82,11 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer, store: S
           : step.advance === 'warmupPeriod' ? a.warmupPeriod
             : step.advance
     advanceAudio(a, seconds * (step.fraction ?? 1) + (step.extra ?? 0), step.level ?? -90)
-  } else if (step.audioChunks !== undefined) advanceAudio(a, step.audioChunks * AUDIO_FEED_CHUNK_SECONDS, step.level!)
+  } else if (step.audioChunks !== undefined) {
+    for (let i = 0; i < step.audioChunks; i++) {
+      a.processAudioFrame(CHUNK_SAMPLES, step.level!, a.lastAudioTime + AUDIO_FEED_CHUNK_SECONDS)
+    }
+  }
   else return false
   return true
 }

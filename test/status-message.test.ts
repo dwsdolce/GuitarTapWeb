@@ -1,9 +1,8 @@
 // @parity test/status-message
 //
 // The status line's words, each reached through the app's own path. The shared cases in status-message.json
-// (SM1–SM23), the same as Swift and Python. Below them, the case that the status settles and stays settled,
-// which needs a quiet period of real time, and the web's own guard that strings it alone once produced
-// ("Requesting microphone…", "Playing…", "Comparing…", "Microphone unavailable") never come back.
+// (SM1–SM24), the same as Swift and Python. Below them, the web's own guard that strings it alone once
+// produced ("Requesting microphone…", "Playing…", "Comparing…", "Microphone unavailable") never come back.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
@@ -15,14 +14,17 @@ import { parseGuitarTapFile } from '../src/measurement'
 import { makeStepsAnalyzer, runAnalyzerStep, type AnalyzerStep } from './analyzerSteps'
 
 type Fields = Record<string, unknown>
-type StatusStep = AnalyzerStep & { clipping?: boolean; deviceChange?: boolean; load?: string; playingFile?: boolean; check?: Fields }
+type StatusStep = AnalyzerStep & {
+  clipping?: boolean; deviceChange?: boolean; load?: string; playingFile?: boolean
+  drainMainQueue?: boolean; countStatusWrites?: boolean; check?: Fields
+}
 type StatusCase = { id: string; note: string; steps: StatusStep[]; expect: Fields }
 const DATA = JSON.parse(readFileSync('test/fixtures/status-message.json', 'utf8')) as {
   files: Record<string, unknown>
   cases: StatusCase[]
 }
 
-function check(fields: Fields, a: TapToneAnalyzer, before: string): void {
+function check(fields: Fields, a: TapToneAnalyzer, before: string, writes: number): void {
   const status = a.statusMessage
   for (const [field, want] of Object.entries(fields)) {
     switch (field) {
@@ -33,18 +35,21 @@ function check(fields: Fields, a: TapToneAnalyzer, before: string): void {
       case 'statusUnchangedByLastStep': expect(status === before, `${field}: ${before} → ${status}`).toBe(want); break
       case 'detecting': expect(a.isDetecting, field).toBe(want); break
       case 'tapCount': expect(a.currentTapCount, field).toBe(want); break
+      case 'statusWrites': expect(writes, field).toBe(want); break
       default: throw new Error(`unknown field ${field}`)
     }
   }
 }
 
 describe('status-message — the shared cases (status-message.json)', () => {
-  it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
+  it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', async (_id, c) => {
     const { a, store } = makeStepsAnalyzer()
     let before = a.statusMessage
+    let writes = 0
+    let unsubscribe: (() => void) | undefined
     for (const step of c.steps) {
       if (step.check) {
-        check(step.check, a, before)
+        check(step.check, a, before, writes)
         continue
       }
       before = a.statusMessage
@@ -55,25 +60,15 @@ describe('status-message — the shared cases (status-message.json)', () => {
         const engine = new RealtimeFFTAnalyzer()
         engine.playingFile = true
         a.setDevice(engine)
+      } else if (step.drainMainQueue) {
+        // Each pass runs everything queued before it.
+        for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0))
+      } else if (step.countStatusWrites) {
+        unsubscribe = a.subscribe(() => writes++)
       } else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
-    check(c.expect, a, before)
-  })
-})
-
-describe('status-message — settling', () => {
-  it('two writes in one pass settle on the second and stay', async () => {
-    const a = new TapToneAnalyzer()
-    a.startTapSequence()
-    await new Promise((r) => setTimeout(r, 0))
-    expect(a.statusMessage).toBe('Tap the guitar...')
-
-    let writes = 0
-    const unsubscribe = a.subscribe(() => writes++)
-    await new Promise((r) => setTimeout(r, 50))
-    unsubscribe()
-    expect(a.statusMessage).toBe('Tap the guitar...')
-    expect(writes, `the status kept changing with nothing happening: ${writes} notifications`).toBe(0)
+    unsubscribe?.()
+    check(c.expect, a, before, writes)
   })
 })
 

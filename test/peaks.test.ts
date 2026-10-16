@@ -14,6 +14,7 @@ import { classifyAll, type ResolvedMode } from '../src/dsp/classify'
 import { base64ToFloats } from '../src/measurement/base64'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { makeResonantPeak, type ResonantPeak } from '../src/measurement/types'
+import { spectrum } from './spectrumSpec'
 
 type Row = Record<string, unknown>
 const DATA = JSON.parse(readFileSync('test/fixtures/peaks.json', 'utf8')) as Row
@@ -39,27 +40,6 @@ function close(actual: number | undefined | null, expected: unknown): boolean {
 }
 
 /** A case's spectrum, built as the file describes it. */
-function spectrum(s: Row): { mags: number[]; freqs: number[] } {
-  const bins = s.binCount as number
-  const spacing = (s.binSpacingHz as number | undefined) ?? (s.sampleRate as number) / 2 / (bins - 1)
-  const freqs = Array.from({ length: bins }, (_, i) => i * spacing)
-  if (s.kind === 'flat') return { mags: new Array<number>(bins).fill(s.value as number), freqs }
-  if (s.kind === 'triangle') {
-    const peakBin = s.peakBin as number
-    return { mags: freqs.map((_, i) => (s.peakDB as number) - (s.slopeDBPerBin as number) * Math.abs(i - peakBin)), freqs }
-  }
-  const floor = s.noiseFloor as number
-  const mags = new Array<number>(bins).fill(floor)
-  for (const p of s.peaks as Row[]) {
-    const sigma = (p.halfWidthHz as number) / 2.355
-    for (let i = 0; i < bins; i++) {
-      const d = freqs[i]! - (p.peakHz as number)
-      mags[i] = Math.max(mags[i]!, Math.max(floor, (p.peakDB as number) + -(d * d) / (2 * sigma * sigma)))
-    }
-  }
-  return { mags, freqs }
-}
-
 function genericAnalyzer(): TapToneAnalyzer {
   const a = new TapToneAnalyzer()
   a.measurementType = 'generic'

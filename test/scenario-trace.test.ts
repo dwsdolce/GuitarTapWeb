@@ -4,13 +4,13 @@
 // and the taps held — not only where they end: the app's behaviour on screen follows each intermediate
 // state, so two editions reaching the same result by different paths would differ. Every tap is a real
 // capture finish and every wait is audio fed through the analyzer's clock. The shared cases in
-// scenario-trace.json (S1–S4), the same as Swift and Python.
+// scenario-trace.json (S1–S5), the same as Swift and Python.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { makeStepsAnalyzer, runAnalyzerStep, type AnalyzerStep } from './analyzerSteps'
 
-type TraceStep = AnalyzerStep & { snap?: string; strayDetection?: boolean }
+type TraceStep = AnalyzerStep & { snap?: string }
 type TraceCase = { id: string; note: string; steps: TraceStep[]; expect: { trace: Record<string, unknown>[] } }
 const DATA = JSON.parse(readFileSync('test/fixtures/scenario-trace.json', 'utf8')) as { cases: TraceCase[] }
 
@@ -28,7 +28,6 @@ describe('scenario-trace — the shared cases (scenario-trace.json)', () => {
     const trace: Record<string, unknown>[] = []
     for (const step of c.steps) {
       if (step.snap !== undefined) trace.push(snapshot(step.snap, a))
-      else if (step.strayDetection) a.detectionState = 'idle'
       else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
     expect(trace).toEqual(c.expect.trace)

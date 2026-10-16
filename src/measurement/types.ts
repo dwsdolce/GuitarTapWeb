@@ -182,11 +182,13 @@ export interface TapToneMeasurementModel {
   spectrumSnapshot?: SpectrumSnapshotModel
   peakAnnotationOffsets?: AnnotationOffsets
   selectedPeakIDs?: string[]
+  /** Frequencies (Hz) of the selected peaks, parallel to `selectedPeakIDs`. Written for a program reading
+   *  the file that wants the selected peaks' frequencies without resolving the IDs or repeating the
+   *  selection; GuitarTap itself does not read it back. Mirrors Swift/Python selectedPeakFrequencies. */
   selectedPeakFrequencies?: number[]
-  /** Whether the saved selection was hand-modified (vs the automatic mode-priority selection).
-   *  Restored on load so a loaded measurement behaves like a live one: an automatic selection
-   *  re-runs auto-selection on Peak Min change; a manual one is parked. Absent in older files —
-   *  those default to manual. Mirrors Swift/Python userModifiedSelection. */
+  /** Whether the saved selection was hand-modified (vs the automatic mode-priority selection). Restored
+   *  on load, so a loaded measurement offers Reset to automatic selection as it did when saved. Absent in
+   *  older files — those default to manual. Mirrors Swift/Python userModifiedSelection. */
   userModifiedSelection?: boolean
   annotationVisibilityMode?: AnnotationMode
   tapDetectionThreshold?: number

@@ -8,7 +8,7 @@
 // methods. The React hooks own a TapToneAnalyzer and mirror its fields into
 // render state, delegating every transition to it.
 //
-// @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/start-tap-race,test/measurement-complete
+// @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/measurement-complete
 // @parity audio/tap-analyzer  tests=test/tap-decisions
 import type { Spectrum } from '../dsp/guitarFFT'
 import { SampleBuffer } from '../audio/sampleBuffer'
@@ -379,7 +379,7 @@ interface BuildMeasurementArgs {
   /** Measured ring-out time (s) from the engine, or null/undefined if not measured. */
   decayTime?: number | null
   /** Whether the current selection is user-modified (vs automatic) — persisted so a reloaded
-   *  measurement re-runs auto-selection on Peak Min change when automatic. Omitted defaults to
+   *  measurement offers Reset to automatic selection as it did when saved. Omitted defaults to
    *  automatic (a fresh build that never touched selection). */
   userModified?: boolean
 }
@@ -654,15 +654,9 @@ export class TapToneAnalyzer {
   // re-derive it and could disagree. One rule, one home.
   peaksAbovePeakMin: ResonantPeak[] = []
   // True for the duration of `loadMeasurement`, which applies the whole restore — spectrum, per-tap
-  // entries, peaks, overrides, offsets, selection — as ONE step. `recalculateFrozenPeaksIfNeeded` returns early
-  // while it is set, so nothing can recalculate against a half-applied measurement and clobber what
-  // is being loaded. Mirrors Swift `isLoadingMeasurement` / Python `is_loading_measurement`.
-  //
-  // Web-specific note: this used to be absent, and the parity table recorded it as "n/a — the view
-  // drives the load, so there is no state to construct". The restore was five separate analyzer
-  // calls orchestrated by App.tsx, so the protection came from React batching the handler rather
-  // than from the model. That made correctness of a loaded measurement's per-peak state depend on
-  // statement order inside a 100-line view handler, untested and easy to break.
+  // entries, peaks, overrides, offsets, selection — as ONE step, so completing a measurement there is
+  // told apart from a capture completing. Mirrors Swift `isLoadingMeasurement` / Python
+  // `is_loading_measurement`.
   isLoadingMeasurement = false
   modeByPeak: Map<string, ResolvedMode> = new Map()
   // Minimum magnitude (dBFS) for a peak to be DISPLAYED. A display control and nothing more:
@@ -694,14 +688,14 @@ export class TapToneAnalyzer {
   // between by clearResult / resetMaterial), so their ids share one map without collision.
   annotationOffsets: Map<string, [number, number]> = new Map()
   // Selection — which peak is the DEFINITIVE Air/Top/Back.
-  // CONCRETE state (full-Swift paradigm, not a derived set): always recomputed on a peak re-mint by
-  // applyFrozenPeakState (unmodified → auto; modified → carry-forward). Mirrors Swift `selectedPeakIDs`.
+  // CONCRETE state (full-Swift paradigm, not a derived set): auto-selected afresh on a peak re-mint by
+  // applyFrozenPeakState. Mirrors Swift `selectedPeakIDs`.
   selectedPeakIds: Set<string> = new Set()
-  // Stable frequency cache for the selection, mirroring Swift `selectedPeakFrequencies`: a selected peak
-  // hidden below Peak Min keeps its frequency here so it re-selects when the slider reveals it again.
+  // The selected peaks' frequencies, kept with the selection and saved with the measurement; nothing
+  // reads it back. Mirrors Swift `selectedPeakFrequencies`.
   selectedPeakFrequencies: number[] = []
-  // Whether the user has hand-modified the selection since the last auto-select. False → a re-mint
-  // re-runs auto-selection; true → the selection is carried forward by frequency. Swift
+  // Whether the user has hand-modified the selection since the last auto-select: Reset to automatic
+  // selection is offered only then, and it is saved with the measurement. Swift
   // `userHasModifiedPeakSelection`.
   userModifiedSelection = false
   // The highlighted peak — transient VIEW state for the chart-dot ↔ results-row cross-highlight; NOT
@@ -1314,8 +1308,8 @@ export class TapToneAnalyzer {
    *
    *  Everything the file carries — the frozen spectrum, the per-tap entries, the authoritative
    *  peaks, and the per-peak state keyed to them (overrides, dragged offsets, selection) — is
-   *  restored under `isLoadingMeasurement`, so `recalculateFrozenPeaksIfNeeded` cannot run against a partly
-   *  applied measurement. Mirrors Swift/Python `loadMeasurement`, which are likewise one method.
+   *  restored under `isLoadingMeasurement`, as one step. Mirrors Swift/Python `loadMeasurement`, which are
+   *  likewise one method.
    *
    *  The per-peak arguments are optional: the material load path restores only offsets, and the
    *  unit tests that just need a frozen spectrum pass none. */
@@ -1414,9 +1408,8 @@ export class TapToneAnalyzer {
    *
    *  Re-analyze is a RESET, not a dirty-flag indicator. It is offered whenever it COULD do
    *  something, not only when we can prove it WILL — deliberately. What can leave the displayed
-   *  analysis differing from a clean re-derivation is open-ended: the peaks came from a file; mode
-   *  assignments were carried forward across Peak Min moves rather than re-claimed; selections were
-   *  hand-edited. Proving "it will definitely change something" means
+   *  analysis differing from a clean re-derivation is open-ended: the peaks came from a file; the
+   *  guitar type or the analysis range moved; selections or mode names were hand-edited. Proving "it will definitely change something" means
    *  enumerating all of those correctly, forever, with nothing to tell us when we got it wrong. The
    *  two failure modes are not symmetric: a wrongly-DISABLED button is a dead end (the user cannot
    *  force the recomputation they want), while a wrongly-ENABLED one costs a click that recomputes
@@ -1455,6 +1448,8 @@ export class TapToneAnalyzer {
    *  measurement's peaks are never overwritten here. Mirrors Swift `analyzeMagnitudes`, guitar path; the
    *  web shows no live material peaks (Swift finds them against an adaptive median threshold). */
   analyzeMagnitudes(magnitudes: number[], frequencies: number[]): void {
+    // Nothing to analyze unless the engine is running. Mirrors Swift's guard fftAnalyzer.isRunning.
+    if (!this.device?.running) return
     if (!(this.isDetecting || this.isDetectionPaused || this.gatedCaptureActive) || this.isMeasurementComplete) return
     if (!this.isGuitar) {
       // Material: no live peaks on the web (its result is matPeaks), so the set is empty.
@@ -1476,26 +1471,21 @@ export class TapToneAnalyzer {
   }
 
   /** Re-run the frozen-spectrum peak analysis — reached only through Re-analyze ({@link reanalyzePeaks}),
-   *  which drops a loaded measurement's saved peaks first: the FULL set is re-detected at the floor and
-   *  per-peak state carried across by frequency. Mirrors Swift `recalculateFrozenPeaksIfNeeded`. */
+   *  which checks first that the measurement is complete and its spectrum frozen: the FULL set is re-detected at the floor,
+   *  classified afresh and auto-selected, and each peak's label position and custom name carried across
+   *  by frequency. Mirrors Swift `recalculateFrozenPeaksIfNeeded`. */
   recalculateFrozenPeaksIfNeeded(): void {
-    // Loading guard. `loadMeasurement` applies the spectrum, the peaks and the per-peak state as one
-    // step; until it finishes there is no coherent measurement to recalculate against. Mirrors Swift
-    // `guard !isLoadingMeasurement else { return }` / Python's `if is_loading_measurement: return`.
-    if (this.isLoadingMeasurement) return
-    if (!this.isMeasurementComplete || this.frozenFrequencies.length === 0 || this.frozenMagnitudes.length === 0) return
-    const guitarType = this.guitarType
-    // Detect the FULL set (floor -100) on the frozen spectrum; Peak Min only projects it.
     const oldPeaks = this.peaks
+    // Detect the FULL set (floor -100) on the frozen spectrum; Peak Min only projects it.
     const peaks = this.findPeaks(this.frozenMagnitudes, this.frozenFrequencies, {
       peakMinOverride: TapToneAnalyzer.peakDetectionFloor,
     })
     this.peaks = peaks
-    this.modeByPeak = classifyAll(peaks, guitarType)
     this.refreshDisplayedPeaks()
-    // Nothing detected at all: leave the per-peak state alone, so the selection survives (Swift returns
-    // before applyFrozenPeakState; Python likewise).
-    if (peaks.length > 0) this.applyFrozenPeakState(oldPeaks, peaks)
+    // Nothing detected at all: no modes, and the per-peak state is left alone, so the selection survives
+    // (Swift returns before applyFrozenPeakState; Python likewise).
+    if (peaks.length === 0) this.modeByPeak = new Map()
+    else this.applyFrozenPeakState(oldPeaks, peaks)
     // Per-tap entries are deliberately NOT recomputed here: each is detected once, at capture, and is
     // durable (Swift removed `recalculateTapEntryPeaks` for the same reason).
     this.notify()
@@ -1583,10 +1573,11 @@ export class TapToneAnalyzer {
 
   /** Carry per-peak state across a peak RE-MINT (findPeaks assigns fresh ids), the web equivalent of
    *  Swift `applyFrozenPeakState`. Snapshots the old state BY FREQUENCY from the DURABLE old set (never
-   *  a display projection), then re-attaches it — overrides, offsets and selection — to the new peaks by
-   *  ±REMAP_TOLERANCE_HZ proximity. Called
-   *  only on the findPeaks branch (loaded/material keep stable ids). Notify is left to the caller. */
+   *  a display projection), then re-attaches the overrides and offsets to the new peaks by
+   *  ±REMAP_TOLERANCE_HZ proximity; the new peaks are classified afresh and auto-selected. Notify is left
+   *  to the caller. */
   private applyFrozenPeakState(oldPeaks: ResonantPeak[], newPeaks: ResonantPeak[]): void {
+    this.modeByPeak = classifyAll(newPeaks, this.guitarType)
     if (this.overrides.size > 0) {
       // Snapshot {frequency → label} from the OLD durable peaks, then remap onto the new ids.
       const byFreq: Array<{ frequency: number; label: string }> = []
@@ -1616,37 +1607,9 @@ export class TapToneAnalyzer {
       }
       this.annotationOffsets = remapped
     }
-    // Selection (guitar-only — the web has no per-peak material selection). CONCRETE recompute, mirroring
-    // Swift's applyFrozenPeakState branches: MODIFIED → carry forward by ±5 Hz, keeping below-threshold
-    // frequencies in the cache so they re-select on reveal; UNMODIFIED → re-run auto-selection over the
-    // new durable set.
-    if (this.userModifiedSelection) {
-      const prevFreqs =
-        this.selectedPeakFrequencies.length > 0
-          ? this.selectedPeakFrequencies
-          : oldPeaks.filter((q) => this.selectedPeakIds.has(q.id)).map((q) => q.frequency)
-      const carriedIds = new Set<string>()
-      const carriedFreqs: number[] = []
-      for (const oldFreq of prevFreqs) {
-        const closest = newPeaks
-          .filter((np) => Math.abs(np.frequency - oldFreq) <= REMAP_TOLERANCE_HZ)
-          .sort((a, b) => Math.abs(a.frequency - oldFreq) - Math.abs(b.frequency - oldFreq))[0]
-        if (closest) {
-          if (!carriedIds.has(closest.id)) {
-            carriedIds.add(closest.id)
-            carriedFreqs.push(closest.frequency)
-          }
-        } else {
-          carriedFreqs.push(oldFreq) // below threshold — preserve so it re-selects when revealed
-        }
-      }
-      this.selectedPeakIds = carriedIds
-      this.selectedPeakFrequencies = carriedFreqs
-    } else {
-      const autoIds = this.guitarModeSelectedPeakIds(newPeaks)
-      this.selectedPeakIds = autoIds
-      this.selectedPeakFrequencies = newPeaks.filter((np) => autoIds.has(np.id)).map((np) => np.frequency)
-    }
+    const autoIds = this.guitarModeSelectedPeakIds(newPeaks)
+    this.selectedPeakIds = autoIds
+    this.selectedPeakFrequencies = newPeaks.filter((np) => autoIds.has(np.id)).map((np) => np.frequency)
   }
 
   /** Recompute `peaksAbovePeakMin` from the durable set — a cheap filter, no detection. Hands back
@@ -1871,7 +1834,7 @@ export class TapToneAnalyzer {
     this.resetToAutoSelection()
   }
 
-  /** Restore selection from a loaded measurement (ids keyed to the loaded peaks, + the frequency cache
+  /** Restore selection from a loaded measurement (ids keyed to the loaded peaks, + their frequencies
    *  and the manual/auto flag). Loaded peaks keep stable ids, so no remap follows. */
   restoreSelection(ids: Set<string>, freqs: number[], userModified: boolean): void {
     this.selectedPeakIds = new Set(ids)
