@@ -73,7 +73,7 @@ describe('round-trip through file → restore into the view', () => {
   it('restores spectrum, ranges, selection (by freq), and settings', () => {
     const m = saveGuitar(args)
     const m2 = parseGuitarTapFile(serializeGuitarTapFile([m]))[0]!
-    const live = measurementToLive(m2)
+    const live = measurementToLive(m2, DEFAULT_SETTINGS)
 
     expect(live.captured.frequencies).toEqual([100, 200, 300])
     expect(live.captured.magnitudesDb).toEqual([-50, -40, -60])

@@ -111,11 +111,11 @@ export default function App() {
   const tapEntries = snapshot.tapEntries
   // The per-tap overlay toggle is analyzer state (Swift `showingMultiTapComparison`).
   const showMultiTap = snapshot.showingMultiTapComparison
-  // Active comparison overlay (created from a selection or loaded). Non-null = comparison mode.
-  // Derived from the analyzer, which owns the display mode and the overlay data together. Named
-  // `comparison` for the render paths below; null when not comparing.
+  // The saved-measurement comparison (created from a selection or loaded) — what saving, export and the
+  // comparison results read; null otherwise, the per-tap overlay included (Swift
+  // `isSavedMeasurementComparison`).
   const comparison =
-    snapshot.displayMode === 'comparison' && snapshot.comparisonEntries.length > 0
+    snapshot.isSavedMeasurementComparison && snapshot.comparisonEntries.length > 0
       ? snapshot.comparisonEntries
       : null
   // Either kind of comparison — saved measurements or the per-tap overlay — as Swift's
@@ -265,6 +265,8 @@ export default function App() {
     (next: Settings) => {
       const previous = settingsStore.get().measurementType
       settingsStore.update(next)
+      // Dump Capture Audio takes effect for the sequence, as Swift's Settings onApply applies it.
+      analyzer.applyDumpCaptureAudioSetting()
       if (next.measurementType === previous) return
       if (!(isGuitarType(previous) && isGuitarType(next.measurementType))) setLoadedView(null)
       analyzer.changeMeasurementType(previous, next.measurementType)
@@ -514,22 +516,6 @@ export default function App() {
     materialPeaksFromLoad: snapshot.materialPeaksFromLoad,
   })
 
-  // The current measurement's tap comparison, from the analyzer — the same entries its report and its
-  // saved form show (Swift applyMultiTapComparisonOverlays).
-  const multiTapOverlays = useMemo<SpectrumOverlay[]>(
-    () =>
-      showMultiTap
-        ? analyzer.multiTapComparisonEntries(view).map((e, i) => ({
-            magnitudesDb: e.snapshot.magnitudes,
-            frequencies: e.snapshot.frequencies,
-            role: comparisonRole(i, e.label),
-            label: e.label,
-          }))
-        : [],
-    // `snapshot` is the analyzer's change signal: the entries follow its result.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [analyzer, snapshot, showMultiTap, view],
-  )
   // The guitar peak list: the peaks within the chart's live range, so zoom, pan, a load or a widening
   // changes what is listed (Swift TapAnalysisResultsView.sortedPeaksWithModes → [minFreq, maxFreq],
   // the view's range).
@@ -744,16 +730,17 @@ export default function App() {
     // (mirrors Swift displayMode == .comparison). New Tap re-arms.
   }, [analyzer])
 
-  // Comparison chart overlays + results rows (derived from the active comparison entries).
+  // The chart's comparison overlays — either kind, saved measurements or the per-tap overlay: the entries
+  // the analyzer holds while comparing (Swift's chart draws comparisonSpectra for both).
   const comparisonOverlays = useMemo<SpectrumOverlay[]>(
     () =>
-      (comparison ?? []).map((e, i) => ({
+      (inComparison ? snapshot.comparisonEntries : []).map((e, i) => ({
         magnitudesDb: e.snapshot.magnitudes,
         frequencies: e.snapshot.frequencies,
         role: comparisonRole(i, e.label),
         label: e.label,
       })),
-    [comparison],
+    [inComparison, snapshot.comparisonEntries],
   )
   // Export the CURRENT chart (whatever's displayed) as a PNG — same props passed to SpectrumChart.
   const exportSpectrumImage = useCallback(async () => {
@@ -765,9 +752,9 @@ export default function App() {
     const stamp = sourceTimestamp ?? new Date().toISOString()
     const opts: SpectrumImageOpts = {
       title: `FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`,
-      spectrum: comparison || material || showMultiTap ? null : displaySpectrum,
-      overlays: comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined,
-      markers: comparison || showMultiTap ? [] : exportMarkers,
+      spectrum: inComparison || material ? null : displaySpectrum,
+      overlays: inComparison ? comparisonOverlays : material ? matOverlays : undefined,
+      markers: inComparison ? [] : exportMarkers,
       view,
       measurementTypeName: comparison ? 'Comparison' : MEASUREMENT_FULL_NAME[settings.measurementType],
       // A comparison is always of guitars, so its image has the mode bands, as Swift's and Python's.
@@ -785,7 +772,7 @@ export default function App() {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [comparison, material, showMultiTap, displaySpectrum, comparisonOverlays, matOverlays, multiTapOverlays, exportMarkers, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, setError, setErrorKind])
+  }, [comparison, material, inComparison, displaySpectrum, comparisonOverlays, matOverlays, exportMarkers, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, setError, setErrorKind])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
@@ -1074,7 +1061,7 @@ export default function App() {
                 // not-yet-valid audio, matching Swift/Python.
                 snapshot.isSettling
                   ? null
-                  : comparison || showMultiTap
+                  : inComparison
                   ? null
                   : material
                     ? snapshot.isMeasurementComplete
@@ -1083,19 +1070,19 @@ export default function App() {
                     : displaySpectrum
               }
               title={`FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`}
-              overlays={comparison ? comparisonOverlays : material ? matOverlays : showMultiTap ? multiTapOverlays : undefined}
+              overlays={inComparison ? comparisonOverlays : material ? matOverlays : undefined}
               guitarType={material ? undefined : guitarType}
               peakMin={peakMin}
-              markers={comparison || showMultiTap ? [] : chartMarkers}
+              markers={inComparison ? [] : chartMarkers}
               minHz={view.minHz}
               maxHz={view.maxHz}
               minDb={view.minDb}
               maxDb={view.maxDb}
               onViewChange={setView}
               onReset={resetView}
-              onAnnotationDrag={comparison || showMultiTap ? undefined : onAnnotationDrag}
-              onResetLabels={comparison || showMultiTap ? undefined : resetLabels}
-              onResetAnnotation={comparison || showMultiTap ? undefined : (k) => analyzer.resetAnnotationOffset(k)}
+              onAnnotationDrag={inComparison ? undefined : onAnnotationDrag}
+              onResetLabels={inComparison ? undefined : resetLabels}
+              onResetAnnotation={inComparison ? undefined : (k) => analyzer.resetAnnotationOffset(k)}
               hasMovedLabels={annotationOffsets.size > 0}
               frozen={captured != null || (material && matPhase === 'complete')}
               crosshairMode={crosshairMode}
@@ -1125,7 +1112,7 @@ export default function App() {
             {!material && !comparison && (
               <button
                 className={`btn mini tint taps-toggle ${showMultiTap ? 'tint-taps-active on' : 'tint-accent'}`}
-                onClick={() => analyzer.setMultiTapComparison(!showMultiTap)}
+                onClick={() => analyzer.applyMultiTapComparisonOverlays(!showMultiTap)}
                 disabled={!(multiTapAvailable || showMultiTap)}
                 title={showMultiTap ? HINTS.showAveraged : HINTS.compareTaps}
               >

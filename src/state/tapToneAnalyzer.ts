@@ -219,11 +219,11 @@ function loadedSettingsPatch(
 /** Decompose a saved guitar measurement into the pieces the App restores into the view.
  *  The saved peaks are injected verbatim, ids included; selection, overrides and label offsets
  *  restore by those same ids, as Swift's do. */
-export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
+export function measurementToLive(m: TapToneMeasurementModel, settings: Settings): LiveRestore {
+  // A measurement saved before spectra were stored has none: it keeps the current type, shows the saved
+  // range and restores everything else it carries. Mirrors Swift loadMeasurement's old-format branch.
   const snap = m.spectrumSnapshot
-  if (!snap) throw new Error('Measurement has no guitar spectrum snapshot')
-
-  const measurementType = MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'generic'
+  const measurementType = snap ? MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'generic' : settings.measurementType
 
   const peaks: ResonantPeak[] = [...m.peaks]
 
@@ -247,13 +247,20 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
   // The loaded axis range (freq AND dB) is carried in `view` and applied as a TRANSIENT
   // override by the caller (Swift loadedAxisRange) — it is NOT persisted to settings, so
   // no display range goes in the patch here.
-  const settingsPatch = loadedSettingsPatch(m, snap, measurementType)
+  const settingsPatch = loadedSettingsPatch(m, snap ?? ({} as SpectrumSnapshotModel), measurementType)
 
   return {
     measurementType,
     userModified: m.userModifiedSelection ?? true,
-    captured: { magnitudesDb: snap.magnitudes, frequencies: snap.frequencies },
-    view: { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB },
+    captured: snap ? { magnitudesDb: snap.magnitudes, frequencies: snap.frequencies } : { magnitudesDb: [], frequencies: [] },
+    view: snap
+      ? { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB }
+      : {
+          minHz: minFrequency(settings, measurementType),
+          maxHz: maxFrequency(settings, measurementType),
+          minDb: settings.minDb,
+          maxDb: settings.maxDb,
+        },
     settingsPatch,
     peaks,
     selectedIds,
@@ -712,6 +719,19 @@ export class TapToneAnalyzer {
   selectedLongitudinalPeak: ResonantPeak | null = null
   selectedCrossPeak: ResonantPeak | null = null
   selectedFlcPeak: ResonantPeak | null = null
+
+  /** The id of the fL peak, or null before the phase finalises. Swift `effectiveLongitudinalPeakID`. */
+  get effectiveLongitudinalPeakID(): string | null {
+    return this.selectedLongitudinalPeak?.id ?? null
+  }
+  /** The id of the fC peak, or null before the phase finalises. Swift `effectiveCrossPeakID`. */
+  get effectiveCrossPeakID(): string | null {
+    return this.selectedCrossPeak?.id ?? null
+  }
+  /** The id of the FLC peak, or null before the phase finalises. Swift `effectiveFlcPeakID`. */
+  get effectiveFlcPeakID(): string | null {
+    return this.selectedFlcPeak?.id ?? null
+  }
   // Whether the plate FLC tap is measured. Swift reads TapDisplaySettings.measureFlc / Python
   // _tds.measure_flc(); the web has no analyzer-visible global, so App mirrors it via setMeasureFlc.
   measureFlc = false
@@ -1120,11 +1140,11 @@ export class TapToneAnalyzer {
     }
     // A comparison record restores its overlay spectra directly and is not a single measurement.
     if (m.comparisonEntries) {
-      this.clearResult() // returns to live and drops any overlay...
-      this.loadComparisonRecord(m.comparisonEntries) // ...then enters comparison (clears loaded state)
+      this.loadComparisonRecord(m.comparisonEntries) // enters comparison (clears the loaded state)
       this.loadedMeasurementName = normalizedMeasurementName(m.measurementName ?? '') ?? null // ...but a SAVED record has a name
       this.loadedNotes = normalizedMeasurementNotes(m.notes ?? '') ?? null
       this.sourceMeasurementTimestamp = m.timestamp || null // ...and a date of its own
+      this.highlightedPeakId = null
       this.resultProvenance = null // a comparison has no microphone of its own
       this.notify()
       return
@@ -1151,8 +1171,7 @@ export class TapToneAnalyzer {
       })
       this.restoreOffsets(mat.annotationOffsetsById) // dragged L/C/FLC labels (id-keyed shared store)
     } else {
-      if (!m.spectrumSnapshot) return // neither guitar nor material: nothing to show
-      const live = measurementToLive(m)
+      const live = measurementToLive(m, this.settings)
       // The measurement's own settings first, so its peaks are classified and shown under them — not
       // under whatever the app is set to. Swift loadMeasurement applies them before the peaks.
       this.applyLoadedSettings(live.settingsPatch)
@@ -2323,9 +2342,7 @@ export class TapToneAnalyzer {
 
   /** Mirror the settings store onto the analyzer (App drives it; see the `settings` field). */
   setSettings(s: Settings): void {
-    const dumpChanged = s.dumpCaptureAudio !== this.settings.dumpCaptureAudio
     this.settings = s
-    if (dumpChanged) this.applyDumpCaptureAudioSetting()
     // Which peaks are annotated is ANALYZER state, as Swift's `@Published var annotationVisibilityMode`
     // and Python's `annotation_visibility_mode` — seeded from the display settings, read by visiblePeaks.
     this.annotationVisibilityMode = s.annotationVisibilityMode
@@ -3655,7 +3672,7 @@ export class TapToneAnalyzer {
   // One method per transition Swift and Python perform, so the set is comparable line for line:
   //   loadComparison      Swift MeasMgmt:992  · Python :1163  — empty data ⇒ 'live'
   //   clearComparison     Swift :1046         · Python :1177
-  //   setMultiTapComparison(true/false)  Swift :1134 / :1073 · Python :969 / :895
+  //   applyMultiTapComparisonOverlays(true/false)  Swift :1134 / :1073 · Python :969 / :895
   //   enterFrozen         Swift :562          · Python :476   — loading one measurement
   //   loadComparisonRecord Swift :545         · Python :464   — loading a SAVED comparison
   //   enterLive           Swift Control:134   · Python control:621 — New Tap
@@ -3667,9 +3684,8 @@ export class TapToneAnalyzer {
    *  resolved from the measurement itself (selection and overrides) — then shown as an overlay. Mirrors
    *  Swift `loadComparison(measurements:)`, which builds the entries in the analyzer. */
   loadComparison(measurements: TapToneMeasurementModel[]): void {
-    // A comparison replaces whatever is shown: the result, its peaks, and its microphone.
-    this.clearResult()
-    this.resultProvenance = null
+    this.resultProvenance = null // a comparison has no microphone of its own
+    this.tapEntries = [] // the per-tap overlay's taps go with it, as Swift's loadComparison
     const withSnapshots = measurements.filter((m) => m.spectrumSnapshot)
     const baseLabels = withSnapshots.map((m) => m.measurementName?.trim() || formatDisplayDateCompact(m.timestamp))
     const counts = new Map<string, number>()
@@ -3709,16 +3725,13 @@ export class TapToneAnalyzer {
     this.comparisonEntries = entries
     this.showingMultiTapComparison = false
     this.displayMode = entries.length === 0 ? 'live' : 'comparison'
-    // An overlay is nobody's measurement: no name, notes, ring-out or recorded microphone. Its axis
-    // range is the union of the overlaid ones. Mirrors Swift loadComparison (MeasMgmt:983-984 + the
-    // setLoadedAxisRange below it). `loadMeasurement` re-applies the name when the overlay came from
-    // a SAVED comparison record, which is the one case that has one.
+    // An overlay is nobody's measurement: no name or notes. Its axis range is the union of the overlaid
+    // ones, set when there are any. Mirrors Swift loadComparison. `loadMeasurement` re-applies the name
+    // when the overlay came from a SAVED comparison record, which is the one case that has one.
     this.loadedMeasurementName = null
     this.loadedNotes = null
     this.sourceMeasurementTimestamp = null
-    this.microphoneWarning = null
-    this.currentDecayTime = null
-    this.loadedAxisRange = comparisonAxisRange(entries)
+    if (entries.length > 0) this.loadedAxisRange = comparisonAxisRange(entries)
     // An overlay is frozen, like a loaded measurement — see enterFrozen. Empty entries mean we
     // stayed live, so there is nothing to freeze.
     if (entries.length > 0) {
@@ -3738,17 +3751,36 @@ export class TapToneAnalyzer {
   /** Stop comparing; back to live. Swift clearComparison. */
   clearComparison(): void {
     this.comparisonEntries = []
-    this.showingMultiTapComparison = false
     this.displayMode = 'live'
     this.notify()
   }
 
   /** The per-tap overlay of the CURRENT measurement. Enabling enters 'comparison'; disabling
    *  returns to 'live' — the measurement itself still displays, because it is complete. */
-  setMultiTapComparison(enabled: boolean): void {
+  applyMultiTapComparisonOverlays(enabled: boolean): void {
     this.showingMultiTapComparison = enabled
-    if (!enabled) this.comparisonEntries = []
-    this.displayMode = enabled ? 'comparison' : 'live'
+    if (!enabled) {
+      this.comparisonEntries = []
+      // Leave comparison; the chart goes back to the averaged spectrum on its own, because the
+      // measurement is complete.
+      this.displayMode = 'live'
+      this.notify()
+      return
+    }
+    if (this.tapEntries.length === 0) {
+      this.notify()
+      return
+    }
+    // The measurement's tap comparison — the same entries its report and its saved form show — as the
+    // comparison the chart draws, built at the saved range, as Swift's makeMeasurement() builds it.
+    const s = this.settings
+    this.comparisonEntries = this.multiTapComparisonEntries({
+      minHz: minFrequency(s, this.measurementType),
+      maxHz: maxFrequency(s, this.measurementType),
+      minDb: s.minDb,
+      maxDb: s.maxDb,
+    })
+    this.displayMode = 'comparison'
     this.notify()
   }
 

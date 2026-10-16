@@ -1,103 +1,60 @@
 // @parity test/audio-clock-timers
 //
-// The tap lifecycle's delays run on the AUDIO clock, not the wall clock. File playback advances audio
-// at "real time + processing time", so a wall-clock delay would cover a different stretch of audio on
-// a slower run and move late captures in a sequence.
-//
-// Each case here advances only audio — through `processAudioFrame`, the path audio takes — and no
-// wall time to speak of, so a delay that went back to the wall clock would not have fired and the case
-// fails. The guitar rest (T1) and the capture window (T5) are pinned by the scenario traces'
-// midCooldown / postReArm / postProcess rows; this file pins what nothing else did.
-//
-// Paired with Swift GuitarTapTests/AudioClockTimerTests.swift and Python tests/test_audio_clock_timers.py.
+// The tap lifecycle's delays — the rest between material taps, the FLC hold, the capture window — run on
+// the AUDIO clock, so file playback, which advances audio faster or slower than real time, moves them with
+// the audio. The shared cases in audio-clock-timers.json (AT1–AT6), the same as Swift and Python, advance
+// only audio. Below them, the safety timeout, which runs on the wall clock by design and so waits in real
+// time, and the web's own file-playback pacing.
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
-import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
 import { advanceAudio, AUDIO_FEED_CHUNK_SECONDS } from './audioClockFeed'
+import { makeStepsAnalyzer, runAnalyzerStep, PHASE_RAW, type AnalyzerStep } from './analyzerSteps'
 
-/** A decaying tone — a tap's ring-out. */
-function tapSamples(hz: number, count: number): Float32Array {
-  const out = new Float32Array(count)
-  for (let i = 0; i < count; i++) out[i] = 0.5 * Math.exp((-i / 48000) * 6) * Math.sin((2 * Math.PI * hz * i) / 48000)
-  return out
-}
+type Fields = Record<string, unknown>
+type ClockStep = AnalyzerStep & { fileEnd?: boolean; playingFile?: boolean; noteWarmup?: boolean; check?: Fields }
+type ClockCase = { id: string; note: string; steps: ClockStep[]; expect: Fields }
+const DATA = JSON.parse(readFileSync('test/fixtures/audio-clock-timers.json', 'utf8')) as { cases: ClockCase[] }
 
-/** Feed real audio chunk by chunk through the production entry point, with each chunk's own level. */
-function feed(a: TapToneAnalyzer, samples: Float32Array, until: () => boolean): void {
-  for (let i = 0; i < samples.length && !until(); i += 1024) {
-    const chunk = samples.subarray(i, Math.min(i + 1024, samples.length))
-    let sumSq = 0
-    for (let k = 0; k < chunk.length; k++) sumSq += chunk[k]! * chunk[k]!
-    const rms = Math.sqrt(sumSq / chunk.length)
-    a.processAudioFrame(chunk, rms > 0 ? 20 * Math.log10(rms) : -100, a.lastAudioTime + AUDIO_FEED_CHUNK_SECONDS)
+/** The analyzer's warm-up anchor and level latch (TS `private` is compile-time only). */
+type Internals = { warmupStartAudioTime: number | null; isAboveThreshold: boolean }
+
+function check(fields: Fields, a: TapToneAnalyzer, notedWarmup: number | null | undefined): void {
+  const internal = a as unknown as Internals
+  for (const [field, want] of Object.entries(fields)) {
+    switch (field) {
+      case 'detecting': expect(a.isDetecting, field).toBe(want); break
+      case 'phase': expect(PHASE_RAW[a.materialTapPhase], field).toBe(want); break
+      case 'complete': expect(a.isMeasurementComplete, field).toBe(want); break
+      case 'gatedCapture': expect(a.gatedCaptureActive, field).toBe(want); break
+      case 'aboveThreshold': expect(internal.isAboveThreshold, field).toBe(want); break
+      case 'warmupAtLastChunk': expect(internal.warmupStartAudioTime === a.lastAudioTime, field).toBe(want); break
+      case 'warmupUnchanged': expect(internal.warmupStartAudioTime === notedWarmup, field).toBe(want); break
+      default: throw new Error(`unknown field ${field}`)
+    }
   }
 }
 
-describe('the tap lifecycle runs on the audio clock', () => {
-  // T2: between taps of one plate/brace phase, detection rests `tapCooldown` of audio. The tap is a
-  // real one, detected from the audio and captured through the real path.
-  it('the plate/brace rest between taps runs on the audio clock', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.setNumberOfTaps(2)
-    a.startTapSequence()
-    advanceAudio(a, a.warmupPeriod + 0.1, -100) // the warm-up, on quiet audio
-    feed(a, tapSamples(60, 48_000), () => a.currentTapCount === 1)
-    expect(a.currentTapCount, 'the tap was detected and captured').toBe(1)
-    expect(a.materialTapPhase, '1 of 2 taps — the phase is not done').toBe('capturingL')
-    expect(a.isDetecting, 'resting after the tap').toBe(false)
-
-    advanceAudio(a, a.tapCooldown / 2)
-    expect(a.isDetecting, 'halfway through the rest, in audio').toBe(false)
-
-    advanceAudio(a, a.tapCooldown / 2)
-    expect(a.isDetecting, "re-armed once the rest's audio has passed").toBe(true)
+describe('audio-clock-timers — the shared cases (audio-clock-timers.json)', () => {
+  it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
+    const { a, store } = makeStepsAnalyzer()
+    let notedWarmup: number | null | undefined
+    for (const step of c.steps) {
+      if (step.fileEnd) a.flushGatedCaptureOnFileEnd()
+      else if (step.playingFile) {
+        const engine = new RealtimeFFTAnalyzer()
+        engine.playingFile = true
+        a.setDevice(engine)
+      } else if (step.noteWarmup) notedWarmup = (a as unknown as Internals).warmupStartAudioTime
+      else if (step.check) check(step.check, a, notedWarmup)
+      else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+    }
+    check(c.expect, a, notedWarmup)
   })
+})
 
-  // T3: after C is accepted, the FLC phase arms `tapCooldown` of audio later — anchored on the chunk
-  // that made the hold due.
-  it('the FLC hold runs on the audio clock', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.measureFlc = true
-    a.setNumberOfTaps(1)
-    a.startTapSequence()
-    // Both taps captured through the real finish, which turns detection off for the review.
-    a.finishGatedFFTCapture(tapSamples(60, 24_000), 48000, 'capturingL')
-    a.acceptCurrentPhase() // reviewingL -> capturingC
-    a.finishGatedFFTCapture(tapSamples(150, 24_000), 48000, 'capturingC')
-    expect(a.materialTapPhase).toBe('reviewingC')
-
-    a.acceptCurrentPhase()
-    expect(a.materialTapPhase).toBe('waitingForFlcTap')
-
-    advanceAudio(a, a.tapCooldown / 2)
-    expect(a.materialTapPhase, 'halfway through the hold, in audio').toBe('waitingForFlcTap')
-    expect(a.isDetecting).toBe(false)
-
-    advanceAudio(a, a.tapCooldown / 2)
-    expect(a.materialTapPhase).toBe('capturingFlc')
-    expect(a.isDetecting).toBe(true)
-    expect(
-      (a as unknown as { warmupStartAudioTime: number }).warmupStartAudioTime,
-      'the FLC warm-up starts at the audio time of the chunk that ended the hold',
-    ).toBe(a.lastAudioTime)
-  })
-
-  // A detected tap turns detection off first, and it stays off through the capture — the rest (T2)
-  // then starts from the state the natives have always had. The tap is detected from fed audio.
-  it('a detected tap turns detection off', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.setNumberOfTaps(2)
-    a.startTapSequence()
-    advanceAudio(a, a.warmupPeriod + 0.1) // the warm-up, on quiet audio
-    expect(a.isDetecting).toBe(true)
-    advanceAudio(a, 2 * AUDIO_FEED_CHUNK_SECONDS, -10) // a tap: two loud chunks
-    expect(a.isDetecting, 'detection is off once the tap is detected').toBe(false)
-  })
-
+describe('the safety timeout runs on the wall clock: it exists for when the audio stops', () => {
   // T6: a capture the audio stops filling is closed on the WALL clock — it exists for when the audio
   // stops, and then the audio clock stops too. After it, detection rests and re-arms as usual.
   it('the safety timeout closes a capture the audio stopped filling', async () => {
@@ -134,28 +91,9 @@ describe('the tap lifecycle runs on the audio clock', () => {
     }
     expect(a.gatedCaptureActive, 'audio kept arriving, so the capture is still open').toBe(true)
   })
+})
 
-  // File playback's auto-advance: when a phase completes while a file plays, the next phase is
-  // listening at once, the latch ABOVE so the last tap's ring-out must fall before anything counts;
-  // the warm-up is not restarted.
-  it("file playback's auto-advance arms the next phase at once, latched above", () => {
-    const a = new TapToneAnalyzer()
-    const engine = new RealtimeFFTAnalyzer()
-    engine.playingFile = true
-    a.setDevice(engine)
-    a.measurementType = 'plate'
-    a.setNumberOfTaps(1)
-    a.startTapSequence()
-    const internal = a as unknown as { warmupStartAudioTime: number | null; isAboveThreshold: boolean }
-    const warmupAnchor = internal.warmupStartAudioTime
-    a.finishGatedFFTCapture(tapSamples(60, 24_000), 48000, 'capturingL')
-
-    expect(a.materialTapPhase, 'L done — auto-advanced to C').toBe('capturingC')
-    expect(a.isDetecting, 'listening at once').toBe(true)
-    expect(internal.isAboveThreshold, 'latched above: the ring-out must fall first').toBe(true)
-    expect(internal.warmupStartAudioTime, 'the warm-up is not restarted').toBe(warmupAnchor)
-  })
-
+describe('file playback pacing (the web\'s own)', () => {
   // Web only — the natives pace file playback with a sleep under a timing activity, which a unit
   // test cannot reach. The web paces from the AUDIO clock: each chunk the worklet renders lets one
   // more file chunk through, so a throttled hidden tab still plays at real time.
@@ -179,35 +117,5 @@ describe('the tap lifecycle runs on the audio clock', () => {
     expect(played.length).toBe(4)
     tick()
     await done
-  })
-
-  // File end: the capture window is released at once, so a measurement whose last capture ends with
-  // the file still completes — the audio clock stops with the file.
-  it('file end releases the pending capture window', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'classical'
-    a.numberOfTaps = 1
-    a.startTapSequence()
-    a.finishGuitarGatedCapture(tapSamples(100, GUITAR_FFT_SIZE), 48000)
-    expect(a.isMeasurementComplete, 'the capture window is pending').toBe(false)
-
-    a.flushGatedCaptureOnFileEnd()
-    expect(a.isMeasurementComplete, 'released at file end, with no further audio').toBe(true)
-  })
-
-  // File end does NOT release a rest: with no audio there is nothing to detect, so the re-arm waits
-  // for audio like any other.
-  it('file end does not release a pending rest', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'classical'
-    a.numberOfTaps = 2
-    a.startTapSequence()
-    a.finishGuitarGatedCapture(tapSamples(100, GUITAR_FFT_SIZE), 48000)
-
-    a.flushGatedCaptureOnFileEnd()
-    expect(a.isDetecting, 'file end left the rest pending').toBe(false)
-
-    advanceAudio(a, a.tapCooldown)
-    expect(a.isDetecting, 'the rest still ends when its audio has passed').toBe(true)
   })
 })

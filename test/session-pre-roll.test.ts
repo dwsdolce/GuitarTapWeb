@@ -53,6 +53,7 @@ describe('session-pre-roll — the shared cases (session-pre-roll.json)', () => 
         s.gatedCaptureActive = false
       } else if (step.dump !== undefined) {
         a.setSettings({ ...a.settings, dumpCaptureAudio: step.dump })
+        a.applyDumpCaptureAudioSetting()
       } else if (step.pause) {
         a.pauseTapDetection()
       } else if (step.resume) {
@@ -87,12 +88,15 @@ describe('session-pre-roll — the capture probe follows the recording', () => {
       a.startTapSequence()
       expect(captureProbe.liveSession).toBe(false)
       a.setSettings({ ...a.settings, dumpCaptureAudio: true })
+      a.applyDumpCaptureAudioSetting()
       expect(captureProbe.liveSession, 'turned on before the first tap').toBe(true)
       a.setSettings({ ...a.settings, dumpCaptureAudio: false })
+      a.applyDumpCaptureAudioSetting()
       expect(captureProbe.liveSession, 'turned off').toBe(false)
       s.gatedCaptureActive = true
       s.maintainSessionRecording(new Float32Array(1024).fill(0.1))
       a.setSettings({ ...a.settings, dumpCaptureAudio: true })
+      a.applyDumpCaptureAudioSetting()
       expect(captureProbe.liveSession, 'turned on after the first tap').toBe(false)
     } finally {
       captureProbe.liveSession = savedSession

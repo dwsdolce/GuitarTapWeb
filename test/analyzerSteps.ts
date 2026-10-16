@@ -9,13 +9,14 @@ import { MEASUREMENT_TYPE_FROM_RAW } from '../src/measurement'
 import { SettingsStore } from '../src/settingsStore'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
-import { advanceAudio } from './audioClockFeed'
+import { advanceAudio, AUDIO_FEED_CHUNK_SECONDS } from './audioClockFeed'
 import { syntheticTap } from './syntheticTap'
 
 export type AnalyzerStep = {
   settings?: { type?: string; measureFlc?: boolean }
   setTaps?: number
   setThreshold?: number
+  setPeakMin?: number
   newTap?: boolean
   pause?: boolean
   resume?: boolean
@@ -24,8 +25,11 @@ export type AnalyzerStep = {
   materialTap?: { phase: 'L' | 'C' | 'FLC'; hz: number }
   accept?: boolean
   redo?: boolean
-  advance?: 'tapCooldown' | 'captureWindow' | number
+  advance?: 'tapCooldown' | 'captureWindow' | 'warmupPeriod' | number
   fraction?: number
+  extra?: number
+  level?: number
+  audioChunks?: number
 }
 
 const MATERIAL_PHASES: Record<string, MaterialTapPhase> = { L: 'capturingL', C: 'capturingC', FLC: 'capturingFlc' }
@@ -54,6 +58,7 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer, store: S
     if (step.settings.measureFlc !== undefined) store.update({ measureFlc: step.settings.measureFlc })
   } else if (step.setTaps !== undefined) a.setNumberOfTaps(step.setTaps)
   else if (step.setThreshold !== undefined) store.update({ tapDetectionThreshold: step.setThreshold })
+  else if (step.setPeakMin !== undefined) store.update({ peakMinThreshold: step.setPeakMin })
   else if (step.newTap) a.startTapSequence()
   else if (step.pause) a.pauseTapDetection()
   else if (step.resume) a.resumeTapDetection()
@@ -64,8 +69,13 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer, store: S
   } else if (step.accept) a.acceptCurrentPhase()
   else if (step.redo) a.redoCurrentPhase()
   else if (step.advance !== undefined) {
-    const seconds = step.advance === 'tapCooldown' ? a.tapCooldown : step.advance === 'captureWindow' ? a.captureWindow : step.advance
-    advanceAudio(a, seconds * (step.fraction ?? 1))
-  } else return false
+    const seconds =
+      step.advance === 'tapCooldown' ? a.tapCooldown
+        : step.advance === 'captureWindow' ? a.captureWindow
+          : step.advance === 'warmupPeriod' ? a.warmupPeriod
+            : step.advance
+    advanceAudio(a, seconds * (step.fraction ?? 1) + (step.extra ?? 0), step.level ?? -90)
+  } else if (step.audioChunks !== undefined) advanceAudio(a, step.audioChunks * AUDIO_FEED_CHUNK_SECONDS, step.level!)
+  else return false
   return true
 }

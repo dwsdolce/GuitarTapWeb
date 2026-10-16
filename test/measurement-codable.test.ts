@@ -2,8 +2,9 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseGuitarTapFile, serializeGuitarTapFile, encodeMeasurement, encodeSnapshot, isComparison, type TapToneMeasurementModel } from '../src/measurement'
-import { measurementDefinitivePeak, measurementTapToneRatio, measurementPeakModeLabels } from '../src/measurement/types'
+import { measurementDefinitivePeak, measurementTapToneRatio, measurementPeakModeLabels, comparisonEntryModeFreqs } from '../src/measurement/types'
 import { healSelection } from '../src/measurement/decode'
+import { MODE_DISPLAY_NAME } from '../src/presentation/modeColors'
 import { classifyAll } from '../src/dsp/classify'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { ResonantPeak } from '../src/measurement/types'
@@ -191,15 +192,16 @@ describe('measurement-codable — the selection heal on decode (measurement-coda
 
 // ── The file format — the shared cases in measurement-codable.json ──────────────────────────────
 //
-// The spectrum's bytes (SB), what a file reads to (DC), what the writer emits (WR), and the real
-// fixtures every edition carries: the same cases as Swift and Python. Mirrors Swift
-// MeasurementCodecTests.
+// The spectrum's bytes (SB), what a file reads to (DC), what the writer emits (WR), a comparison
+// record (CR) and the real fixtures every edition carries: the same cases as Swift and Python.
+// Mirrors Swift MeasurementCodecTests.
 
 type Json = unknown
 const CODEC = JSON.parse(readFileSync('test/fixtures/measurement-codable.json', 'utf8')) as {
   snapshotBytes: { id: string; note: string; frequencies: number[]; magnitudes: number[]; frequenciesData: string; magnitudesData: string }[]
   decode: { id: string; note: string; file: Json; expect: Record<string, unknown> }[]
   write: { id: string; note: string; file: Json; present?: string[]; absent?: string[]; text?: Record<string, string>; contains?: string[] }[]
+  comparison: { id: string; note: string; file: Json; roundTrip?: boolean; expect: Record<string, unknown> }[]
   fixtures: { file: string; measurements: number; measurementName: string | null; peakCount: number; sampleRate: number | null; isComparison: boolean; overrideLabels: string[] }[]
 }
 const LEGACY_KEYS = ['tapLocation', 'peakThreshold', 'hysteresisMargin', 'maxPeaks']
@@ -275,6 +277,66 @@ describe('measurement-codable — what the writer emits (measurement-codable.jso
     }
     const compact = JSON.stringify(doc)
     for (const s of r.contains ?? []) expect(compact.includes(s), `contains ${s}`).toBe(true)
+  })
+})
+
+describe('measurement-codable — a comparison record (measurement-codable.json)', () => {
+  it.each(CODEC.comparison.map((r) => [r.id, r] as const))('%s', (_id, r) => {
+    const first = parseGuitarTapFile(JSON.stringify(r.file))[0]!
+    let m = first
+    let doc: Json = undefined
+    if (r.roundTrip) {
+      const text = serializeGuitarTapFile([first])
+      doc = JSON.parse(text)
+      m = parseGuitarTapFile(text)[0]!
+    }
+    for (const [field, want] of Object.entries(r.expect)) {
+      switch (field) {
+        case 'isComparison': expect(isComparison(m), field).toBe(want); break
+        case 'healed': expect(first.wasHealed ?? false, field).toBe(want); break
+        case 'entries': {
+          if (want === null) {
+            expect(m.comparisonEntries, field).toBeUndefined()
+            break
+          }
+          const wanted = want as Record<string, unknown>[]
+          const entries = m.comparisonEntries ?? []
+          expect(entries.length, `${field}: count`).toBe(wanted.length)
+          entries.forEach((e, i) => {
+            for (const [key, value] of Object.entries(wanted[i]!)) {
+              switch (key) {
+                case 'id': expect(e.id.toLowerCase(), 'entry id').toBe((value as string).toLowerCase()); break
+                case 'label': expect(e.label, 'entry label').toBe(value); break
+                case 'colorComponents': expect(e.colorComponents, 'entry colour').toEqual(value); break
+                case 'guitarType': expect(e.guitarType ?? null, 'entry guitarType').toBe(value); break
+                case 'peakCount': expect(e.peaks.length, 'entry peakCount').toBe(value); break
+                case 'modePeakIds': {
+                  const lower = (o: Record<string, string>) =>
+                    Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v.toLowerCase()]))
+                  expect(lower(e.modePeakIDs ?? {}), 'entry modePeakIds').toEqual(lower(value as Record<string, string>))
+                  break
+                }
+                default: throw new Error(`unknown entry field ${key}`)
+              }
+            }
+          })
+          break
+        }
+        case 'modeFrequency': {
+          const freqs = comparisonEntryModeFreqs(m.comparisonEntries![0]!)
+          for (const [name, hz] of Object.entries(want as Record<string, number>)) {
+            const mode = (['air', 'top', 'back'] as const).find((k) => MODE_DISPLAY_NAME[k] === name)!
+            expect(freqs[mode], `${field} ${name}`).toBe(hz)
+          }
+          break
+        }
+        case 'absent':
+          expect(doc, 'absent needs roundTrip').toBeDefined()
+          for (const key of want as string[]) expect(hasKey(key, doc), `${key} not written`).toBe(false)
+          break
+        default: throw new Error(`unknown field ${field}`)
+      }
+    }
   })
 })
 

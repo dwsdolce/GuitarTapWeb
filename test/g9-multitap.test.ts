@@ -69,7 +69,7 @@ describe('buildGuitarMeasurement — multi-tap entries', () => {
 
   it('restores each entry as saved on load', () => {
     const m = parseGuitarTapFile(serializeGuitarTapFile([saveGuitar(args)]))[0]!
-    const restored = measurementToLive(m).tapEntries
+    const restored = measurementToLive(m, DEFAULT_SETTINGS).tapEntries
     expect(restored.map((e) => e.id)).toEqual([entry1.id, entry2.id])
     expect(restored.map((e) => e.selectedPeakIDs)).toEqual([entry1.selectedPeakIDs, entry2.selectedPeakIDs])
     expect(restored[0]!.resolvedModePeaks().get('top')?.frequency).toBe(200)

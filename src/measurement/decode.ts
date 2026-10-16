@@ -323,9 +323,10 @@ export function parseGuitarTapFile(text: string): TapToneMeasurementModel[] {
  *     once, exactly what the invariant forbids → set it to the strongest peak per EFFECTIVE mode;
  *   • a pre-uniqueness selection could hold two selected Tops → prune to at most the strongest selected
  *     peak per single-holder mode (cluster modes + unknown untouched).
- *  Guitar-only (material has no per-peak selection). Mutates `m.selectedPeakIDs`; returns true if changed. */
+ *  Guitar-only (material has no per-peak selection), and only with peaks: a record without any (a
+ *  comparison) has nothing to select. Mutates `m.selectedPeakIDs`; returns true if changed. */
 export function healSelection(m: TapToneMeasurementModel): boolean {
-  if (isMaterialMeasurement(m)) return false
+  if (isMaterialMeasurement(m) || m.peaks.length === 0) return false
   const autoMap = classifyAll(m.peaks, classificationGuitarType(m))
   const effOf = (p: ResonantPeak): ResolvedMode => effectiveMode(m.peakModeOverrides?.[p.id], autoMap.get(p.id) ?? 'unknown')
   const singleHolder: ReadonlySet<ResolvedMode> = new Set(['air', 'top', 'back'])

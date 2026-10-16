@@ -1,27 +1,81 @@
 // @parity test/status-message
-// Pins the analyzer's imperative `statusMessage` field (Swift @Published TapToneAnalyzer.statusMessage /
-// Python tap_tone_analyzer.status_message) to the canonical strings by DRIVING TRANSITIONS on a real
-// TapToneAnalyzer and asserting the field — the way Swift/Python test it. Covers the
-// clipping override/restore, the device-change transient, the guitar detection-loop strings, every
-// material phase string, and the no-resonance re-tap. Also guards that strings no edition uses
-// ("Requesting microphone…", "Playing…", "Comparing…", "Microphone unavailable") are never produced.
+//
+// The status line's words, each reached through the app's own path. The shared cases in status-message.json
+// (SM1–SM23), the same as Swift and Python. Below them, the case that the status settles and stays settled,
+// which needs a quiet period of real time, and the web's own guard that strings it alone once produced
+// ("Requesting microphone…", "Playing…", "Comparing…", "Microphone unavailable") never come back.
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import type { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
+import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import { InputLevel } from '../src/audio/inputLevel'
 import type { Spectrum } from '../src/dsp/guitarFFT'
-import { advanceAudio } from './audioClockFeed'
-import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
 import type { ResonantPeak } from '../src/measurement/types'
+import { parseGuitarTapFile } from '../src/measurement'
+import { makeStepsAnalyzer, runAnalyzerStep, type AnalyzerStep } from './analyzerSteps'
 
-/** A decaying tone — a tap's ring-out — at 48 kHz. */
-function decayingTone(hz: number, count: number): Float32Array {
-  const out = new Float32Array(count)
-  for (let i = 0; i < count; i++) out[i] = 0.5 * Math.exp((-i / 48000) * 6) * Math.sin((2 * Math.PI * hz * i) / 48000)
-  return out
+type Fields = Record<string, unknown>
+type StatusStep = AnalyzerStep & { clipping?: boolean; deviceChange?: boolean; load?: string; playingFile?: boolean; check?: Fields }
+type StatusCase = { id: string; note: string; steps: StatusStep[]; expect: Fields }
+const DATA = JSON.parse(readFileSync('test/fixtures/status-message.json', 'utf8')) as {
+  files: Record<string, unknown>
+  cases: StatusCase[]
 }
 
-const CLIP = '⚠ Input clipping — reduce mic gain'
+function check(fields: Fields, a: TapToneAnalyzer, before: string): void {
+  const status = a.statusMessage
+  for (const [field, want] of Object.entries(fields)) {
+    switch (field) {
+      case 'statusMessage': expect(status, field).toBe(want); break
+      case 'statusPrefix': expect(status.startsWith(want as string), `${field}: ${status}`).toBe(true); break
+      case 'statusSuffix': expect(status.endsWith(want as string), `${field}: ${status}`).toBe(true); break
+      case 'statusContains': expect(status, field).toContain(want); break
+      case 'statusUnchangedByLastStep': expect(status === before, `${field}: ${before} → ${status}`).toBe(want); break
+      case 'detecting': expect(a.isDetecting, field).toBe(want); break
+      case 'tapCount': expect(a.currentTapCount, field).toBe(want); break
+      default: throw new Error(`unknown field ${field}`)
+    }
+  }
+}
+
+describe('status-message — the shared cases (status-message.json)', () => {
+  it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
+    const { a, store } = makeStepsAnalyzer()
+    let before = a.statusMessage
+    for (const step of c.steps) {
+      if (step.check) {
+        check(step.check, a, before)
+        continue
+      }
+      before = a.statusMessage
+      if (step.clipping !== undefined) a.setClipping(step.clipping) // as the device forwards its input level
+      else if (step.deviceChange) a.handleDeviceChange(true)
+      else if (step.load !== undefined) a.loadMeasurement(parseGuitarTapFile(JSON.stringify(DATA.files[step.load]))[0]!)
+      else if (step.playingFile) {
+        const engine = new RealtimeFFTAnalyzer()
+        engine.playingFile = true
+        a.setDevice(engine)
+      } else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+    }
+    check(c.expect, a, before)
+  })
+})
+
+describe('status-message — settling', () => {
+  it('two writes in one pass settle on the second and stay', async () => {
+    const a = new TapToneAnalyzer()
+    a.startTapSequence()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(a.statusMessage).toBe('Tap the guitar...')
+
+    let writes = 0
+    const unsubscribe = a.subscribe(() => writes++)
+    await new Promise((r) => setTimeout(r, 50))
+    unsubscribe()
+    expect(a.statusMessage).toBe('Tap the guitar...')
+    expect(writes, `the status kept changing with nothing happening: ${writes} notifications`).toBe(0)
+  })
+})
 
 // A synthetic gated spectrum: flat -80 dB over 0–200 Hz, with an optional single-bin bump (a resonance)
 // at `peakHz`. No bump → findDominantPeak finds no candidate (the "no resonance" case).
@@ -56,213 +110,6 @@ function fakeDevice(playingFile = false): RealtimeFFTAnalyzer {
   } as unknown as RealtimeFFTAnalyzer
 }
 
-describe('statusMessage — initial + clipping override/restore', () => {
-  it('starts at the canonical initial message (NOT "Requesting microphone…")', () => {
-    expect(new TapToneAnalyzer().statusMessage).toBe('Tap the guitar to begin')
-  })
-
-  // Arming straight after the analyzer is made writes the armed prompt in the same pass as the initial
-  // status. The status must settle on the prompt and stay there — Swift's once alternated between the
-  // two for good. Mirrors Swift twoWritesInOnePass_settleOnTheSecondAndStay.
-  it('two writes in one pass settle on the second and stay', async () => {
-    const a = new TapToneAnalyzer()
-    a.startTapSequence()
-    await new Promise((r) => setTimeout(r, 0))
-    expect(a.statusMessage).toBe('Tap the guitar...')
-
-    let writes = 0
-    const unsubscribe = a.subscribe(() => writes++)
-    await new Promise((r) => setTimeout(r, 50))
-    unsubscribe()
-    expect(a.statusMessage).toBe('Tap the guitar...')
-    expect(writes, `the status kept changing with nothing happening: ${writes} notifications`).toBe(0)
-  })
-
-  it('clipping overrides the display and restores the latest real status when it clears', () => {
-    const a = new TapToneAnalyzer()
-    a.startTapSequence()
-    expect(a.statusMessage).toBe('Tap the guitar...')
-    a.setClipping(true)
-    expect(a.statusMessage).toBe(CLIP)
-    // A real write while clipping stays PINNED to the warning, but is stashed for restore.
-    a.setNumberOfTaps(3) // real write "Tap the guitar 3 times..."
-    expect(a.statusMessage).toBe(CLIP)
-    a.setClipping(false)
-    expect(a.statusMessage).toBe('Tap the guitar 3 times...')
-  })
-})
-
-describe('statusMessage — device change (route change transient)', () => {
-  it('shows reinitializing, then restores the resting prompt', () => {
-    const a = new TapToneAnalyzer()
-    a.startTapSequence()
-    a.handleDeviceChange(true)
-    expect(a.statusMessage).toBe('Audio device changed - reinitializing...')
-    a.handleDeviceChange(false)
-    expect(a.statusMessage).toBe('Tap the guitar...')
-  })
-})
-
-describe('statusMessage — guitar detection-loop strings', () => {
-  it('single- and multi-tap resting prompt', () => {
-    const a = new TapToneAnalyzer()
-    a.startTapSequence()
-    expect(a.statusMessage).toBe('Tap the guitar...')
-    a.setNumberOfTaps(3) // armed + waiting → prompt refreshes to the count
-    expect(a.statusMessage).toBe('Tap the guitar 3 times...')
-  })
-
-  it('capturing (provisional) and between-taps strings', () => {
-    // The analyzer owns these, so assert the string function the capture transitions call —
-    // Swift's `guitarLoopStatus(capturing:)`, same shape.
-    // The count comes from real taps through the capture finish.
-    const a = new TapToneAnalyzer()
-    a.setNumberOfTaps(3)
-    a.startTapSequence()
-    const tap = decayingTone(100, GUITAR_FFT_SIZE)
-    expect(a.guitarLoopStatus(true)).toBe('Tap 1/3 capturing...')
-    a.finishGuitarGatedCapture(tap, 48000)
-    expect(a.guitarLoopStatus(false)).toBe('Tap 1/3 captured. Tap again...')
-    a.finishGuitarGatedCapture(tap, 48000)
-    expect(a.guitarLoopStatus(true)).toBe('All taps captured. Processing...') // last tap → processing
-  })
-
-  it('paused, then resume restores the resting prompt', () => {
-    const a = new TapToneAnalyzer()
-    a.startTapSequence()
-    a.pauseTapDetection()
-    expect(a.statusMessage).toBe('Detection paused – tap freely, then resume')
-    a.resumeTapDetection()
-    expect(a.statusMessage).toBe('Tap the guitar...')
-  })
-
-  it('completion string is set once at completion, FROZEN across Peak-Min changes (Swift/Python)', () => {
-    const a = new TapToneAnalyzer()
-    const sp = spectrum(60) // a peak at 60 Hz (-40 dB)
-    a.capturedTaps = [
-      { magnitudes: sp.magnitudesDb, frequencies: sp.frequencies, captureTime: 0 },
-      { magnitudes: sp.magnitudesDb, frequencies: sp.frequencies, captureTime: 0 },
-    ]
-    a.processMultipleTaps() // completion finds the peaks and announces them (Swift processMultipleTaps)
-    const announced = a.statusMessage
-    expect(announced).toMatch(/^Analysis complete! \d+ peaks identified \(from 2 averaged taps\)\.$/)
-    // A Peak-Min slider move only re-projects the peaks — it must NOT re-announce (N frozen at completion).
-    a.setPeakMinThreshold(-30)
-    expect(a.statusMessage).toBe(announced)
-  })
-
-  it('a loaded measurement shows the frozen-loaded prompt (even after a prior fresh capture)', () => {
-    const a = new TapToneAnalyzer()
-    // Simulate a prior completed fresh capture leaving capturedTaps populated + announced.
-    a.capturedTaps = [{ magnitudes: [], frequencies: [], captureTime: 0 }]
-    a.isMeasurementComplete = true
-    a.restoreSnapshot({ magnitudes: [1, 2], frequencies: [1, 2] })
-    expect(a.statusMessage).toBe('Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.')
-    // Re-analyzing the loaded measurement must NOT flip it to "Analysis complete" — only completion announces.
-    a.reanalyzePeaks()
-    expect(a.statusMessage).toBe('Loaded measurement (frozen). Press ‘New Tap’ to start a new measurement.')
-  })
-})
-
-describe('statusMessage — material phase strings', () => {
-  it('plate + brace capturingL both arm at "Ready for fL tap" (mirrors Swift)', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.startTapSequence()
-    expect(a.statusMessage).toBe('Ready for fL tap')
-
-    const b = new TapToneAnalyzer()
-    b.measurementType = 'brace'
-    b.startTapSequence()
-    expect(b.statusMessage).toBe('Ready for fL tap')
-  })
-
-  it('Accept fL → "Rotate 90° and tap for fC"; Accept fC (fLC) → "Set up for fLC tap, then tap"', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.measureFlc = true
-    a.setDevice(fakeDevice())
-    a.materialTapPhase = 'reviewingL'
-    a.acceptCurrentPhase()
-    expect(a.materialTapPhase).toBe('capturingC')
-    expect(a.statusMessage).toBe('Rotate 90° and tap for fC')
-    a.materialTapPhase = 'reviewingC'
-    a.acceptCurrentPhase()
-    expect(a.materialTapPhase).toBe('waitingForFlcTap')
-    expect(a.statusMessage).toBe('Set up for fLC tap, then tap')
-  })
-
-  it('Redo re-arms the phase with the "— tap again" prompt', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.setDevice(fakeDevice())
-    a.materialTapPhase = 'reviewingC'
-    a.redoCurrentPhase()
-    expect(a.materialTapPhase).toBe('capturingC')
-    expect(a.statusMessage).toBe('Ready for fC tap — tap again')
-  })
-
-  it('plate (L,C only) complete lists fL/fC; plate+FLC completes generically', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.setDevice(fakeDevice())
-    a.selectedLongitudinalPeak = mp(100)
-    a.selectedCrossPeak = mp(200)
-    a.selectedFlcPeak = null
-    a.materialTapPhase = 'reviewingC'
-    a.acceptCurrentPhase() // no FLC → complete
-    expect(a.statusMessage).toBe('Complete — fL: 100.0 Hz, fC: 200.0 Hz')
-
-    const b = new TapToneAnalyzer()
-    b.measurementType = 'plate'
-    b.measureFlc = true
-    b.setDevice(fakeDevice())
-    b.materialTapPhase = 'reviewingFlc'
-    b.acceptCurrentPhase()
-    expect(b.statusMessage).toBe('Complete - check Results')
-  })
-})
-
-describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)', () => {
-  it('multi-tap progress then review (valid resonances)', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.setNumberOfTaps(3)
-    a.setDevice(fakeDevice())
-    a.startTapSequence()
-    a.recordMaterialTap(spectrum(60)) // fL bump in 20–100 Hz
-    expect(a.statusMessage).toBe('fL tap 1/3 captured. Tap again...')
-    a.recordMaterialTap(spectrum(60))
-    expect(a.statusMessage).toBe('fL tap 2/3 captured. Tap again...')
-    a.recordMaterialTap(spectrum(60)) // 3/3 → phase complete → review
-    expect(a.materialTapPhase).toBe('reviewingL')
-    expect(a.statusMessage).toMatch(/^fL: \d+\.\d Hz — Accept to continue or Redo to re-tap$/)
-  })
-
-  it('a tap with no in-band resonance re-arms the same phase without counting', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.setNumberOfTaps(1)
-    a.setDevice(fakeDevice())
-    a.startTapSequence()
-    a.recordMaterialTap(spectrum(null)) // flat → no dominant peak
-    expect(a.statusMessage).toBe('No resonance detected — tap again')
-    expect(a.materialTapPhase).toBe('capturingL') // did NOT advance
-    expect(a.currentTapCount).toBe(0) // did NOT count
-  })
-
-  it('file playback auto-advances fL→fC with the "File:" transition string', () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'plate'
-    a.setNumberOfTaps(1)
-    a.setDevice(fakeDevice(true)) // playingFile = true
-    a.startTapSequence()
-    a.recordMaterialTap(spectrum(60)) // 1/1 → phase complete → auto-advance (playing)
-    expect(a.materialTapPhase).toBe('capturingC')
-    expect(a.statusMessage).toBe('File: fL complete, capturing fC...')
-  })
-})
-
 describe('statusMessage — removed web-only inventions are never produced', () => {
   it('none of the sweep states yield a removed string', () => {
     const seen: string[] = []
@@ -285,27 +132,3 @@ describe('statusMessage — removed web-only inventions are never produced', () 
     expect(seen[3]).toBe('Complete - check Results') // brace completes generically
   })
 })
-
-// The re-arm after a guitar tap's cooldown does not touch the status: the capture set the loop prompt
-// and it stays, as in Swift and Python — even while the level is still high.
-describe('statusMessage — guitar re-arm', () => {
-  it('the re-arm after the tap cooldown leaves the status as the capture set it', async () => {
-    const a = new TapToneAnalyzer()
-    a.measurementType = 'classical'
-    a.setNumberOfTaps(3)
-    a.startTapSequence()
-    const n = 65536
-    const tap = new Float32Array(n)
-    for (let i = 0; i < n; i++) tap[i] = 0.5 * Math.exp((-i / 48000) * 6) * Math.sin((2 * Math.PI * 100 * i) / 48000)
-    a.finishGuitarGatedCapture(tap, 48000)
-    const afterCapture = a.statusMessage
-    expect(afterCapture).toBe(a.guitarLoopStatus(false))
-
-    // The rest runs on the audio clock; the audio is still ringing, above the falling
-    // threshold, when the re-arm falls due.
-    advanceAudio(a, a.tapCooldown, -20)
-    expect(a.isDetecting).toBe(true)
-    expect(a.statusMessage).toBe(afterCapture)
-  })
-})
-
