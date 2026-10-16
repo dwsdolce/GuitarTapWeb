@@ -2,15 +2,8 @@
 import { AlertModal } from './AlertModal'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import {
-  listMeasurements,
-  deleteMeasurement,
-  saveMeasurement,
-  clearMeasurements,
-  importMeasurements,
-} from '../measurement/store'
+import { listMeasurements } from '../measurement/store'
 import { measurementTapToneRatio, guitarTapFilename } from '../measurement/types'
-import { amendMeasurement } from '../measurement/amend'
 import { EditMeasurementSheet } from './EditMeasurementSheet'
 import { exportStem } from '../measurement/exportFilename'
 import { formatDisplayDate } from '../format/date'
@@ -30,6 +23,12 @@ export interface MeasurementsPanelProps {
   /** Import a `.guitartap` file's text; returns the message to show. The MODEL stores,
    *  auto-loads a single measurement, and words it (Swift/Python importAndLoadMeasurements). */
   onImport: (text: string) => Promise<string>
+  /** Change a saved measurement's name and notes (the model's `updateMeasurement`). */
+  onUpdate: (m: TapToneMeasurementModel, measurementName: string | undefined, notes: string | undefined) => Promise<void>
+  /** Remove a saved measurement (the model's `deleteMeasurement`). */
+  onDelete: (m: TapToneMeasurementModel) => Promise<void>
+  /** Remove every saved measurement (the model's `deleteAllMeasurements`). */
+  onDeleteAll: () => Promise<void>
 }
 
 // "Saved Measurements" library: double-press a row = Load,
@@ -88,7 +87,7 @@ const isInstalled = (): boolean =>
  */
 const keyOf = (m: TapToneMeasurementModel): string => m.rowKey as string
 
-export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: MeasurementsPanelProps) {
+export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpdate, onDelete, onDeleteAll }: MeasurementsPanelProps) {
   const [items, setItems] = useState<TapToneMeasurementModel[] | null>(null)
   const [comparing, setComparing] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -160,27 +159,25 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: Meas
     setMenuId(null)
     setEditingId(keyOf(m))
   }
-  /** Commit an amend from the edit sheet. amendMeasurement mints a new dataset `id` — name and
-   *  notes are part of a measurement's data, so an amended measurement is a different dataset. The
-   *  row is held in place by `rowKey`, so this replaces the row rather than adding one. */
+  /** Commit the edit sheet: the model amends the measurement (a new dataset id, the same row). */
   const commitEdit = async (
     m: TapToneMeasurementModel,
     measurementName: string | undefined,
     notes: string | undefined,
   ) => {
-    await saveMeasurement(amendMeasurement(m, measurementName, notes))
+    await onUpdate(m, measurementName, notes)
     setEditingId(null)
     await refresh()
   }
   const remove = async (m: TapToneMeasurementModel) => {
     setMenuId(null)
     if (!window.confirm(`Delete "${m.measurementName ?? 'this measurement'}"? This cannot be undone.`)) return
-    await deleteMeasurement(keyOf(m))
+    await onDelete(m)
     await refresh()
   }
   const removeAll = async () => {
     if (!window.confirm('Delete ALL saved measurements? This cannot be undone.')) return
-    await clearMeasurements()
+    await onDeleteAll()
     await refresh()
   }
 
@@ -262,10 +259,6 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport }: Meas
     e.target.value = '' // allow re-picking the same file
     if (!file) return
     try {
-      // The whole storage side of the import lives in store.importMeasurements, so what runs here
-      // is what the tests exercise. It keeps each measurement's `id` — the DATASET identity, which
-      // must survive the round trip as it does in Swift and Python — and mints the `rowKey` that
-      // makes a re-import append rather than overwrite.
       // The MODEL imports: it stores every measurement, auto-loads the file that holds exactly one,
       // and words the message — so the message is the same one Swift and Python show, and a load
       // performed by an import is the same load performed from this list.

@@ -25,7 +25,8 @@ import { Pitch } from '../dsp/pitch'
 import { formatDisplayDateCompact } from '../format/date'
 import { seriesRole } from '../presentation/palette'
 import { GUITAR_TYPE_RAW } from '../dsp/guitarModes'
-import { saveMeasurement as storeMeasurement } from '../measurement/store'
+import { clearMeasurements, deleteMeasurement as deleteStoredMeasurement, saveMeasurement as storeMeasurement } from '../measurement/store'
+import { amendMeasurement } from '../measurement/amend'
 import type { ChartView } from '../presentation/chartTypes'
 import { GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
 import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type MaterialPhaseName, type EngineState } from '../audio/realtimeFFTAnalyzer'
@@ -1251,6 +1252,24 @@ export class TapToneAnalyzer {
       this.microphoneWarning = null // no microphone recorded: no warning from an earlier load stays (Swift)
     }
     this.notify()
+  }
+
+  /** Change a saved measurement's name and notes. The amended measurement is a different dataset, so
+   *  it gets a new id; it keeps its row (`rowKey`), so it stays in its place in the library. Mirrors
+   *  Swift `updateMeasurement(at:measurementName:notes:)`, which addresses the entry by position. */
+  async updateMeasurement(m: TapToneMeasurementModel, measurementName: string | undefined, notes: string | undefined): Promise<void> {
+    await storeMeasurement(amendMeasurement(m, measurementName, notes))
+  }
+
+  /** Remove a saved measurement from the library. Mirrors Swift `deleteMeasurement(at:)`, which
+   *  addresses the entry by position; here its row key names it. */
+  async deleteMeasurement(m: TapToneMeasurementModel): Promise<void> {
+    await deleteStoredMeasurement(m.rowKey as string)
+  }
+
+  /** Remove every saved measurement. Mirrors Python `delete_all_measurements`. */
+  async deleteAllMeasurements(): Promise<void> {
+    await clearMeasurements()
   }
 
   /** Import a `.guitartap` file and return the one message the user sees for it.

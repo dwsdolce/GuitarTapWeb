@@ -1458,6 +1458,9 @@ export default function App() {
           onLoad={onLoadMeasurement}
           onCompare={onCompare}
           onImport={(text) => analyzer.importAndLoadMeasurements(text, importMeasurements)}
+          onUpdate={(m, name, notes) => analyzer.updateMeasurement(m, name, notes)}
+          onDelete={(m) => analyzer.deleteMeasurement(m)}
+          onDeleteAll={() => analyzer.deleteAllMeasurements()}
         />
       )}
 
