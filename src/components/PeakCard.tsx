@@ -1,5 +1,5 @@
 // @parity view/peak-card
-import { useRef, useEffect, type JSX } from 'react'
+import { useRef, useEffect, useState, type JSX } from 'react'
 import type { ResolvedMode } from '../dsp/classify'
 import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS } from '../presentation/modeColors'
 import { color as roleColor, magnitudeRole, modeRole } from '../presentation/palette'
@@ -8,6 +8,7 @@ import { useScheme } from '../hooks/useScheme'
 import { WindIcon, ArrowUpDownIcon, SquareFilledIcon, DipoleIcon, CircleDashedIcon, WaveformIcon, HelpIcon, TagIcon, MusicNoteIcon } from './icons'
 import { MATERIAL_PEAK_ROLE_COLOR, type MaterialPeakRole } from '../presentation/materialPeakRole'
 import { MaterialPhaseBadge } from './MaterialPhaseBadge'
+import { CustomLabelDialog } from './CustomLabelDialog'
 import type { ResonantPeak } from '../measurement/types'
 import { FieldPrecision } from '../precision'
 
@@ -111,11 +112,11 @@ export function PeakCard({
   const isKnownOption = options.includes(effectiveLabel) || extended.includes(effectiveLabel)
   if (!isKnownOption) options.unshift(effectiveLabel)
 
+  const [editingLabel, setEditingLabel] = useState(false)
   const onPick = (val: string) => {
     if (val === RESET) return onResetLabel?.()
     if (val === CUSTOM) {
-      const t = window.prompt('Mode label', effectiveLabel)
-      if (t && t.trim()) onSetLabel?.(t.trim())
+      setEditingLabel(true)
       return
     }
     if (val === autoName) onResetLabel?.()
@@ -223,6 +224,16 @@ export function PeakCard({
           </span>
         </div>
       </div>
+      {editingLabel && (
+        <CustomLabelDialog
+          initial={isManualOverride ? effectiveLabel : ''}
+          onAssign={(label) => {
+            setEditingLabel(false)
+            onSetLabel?.(label)
+          }}
+          onCancel={() => setEditingLabel(false)}
+        />
+      )}
     </div>
   )
 }

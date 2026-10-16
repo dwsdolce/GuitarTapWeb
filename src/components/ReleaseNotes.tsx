@@ -119,6 +119,10 @@ export const RELEASES: RNRelease[] = [
         heading: 'Bug Fixes',
         items: [
           {
+            title: 'Microphone After a Dialog in Safari',
+            body: 'In Safari, naming a peak or deleting a measurement could leave the microphone silent until the page was reloaded. Both now open inside Guitar Tap, and if Safari pauses the audio for any other reason (a change of sound output, for example) Guitar Tap starts it again.',
+          },
+          {
             title: 'A Silent Microphone Is Now Noticed',
             body: 'If the input keeps running but delivers no signal (an unplugged hub, a muted device, input volume at zero, after sleep), the status bar says “No audio input — check the microphone connection” and Guitar Tap recovers once the microphone is back.',
           },

@@ -479,6 +479,7 @@ export class RealtimeFFTAnalyzer {
   private removeGestureResume: (() => void) | null = null
 
   private installGestureResume(ctx: AudioContext): void {
+    this.removeGestureResume?.()
     const resume = () => {
       void ctx.resume()
       this.removeGestureResume?.()
@@ -699,6 +700,21 @@ export class RealtimeFFTAnalyzer {
     // Browsers may bring the context up suspended without a user gesture (e.g. on
     // reload with permission already granted). Resume transparently on first input.
     if (ctx.state === 'suspended') this.installGestureResume(ctx)
+    // A context the browser stops mid-session is resumed: while it is not 'running' the input delivers
+    // nothing and the watchdogs stand down, so left alone the microphone stays dead until a reload.
+    // Safari suspends it while a modal browser dialog is open, on an audio route change, and on an
+    // iPhone or iPad for an interruption. Resumed at once where the browser allows it, otherwise on the
+    // next click or key press, as at start. Each change is logged.
+    ctx.onstatechange = () => {
+      console.info(`[engine] 🔈 Audio context ${ctx.state}`)
+      if (this.context !== ctx || ctx.state === 'closed') return
+      if (ctx.state === 'running') {
+        this.removeGestureResume?.()
+        return
+      }
+      void ctx.resume().catch(() => {})
+      this.installGestureResume(ctx)
+    }
 
     this.source = ctx.createMediaStreamSource(this.stream)
     this.node = new AudioWorkletNode(ctx, 'spectrum-processor')

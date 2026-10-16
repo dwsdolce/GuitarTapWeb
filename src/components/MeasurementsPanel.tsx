@@ -112,6 +112,10 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
   const [importError, setImportError] = useState<string | null>(null)
   // The import's success message (Swift `importSuccess`, Python's Import Successful box).
   const [importMessage, setImportMessage] = useState<string | null>(null)
+  // The measurement awaiting a Delete confirmation, and whether Delete All is. In-page alerts, as Swift's:
+  // a browser dialog (window.confirm) makes Safari suspend the page's audio.
+  const [pendingDelete, setPendingDelete] = useState<TapToneMeasurementModel | null>(null)
+  const [confirmingDeleteAll, setConfirmingDeleteAll] = useState(false)
   // Double-press detection works for mouse AND touch via pointer events (single tap is a
   // deliberate no-op, so double-press fires immediately — see the guidelines).
   const lastTap = useRef<{ id: string; t: number } | null>(null)
@@ -169,14 +173,20 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
     setEditingId(null)
     await refresh()
   }
-  const remove = async (m: TapToneMeasurementModel) => {
+  const remove = (m: TapToneMeasurementModel) => {
     setMenuId(null)
-    if (!window.confirm(`Delete "${m.measurementName ?? 'this measurement'}"? This cannot be undone.`)) return
+    setPendingDelete(m)
+  }
+  const confirmRemove = async () => {
+    const m = pendingDelete
+    setPendingDelete(null)
+    if (!m) return
     await onDelete(m)
     await refresh()
   }
-  const removeAll = async () => {
-    if (!window.confirm('Delete ALL saved measurements? This cannot be undone.')) return
+  const removeAll = () => setConfirmingDeleteAll(true)
+  const confirmRemoveAll = async () => {
+    setConfirmingDeleteAll(false)
     await onDeleteAll()
     await refresh()
   }
@@ -317,7 +327,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
         </button>
       )}
       {items && items.length > 0 && (
-        <button className="btn" onClick={() => void removeAll()} disabled={comparing} title="Delete all saved measurements">
+        <button className="btn" onClick={removeAll} disabled={comparing} title="Delete all saved measurements">
           <TrashIcon />
           Delete All
         </button>
@@ -357,6 +367,28 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
               message={importMessage}
               buttons={[{ label: 'OK', primary: true, onClick: () => setImportMessage(null) }]}
               onDismiss={() => setImportMessage(null)}
+            />
+          )}
+          {pendingDelete && (
+            <AlertModal
+              title="Delete Measurement?"
+              message={`Are you sure you want to delete "${pendingDelete.measurementName ?? 'Measurement'}"? This cannot be undone.`}
+              buttons={[
+                { label: 'Cancel', onClick: () => setPendingDelete(null) },
+                { label: 'Delete', primary: true, onClick: () => void confirmRemove() },
+              ]}
+              onDismiss={() => setPendingDelete(null)}
+            />
+          )}
+          {confirmingDeleteAll && (
+            <AlertModal
+              title="Delete All Measurements?"
+              message={`This will permanently delete all ${items?.length ?? 0} saved measurements. This cannot be undone.`}
+              buttons={[
+                { label: 'Cancel', onClick: () => setConfirmingDeleteAll(false) },
+                { label: 'Delete All', primary: true, onClick: () => void confirmRemoveAll() },
+              ]}
+              onDismiss={() => setConfirmingDeleteAll(false)}
             />
           )}
           {!isInstalled() && items != null && items.length > 0 && (
@@ -506,7 +538,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
                 Export PDF Report
               </button>
               <div className="meas-menu-sep" />
-              <button role="menuitem" className="danger" onClick={() => void remove(m)}>
+              <button role="menuitem" className="danger" onClick={() => remove(m)}>
                 <Icon paths={ICON_DELETE} />
                 Delete
               </button>
