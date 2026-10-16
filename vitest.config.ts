@@ -9,5 +9,6 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
     environment: 'node',
+    reporters: ['default', './test/skippedReporter.ts'],
   },
 })

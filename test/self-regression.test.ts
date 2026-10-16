@@ -25,22 +25,32 @@ const baseline = load()
 let computed: Record<string, number> = {}
 let expectedValues: Record<string, number> = {}
 
-describe.skipIf(baseline === null)(
+// An unminted configuration is exactly the state that must not become permanent, so its skip says so,
+// in the skipped list at the end of the run.
+const NO_BASELINE =
+  `NO SELF-BASELINE for ${configKey()} — this configuration has never been minted, so its regression bar is ` +
+  'not in force. It is still covered at the 1 dB / 1 Hz parity bar by the other suites. To close the gap: ' +
+  './tooling/mint-baseline.sh'
+
+describe(
   `self-regression — ${configKey()}`,
   () => {
     beforeAll(async () => {
+      if (baseline === null) return
       computed = flatten(await computeAll())
       expectedValues = flatten(baseline!.values)
     }, 600_000)
 
-    it('the baseline covers every computed value, and no more', () => {
+    it('the baseline covers every computed value, and no more', (ctx) => {
+      if (baseline === null) return ctx.skip(NO_BASELINE)
       const missing = Object.keys(expectedValues).filter((k) => !(k in computed)).sort()
       const extra = Object.keys(computed).filter((k) => !(k in expectedValues)).sort()
       expect(missing, `${missing.length} baseline value(s) are no longer computed`).toEqual([])
       expect(extra, `${extra.length} newly computed value(s) are absent from the baseline (re-mint to adopt them)`).toEqual([])
     })
 
-    it('every value is unchanged', () => {
+    it('every value is unchanged', (ctx) => {
+      if (baseline === null) return ctx.skip(NO_BASELINE)
       const drifted = Object.keys(expectedValues)
         .sort()
         .filter(
@@ -65,13 +75,3 @@ describe.skipIf(baseline === null)(
     })
   },
 )
-
-// A skipped suite scrolls past unnoticed, and an unminted configuration is exactly the state
-// that must not become permanent. Say so loudly, once, at collection time.
-if (baseline === null) {
-  console.warn(
-    `\n⚠️  NO SELF-BASELINE for ${configKey()} — this configuration has never been minted, so its\n` +
-      '   regression bar is not in force. It is still covered at the 1 dB / 1 Hz parity bar by the\n' +
-      '   other suites. To close the gap: ./tooling/mint-baseline.sh\n',
-  )
-}

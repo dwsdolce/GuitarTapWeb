@@ -34,8 +34,7 @@ const UNREACHABLE = ['could not fetch canonical oracle', 'ORACLE_SRC given but n
 describe('the vendored oracle matches canonical', () => {
   it('is in sync, or says why it could not be checked', (ctx) => {
     if (!existsSync(script)) {
-      console.warn(`⚠️  no sync-oracle.sh at ${script} — oracle staleness NOT checked`)
-      return ctx.skip()
+      return ctx.skip(`no sync-oracle.sh at ${script} — oracle staleness NOT checked`)
     }
 
     const run = spawnSync('bash', [script, '--check'], {
@@ -44,20 +43,17 @@ describe('the vendored oracle matches canonical', () => {
       timeout: 120_000,
     })
     if (run.error) {
-      console.warn(`⚠️  could not run bash (${run.error.message}) — oracle staleness NOT checked`)
-      return ctx.skip()
+      return ctx.skip(`could not run bash (${run.error.message}) — oracle staleness NOT checked`)
     }
 
     const output = `${run.stdout ?? ''}\n${run.stderr ?? ''}`.trim()
     if (run.status === 0) return
 
     if (run.status === 2 && UNREACHABLE.some((p) => output.includes(p))) {
-      console.warn(
-        '⚠️  CANONICAL ORACLE UNREACHABLE — the vendored copy is NOT being checked for\n' +
-          '   staleness. While the hub is private this needs ORACLE_SRC=<hub checkout>.\n' +
-          `   Script said: ${output.split('\n')[0] || '(no output)'}`,
+      return ctx.skip(
+        'CANONICAL ORACLE UNREACHABLE — the vendored copy is NOT being checked for staleness. While the hub is ' +
+          `private this needs ORACLE_SRC=<hub checkout>. Script said: ${output.split('\n')[0] || '(no output)'}`,
       )
-      return ctx.skip()
     }
 
     throw new Error(`sync-oracle.sh --check failed (exit ${run.status}):\n${output}`)

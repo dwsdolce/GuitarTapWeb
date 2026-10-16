@@ -79,7 +79,8 @@ function feedWith(s: SessionInternals, n: number, chunk: () => Float32Array): vo
 // The capture probe's records follow the recording: a sequence saved because Dump Capture Audio was turned on
 // before its first tap has its probe file too. Runs only with the probe on.
 describe('session-pre-roll — the capture probe follows the recording', () => {
-  it.skipIf(!LIVE_PROBE)('turned on before the first tap starts its records', () => {
+  it('turned on before the first tap starts its records', (ctx) => {
+    if (!LIVE_PROBE) return ctx.skip('the capture probe is switched off')
     const savedSession = captureProbe.liveSession
     try {
       const a = new TapToneAnalyzer()
