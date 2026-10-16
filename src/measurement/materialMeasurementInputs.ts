@@ -54,19 +54,24 @@ export function materialInputsFromSettings(type: 'plate' | 'brace', s: Settings)
 }
 
 /** Build Store B from a loaded measurement's snapshot dims — used on load instead of clobbering
- *  Settings. Missing fields fall back to 0 / the current-type stiffness default. */
-export function materialInputsFromSnapshot(type: 'plate' | 'brace', snap: SpectrumSnapshotModel): MaterialMeasurementInputs {
+ *  Settings. A missing dimension is 0; a missing body size, stiffness preset or custom stiffness is
+ *  the Settings value (`settings`). Mirrors Swift loadMeasurement and PDFReportData. */
+export function materialInputsFromSnapshot(
+  type: 'plate' | 'brace',
+  snap: SpectrumSnapshotModel,
+  settings: Settings,
+): MaterialMeasurementInputs {
   const brace = type === 'brace'
   const preset: StiffnessPreset =
-    snap.plateStiffnessPreset != null ? (STIFFNESS_FROM_RAW[snap.plateStiffnessPreset] ?? 'custom') : 'steelStringTop'
+    snap.plateStiffnessPreset != null ? (STIFFNESS_FROM_RAW[snap.plateStiffnessPreset] ?? 'custom') : settings.plateStiffnessPreset
   return {
     lengthMm: (brace ? snap.braceLength : snap.plateLength) ?? 0,
     widthMm: (brace ? snap.braceWidth : snap.plateWidth) ?? 0,
     thicknessMm: (brace ? snap.braceThickness : snap.plateThickness) ?? 0,
     massG: (brace ? snap.braceMass : snap.plateMass) ?? 0,
-    bodyLengthMm: snap.guitarBodyLength ?? 0,
-    bodyWidthMm: snap.guitarBodyWidth ?? 0,
+    bodyLengthMm: snap.guitarBodyLength ?? settings.guitarBodyLength,
+    bodyWidthMm: snap.guitarBodyWidth ?? settings.guitarBodyWidth,
     stiffnessPreset: preset,
-    customStiffness: snap.customPlateStiffness ?? 0,
+    customStiffness: snap.customPlateStiffness ?? settings.customPlateStiffness,
   }
 }

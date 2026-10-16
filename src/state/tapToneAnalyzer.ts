@@ -19,7 +19,7 @@ import { classifyAll, type ResolvedMode } from '../dsp/classify'
 import { effectiveMode as resolveEffectiveMode } from '../presentation/modeColors'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { comparisonAxisRange, comparisonModeIDMap, effectiveSelectedPeakIDs, MEASUREMENT_TYPE_FROM_RAW, measurementMultiTapComparisonEntries, storedComponents, guitarTypeNameFromRaw, isoNow, makeResonantPeak, TapEntry, type AnnotationOffsets, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapEntryModel, type TapToneMeasurementModel } from '../measurement/types'
-import { normalizedMeasurementNotes } from '../measurement/measurementName'
+import { normalizedMeasurementName, normalizedMeasurementNotes } from '../measurement/measurementName'
 import { newId } from '../measurement/newId'
 import { Pitch } from '../dsp/pitch'
 import { formatDisplayDateCompact } from '../format/date'
@@ -291,8 +291,9 @@ export interface MaterialRestore {
 }
 
 /** Decompose a saved plate/brace measurement for restore into the view. Mirrors Swift
- *  `loadMeasurement`'s material branch (per-phase spectra + selected peaks + dims). */
-export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialRestore {
+ *  `loadMeasurement`'s material branch (per-phase spectra + selected peaks + dims); `settings` fills
+ *  what the file lacks. */
+export function measurementToLiveMaterial(m: TapToneMeasurementModel, settings: Settings): MaterialRestore {
   const snap = m.longitudinalSnapshot
   if (!snap) throw new Error('Not a material measurement (no longitudinal snapshot)')
   const measurementType = MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'plate'
@@ -322,7 +323,7 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
   // never writes the dims into Settings (Store A) — that would overwrite the user's next-measurement
   // defaults. The settings a measurement carries go into the patch as for a guitar, plus measureFlc (a
   // capture setting the process/slot display reads); the axis range is transient (see `view` below).
-  const materialInputs = materialInputsFromSnapshot(measurementType === 'brace' ? 'brace' : 'plate', snap)
+  const materialInputs = materialInputsFromSnapshot(measurementType === 'brace' ? 'brace' : 'plate', snap, settings)
   const patch = loadedSettingsPatch(m, snap, measurementType)
   if (snap.measureFlc != null) patch.measureFlc = snap.measureFlc
 
@@ -1136,8 +1137,8 @@ export class TapToneAnalyzer {
     if (m.comparisonEntries) {
       this.clearResult() // returns to live and drops any overlay...
       this.loadComparisonRecord(m.comparisonEntries) // ...then enters comparison (clears loaded state)
-      this.loadedMeasurementName = m.measurementName ?? null // ...but a SAVED record has a name
-      this.loadedNotes = m.notes ?? null
+      this.loadedMeasurementName = normalizedMeasurementName(m.measurementName ?? '') ?? null // ...but a SAVED record has a name
+      this.loadedNotes = normalizedMeasurementNotes(m.notes ?? '') ?? null
       this.sourceMeasurementTimestamp = m.timestamp || null // ...and a date of its own
       this.resultProvenance = null // a comparison has no microphone of its own
       this.notify()
@@ -1146,7 +1147,7 @@ export class TapToneAnalyzer {
 
     if (m.longitudinalSnapshot) {
       // Material (plate/brace): per-phase snapshots, no guitar spectrum.
-      const mat = measurementToLiveMaterial(m)
+      const mat = measurementToLiveMaterial(m, this.settings)
       this.applyLoadedSettings(mat.settingsPatch) // its own settings first, as Swift applies them; NOT the dims
       this.loadedAxisRange = mat.view
       this.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
@@ -1185,8 +1186,8 @@ export class TapToneAnalyzer {
     }
 
     this.showingMultiTapComparison = false
-    this.loadedMeasurementName = m.measurementName ?? null
-    this.loadedNotes = m.notes ?? null
+    this.loadedMeasurementName = normalizedMeasurementName(m.measurementName ?? '') ?? null
+    this.loadedNotes = normalizedMeasurementNotes(m.notes ?? '') ?? null
     this.sourceMeasurementTimestamp = m.timestamp || null
     // The FILE's stored ring-out, not whatever the live tracker last reported.
     this.currentDecayTime = m.decayTime ?? null

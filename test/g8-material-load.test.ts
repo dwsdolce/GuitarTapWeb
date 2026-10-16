@@ -49,7 +49,7 @@ const plate: TapToneMeasurementModel = {
 }
 
 describe('measurementToLiveMaterial — restore a plate measurement', () => {
-  const r = measurementToLiveMaterial(plate)
+  const r = measurementToLiveMaterial(plate, DEFAULT_SETTINGS)
 
   it('restores per-phase spectra (L + C present, FLC absent)', () => {
     expect(r.measurementType).toBe('plate')
@@ -87,7 +87,7 @@ describe('measurementToLiveMaterial — restore a plate measurement', () => {
 describe('material survives the .guitartap file round-trip (export → import)', () => {
   it('serialize → parse → restore preserves spectra, peaks, and dims', () => {
     const m = parseGuitarTapFile(serializeGuitarTapFile([plate]))[0]!
-    const r = measurementToLiveMaterial(m)
+    const r = measurementToLiveMaterial(m, DEFAULT_SETTINGS)
     expect(r.matSpectra.longitudinal?.frequencies).toEqual([100, 120, 140])
     expect(r.matSpectra.cross?.frequencies).toEqual([200, 250, 300])
     expect(r.selectedLongitudinalPeak?.frequency).toBe(120)
@@ -178,7 +178,7 @@ describe('buildMaterialMeasurement — save round-trip (live → model → file 
 
   it('round-trips through the file back into live material', () => {
     const m = parseGuitarTapFile(serializeGuitarTapFile([built]))[0]!
-    const r = measurementToLiveMaterial(m)
+    const r = measurementToLiveMaterial(m, DEFAULT_SETTINGS)
     expect(r.measurementType).toBe('plate')
     expect(r.matSpectra.longitudinal?.frequencies).toEqual([100, 120, 140])
     expect(r.matSpectra.cross?.magnitudesDb).toEqual([-55, -45, -65])
@@ -224,7 +224,7 @@ describe('material annotation offsets round-trip (6d)', () => {
 
   it('restores the offset re-keyed by material peak id after a file round-trip', () => {
     const m = parseGuitarTapFile(serializeGuitarTapFile([built]))[0]!
-    const r = measurementToLiveMaterial(m)
+    const r = measurementToLiveMaterial(m, DEFAULT_SETTINGS)
     // Restored material peaks keep their saved ids: L (was dragged), C (not).
     expect(r.selectedLongitudinalPeak!.id).toBe(built.selectedLongitudinalPeakID)
     expect(r.annotationOffsetsById.get(built.selectedLongitudinalPeakID!)).toEqual([125, -38])

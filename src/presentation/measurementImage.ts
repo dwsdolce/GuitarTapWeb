@@ -9,6 +9,7 @@ import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
 import { comparisonAxisRange, measurementAutoModes, measurementMultiTapComparisonEntries, measurementTypeName, comparisonEntryModeFreqs, measurementTapToneRatio, measurementDefinitiveModeInfo, MEASUREMENT_TYPE_FROM_RAW } from '../measurement/types'
 import { isGuitarType, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, DEFAULT_SETTINGS } from '../settings'
+import { settingsStore } from '../settingsStore'
 import { materialDimensions, materialInputsFromSnapshot, materialStiffness } from '../measurement/materialMeasurementInputs'
 import { formatDisplayDate } from '../format/date'
 import type { GuitarTypeName } from '../dsp/guitarModes'
@@ -55,7 +56,8 @@ function savedMaterial(m: TapToneMeasurementModel) {
     selectedLongitudinalPeak: peak(m.selectedLongitudinalPeakID),
     selectedCrossPeak: peak(m.selectedCrossPeakID),
     selectedFlcPeak: peak(m.selectedFlcPeakID),
-    materialInputs: materialInputsFromSnapshot(measurementType === 'brace' ? 'brace' : 'plate', snap),
+    // What the file lacks comes from the settings, as Swift's PDFReportData reads TapDisplaySettings.
+    materialInputs: materialInputsFromSnapshot(measurementType === 'brace' ? 'brace' : 'plate', snap, settingsStore.get()),
     measureFlc: snap.measureFlc ?? DEFAULT_SETTINGS.measureFlc,
     annotationOffsetsById: new Map(Object.entries(m.peakAnnotationOffsets ?? {})),
   }
