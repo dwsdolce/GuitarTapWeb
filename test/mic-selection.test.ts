@@ -15,8 +15,8 @@
 //   MS4, MS5 — the browser resolves the default input itself; there is no first-device step (marked
 //              in mic-selection.json).
 //   MS12, MS13 — Python only (which PortAudio default is the system default).
-//   MS21     — the web's settings are App's store: the analyzer hands App the loaded settings
-//              (`loadedSettings`) and App saves them, so the test checks what the load hands over.
+//   MS21     — the load applies the measurement's thresholds to the analyzer (and, in the app, to the
+//              settings store), so the test checks the analyzer.
 //   MS22     — no counterpart: the analyzer holds no threshold setting of its own.
 //
 // The browser's media devices are replaced by a fake: a set of connected inputs and a default.
@@ -316,8 +316,8 @@ describe('a load restores settings as the user setting them would', () => {
         guitarType: 'Classical',
       },
     })
-    expect(sut.loadedSettings?.tapDetectionThreshold).toBe(-30)
-    expect(sut.loadedSettings?.peakMinThreshold).toBe(-50)
+    expect(sut.tapDetectionThreshold).toBe(-30)
+    expect(sut.peakMinThreshold).toBe(-50)
   })
 })
 

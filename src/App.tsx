@@ -1,5 +1,5 @@
 // @parity view/main
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { RealtimeFFTAnalyzer } from './audio/realtimeFFTAnalyzer'
 import { SpectrumChart } from './components/SpectrumChart'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
@@ -43,7 +43,8 @@ import { modeBands, peaksInDisplayRange, type GuitarTypeName } from './dsp/guita
 import { Pitch } from './dsp/pitch'
 import { FieldPrecision } from './precision'
 import { formatDisplayDate } from './format/date'
-import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, loadSettings, saveSettings, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
+import { settingsStore } from './settingsStore'
+import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
 import type { ResonantPeak } from './measurement/types'
 import { displayRangeLabel } from './presentation/frequencyFormat'
 import './App.css'
@@ -122,7 +123,9 @@ export default function App() {
   // `displayMode == .comparison`, which switches the status bar to the comparison line.
   const inComparison = snapshot.displayMode === 'comparison'
 
-  const [settings, setSettings] = useState<Settings>(loadSettings)
+  // The app's settings — the settings store, which the model also reads and writes (a load restores the
+  // measurement's own settings there). The view reads it and re-renders when it changes.
+  const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.get)
   const [showSettings, setShowSettings] = useState(false)
   const [showHelpMenu, setShowHelpMenu] = useState(false)
   const [showQuickStart, setShowQuickStart] = useState(false)
@@ -210,17 +213,9 @@ export default function App() {
   // for MaterialResults' calc + Save, never the live Settings.
   const matInputs = snapshot.materialInputs
 
-  // Mirror the settings the analyzer needs onto it: Swift/Python read these from the TapDisplaySettings
-  // singleton, but the web has no analyzer-visible global. `measurementType` drives the material search
-  // ranges + WAV label + brace auto-complete; `measureFlc` drives the plate phase plan. A LAYOUT effect
-  // declared BEFORE the measurement-type transition layout effect, so the analyzer sees the new type
-  // before the transition re-arms and reclassifies for it.
-  useLayoutEffect(() => {
-    analyzer.setMeasurementTypeAndNotify(settings.measurementType)
-    analyzer.setMeasureFlc(settings.measureFlc)
-    // The whole settings object, for the completion setter's Store B seed.
-    analyzer.setSettings(settings)
-  }, [analyzer, settings])
+  // The analyzer reads the settings store itself — as Swift's analyzer reads TapDisplaySettings — and
+  // applies a change the moment it is made. A layout effect, so it is attached before anything is shown.
+  useLayoutEffect(() => analyzer.attachSettingsStore(settingsStore), [analyzer])
 
   // Browser tab title carries the version+build, like the Swift/Python window titles
   // ("Guitar Tap 1.0.1 (NNN)"). Set once at mount.
@@ -228,38 +223,22 @@ export default function App() {
     document.title = `Guitar Tap ${__APP_VERSION__} (${__APP_BUILD__})`
   }, [])
 
-  // Loading a saved measurement sets the type, spectrum, peaks, and selection together;
-  // these refs suppress the one-shot "reset on change" effects so the restore isn't clobbered.
-  const skipNextTypeResetRef = useRef(false)
   // While a comparison is frozen, a tap-capture already in flight (started before Compare)
   // must not clobber it — onGuitarCapture checks this ref. Kept in sync with `comparison` below.
-  // Peaks from a loaded measurement are authoritative: while set, Peak Min only FILTERS
-  // them by magnitude — findPeaks is never re-run on the loaded spectrum (matches Swift
-  // recalculateFrozenPeaksIfNeeded / Python recalculate_frozen_peaks_if_needed). Cleared
-  // on a fresh live capture / New Tap / measurement-type change, reverting to findPeaks.
-  // `loadedPeaks` lives on the ANALYZER now (Swift `loadedMeasurementPeaks`). It used to be React
-  // state here, which meant the peaks and the frozen spectrum were applied in two different places
-  // and could be observed half-applied. Reading it from the snapshot keeps one source of truth.
-  const loadedPeaks = snapshot.loadedPeaks
-  const setLoadedPeaks = useCallback(
-    (v: ResonantPeak[] | null) => { if (v === null) analyzer.clearLoadedPeaks(); else analyzer.loadedPeaks = v },
-    [analyzer],
-  )
   // Ring-out of what is on screen — ONE value on the analyzer (Swift `currentDecayTime`): the file's
   // when a measurement is loaded, the live tracker's during a capture. The view used to hold both a
   // `loadedDecayTime` and the engine's live value and choose between them by `loadedName != null`.
   const currentDecayTime = snapshot.currentDecayTime
 
-  const updateSettings = useCallback((patch: Partial<Settings>) => setSettings((s) => ({ ...s, ...patch })), [])
+  const updateSettings = useCallback((patch: Partial<Settings>) => settingsStore.update(patch), [])
   // Persist the display frequency range for a specific measurement type (Swift
   // setMinFrequency(_:for:) / setMaxFrequency(_:for:)). Functional update so it never clobbers
   // another type's stored range.
   const updateDisplayRange = useCallback(
     (type: MeasurementType, range: { minHz?: number; maxHz?: number }) =>
-      setSettings((s) => ({ ...s, ...setFrequencyRange(s, range, type) })),
+      settingsStore.update((s) => setFrequencyRange(s, range, type)),
     [],
   )
-  useEffect(() => saveSettings(settings), [settings])
   // Draw the app in the scheme the Appearance setting resolves to — at launch and whenever the setting changes
   // (mirrors Swift's root onAppear and applySettings).
   useEffect(() => applyAppearance(settings.appearance), [settings.appearance])
@@ -279,38 +258,20 @@ export default function App() {
     if (!engineRef.current?.running) return
     analyzer.requestStartTapSequence() // one path, guitar or material; stops a playing file first
   }, [analyzer])
-  // Tracks the previous measurement type so a type change can distinguish a guitar-SUBTYPE change (both
-  // types guitar) from a paradigm change (crossing guitar↔material, or plate↔brace).
-  const prevTypeRef = useRef(settings.measurementType)
-  // Switching measurement type. A guitar-subtype change (both guitar, e.g. Generic → Flamenco) is a
-  // CLEAN SLATE for the new type — reclassify + clear manual labels + re-auto-select, KEEPING the frozen
-  // measurement (Swift reclassifyForGuitarTypeChange / Python reclassify_for_guitar_type_change). Crossing
-  // the guitar↔material boundary, or plate↔brace, is a paradigm change that needs a fresh sequence. A
-  // LAYOUT effect, so the clean slate (or reset) is applied before paint — synchronous, no intermediate
-  // frame, matching Swift
-  // (onApply) and Python (_on_measurement_type_changed), both synchronous. Skipped while loading a
-  // measurement (which sets the type + the restored result in the same commit).
-  useLayoutEffect(() => {
-    const prev = prevTypeRef.current
-    const next = settings.measurementType
-    prevTypeRef.current = next
-    if (skipNextTypeResetRef.current) {
-      skipNextTypeResetRef.current = false
-      return
-    }
-    if (prev !== next && isGuitarType(prev) && isGuitarType(next)) {
-      // Guitar subtype change: clean-slate re-classification for the new type, keeping the frozen
-      // spectrum, peaks and dragged offsets (Swift reclassifyForGuitarTypeChange — no re-detection).
-      analyzer.reclassifyForGuitarTypeChange()
-      return
-    }
-    // Initial mount (prev === next) or a paradigm change: drop the result + per-peak state and arm afresh.
-    setLoadedPeaks(null)
-    analyzer.clearResult() // drop the frozen guitar spectrum + per-tap comparison spectra
-    setLoadedView(null) // a new measurement context drops the loaded measurement's transient range
-    analyzer.resetMaterial()
-    armForCurrentType()
-  }, [analyzer, settings.measurementType, guitarType, armForCurrentType, setLoadedPeaks])
+  // Settings' Done. A change of measurement type is the model's to act on: between guitar types it
+  // re-derives the classification, otherwise it drops the result and starts a new sequence — and a new
+  // measurement context drops the loaded measurement's chart range. Mirrors Swift Settings' onApply. A load
+  // changes the type too, but never comes here.
+  const applySettings = useCallback(
+    (next: Settings) => {
+      const previous = settingsStore.get().measurementType
+      settingsStore.update(next)
+      if (next.measurementType === previous) return
+      if (!(isGuitarType(previous) && isGuitarType(next.measurementType))) setLoadedView(null)
+      analyzer.changeMeasurementType(previous, next.measurementType)
+    },
+    [analyzer, setLoadedView],
+  )
 
   // Stable capture-result callback the engine's once-registered handler delegates to. The guitar tap
   // sequence finished: average the analyzer's accumulated taps into the frozen result (which also
@@ -357,7 +318,6 @@ export default function App() {
         const parsed = parseCalibration(await calFile.text(), calFile.name.replace(/\.[^.]+$/, ''))
         if (parsed.points.length) cal = parsed
       }
-      setLoadedPeaks(null)
       setLoadedView(null) // playing a file starts a new measurement — drop any loaded range
       // The analyzer applies the calibration, arms the sequence and plays the file (the app's one Play
       // File path, which the file-playback regressions also run). Mirrors Swift openAudioFile calling
@@ -366,7 +326,7 @@ export default function App() {
     } catch (e) {
       setError(`Couldn't play file: ${e instanceof Error ? e.message : String(e)}`)
     }
-  }, [analyzer, setError, setLoadedPeaks])
+  }, [analyzer, setError])
 
   /** Everything a fresh measurement must drop from the previously LOADED one, whatever the mode.
    *
@@ -377,11 +337,10 @@ export default function App() {
    *  `loadedName`), and the load-time provenance warning stayed live too. Both paths now call this,
    *  which is the closest the web gets to the native single arm path. */
   const clearLoadedMeasurement = useCallback(() => {
-    setLoadedPeaks(null)
     setLoadedView(null) // drop the loaded measurement's transient axis range
     // Store B is NOT nulled here: Swift never clears materialInputs on New Tap, and it does not need
     // to — the completion setter re-seeds on the next transition.
-  }, [setLoadedPeaks])
+  }, [setLoadedView])
 
   const newTap = useCallback(() => {
     clearLoadedMeasurement()
@@ -422,9 +381,7 @@ export default function App() {
   // re-selecting, dragged labels snapping back). Setting the threshold only re-projects. Mirrors
   // Swift, where the slider writes
   // TapDisplaySettings.peakMinThreshold and the analyzer's didSet calls refreshDisplayedPeaks().
-  useLayoutEffect(() => {
-    analyzer.setPeakMinThreshold(peakMin)
-  }, [analyzer, peakMin])
+
 
   const modeByPeak = snapshot.modeByPeak
 
@@ -761,23 +718,6 @@ export default function App() {
     }
   }, [buildCurrentMeasurement, loadedName, snapshot.loadedNotes, sourceTimestamp, setError, setErrorKind])
 
-  // A load reaches what lives outside the model — the settings store, the chart range and the device — by the
-  // analyzer publishing it and these observing it, whichever route loaded it: Load, double-click or an import's
-  // auto-load. Swift's view does the same with its `.onReceive(tap.$loadedMeasurementType / $loadedAxisRange …)`
-  // handlers. Each runs when the analyzer publishes a new value, and every load publishes a new one.
-  const loadedSettings = snapshot.loadedSettings
-  useLayoutEffect(() => {
-    if (!loadedSettings) return
-    // The measurement's own display settings (type, measureFlc, thresholds, annotation mode). The skip-ref
-    // suppresses the one-shot "reset on type change" effect so the restore stands.
-    if (loadedSettings.measurementType && loadedSettings.measurementType !== prevTypeRef.current) {
-      skipNextTypeResetRef.current = true
-    }
-    updateSettings(loadedSettings)
-    // The device is told the tap count the model restored.
-    engineRef.current?.setConfig({ numberOfTaps: analyzer.numberOfTaps })
-  }, [analyzer, loadedSettings, updateSettings])
-
   // The saved axis range is the loaded range — for a comparison as for a single measurement — shown without
   // changing the user's saved per-type range, and left by a new sequence the user has not moved the chart since
   // (Swift setLoadedAxisRange → loadedChartRange). A guitar measurement's range is also the view at once.
@@ -785,14 +725,13 @@ export default function App() {
   useLayoutEffect(() => {
     if (!loadedAxisRange) return
     setLoadedView(loadedAxisRange)
-    const type = analyzer.loadedSettings?.measurementType
-    if (analyzer.displayMode !== 'comparison' && !(type && isMaterialType(type))) setView(loadedAxisRange)
+    if (analyzer.displayMode !== 'comparison' && !isMaterialType(analyzer.measurementType)) setView(loadedAxisRange)
   }, [analyzer, loadedAxisRange, setView])
 
   const onLoadMeasurement = useCallback(
     (m: TapToneMeasurementModel) => {
-      // The MODEL loads: it works out guitar / material / comparison record, converts the file,
-      // restores itself, and publishes what it loaded, which the observers above apply.
+      // The MODEL loads: it works out guitar / material / comparison record, converts the file, restores
+      // itself and the measurement's own settings; the view shows the result and applies its chart range.
       analyzer.loadMeasurement(m)
       setShowMeasurements(false)
     },
@@ -802,15 +741,11 @@ export default function App() {
   // Create a comparison from ≥2 selected library measurements (mirrors Swift loadComparison).
   const onCompare = useCallback((measurements: TapToneMeasurementModel[]) => {
     if (measurements.filter((m) => m.spectrumSnapshot).length < 2) return
-    setLoadedPeaks(null)
-    analyzer.clearResult() // returns to live and drops any overlay...
-    analyzer.loadComparison(measurements) // ...then enters comparison. Order matters: clearResult
-    // would otherwise wipe what we just set. The analyzer is readable synchronously, so the
-    // in-flight-capture guard in onGuitarCapture sees this immediately — no ref to keep in sync.
+    analyzer.loadComparison(measurements) // the model replaces what is shown and enters comparison
     setShowMeasurements(false)
     // Freeze the comparison: stop the always-on listener so a stray tap can't clobber it
     // (mirrors Swift displayMode == .comparison). New Tap re-arms.
-  }, [analyzer, setLoadedPeaks])
+  }, [analyzer])
 
   // Comparison chart overlays + results rows (derived from the active comparison entries).
   const comparisonOverlays = useMemo<SpectrumOverlay[]>(
@@ -1051,23 +986,22 @@ export default function App() {
               />
             </div>
 
-            {!material && (
-              <>
-                <span className="divider" />
-                <div className="field" title={HINTS.peakMin}>
-                  <label>Peak Min</label>
-                  <input
-                    type="range"
-                    min={-100}
-                    max={-20}
-                    step={1}
-                    value={peakMin}
-                    onChange={(e) => updateSettings({ peakMinThreshold: Number(e.target.value) })}
-                  />
-                  <span className="val">{peakMin} dB</span>
-                </div>
-              </>
-            )}
+            {/* Always shown; disabled and faded for plate/brace and in a comparison, as Swift's
+                .disabled / .opacity pair on its Peak Min row. */}
+            <span className="divider" />
+            <div className={`field${material || inComparison ? ' is-faded' : ''}`} title={HINTS.peakMin}>
+              <label>Peak Min</label>
+              <input
+                type="range"
+                min={-100}
+                max={-20}
+                step={1}
+                value={peakMin}
+                disabled={material || inComparison}
+                onChange={(e) => updateSettings({ peakMinThreshold: Number(e.target.value) })}
+              />
+              <span className="val peak-min">{peakMin} dB</span>
+            </div>
           </>
         )}
 
@@ -1218,9 +1152,12 @@ export default function App() {
           <div className="results-mic">
             {/* The microphone the result was captured with: the input for a live result, the recorded
                 one — or "unknown" — for a played file or a loaded measurement. Swift
-                TapAnalysisResultsView reading analyzer.captureMicrophoneName. */}
+                TapAnalysisResultsView reading analyzer.captureMicrophoneName. None for a comparison: it has no
+                microphone of its own. */}
             <span className="results-mic-name">
-              {snapshot.resultProvenance ? (snapshot.resultProvenance.microphoneName ?? 'unknown') : deviceLabel}
+              {snapshot.isSavedMeasurementComparison
+                ? ''
+                : snapshot.resultProvenance ? (snapshot.resultProvenance.microphoneName ?? 'unknown') : deviceLabel}
             </span>
             <button
               className="btn mini icon"
@@ -1485,7 +1422,7 @@ export default function App() {
           sampleRate={sampleRate}
           deviceLabel={deviceLabel}
           currentView={view}
-          onApply={setSettings}
+          onApply={applySettings}
           onSaveCurrentView={saveCurrentView}
           onClose={() => setShowSettings(false)}
           userManualUrl={userManualUrl}

@@ -14,7 +14,7 @@
 //
 // PR10 / PR11 (the isLoadingMeasurement guard) are in the PR10/PR11 describe block at the end of this
 // file. loadMeasurement applies the whole measurement — spectrum, per-tap entries, peaks, overrides,
-// offsets, selection — as one step under isLoadingMeasurement, and `loadedPeaks` lives on the analyzer.
+// offsets, selection — as one step under isLoadingMeasurement.
 
 import { describe, it, expect } from 'vitest'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
@@ -333,11 +333,9 @@ describe('frozen-peak-recalc — per-tap entries computed once', () => {
     frozen(a, mags, freqs)
     const saved = peak(777, -30)
     a.peaks = [saved]
-    a.loadedPeaks = [saved]
 
     a.reanalyzePeaks()
 
-    expect(a.loadedPeaks).toBeNull() // Re-analyze drops the loaded peaks
     expect(a.peaks.some((p) => p.id === saved.id)).toBe(false) // the saved peak is gone
     expect(near(a.peaks, 200)).toBe(true) // the spectrum's peak is re-detected
   })
@@ -355,7 +353,7 @@ describe('frozen-peak-recalc — per-tap entries computed once', () => {
 // dead end, a wrongly-ENABLED one costs a pointless click. So: any complete guitar measurement
 // with a frozen spectrum; never material.
 //
-// This replaces `loadedPeaks == null`, a proxy for "the peaks are stale" that was wrong in both
+// This replaced "a measurement is loaded", a proxy for "the peaks are stale" that was wrong in both
 // directions — it disabled itself after one press (the web comment even recorded the one-shot as
 // intended), and never lit up for a live capture whose mode assignments had drifted.
 //
@@ -365,7 +363,7 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
     const a = new TapToneAnalyzer()
     const { mags, freqs } = makeSpectrum(200, -20)
     frozen(a, mags, freqs)
-    recalc(a) // fresh capture — loadedPeaks null
+    recalc(a) // a fresh capture
     expect(a.canReanalyze).toBe(true)
   })
 
@@ -374,8 +372,7 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
     const { mags, freqs } = makeSpectrum(200, -20)
     frozen(a, mags, freqs)
     a.measurementType = 'generic'
-    a.loadedPeaks = [peak(200, -25)] // as a load leaves it
-    a.peaks = a.loadedPeaks
+    a.peaks = [peak(200, -25)] // as a load leaves it
     expect(a.canReanalyze).toBe(true)
   })
 
@@ -384,8 +381,7 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
     const { mags, freqs } = makeSpectrum(200, -20)
     frozen(a, mags, freqs)
     a.measurementType = 'generic'
-    a.loadedPeaks = [peak(200, -25)] // as a load leaves it
-    a.peaks = a.loadedPeaks
+    a.peaks = [peak(200, -25)] // as a load leaves it
     expect(a.canReanalyze).toBe(true)
 
     a.reanalyzePeaks() // clears the loaded peaks and re-detects
@@ -398,7 +394,6 @@ describe('frozen-peak-recalc — canReanalyze (PR8)', () => {
       a.measurementType = mt
       const { mags, freqs } = makeSpectrum(200, -20)
       frozen(a, mags, freqs)                                        // even WITH a frozen spectrum…
-      a.loadedPeaks = [peak(200, -20)]                              // …and loaded peaks
       expect(a.canReanalyze, `${mt} must never offer Re-analyze`).toBe(false)
     }
   })
@@ -864,14 +859,13 @@ describe('frozen-peak-recalc — the loading guard (PR10/PR11)', () => {
     a.restoreSnapshot({
       magnitudes: s.mags,
       frequencies: s.freqs,
-      loadedPeaks: [saved],
+      peaks: [saved],
       overrides: new Map<string, string>([[saved.id, 'Wolf note']]),
       annotationOffsets: new Map<string, [number, number]>([[saved.id, [12, -8]]]),
       selection: { ids: new Set([saved.id]), frequencies: [saved.frequency], userModified: true },
     })
 
     expect(a.isLoadingMeasurement).toBe(false) // cleared by the time it returns
-    expect(a.loadedPeaks?.map((p) => p.frequency)).toEqual([777])
     expect(a.frozenMagnitudes.length).toBeGreaterThan(0) // peaks and spectrum landed together
 
     expect(a.peaks.map((p) => p.frequency)).toEqual([777]) // the saved peaks, not a re-detection

@@ -83,7 +83,7 @@ describe('round-trip through file → restore into the view', () => {
     expect(live.settingsPatch.peakMinThreshold).toBe(-55)
     // Saved peaks are injected verbatim, ids included; selection, overrides and offsets restore
     // by those ids.
-    expect(live.loadedPeaks.map((p) => [p.id, p.frequency])).toEqual([[AIR_ID, 100], [TOP_ID, 200]])
+    expect(live.peaks.map((p) => [p.id, p.frequency])).toEqual([[AIR_ID, 100], [TOP_ID, 200]])
     expect([...live.selectedIds]).toEqual([TOP_ID])
     expect(live.overridesById.get(AIR_ID)).toBe('Custom')
     expect(live.annotationOffsetsById.get(TOP_ID)).toEqual([215.5, -32.0])

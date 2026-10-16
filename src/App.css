@@ -807,14 +807,26 @@
 .field.is-disabled .step-val {
   opacity: 0.45;
 }
+/* A field disabled as a whole row — Peak Min for plate/brace and in a comparison: everything at 0.4,
+   Swift's `.opacity(... ? 1 : 0.4)` on that row. */
+.field.is-faded {
+  opacity: 0.4;
+}
+.field.is-faded input {
+  cursor: not-allowed;
+}
 .field input[type='range'] {
   width: 130px;
   accent-color: var(--c-accent-text);
 }
 .field .val {
   font-variant-numeric: tabular-nums;
-  color: var(--c-text-primary);
+  font-weight: 500;
+  color: var(--c-accent-text);
   min-width: 3.5rem;
+}
+.field .val.peak-min {
+  color: var(--c-chart-peak-min);
 }
 .field select {
   background: var(--c-background-control);
@@ -1311,7 +1323,8 @@
 }
 .thmeter-val {
   font-variant-numeric: tabular-nums;
-  color: var(--c-text-primary);
+  font-weight: 500;
+  color: var(--c-accent-text);
   min-width: 3.5rem;
 }
 

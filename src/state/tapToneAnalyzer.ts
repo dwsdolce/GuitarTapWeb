@@ -32,6 +32,7 @@ import { RealtimeFFTAnalyzer, failedOpenMessage, type MaterialSearch, type Mater
 // Single shared MeasurementType + guard (mirrors Swift's shared MeasurementType enum) — the settings
 // store owns them; the analyzer no longer duplicates the type.
 import { ANALYSIS_MAX_HZ, ANALYSIS_MIN_HZ, ANNOTATION_NEXT, isGuitarType, minFrequency, maxFrequency, DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, type AnnotationMode, type MeasurementType, type Settings } from '../settings'
+import type { SettingsStore } from '../settingsStore'
 import { materialInputsFromSettings, materialInputsFromSnapshot, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { dumpCaptureProbe, dumpCaptureWav } from '../measurement/dumpWav'
 import { FieldPrecision } from '../precision'
@@ -184,10 +185,8 @@ export interface LiveRestore {
   captured: Spectrum
   view: ChartView
   settingsPatch: Partial<Settings>
-  /** The saved peaks, authoritative — never re-derived from the spectrum — each with its saved id. Peak
-   *  Min only filters these by magnitude (matching Swift recalculateFrozenPeaksIfNeeded / Python
-   *  recalculate_frozen_peaks_if_needed). */
-  loadedPeaks: ResonantPeak[]
+  /** The saved peaks, authoritative — never re-derived from the spectrum — each with its saved id. */
+  peaks: ResonantPeak[]
   /** Ids of the selected peaks. */
   selectedIds: Set<string>
   /** Whether the saved selection was hand-modified (default true for legacy files). */
@@ -200,6 +199,22 @@ export interface LiveRestore {
   tapEntries: TapEntry[]
 }
 
+/** The settings a saved measurement carries, which a load makes the app's: its type, and — when the file has
+ *  them — Show Unknown Modes, Peak Min, the tap threshold and the annotation mode. Mirrors Swift
+ *  loadMeasurement, which applies each only if the file carries it. */
+function loadedSettingsPatch(
+  m: TapToneMeasurementModel,
+  snap: SpectrumSnapshotModel,
+  measurementType: MeasurementType,
+): Partial<Settings> {
+  const patch: Partial<Settings> = { measurementType }
+  if (snap.showUnknownModes != null) patch.showUnknownModes = snap.showUnknownModes
+  if (m.peakMinThreshold != null) patch.peakMinThreshold = m.peakMinThreshold
+  if (m.tapDetectionThreshold != null) patch.tapDetectionThreshold = m.tapDetectionThreshold
+  if (m.annotationVisibilityMode != null) patch.annotationVisibilityMode = m.annotationVisibilityMode
+  return patch
+}
+
 /** Decompose a saved guitar measurement into the pieces the App restores into the view.
  *  The saved peaks are injected verbatim, ids included; selection, overrides and label offsets
  *  restore by those same ids, as Swift's do. */
@@ -209,7 +224,7 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
 
   const measurementType = MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'generic'
 
-  const loadedPeaks: ResonantPeak[] = [...m.peaks]
+  const peaks: ResonantPeak[] = [...m.peaks]
 
   // Overrides, offsets and selection name peaks by id; an id with no matching peak is dropped.
   const peakIds = new Set(m.peaks.map((p) => p.id))
@@ -231,13 +246,7 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
   // The loaded axis range (freq AND dB) is carried in `view` and applied as a TRANSIENT
   // override by the caller (Swift loadedAxisRange) — it is NOT persisted to settings, so
   // no display range goes in the patch here.
-  const settingsPatch: Partial<Settings> = {
-    measurementType,
-    showUnknownModes: snap.showUnknownModes ?? DEFAULT_SETTINGS.showUnknownModes,
-    peakMinThreshold: m.peakMinThreshold ?? DEFAULT_SETTINGS.peakMinThreshold,
-  }
-  if (m.tapDetectionThreshold != null) settingsPatch.tapDetectionThreshold = m.tapDetectionThreshold
-  if (m.annotationVisibilityMode != null) settingsPatch.annotationVisibilityMode = m.annotationVisibilityMode
+  const settingsPatch = loadedSettingsPatch(m, snap, measurementType)
 
   return {
     measurementType,
@@ -245,7 +254,7 @@ export function measurementToLive(m: TapToneMeasurementModel): LiveRestore {
     captured: { magnitudesDb: snap.magnitudes, frequencies: snap.frequencies },
     view: { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB },
     settingsPatch,
-    loadedPeaks,
+    peaks,
     selectedIds,
     overridesById,
     annotationOffsetsById,
@@ -309,12 +318,12 @@ export function measurementToLiveMaterial(m: TapToneMeasurementModel): MaterialR
     if (restoredIds.has(id)) annotationOffsetsById.set(id, pos)
   }
 
-  // Store B ← the measurement's OWN dims from the snapshot (the calc/display/PDF read this). Loading no
-  // longer writes the dims into Settings (Store A) — that was the clobber that silently overwrote the
-  // user's next-measurement defaults. Only the type and measureFlc (a capture setting the process/slot
-  // display reads) go into the Settings patch; the axis range is transient (see `view` below).
+  // Store B ← the measurement's OWN dims from the snapshot (the calc/display/PDF read this). Loading
+  // never writes the dims into Settings (Store A) — that would overwrite the user's next-measurement
+  // defaults. The settings a measurement carries go into the patch as for a guitar, plus measureFlc (a
+  // capture setting the process/slot display reads); the axis range is transient (see `view` below).
   const materialInputs = materialInputsFromSnapshot(measurementType === 'brace' ? 'brace' : 'plate', snap)
-  const patch: Partial<Settings> = { measurementType }
+  const patch = loadedSettingsPatch(m, snap, measurementType)
   if (snap.measureFlc != null) patch.measureFlc = snap.measureFlc
 
   return {
@@ -635,12 +644,6 @@ export class TapToneAnalyzer {
   // — so every other consumer (the save path, the PDF, the multi-tap table, the unit tests) had to
   // re-derive it and could disagree. One rule, one home.
   peaksAbovePeakMin: ResonantPeak[] = []
-  // The authoritative saved peaks of a LOADED measurement, or null for a live capture. Owned by the
-  // analyzer, not the view, so that it and the frozen spectrum can never be seen half-applied:
-  // a render that saw the spectrum set while this was still null would take the live branch,
-  // re-detect, mint fresh ids, and wipe the overrides/offsets/selection just restored from the file.
-  // Mirrors Swift `loadedMeasurementPeaks` / Python `loaded_measurement_peaks`.
-  loadedPeaks: ResonantPeak[] | null = null
   // True for the duration of `loadMeasurement`, which applies the whole restore — spectrum, per-tap
   // entries, peaks, overrides, offsets, selection — as ONE step. `recalculateFrozenPeaksIfNeeded` returns early
   // while it is set, so nothing can recalculate against a half-applied measurement and clobber what
@@ -729,11 +732,6 @@ export class TapToneAnalyzer {
   /** The loaded measurement's saved axis range — a TRANSIENT override of the persisted display
    *  range, which is left untouched (Swift `loadedAxisRange`). */
   loadedAxisRange: ChartView | null = null
-  /** The display settings the loaded measurement carries (type, measureFlc, thresholds, annotation
-   *  mode). Swift publishes one `loaded*` property per setting and its view writes each into the
-   *  TapDisplaySettings singleton; the web's settings are a single object, so they travel as one
-   *  patch for App to apply — same direction, one field instead of nine. */
-  loadedSettings: Partial<Settings> | null = null
   /** The loaded measurement's microphone is not connected, or its calibration / sample rate differs
    *  (Swift `@Published var microphoneWarning`). An IMPORT never sets this — only a load, which is
    *  what puts the user in front of the data. The view shows it and clears it on acknowledgement. */
@@ -880,7 +878,6 @@ export class TapToneAnalyzer {
     this.loadedNotes = null
     this.sourceMeasurementTimestamp = null
     this.loadedAxisRange = null
-    this.loadedSettings = null
     this.currentDecayTime = null
     this.showingMultiTapComparison = false
     this.captureAudioSaved = null
@@ -962,7 +959,6 @@ export class TapToneAnalyzer {
     this.peaks = peaksFromAveragedSpectrum
     this.selectedPeakIds = this.guitarModeSelectedPeakIds(peaksFromAveragedSpectrum)
     this.userModifiedSelection = false
-    this.loadedPeaks = null // a new live result — no longer remapping from a loaded measurement
     this.selectedPeakFrequencies = [] // reset the frequency cache for the new live session
     this.modeByPeak = classifyAll(peaksFromAveragedSpectrum, this.guitarType)
     this.refreshDisplayedPeaks()
@@ -1124,8 +1120,9 @@ export class TapToneAnalyzer {
    *  to react to. Because the whole load lives here, any caller — the view, an import, a test —
    *  performs the same load.
    *
-   *  The view still does what only it can: apply `loadedSettings` to the settings store and the
-   *  axis range to the chart, exactly as Swift's `.onReceive(tap.$loaded…)` handlers do. */
+   *  The measurement's own settings are applied here and saved (the settings store, as Swift writes
+   *  TapDisplaySettings). The view only displays the result, and applies `loadedAxisRange` to the chart's
+   *  range, as Swift's view does with its `.onReceive(tap.$loadedAxisRange)`. */
   loadMeasurement(m: TapToneMeasurementModel): void {
     // A load replaces the guitar peaks (Swift `allPeaks = measurement.peaks`). A comparison record has
     // none, and the web keeps a material measurement's L/C/FLC in `matPeaks`, so both leave the set
@@ -1137,7 +1134,6 @@ export class TapToneAnalyzer {
     }
     // A comparison record restores its overlay spectra directly and is not a single measurement.
     if (m.comparisonEntries) {
-      this.loadedPeaks = null
       this.clearResult() // returns to live and drops any overlay...
       this.loadComparisonRecord(m.comparisonEntries) // ...then enters comparison (clears loaded state)
       this.loadedMeasurementName = m.measurementName ?? null // ...but a SAVED record has a name
@@ -1151,10 +1147,8 @@ export class TapToneAnalyzer {
     if (m.longitudinalSnapshot) {
       // Material (plate/brace): per-phase snapshots, no guitar spectrum.
       const mat = measurementToLiveMaterial(m)
-      this.measurementType = mat.measurementType // the measurement's own type, as Swift applies it first
-      this.loadedSettings = mat.settingsPatch // only the type (+ measureFlc); NOT the dims
+      this.applyLoadedSettings(mat.settingsPatch) // its own settings first, as Swift applies them; NOT the dims
       this.loadedAxisRange = mat.view
-      this.loadedPeaks = null
       this.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
       this.restoreMaterial({
         matSpectra: mat.matSpectra,
@@ -1168,23 +1162,21 @@ export class TapToneAnalyzer {
     } else {
       if (!m.spectrumSnapshot) return // neither guitar nor material: nothing to show
       const live = measurementToLive(m)
-      // The measurement's own type first, so its peaks are classified under it — not under whatever
-      // the app is set to. Swift loadMeasurement applies TapDisplaySettings.guitarType / measurementType
-      // before reclassifyPeaks; App applies the rest of the settings afterwards.
-      this.measurementType = live.measurementType
-      this.loadedSettings = live.settingsPatch
+      // The measurement's own settings first, so its peaks are classified and shown under them — not
+      // under whatever the app is set to. Swift loadMeasurement applies them before the peaks.
+      this.applyLoadedSettings(live.settingsPatch)
       this.loadedAxisRange = live.view
       this.restoreSnapshot({
         magnitudes: live.captured.magnitudesDb,
         frequencies: live.captured.frequencies,
         numberOfTaps: m.numberOfTaps ?? 1,
         tapEntries: live.tapEntries,
-        loadedPeaks: live.loadedPeaks,
+        peaks: live.peaks,
         overrides: live.overridesById,
         annotationOffsets: live.annotationOffsetsById,
         selection: {
           ids: live.selectedIds,
-          frequencies: live.loadedPeaks
+          frequencies: live.peaks
             .filter((p) => live.selectedIds.has(p.id))
             .map((p) => p.frequency),
           userModified: live.userModified,
@@ -1254,6 +1246,8 @@ export class TapToneAnalyzer {
         this.microphoneWarningTitle = 'Microphone Not Found'
         this.microphoneWarning = microphoneNotFoundMessage(name, device ? device.deviceLabel || null : null)
       }
+    } else {
+      this.microphoneWarning = null // no microphone recorded: no warning from an earlier load stays (Swift)
     }
     this.notify()
   }
@@ -1306,8 +1300,8 @@ export class TapToneAnalyzer {
      *  banner this method raises. */
     numberOfTaps?: number
     tapEntries?: TapEntry[]
-    /** The saved peaks — authoritative, never re-derived. Omit to leave `loadedPeaks` unchanged. */
-    loadedPeaks?: ResonantPeak[] | null
+    /** The saved peaks — authoritative, never re-derived. Omit to leave the peaks unchanged. */
+    peaks?: ResonantPeak[]
     overrides?: Map<string, string>
     annotationOffsets?: Map<string, [number, number]>
     selection?: { ids: Set<string>; frequencies: number[]; userModified: boolean }
@@ -1340,14 +1334,14 @@ export class TapToneAnalyzer {
     this.setStatusMessage(LOADED_STATUS)
     // The peaks and the state keyed to them land together with the spectrum above — that pairing is
     // the whole point of doing this in one method.
-    if (snapshot.loadedPeaks !== undefined) {
-      // The saved peaks ARE the durable set (Swift `allPeaks = measurement.peaks`), kept as the
-      // authoritative reference too (`loadedMeasurementPeaks`), and classified (`reclassifyPeaks`).
-      this.loadedPeaks = snapshot.loadedPeaks
-      this.peaks = snapshot.loadedPeaks ?? []
+    if (snapshot.peaks !== undefined) {
+      // The saved peaks ARE the durable set (Swift `allPeaks = measurement.peaks`), classified
+      // (`reclassifyPeaks`).
+      this.peaks = snapshot.peaks
       this.reclassifyPeaks()
       this.refreshDisplayedPeaks()
     }
+    this.highlightedPeakId = null // a newly loaded measurement has no highlighted peak
     if (snapshot.overrides) this.overrides = new Map(snapshot.overrides)
     if (snapshot.annotationOffsets) this.annotationOffsets = new Map(snapshot.annotationOffsets)
     if (snapshot.selection) {
@@ -1356,13 +1350,6 @@ export class TapToneAnalyzer {
       this.userModifiedSelection = snapshot.selection.userModified
     }
     this.isLoadingMeasurement = false
-    this.notify()
-  }
-
-  /** Drop the loaded-measurement peaks, returning the analyzer to the live/frozen branch.
-   *  Used by New Tap, a fresh capture, and Re-analyze (which deliberately re-detects). */
-  clearLoadedPeaks(): void {
-    this.loadedPeaks = null
     this.notify()
   }
 
@@ -1407,7 +1394,7 @@ export class TapToneAnalyzer {
    *  force the recomputation they want), while a wrongly-ENABLED one costs a click that recomputes
    *  the same answer.
    *
-   *  (The previous rule, `loadedPeaks == null`, was a proxy for "the peaks are stale" and was wrong
+   *  (The previous rule, "a measurement is loaded", was a proxy for "the peaks are stale" and was wrong
    *  in both directions: it disabled itself after a single press, and never lit up for a live
    *  capture whose mode assignments had drifted.)
    *
@@ -1486,12 +1473,11 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  /** Re-analyze: drop the loaded peaks and any manual selection, then re-detect the frozen spectrum's
-   *  peaks. The stored ring-out is untouched. Mirrors Swift `reanalyzePeaks()` / Python
+  /** Re-analyze: drop any manual selection and re-detect the frozen spectrum's peaks, which replace the
+   *  saved ones. The stored ring-out is untouched. Mirrors Swift `reanalyzePeaks()` / Python
    *  `reanalyze_peaks()`. No-op without a frozen spectrum. */
   reanalyzePeaks(): void {
     if (!this.isMeasurementComplete || this.frozenFrequencies.length === 0 || this.frozenMagnitudes.length === 0) return
-    this.loadedPeaks = null
     this.userModifiedSelection = false
     this.selectedPeakFrequencies = []
     this.modeByPeak = new Map()
@@ -1983,9 +1969,63 @@ export class TapToneAnalyzer {
     this.startTapSequence()
   }
 
-  /** Mirror the plate FLC-measurement setting (App drives it from the settings store). */
+  /** Mirror the plate FLC-measurement setting (applied from the settings store). */
   setMeasureFlc(v: boolean): void {
     this.measureFlc = v
+  }
+
+  // ── The settings store (the web's TapDisplaySettings) ────────────────────────────────────────────
+
+  private settingsStore: SettingsStore | null = null
+
+  /** Read the settings from `store` from now on — the analyzer applies the ones it needs whenever they
+   *  change, as Swift's analyzer reads TapDisplaySettings — and write a load's settings to it. Returns the
+   *  detach. Without a store (a unit test) the analyzer keeps the settings it is given. */
+  attachSettingsStore(store: SettingsStore): () => void {
+    this.settingsStore = store
+    this.applyStoreSettings(store.get())
+    const unsubscribe = store.subscribe(() => this.applyStoreSettings(store.get()))
+    return () => {
+      unsubscribe()
+      if (this.settingsStore === store) this.settingsStore = null
+    }
+  }
+
+  /** Apply the settings the analyzer reads: the measurement type, FLC, Peak Min, and the rest. */
+  private applyStoreSettings(s: Settings): void {
+    this.measurementType = s.measurementType
+    this.setMeasureFlc(s.measureFlc)
+    this.setSettings(s)
+    this._peakMinThreshold = s.peakMinThreshold
+    this.refreshDisplayedPeaks()
+    this.notify()
+  }
+
+  /** A load makes the measurement's own settings the app's, and saves them — through the store when
+   *  there is one (the view then shows them), directly otherwise. Mirrors Swift loadMeasurement writing
+   *  TapDisplaySettings. */
+  private applyLoadedSettings(patch: Partial<Settings>): void {
+    if (this.settingsStore) {
+      this.settingsStore.update(patch)
+      return
+    }
+    this.applyStoreSettings({ ...this.settings, ...patch })
+  }
+
+  /** The user changed the measurement type in Settings (the type is already in the settings). A change
+   *  between guitar types re-derives the classification for the new type, keeping the measurement; any
+   *  other change — guitar↔material, or plate↔brace — drops the result and starts a new sequence. A load
+   *  changes the type too, but never comes here. Mirrors Swift Settings' onApply → reclassifyForGuitar
+   *  TypeChange / requestStartTapSequence. */
+  changeMeasurementType(previous: MeasurementType, next: MeasurementType): void {
+    if (previous === next) return
+    if (isGuitarType(previous) && isGuitarType(next)) {
+      this.reclassifyForGuitarTypeChange()
+      return
+    }
+    this.clearResult()
+    this.resetMaterial()
+    if (this.device?.running) this.requestStartTapSequence()
   }
 
   /** Build the gated search for a material phase: its frequency range and peak-selection rule. The
@@ -3530,7 +3570,6 @@ export class TapToneAnalyzer {
         frozenSpectrum: this.frozenSpectrum(),
         tapEntries: this.tapEntries,
         peaks: this.peaks,
-        loadedPeaks: this.loadedPeaks,
         peaksAbovePeakMin: this.peaksAbovePeakMin,
         peakMinThreshold: this.peakMinThreshold,
         modeByPeak: this.modeByPeak,
@@ -3564,7 +3603,6 @@ export class TapToneAnalyzer {
         loadedNotes: this.loadedNotes,
         sourceMeasurementTimestamp: this.sourceMeasurementTimestamp,
         loadedAxisRange: this.loadedAxisRange,
-        loadedSettings: this.loadedSettings,
         microphoneWarning: this.microphoneWarning,
         microphoneWarningTitle: this.microphoneWarningTitle,
         currentDecayTime: this.currentDecayTime,
@@ -3589,6 +3627,9 @@ export class TapToneAnalyzer {
    *  resolved from the measurement itself (selection and overrides) — then shown as an overlay. Mirrors
    *  Swift `loadComparison(measurements:)`, which builds the entries in the analyzer. */
   loadComparison(measurements: TapToneMeasurementModel[]): void {
+    // A comparison replaces whatever is shown: the result, its peaks, and its microphone.
+    this.clearResult()
+    this.resultProvenance = null
     const withSnapshots = measurements.filter((m) => m.spectrumSnapshot)
     const baseLabels = withSnapshots.map((m) => m.measurementName?.trim() || formatDisplayDateCompact(m.timestamp))
     const counts = new Map<string, number>()
@@ -3974,9 +4015,6 @@ export interface TapToneSnapshot {
   tapEntries: TapEntry[]
   /** The DURABLE guitar peak set, found at the -100 dB floor — what selection and the save path read. */
   peaks: ResonantPeak[]
-  /** A loaded measurement's authoritative saved peaks, or null for a live capture. Analyzer-owned so
-   *  it can never be seen out of step with the frozen spectrum. */
-  loadedPeaks: ResonantPeak[] | null
   /** The Peak-Min display projection of `peaks` (material passes through unfiltered). What the peak
    *  list, the chart dots and the live ratio read. Never the set to save. */
   peaksAbovePeakMin: ResonantPeak[]
@@ -4046,7 +4084,6 @@ export interface TapToneSnapshot {
   loadedNotes: string | null
   sourceMeasurementTimestamp: string | null
   loadedAxisRange: ChartView | null
-  loadedSettings: Partial<Settings> | null
   /** The loaded measurement's microphone is missing, or its calibration / sample rate differs. */
   microphoneWarning: string | null
   /** The title of the alert that shows `microphoneWarning`. */

@@ -100,3 +100,36 @@ describe('settings-store — the shared cases in settings-store.json', () => {
       expect(validateMagnitudeRange(withSaved(undefined, row.saved), row.input[0], row.input[1])).toEqual({ minDb: row.expect[0], maxDb: row.expect[1] }))
   }
 })
+
+// The settings store holds the app's settings outside React (the web's TapDisplaySettings). Its storage is
+// the one the app has always used — one JSON object under one localStorage key — so settings saved before
+// the store existed load unchanged, and the store saves to the same place.
+describe('settings-store — the store keeps the saved settings where they were', () => {
+  it('loads settings saved by the settings module unchanged, and saves its changes back there', async () => {
+    const { saveSettings, loadSettings, DEFAULT_SETTINGS: defaults } = await import('../src/settings')
+    const { SettingsStore } = await import('../src/settingsStore')
+    const saved = new Map<string, string>()
+    const storage = {
+      getItem: (k: string) => saved.get(k) ?? null,
+      setItem: (k: string, v: string) => void saved.set(k, v),
+      removeItem: (k: string) => void saved.delete(k),
+    }
+    const previous = (globalThis as { localStorage?: unknown }).localStorage
+    ;(globalThis as { localStorage?: unknown }).localStorage = storage
+    try {
+      const before = { ...defaults, measurementType: 'plate' as const, peakMinThreshold: -66, showUnknownModes: false }
+      saveSettings(before)
+      const store = new SettingsStore()
+      expect(store.get()).toEqual(before)
+      let told = 0
+      store.subscribe(() => told++)
+      store.update({ tapDetectionThreshold: -42 })
+      expect(told).toBe(1)
+      expect(loadSettings()).toEqual({ ...before, tapDetectionThreshold: -42 })
+      store.update({ tapDetectionThreshold: -42 }) // no change: nobody is told
+      expect(told).toBe(1)
+    } finally {
+      ;(globalThis as { localStorage?: unknown }).localStorage = previous
+    }
+  })
+})

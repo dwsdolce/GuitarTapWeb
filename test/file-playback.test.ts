@@ -342,7 +342,6 @@ describe('file playback rules', () => {
     expect(sut.captureCalibrationName, 'the recorded calibration').toBe(saved.calibrationName)
     expect(sut.captureSampleRate, 'the recorded sample rate').toBe(saved.sampleRate)
 
-    sut.measurementType = 'brace' // App applies the loaded measurement's type (loadedSettings)
     const reSaved = sut.buildMeasurement('', '', VIEW)!
     expect(reSaved.microphoneName, 'a re-save keeps the unknown microphone').toBeUndefined()
     expect(reSaved.calibrationName, 'and the recorded calibration').toBe(saved.calibrationName)

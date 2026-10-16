@@ -148,7 +148,6 @@ describe('peaks — shared cases', () => {
       const isAir = (p: ResonantPeak) => Math.abs(p.frequency - (r.airHz as number)) < 1
 
       const displayed = a.peaksAbovePeakMin
-      a.loadedPeaks = null
       const saved = a.guitarFullSavePeaks()
       const e = r.expect as Row
       expect(displayed.length, 'displayed').toBe(e.displayedCount)
@@ -160,7 +159,6 @@ describe('peaks — shared cases', () => {
 
       const loaded = a.peaks.slice(0, r.loadedFirst as number)
       a.peaks = loaded
-      a.loadedPeaks = loaded
       const savedLoaded = a.guitarFullSavePeaks()
       expect(savedLoaded.length, 'loaded saved').toBe(e.loadedSavedCount)
       expect(savedLoaded.map((p) => p.id).join() === loaded.map((p) => p.id).join(), 'loaded saved as it is').toBe(
