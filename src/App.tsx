@@ -35,7 +35,6 @@ import { exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectr
 import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData, multiTapPdfData } from './presentation/measurementImage'
 import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfReport'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
-import { MODE_DISPLAY_NAME } from './presentation/modeColors'
 import { GUITAR_FFT_SIZE } from './dsp/guitarFFT'
 import { MultiTapComparisonResultsView, type MultiTapRow } from './components/MultiTapComparisonResultsView'
 import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
@@ -424,8 +423,6 @@ export default function App() {
   // Re-analyze — re-detect peaks on the loaded/frozen spectrum with the current guitar type, letting you
   // retune a saved measurement without re-tapping. Swift reanalyzePeaks() / Python reanalyze_peaks().
   const reanalyze = useCallback(() => analyzer.reanalyzePeaks(), [analyzer])
-
-  const labelFor = (p: ResonantPeak, mode: ResolvedMode) => overrides.get(p.id) ?? MODE_DISPLAY_NAME[mode]
 
   // The ids of user-NAMED peaks. A named peak is "known" everywhere — the ONE predicate the
   // results table + chart dots + badges share, so it never vanishes when Show Unknown Modes is off.
@@ -979,9 +976,6 @@ export default function App() {
                 onChange={(v) => {
                   updateSettings({ tapDetectionThreshold: v })
                   engineRef.current?.setConfig({ tapDetectionThreshold: v })
-                  // Swift/Python clear the banner inside tapDetectionThreshold's own setter; web's
-                  // threshold is settings state, so the change is reported instead.
-                  analyzer.noteLoadedSettingsDeviation()
                 }}
               />
             </div>
@@ -1046,7 +1040,7 @@ export default function App() {
               </button>
               <button
                 className={`btn tint tap-action ${reviewing ? 'tint-complete' : 'tint-accent'}`}
-                onClick={reviewing ? () => analyzer.acceptMaterial() : paused ? resumeTap : pauseTap}
+                onClick={reviewing ? () => analyzer.acceptCurrentPhase() : paused ? resumeTap : pauseTap}
                 disabled={!pauseEnabled}
                 title={reviewing ? HINTS.acceptTap : paused ? HINTS.resumeDetection : HINTS.pauseDetection}
               >
@@ -1055,7 +1049,7 @@ export default function App() {
               </button>
               <button
                 className={`btn tint tap-action ${cancelEnabled ? 'tint-warning' : 'tint-inactive'}`}
-                onClick={reviewing ? () => analyzer.redoMaterial() : cancelTap}
+                onClick={reviewing ? () => analyzer.redoCurrentPhase() : cancelTap}
                 disabled={!cancelEnabled}
                 title={reviewing ? HINTS.redoTap : HINTS.cancel}
               >
@@ -1222,15 +1216,15 @@ export default function App() {
               {displayPeaksInRange.length > 0 ? (
                 <div className="cards">
                   {displayPeaksInRange.map((p) => {
-                    const mode = modeByPeak.get(p.id) ?? 'unknown'
+                    const mode = analyzer.autoDetectedMode(p.id)
                     const note = pitch.note(p.frequency)
                     return (
                       <PeakCard
                         key={p.id}
                         peak={p}
                         mode={mode}
-                        effectiveLabel={labelFor(p, mode)}
-                        isManualOverride={overrides.has(p.id)}
+                        effectiveLabel={analyzer.effectiveModeLabel(p.id)}
+                        isManualOverride={analyzer.hasManualOverride(p.id)}
                         inRange={inRangeFor(p, mode)}
                         note={note}
                         cents={note ? pitch.cents(p.frequency) : null}

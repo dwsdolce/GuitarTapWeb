@@ -92,7 +92,7 @@ describe('Dump Capture Audio — the page is told what was handed to the browser
     analyzer['maintainSessionRecording'](new Float32Array(1024).fill(0.1))
     analyzer.finishSessionRecording('Guitar_1tap')
     expect(analyzer.getSnapshot().captureAudioSaved).not.toBeNull()
-    analyzer.startTapSequence({ arm: false })
+    analyzer.startTapSequence()
     expect(analyzer.getSnapshot().captureAudioSaved).toBeNull()
   })
 })

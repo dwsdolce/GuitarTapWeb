@@ -231,7 +231,7 @@ describe('display mode — transitions', () => {
     a.measurementType = 'plate'
     a.loadComparisonRecord(entries(2))
     expect(a.displayMode).toBe('comparison')
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     expect(a.displayMode).toBe('live')
     expect(a.comparisonEntries).toHaveLength(0)
     expect(a.materialTapPhase).toBe('capturingL') // and the phase machine did re-arm
@@ -241,7 +241,7 @@ describe('display mode — transitions', () => {
     const a = sut()
     a.measurementType = 'classical'
     a.loadComparisonRecord(entries(2))
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     expect(a.displayMode).toBe('live')
     expect(a.comparisonEntries).toHaveLength(0)
   })

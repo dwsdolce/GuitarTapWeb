@@ -66,7 +66,7 @@ describe('statusMessage — initial + clipping override/restore', () => {
   // two for good. Mirrors Swift twoWritesInOnePass_settleOnTheSecondAndStay.
   it('two writes in one pass settle on the second and stay', async () => {
     const a = new TapToneAnalyzer()
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     await new Promise((r) => setTimeout(r, 0))
     expect(a.statusMessage).toBe('Tap the guitar...')
 
@@ -80,7 +80,7 @@ describe('statusMessage — initial + clipping override/restore', () => {
 
   it('clipping overrides the display and restores the latest real status when it clears', () => {
     const a = new TapToneAnalyzer()
-    a.startTapSequence({ arm: false }) // armed + waiting → "Tap the guitar..."
+    a.startTapSequence()
     expect(a.statusMessage).toBe('Tap the guitar...')
     a.setClipping(true)
     expect(a.statusMessage).toBe(CLIP)
@@ -95,7 +95,7 @@ describe('statusMessage — initial + clipping override/restore', () => {
 describe('statusMessage — device change (route change transient)', () => {
   it('shows reinitializing, then restores the resting prompt', () => {
     const a = new TapToneAnalyzer()
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     a.handleDeviceChange(true)
     expect(a.statusMessage).toBe('Audio device changed - reinitializing...')
     a.handleDeviceChange(false)
@@ -106,7 +106,7 @@ describe('statusMessage — device change (route change transient)', () => {
 describe('statusMessage — guitar detection-loop strings', () => {
   it('single- and multi-tap resting prompt', () => {
     const a = new TapToneAnalyzer()
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     expect(a.statusMessage).toBe('Tap the guitar...')
     a.setNumberOfTaps(3) // armed + waiting → prompt refreshes to the count
     expect(a.statusMessage).toBe('Tap the guitar 3 times...')
@@ -129,7 +129,7 @@ describe('statusMessage — guitar detection-loop strings', () => {
 
   it('paused, then resume restores the resting prompt', () => {
     const a = new TapToneAnalyzer()
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     a.pauseTapDetection()
     expect(a.statusMessage).toBe('Detection paused – tap freely, then resume')
     a.resumeTapDetection()
@@ -168,12 +168,12 @@ describe('statusMessage — material phase strings', () => {
   it('plate + brace capturingL both arm at "Ready for fL tap" (mirrors Swift)', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     expect(a.statusMessage).toBe('Ready for fL tap')
 
     const b = new TapToneAnalyzer()
     b.measurementType = 'brace'
-    b.startTapSequence({ arm: false })
+    b.startTapSequence()
     expect(b.statusMessage).toBe('Ready for fL tap')
   })
 
@@ -183,11 +183,11 @@ describe('statusMessage — material phase strings', () => {
     a.measureFlc = true
     a.setDevice(fakeDevice())
     a.materialTapPhase = 'reviewingL'
-    a.acceptMaterial()
+    a.acceptCurrentPhase()
     expect(a.materialTapPhase).toBe('capturingC')
     expect(a.statusMessage).toBe('Rotate 90° and tap for fC')
     a.materialTapPhase = 'reviewingC'
-    a.acceptMaterial()
+    a.acceptCurrentPhase()
     expect(a.materialTapPhase).toBe('waitingForFlcTap')
     expect(a.statusMessage).toBe('Set up for fLC tap, then tap')
   })
@@ -197,7 +197,7 @@ describe('statusMessage — material phase strings', () => {
     a.measurementType = 'plate'
     a.setDevice(fakeDevice())
     a.materialTapPhase = 'reviewingC'
-    a.redoMaterial()
+    a.redoCurrentPhase()
     expect(a.materialTapPhase).toBe('capturingC')
     expect(a.statusMessage).toBe('Ready for fC tap — tap again')
   })
@@ -210,7 +210,7 @@ describe('statusMessage — material phase strings', () => {
     a.selectedCrossPeak = mp(200)
     a.selectedFlcPeak = null
     a.materialTapPhase = 'reviewingC'
-    a.acceptMaterial() // no FLC → complete
+    a.acceptCurrentPhase() // no FLC → complete
     expect(a.statusMessage).toBe('Complete — fL: 100.0 Hz, fC: 200.0 Hz')
 
     const b = new TapToneAnalyzer()
@@ -218,7 +218,7 @@ describe('statusMessage — material phase strings', () => {
     b.measureFlc = true
     b.setDevice(fakeDevice())
     b.materialTapPhase = 'reviewingFlc'
-    b.acceptMaterial()
+    b.acceptCurrentPhase()
     expect(b.statusMessage).toBe('Complete - check Results')
   })
 })
@@ -229,7 +229,7 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     a.measurementType = 'plate'
     a.setNumberOfTaps(3)
     a.setDevice(fakeDevice())
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     a.recordMaterialTap(spectrum(60)) // fL bump in 20–100 Hz
     expect(a.statusMessage).toBe('fL tap 1/3 captured. Tap again...')
     a.recordMaterialTap(spectrum(60))
@@ -244,7 +244,7 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     a.measurementType = 'plate'
     a.setNumberOfTaps(1)
     a.setDevice(fakeDevice())
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     a.recordMaterialTap(spectrum(null)) // flat → no dominant peak
     expect(a.statusMessage).toBe('No resonance detected — tap again')
     expect(a.materialTapPhase).toBe('capturingL') // did NOT advance
@@ -256,7 +256,7 @@ describe('statusMessage — material per-tap flow (recordMaterialTap, Option C)'
     a.measurementType = 'plate'
     a.setNumberOfTaps(1)
     a.setDevice(fakeDevice(true)) // playingFile = true
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     a.recordMaterialTap(spectrum(60)) // 1/1 → phase complete → auto-advance (playing)
     expect(a.materialTapPhase).toBe('capturingC')
     expect(a.statusMessage).toBe('File: fL complete, capturing fC...')
@@ -267,7 +267,7 @@ describe('statusMessage — removed web-only inventions are never produced', () 
   it('none of the sweep states yield a removed string', () => {
     const seen: string[] = []
     const a = new TapToneAnalyzer()
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     seen.push(a.statusMessage)
     a.restoreSnapshot({ magnitudes: [1, 2], frequencies: [1, 2] })
     seen.push(a.statusMessage)
@@ -275,7 +275,7 @@ describe('statusMessage — removed web-only inventions are never produced', () 
     b.measurementType = 'brace'
     b.setDevice(fakeDevice())
     b.setNumberOfTaps(1)
-    b.startTapSequence({ arm: false })
+    b.startTapSequence()
     seen.push(b.statusMessage)
     b.recordMaterialTap(spectrum(150)) // brace L range 100–1200 → complete
     seen.push(b.statusMessage)
@@ -293,7 +293,7 @@ describe('statusMessage — guitar re-arm', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'classical'
     a.setNumberOfTaps(3)
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     const n = 65536
     const tap = new Float32Array(n)
     for (let i = 0; i < n; i++) tap[i] = 0.5 * Math.exp((-i / 48000) * 6) * Math.sin((2 * Math.PI * 100 * i) / 48000)

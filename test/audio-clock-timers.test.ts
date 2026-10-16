@@ -65,11 +65,11 @@ describe('the tap lifecycle runs on the audio clock', () => {
     a.startTapSequence()
     // Both taps captured through the real finish, which turns detection off for the review.
     a.finishGatedFFTCapture(tapSamples(60, 24_000), 48000, 'capturingL')
-    a.acceptMaterial() // reviewingL -> capturingC
+    a.acceptCurrentPhase() // reviewingL -> capturingC
     a.finishGatedFFTCapture(tapSamples(150, 24_000), 48000, 'capturingC')
     expect(a.materialTapPhase).toBe('reviewingC')
 
-    a.acceptMaterial()
+    a.acceptCurrentPhase()
     expect(a.materialTapPhase).toBe('waitingForFlcTap')
 
     advanceAudio(a, a.tapCooldown / 2)

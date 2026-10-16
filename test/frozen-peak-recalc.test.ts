@@ -136,7 +136,7 @@ describe('frozen-peak-recalc — live and material paths', () => {
   it('PR12: peaks track the live spectrum while detecting (Swift analyzeMagnitudes / P1b)', () => {
     const a = new TapToneAnalyzer() // not complete, no frozen data
     a.measurementType = 'generic'
-    a.startTapSequence({ arm: false }) // detecting
+    a.startTapSequence()
     const { mags, freqs } = makeSpectrum(200, -20)
     a.onFftFrame(mags, freqs)
     expect(near(a.peaks, 200)).toBe(true)
@@ -148,7 +148,7 @@ describe('frozen-peak-recalc — live and material paths', () => {
     // PR44_materialLiveFrame_leavesNoPeaks / Python test_PR44.
     const a = new TapToneAnalyzer()
     a.measurementType = 'plate'
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     a.peaks = [peak(200, -20)] // guitar peaks left from before the switch
     const { mags, freqs } = makeSpectrum(200, -20)
     a.onFftFrame(mags, freqs)
@@ -294,7 +294,7 @@ describe('frozen-peak-recalc — per-tap entries computed once', () => {
     // pins. Mirrors Swift PR39_liveFrame_neverOverwritesACompleteResult / Python test_PR39.
     const a = new TapToneAnalyzer()
     a.measurementType = 'generic'
-    a.startTapSequence({ arm: false }) // running
+    a.startTapSequence()
     const result = peak(777, -30)
     a.peaks = [result]
     a.isMeasurementComplete = true
@@ -523,7 +523,7 @@ describe('frozen-peak-recalc — annotation offsets on the analyzer', () => {
     const a = new TapToneAnalyzer()
     a.measurementType = 'brace'
     a.numberOfTaps = 1
-    a.startTapSequence({ arm: false }) // no device needed — arm/session calls are optional-chained
+    a.startTapSequence()
     const s = makeSpectrum(300, -30) // brace search band is 100–1200 Hz
     a.recordMaterialTap({ magnitudesDb: s.mags, frequencies: s.freqs })
     const lp = a.selectedLongitudinalPeak
@@ -544,7 +544,7 @@ describe('frozen-peak-recalc — material peaks are the identified L/C/FLC', () 
   /** Capture one material phase through the real gated path (a synthetic tap at `hz`). */
   function captureLongitudinal(a: TapToneAnalyzer, hz = 300): ResonantPeak | null {
     a.numberOfTaps = 1
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     const s = makeSpectrum(hz, -30, 5, 16384) // ~1.5 Hz bins: the plate fL band (20–100 Hz) needs ±5 bins
     a.recordMaterialTap({ magnitudesDb: s.mags, frequencies: s.freqs })
     return a.selectedLongitudinalPeak
@@ -575,12 +575,12 @@ describe('frozen-peak-recalc — material peaks are the identified L/C/FLC', () 
     source.measureFlc = false
     const fL = captureLongitudinal(source, 60)
     expect(fL, 'precondition: the plate capture identifies fL').not.toBeNull()
-    source.acceptMaterial()
+    source.acceptCurrentPhase()
     const c = makeSpectrum(150, -30, 5, 16384)
     source.recordMaterialTap({ magnitudesDb: c.mags, frequencies: c.freqs })
     const fC = source.selectedCrossPeak
     expect(fC, 'precondition: the plate capture identifies fC').not.toBeNull()
-    source.acceptMaterial() // no FLC: the measurement completes, as it must before a save
+    source.acceptCurrentPhase() // no FLC: the measurement completes, as it must before a save
     expect(source.isMeasurementComplete, 'precondition: the plate is complete').toBe(true)
     const saved = save(source)
 
@@ -600,7 +600,7 @@ describe('frozen-peak-recalc — material peaks are the identified L/C/FLC', () 
     expect(captureLongitudinal(a, 60), 'precondition: the plate L capture identifies fL').not.toBeNull()
     expect(a.materialTapPhase, 'precondition: live capture stops at review').toBe('reviewingL')
 
-    a.redoMaterial()
+    a.redoCurrentPhase()
 
     expect(a.selectedLongitudinalPeak).toBeNull() // the rejected fL is gone
     expect(a.matSpectra.longitudinal).toBeNull() // and so is its spectrum

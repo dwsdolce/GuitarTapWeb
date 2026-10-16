@@ -1,162 +1,36 @@
 // @parity test/scenario-trace
-// Mirrors GuitarTapTests/ScenarioStateTraceTests.swift and Python
-// tests/test_scenario_state_trace.py: pins the sequence of state tuples
-// through end-to-end scenarios, not just the final outcome. The canonical
-// trace for each scenario is identical across all three platforms.
+//
+// End-to-end scenarios, pinned by the state they pass through — detecting, paused, complete, the tap count
+// and the taps held — not only where they end: the app's behaviour on screen follows each intermediate
+// state, so two editions reaching the same result by different paths would differ. Every tap is a real
+// capture finish and every wait is audio fed through the analyzer's clock. The shared cases in
+// scenario-trace.json (S1–S4), the same as Swift and Python.
 import { describe, it, expect } from 'vitest'
-import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
-import { advanceAudio } from './audioClockFeed'
+import { readFileSync } from 'node:fs'
+import type { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import { makeStepsAnalyzer, runAnalyzerStep, type AnalyzerStep } from './analyzerSteps'
 
-interface StateSnapshot {
-  label: string
-  isDetecting: boolean
-  isDetectionPaused: boolean
-  isMeasurementComplete: boolean
-  currentTapCount: number
-  capturedTapsCount: number
-}
+type TraceStep = AnalyzerStep & { snap?: string; strayDetection?: boolean }
+type TraceCase = { id: string; note: string; steps: TraceStep[]; expect: { trace: Record<string, unknown>[] } }
+const DATA = JSON.parse(readFileSync('test/fixtures/scenario-trace.json', 'utf8')) as { cases: TraceCase[] }
 
-function snap(label: string, s: TapToneAnalyzer): StateSnapshot {
+/** The state a `snap` step records, in the case file's form. */
+function snapshot(label: string, a: TapToneAnalyzer): Record<string, unknown> {
   return {
-    label,
-    isDetecting: s.isDetecting,
-    isDetectionPaused: s.isDetectionPaused,
-    isMeasurementComplete: s.isMeasurementComplete,
-    currentTapCount: s.currentTapCount,
-    capturedTapsCount: s.capturedTaps.length,
+    label, detecting: a.isDetecting, paused: a.isDetectionPaused, complete: a.isMeasurementComplete,
+    tapCount: a.currentTapCount, capturedTaps: a.capturedTaps.length,
   }
 }
 
-function makeSUT(numberOfTaps = 1): TapToneAnalyzer {
-  const s = new TapToneAnalyzer()
-  s.numberOfTaps = numberOfTaps
-  s.measurementType = 'classical'
-  return s
-}
-
-/** Capture one tap through the REAL completion path (finishGuitarGatedCapture). */
-function captureTap(s: TapToneAnalyzer): void {
-  const n = GUITAR_FFT_SIZE
-  const tap = new Float32Array(n)
-  for (let i = 0; i < n; i++) tap[i] = 0.5 * Math.exp((-i / 48000) * 6) * Math.sin((2 * Math.PI * 100 * i) / 48000)
-  s.finishGuitarGatedCapture(tap, 48000)
-}
-
-// The waits are the real ones, measured as the app measures them: in AUDIO.
-const afterCooldown = (s: TapToneAnalyzer) => advanceAudio(s, s.tapCooldown)
-const afterCaptureWindow = (s: TapToneAnalyzer) => advanceAudio(s, s.captureWindow)
-
-const row = (
-  label: string,
-  isDetecting: boolean,
-  isDetectionPaused: boolean,
-  isMeasurementComplete: boolean,
-  currentTapCount: number,
-  capturedTapsCount: number,
-): StateSnapshot => ({ label, isDetecting, isDetectionPaused, isMeasurementComplete, currentTapCount, capturedTapsCount })
-
-// Every tap goes through the real finishGuitarGatedCapture, and the waits are the real ones — the tap
-// cooldown before re-arming, the capture window before averaging — so each capture row records what the
-// app did, not what the test wrote. These traces are identical in Swift, Python and web.
-describe('ScenarioStateTrace', () => {
-  // S1: clean single-tap guitar measurement
-  it('S1 — clean single tap (guitar)', async () => {
-    const s = makeSUT(1)
-    const trace: StateSnapshot[] = [snap('init', s)]
-    s.startTapSequence()
-    trace.push(snap('postStart', s))
-    captureTap(s)
-    trace.push(snap('postCapture', s))
-    afterCaptureWindow(s) // completion averages after the capture window
-    trace.push(snap('postProcess', s))
-
-    expect(trace).toEqual([
-      row('init', false, false, false, 0, 0),
-      row('postStart', true, false, false, 0, 0),
-      row('postCapture', false, false, false, 1, 1),
-      row('postProcess', false, false, true, 1, 1),
-    ])
-  })
-
-  // S2: spurious-tap-on-type-change — the stray DETECTION is simulated (it is the scenario); the
-  // capture that follows is real. Same trace as S1.
-  it('S2 — spurious tap on type change matches clean single tap', async () => {
-    const s = makeSUT(1)
-    const trace: StateSnapshot[] = [snap('init', s)]
-    s.startTapSequence()
-    s.detectionState = 'idle' // spurious tap fires before housekeeping
-    trace.push(snap('postStart', s))
-    captureTap(s)
-    trace.push(snap('postCapture', s))
-    afterCaptureWindow(s)
-    trace.push(snap('postProcess', s))
-
-    expect(trace).toEqual([
-      row('init', false, false, false, 0, 0),
-      row('postStart', false, false, false, 0, 0),
-      row('postCapture', false, false, false, 1, 1),
-      row('postProcess', false, false, true, 1, 1),
-    ])
-  })
-
-  // S3: multi-tap with mid-sequence pause/resume
-  it('S3 — multi-tap pause/resume', async () => {
-    const s = makeSUT(3)
-    const trace: StateSnapshot[] = [snap('init', s)]
-    s.startTapSequence()
-    trace.push(snap('postStart', s))
-    captureTap(s) // tap 1: detection rests through the cooldown
-    trace.push(snap('postTap1', s))
-    advanceAudio(s, s.tapCooldown / 2) // halfway through the cooldown: still resting
-    trace.push(snap('midCooldown', s))
-    advanceAudio(s, s.tapCooldown / 2) // ...then re-arms
-    trace.push(snap('postReArm', s))
-    s.pauseTapDetection()
-    trace.push(snap('postPause', s))
-    s.resumeTapDetection()
-    trace.push(snap('postResume', s))
-    captureTap(s) // tap 2
-    afterCooldown(s)
-    captureTap(s) // tap 3 — the last
-    afterCaptureWindow(s)
-    trace.push(snap('postProcess', s))
-
-    expect(trace).toEqual([
-      row('init', false, false, false, 0, 0),
-      row('postStart', true, false, false, 0, 0),
-      row('postTap1', false, false, false, 1, 1),
-      row('midCooldown', false, false, false, 1, 1),
-      row('postReArm', true, false, false, 1, 1),
-      row('postPause', false, true, false, 1, 1),
-      row('postResume', true, false, false, 1, 1),
-      row('postProcess', false, false, true, 3, 3),
-    ])
-  })
-
-  // S4: multi-tap cancelled mid-sequence — cancel is a restart, re-arming a fresh sequence
-  // (≡ New Tap): isDetecting=true, isMeasurementComplete=false, counts reset to 0.
-  it('S4 — multi-tap cancel', async () => {
-    const s = makeSUT(3)
-    const trace: StateSnapshot[] = [snap('init', s)]
-    s.startTapSequence()
-    trace.push(snap('postStart', s))
-    captureTap(s)
-    trace.push(snap('postTap1', s))
-    advanceAudio(s, s.tapCooldown / 2) // halfway through the cooldown: still resting
-    trace.push(snap('midCooldown', s))
-    advanceAudio(s, s.tapCooldown / 2)
-    trace.push(snap('postReArm', s))
-    s.cancelTapSequence()
-    trace.push(snap('postCancel', s))
-
-    expect(trace).toEqual([
-      row('init', false, false, false, 0, 0),
-      row('postStart', true, false, false, 0, 0),
-      row('postTap1', false, false, false, 1, 1),
-      row('midCooldown', false, false, false, 1, 1),
-      row('postReArm', true, false, false, 1, 1),
-      row('postCancel', true, false, false, 0, 0),
-    ])
+describe('scenario-trace — the shared cases (scenario-trace.json)', () => {
+  it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
+    const { a, store } = makeStepsAnalyzer()
+    const trace: Record<string, unknown>[] = []
+    for (const step of c.steps) {
+      if (step.snap !== undefined) trace.push(snapshot(step.snap, a))
+      else if (step.strayDetection) a.detectionState = 'idle'
+      else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+    }
+    expect(trace).toEqual(c.expect.trace)
   })
 })

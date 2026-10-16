@@ -3,8 +3,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 
-// Ring-out time: ringOutTime on generated audio (DK1–DK8, the shared cases in decay-tracking.json), and
-// that a new sequence clears the last ring-out (DK9). That a tap's ring-out is the same wherever the
+// The shared cases in decay-tracking.json: ring-out time, ringOutTime on generated audio (DK1–DK8), and
+// on the analyzer, that a new sequence clears the last ring-out (DK9). That a tap's ring-out is the same wherever the
 // audio's chunk boundaries fall is guitar-capture-window GW3. The same list, ids and values as Swift
 // DecayTrackingTests and Python test_decay_tracking.py.
 
@@ -16,6 +16,7 @@ const DATA = JSON.parse(readFileSync('test/fixtures/decay-tracking.json', 'utf8'
   sampleRate: number
   tolerance: number
   ringOutTime: { id: string; note: string; signal: SignalSpec; start: number; end: number; threshold?: number; expect: number | null }[]
+  analyzer: { id: string; note: string; steps: { decayTime?: number; newTap?: boolean }[]; expect: Record<string, unknown> }[]
 }
 
 /** A case's audio, from its `signal` (see decay-tracking.json's `about`). */
@@ -51,10 +52,16 @@ describe('decay tracking', () => {
     expect(TapToneAnalyzer.ringOutWindowSamples).toBe(DATA.windowSamples)
   })
 
-  it('DK9: a new sequence clears the ring-out', () => {
+  // The analyzer cases (DK9), as steps on a fresh analyzer.
+  it.each(DATA.analyzer.map((c) => [c.id, c] as const))('%s', (_id, c) => {
     const a = new TapToneAnalyzer()
-    a.currentDecayTime = 0.1
-    a.startTapSequence()
-    expect(a.currentDecayTime).toBeNull()
+    for (const step of c.steps) {
+      if (step.decayTime !== undefined) a.currentDecayTime = step.decayTime
+      else if (step.newTap) a.startTapSequence()
+    }
+    for (const [field, want] of Object.entries(c.expect)) {
+      if (field === 'currentDecayTime') expect(a.currentDecayTime, field).toBe(want)
+      else throw new Error(`unknown field ${field}`)
+    }
   })
 })

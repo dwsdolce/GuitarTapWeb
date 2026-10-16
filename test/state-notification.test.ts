@@ -128,7 +128,7 @@ describe('StateNotification', () => {
     const a = sut()
     a.measurementType = 'plate'
     a.materialTapPhase = 'capturingC'
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     a.materialTapPhase = 'capturingC' // startTapSequence resets the phase; this is mid-sequence
     const afterRedo = 'Ready for fC tap — tap again'
 
@@ -140,7 +140,7 @@ describe('StateNotification', () => {
   // status write while a condition holds must not drop the warning.
   it('N10 — dead input outranks clipping and survives a status write', () => {
     const a = sut()
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     a.setNumberOfTaps(1)
     expect(a.statusMessage).toBe('Tap the guitar...')
 
@@ -165,7 +165,7 @@ describe('StateNotification', () => {
   // status, clearing the condition would restore the warning forever.
   it('N11 — the settle captures the real status, not an override warning', () => {
     const a = sut()
-    a.startTapSequence({ arm: false })
+    a.startTapSequence()
     a.setNumberOfTaps(3)
     a.setClipping(true)
     expect(a.statusMessage).toMatch(/clipping/)
@@ -188,7 +188,7 @@ describe('StateNotification', () => {
     a.setMeasureFlc(false)
     a.materialTapPhase = 'reviewingL'
 
-    a.acceptMaterial()
+    a.acceptCurrentPhase()
 
     expect(a.materialTapPhase).toBe('capturingC') // precondition: the accept advanced the phase
     expect(a.statusMessage).toBe('Rotate 90° and tap for fC')
@@ -209,7 +209,7 @@ describe('StateNotification', () => {
     const a = sut()
     a.measurementType = 'brace'
     a.setNumberOfTaps(1)
-    a.startTapSequence({ arm: false })   // the production path to the material arm prompt
+    a.startTapSequence()   // the production path to the material arm prompt
     a.detectionState = 'listening'
     expect(a.statusMessage).toBe('Ready for fL tap')   // precondition
 

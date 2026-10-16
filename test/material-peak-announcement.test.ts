@@ -62,15 +62,15 @@ describe('material peaks — each change is announced', () => {
     const analyzer = new TapToneAnalyzer()
     analyzer.loadMeasurement(plate)
     expect(analyzer.getSnapshot().materialPeaksFromLoad).toBe(true)
-    analyzer.startTapSequence({ arm: false })
+    analyzer.startTapSequence()
     expect(analyzer.getSnapshot().materialPeaksFromLoad).toBe(false)
   })
 
   it('each sequence start is counted, even when the measurement was not complete', () => {
     const analyzer = new TapToneAnalyzer()
     const before = analyzer.getSnapshot().sequenceStarts
-    analyzer.startTapSequence({ arm: false })
-    analyzer.startTapSequence({ arm: false })
+    analyzer.startTapSequence()
+    analyzer.startTapSequence()
     expect(analyzer.getSnapshot().sequenceStarts).toBe(before + 2)
   })
 
@@ -79,7 +79,7 @@ describe('material peaks — each change is announced', () => {
     analyzer.selectedLongitudinalPeak = makeResonantPeak({ frequency: 1500, magnitude: -20, quality: 20, bandwidth: 5 })
     analyzer['materialTapPhase'] = 'reviewingL'
     const heard = listen(analyzer)
-    analyzer.redoMaterial()
+    analyzer.redoCurrentPhase()
     expect(heard.at(-1)?.l).toBeNull()
   })
 })

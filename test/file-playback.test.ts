@@ -361,7 +361,7 @@ describe('file playback rules', () => {
     await analyzer.playFile(wav.samples, wav.sampleRate, null)
     expect(analyzer.captureCalibrationName, 'precondition: the file played uncalibrated').toBeUndefined()
 
-    analyzer.startTapSequence({ arm: false })
+    analyzer.startTapSequence()
     expect(analyzer.captureCalibrationName, "the input's calibration again").toBe(input!.name)
   }, 30_000)
 

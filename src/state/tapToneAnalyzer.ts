@@ -16,7 +16,7 @@ import type { Calibration } from '../dsp/calibration'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
 // The one override-aware mode resolver (mirrors Swift GuitarMode.effectiveMode). A minor state→presentation
 // import (precedent: MaterialPeaks from components) — the resolver lives with the mode↔label map it needs.
-import { effectiveMode as resolveEffectiveMode } from '../presentation/modeColors'
+import { effectiveMode as resolveEffectiveMode, MODE_DISPLAY_NAME } from '../presentation/modeColors'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import { comparisonAxisRange, comparisonModeIDMap, effectiveSelectedPeakIDs, MEASUREMENT_TYPE_FROM_RAW, measurementMultiTapComparisonEntries, storedComponents, guitarTypeNameFromRaw, isoNow, makeResonantPeak, TapEntry, type AnnotationOffsets, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapEntryModel, type TapToneMeasurementModel } from '../measurement/types'
 import { normalizedMeasurementName, normalizedMeasurementNotes } from '../measurement/measurementName'
@@ -859,12 +859,9 @@ export class TapToneAnalyzer {
    *  natives, EVERY New Tap — guitar or material — goes through this one method, so no type's path can
    *  skip clearing the comparison and returning to live.
    *
-   *  `arm: false` is for tests that run without a device; the natives have no such parameter.
-   *
-   *  `detectionState` is owned here, as it is in Swift and Python: the arming paths below set it
-   *  directly, and the `arm: false` branch covers the direct/test path where no device reports back. */
-  startTapSequence(opts: { arm?: boolean; skipWarmup?: boolean } = {}): void {
-    const { arm = true, skipWarmup = false } = opts
+   *  `detectionState` is owned here, as it is in Swift and Python: the arming below sets it. */
+  startTapSequence(opts: { skipWarmup?: boolean } = {}): void {
+    const { skipWarmup = false } = opts
     this.sequenceStarts += 1
     // The shared reset — result data, per-peak state, completion flag, and the return to live.
     this.clearResult()
@@ -895,35 +892,22 @@ export class TapToneAnalyzer {
     this.consecutive = 0
 
     if (this.isGuitar) {
-      if (arm) {
-        // skipWarmup mirrors Swift startTapSequence(skipWarmup:) — guitar file playback skips it,
-        // because an externally recorded file may put the tap inside the first 0.5 s and guitar
-        // detects against the absolute threshold, so it never reads the noise floor.
-        this.armGuitarDetection(skipWarmup)
-        this.startSessionRecording() // begin the continuous session WAV
-      } else {
-        this.detectionState = 'listening'
-      }
-      // Guitar resting prompt (canonical post-warm-up steady state). In the app the device's arm →
-      // setEngineState('listening') also sets this; here it covers the direct/test path.
+      // skipWarmup mirrors Swift startTapSequence(skipWarmup:) — guitar file playback skips it,
+      // because an externally recorded file may put the tap inside the first 0.5 s and guitar
+      // detects against the absolute threshold, so it never reads the noise floor.
+      this.armGuitarDetection(skipWarmup)
+      this.startSessionRecording() // begin the continuous session WAV
+      // Guitar resting prompt (canonical post-warm-up steady state).
       this.setStatusMessage(this.tapPrompt())
     } else {
       this.clearMaterialPeaks()
       this.matSpectra = EMPTY_MAT_SPECTRA
       this.materialBuffer = []
       this.materialTapPhase = 'capturingL'
-      if (arm) {
-        // startSessionRecording seeds checkpoint [0] (the L-phase truncation anchor), so no explicit
-        // checkpoint is needed here.
-        this.startSessionRecording()
-        this.armMaterialDetection(this.matSearch('longitudinal'))
-      } else {
-        // Same as the guitar branch above: leaving `arm` out must not leave the detection state
-        // untouched, or a sequence started from `paused` would stay paused. Swift and Python have
-        // no `arm` parameter at all — they always end startTapSequence listening — so this keeps
-        // the unarmed path saying the same thing they do.
-        this.detectionState = 'listening'
-      }
+      // startSessionRecording seeds checkpoint [0] (the L-phase truncation anchor), so no explicit
+      // checkpoint is needed here.
+      this.startSessionRecording()
+      this.armMaterialDetection(this.matSearch('longitudinal'))
       // capturingL arm prompt = "Ready for L tap" (mirrors Swift startTapSequence; the silent
       // warm-up on Swift/Python now shows this too — was "Tap the guitar…", a divergence).
       this.setStatusMessage(this.materialArmPrompt())
@@ -1146,6 +1130,11 @@ export class TapToneAnalyzer {
       return
     }
 
+    // The threshold and tap count it carries are the loaded ones, kept only when the file has them.
+    // Mirrors Swift loadMeasurement.
+    if (m.tapDetectionThreshold != null) this.loadedTapDetectionThreshold = m.tapDetectionThreshold
+    if (m.numberOfTaps != null) this.loadedNumberOfTaps = m.numberOfTaps
+
     if (m.longitudinalSnapshot) {
       // Material (plate/brace): per-phase snapshots, no guitar spectrum.
       const mat = measurementToLiveMaterial(m, this.settings)
@@ -1158,7 +1147,7 @@ export class TapToneAnalyzer {
         selectedCrossPeak: mat.selectedCrossPeak,
         selectedFlcPeak: mat.selectedFlcPeak,
         materialInputs: mat.materialInputs,
-        numberOfTaps: m.numberOfTaps ?? 1,
+        numberOfTaps: m.numberOfTaps,
       })
       this.restoreOffsets(mat.annotationOffsetsById) // dragged L/C/FLC labels (id-keyed shared store)
     } else {
@@ -1171,7 +1160,7 @@ export class TapToneAnalyzer {
       this.restoreSnapshot({
         magnitudes: live.captured.magnitudesDb,
         frequencies: live.captured.frequencies,
-        numberOfTaps: m.numberOfTaps ?? 1,
+        numberOfTaps: m.numberOfTaps,
         tapEntries: live.tapEntries,
         peaks: live.peaks,
         overrides: live.overridesById,
@@ -1752,6 +1741,22 @@ export class TapToneAnalyzer {
     return resolveEffectiveMode(this.overrides.get(id), this.modeByPeak.get(id) ?? 'unknown')
   }
 
+  /** The label a peak shows: its manual label, else its mode's name. Mirrors Swift `effectiveModeLabel(for:)`. */
+  effectiveModeLabel(id: string): string {
+    return this.overrides.get(id) ?? MODE_DISPLAY_NAME[this.effectiveMode(id)]
+  }
+
+  /** The mode a peak carries with no override — what "Reset to Auto" restores it to. Override-blind on
+   *  purpose; a peak with no classification is `'unknown'`. Mirrors Swift `autoDetectedMode(for:)`. */
+  autoDetectedMode(id: string): ResolvedMode {
+    return this.modeByPeak.get(id) ?? 'unknown'
+  }
+
+  /** Whether the user has given this peak a label of their own. Mirrors Swift `hasManualOverride(for:)`. */
+  hasManualOverride(id: string): boolean {
+    return this.overrides.has(id)
+  }
+
   /** The DEFINITIVE peak for a mode — the *selected* peak whose *effective* (override-aware) mode is that
    *  mode, strongest wins. Deselecting or relabelling a peak removes it here exactly as on screen. Mirrors
    *  Swift analyzer `getPeak(for:)`. (Definitive-mode uniqueness means normally ≤1 candidate; `max`
@@ -2080,7 +2085,7 @@ export class TapToneAnalyzer {
   }
 
   /** Review → advance to the next phase (Accept). */
-  acceptMaterial(): void {
+  acceptCurrentPhase(): void {
     const phase = this.materialTapPhase
     if (phase === 'reviewingL') {
       this.materialTapPhase = 'capturingC'
@@ -2126,7 +2131,7 @@ export class TapToneAnalyzer {
   }
 
   /** Review → re-capture the current phase (Redo). */
-  redoMaterial(): void {
+  redoCurrentPhase(): void {
     const phase = this.materialTapPhase
     this.redoSession() // drop the rejected phase's audio from the session WAV
     this.materialBuffer = []
@@ -2363,11 +2368,26 @@ export class TapToneAnalyzer {
   private readonly noiseFloorMinHeadroomDb = 10
   private readonly noiseFloorMinFallingHeadroomDb = 4
 
-  /** Absolute detection threshold (dBFS). Owned here, as Swift owns it; App pushes the setting. */
   /** The tap-detection threshold in dBFS, mirrored in from settings by `setSettings`. Read by
    *  `detectTap` — absolute for guitar, the base of the relative rule for material. Swift and
-   *  Python hold the same value on the analyzer. */
-  tapDetectionThreshold = -40
+   *  Python hold the same value on the analyzer. A change away from the loaded measurement's
+   *  threshold ends the loaded-settings warning, as Swift's `tapDetectionThreshold.didSet`. */
+  private _tapDetectionThreshold = -40
+  get tapDetectionThreshold(): number {
+    return this._tapDetectionThreshold
+  }
+  set tapDetectionThreshold(v: number) {
+    // Only an actual change: setSettings re-applies every setting whenever any one changes.
+    if (v === this._tapDetectionThreshold) return
+    this._tapDetectionThreshold = v
+    if (v !== this.loadedTapDetectionThreshold) this.showLoadedSettingsWarning = false
+  }
+
+  /** The threshold and tap count the loaded measurement carried — each set only when the file has it,
+   *  as Swift's `loadedTapDetectionThreshold` / `loadedNumberOfTaps`. A change away from them ends
+   *  the loaded-settings warning. */
+  loadedTapDetectionThreshold: number | null = null
+  loadedNumberOfTaps: number | null = null
 
   /** A gated capture window is filling. Swift `gatedCaptureActive`. */
   gatedCaptureActive = false
@@ -3838,7 +3858,7 @@ export class TapToneAnalyzer {
    *  single source for these strings.
    *
    *  Three callers, which is the point: `startTapSequence` (which sets the phase before the status),
-   *  the phase advances in `acceptMaterial`, and `restingPrompt()` — so a resume or a tap-count
+   *  the phase advances in `acceptCurrentPhase`, and `restingPrompt()` — so a resume or a tap-count
    *  change cannot reword the instruction the user is following. Mirrors Swift `materialArmPrompt()`
    *  and Python `_material_arm_prompt()`.
    *
@@ -3919,19 +3939,9 @@ export class TapToneAnalyzer {
     if (this.isDetecting && this.currentTapCount === 0) {
       this.setStatusMessage(this.restingPrompt())
     }
-    // The user changed Taps, so the loaded measurement's settings no longer describe what is on
-    // screen. Mirrors Swift numberOfTaps.didSet and Python set_tap_num.
-    this.showLoadedSettingsWarning = false
-    this.notify()
-  }
-
-  /** The user changed a setting the loaded measurement also carries, so its banner no longer
-   *  applies. Swift and Python do this inside `tapDetectionThreshold`'s setter, which they can
-   *  because the threshold is analyzer state there; on the web the slider writes `settings`, so the
-   *  view reports the change instead. */
-  noteLoadedSettingsDeviation(): void {
-    if (!this.showLoadedSettingsWarning) return
-    this.showLoadedSettingsWarning = false
+    // A count other than the loaded measurement's means its settings no longer describe what is on
+    // screen. Mirrors Swift numberOfTaps.didSet.
+    if (n !== this.loadedNumberOfTaps) this.showLoadedSettingsWarning = false
     this.notify()
   }
 

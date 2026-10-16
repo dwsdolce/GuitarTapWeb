@@ -1,15 +1,24 @@
 // @parity test/state-invariants
-// Mirrors GuitarTapTests/StateInvariantTests.swift and Python tests/test_state_invariants.py: the
-// load-bearing state-machine invariants (I1–I6) that must hold after any sequence of operations.
 //
-// The checker lives HERE, in the test, as it does in both natives.
+// State combinations the design forbids, checked after real sequences of steps. They are the rules Pause /
+// New Tap / Cancel enablement and the audio-thread detection guards rest on, so a refactor that broke one
+// would show up as a UI bug even where each function looks right on its own. The checker is below; the
+// shared cases in state-invariants.json (V1–V13) run it after their steps and test it on each forbidden
+// state, the same as Swift and Python.
 import { describe, it, expect } from 'vitest'
-import { TapToneAnalyzer, type CapturedTap } from '../src/state/tapToneAnalyzer'
-import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
-import { advanceAudio } from './audioClockFeed'
+import { readFileSync } from 'node:fs'
+import type { CapturedTap, MaterialTapPhase, TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import { makeStepsAnalyzer, runAnalyzerStep, PHASE_RAW, type AnalyzerStep } from './analyzerSteps'
 
-/** Returns a description of the first invariant `s` violates, or null when all hold. Keep in sync
- *  with Swift stateInvariantViolation / Python state_invariant_violation. */
+type Fields = Record<string, unknown>
+type InvariantStep = AnalyzerStep & { check?: Fields; write?: Fields }
+type InvariantCase = { id: string; note: string; steps: InvariantStep[]; expect: Fields }
+const DATA = JSON.parse(readFileSync('test/fixtures/state-invariants.json', 'utf8')) as { cases: InvariantCase[] }
+
+const PHASE_FROM_RAW = Object.fromEntries(Object.entries(PHASE_RAW).map(([k, v]) => [v, k])) as Record<string, MaterialTapPhase>
+
+/** The first rule `s` breaks, described, or null. The rules are listed in state-invariants.json; Swift's
+ *  stateInvariantViolation and Python's state_invariant_violation check the same ones. */
 function stateInvariantViolation(s: TapToneAnalyzer): string | null {
   const isGuitar = s.isGuitar
   // I1: guitar mode — isDetecting && isMeasurementComplete is illegal.
@@ -41,140 +50,54 @@ function stateInvariantViolation(s: TapToneAnalyzer): string | null {
   return null
 }
 
-function makeSUT(numberOfTaps = 1): TapToneAnalyzer {
-  const s = new TapToneAnalyzer()
-  s.numberOfTaps = numberOfTaps
-  s.measurementType = 'classical' // guitar mode (Swift uses .generic)
-  return s
+/** A captured tap for a `write` step: 64 bins at 31.25 Hz, −80 dB but bin 16 at −30. */
+function capturedTap(): CapturedTap {
+  const magnitudes = new Array<number>(64).fill(-80)
+  magnitudes[16] = -30
+  return { magnitudes, frequencies: Array.from({ length: 64 }, (_, i) => i * 31.25), captureTime: 0 }
 }
 
-function fakeTap(n = 64): CapturedTap {
-  const magnitudes = new Array<number>(n).fill(-80)
-  magnitudes[Math.floor(n / 4)] = -30
-  const frequencies = Array.from({ length: n }, (_, i) => i * 31.25)
-  return { magnitudes, frequencies, captureTime: 0 }
-}
-
-/** A decaying sinusoid — a synthetic tap with one resonance at `hz`. */
-function tapSamples(hz: number, count: number, rate = 48000): Float32Array {
-  const out = new Float32Array(count)
-  for (let i = 0; i < count; i++) {
-    const t = i / rate
-    out[i] = 0.5 * Math.exp(-t * 6) * Math.sin(2 * Math.PI * hz * t)
+/** Set the fields a `write` step names directly — only to give the checker a forbidden state. */
+function write(fields: Fields, a: TapToneAnalyzer): void {
+  for (const [field, value] of Object.entries(fields)) {
+    switch (field) {
+      case 'detectionState': a.detectionState = value as 'idle' | 'listening' | 'paused'; break
+      case 'complete': a.isMeasurementComplete = value as boolean; break
+      case 'capturedTaps': a.capturedTaps = Array.from({ length: value as number }, capturedTap); break
+      case 'tapCount': a.currentTapCount = value as number; break
+      case 'tapProgress': a.tapProgress = value as number; break
+      case 'phase': a.materialTapPhase = PHASE_FROM_RAW[value as string]!; break
+      default: throw new Error(`unknown write field ${field}`)
+    }
   }
-  return out
 }
 
+/** Assert the fields an expectation names. */
+function check(fields: Fields, a: TapToneAnalyzer): void {
+  for (const [field, want] of Object.entries(fields)) {
+    switch (field) {
+      case 'violation': {
+        const violation = stateInvariantViolation(a)
+        expect(violation ? violation.slice(0, 2) : null, `${field}: ${violation}`).toBe(want)
+        break
+      }
+      case 'complete': expect(a.isMeasurementComplete, field).toBe(want); break
+      case 'detecting': expect(a.isDetecting, field).toBe(want); break
+      case 'capturedTaps': expect(a.capturedTaps.length, field).toBe(want); break
+      case 'phase': expect(PHASE_RAW[a.materialTapPhase], field).toBe(want); break
+      default: throw new Error(`unknown field ${field}`)
+    }
+  }
+}
 
-describe('StateInvariants', () => {
-  // V1: fresh analyzer is valid
-  it('V1 — fresh analyzer holds invariants', () => {
-    expect(stateInvariantViolation(makeSUT())).toBeNull()
-  })
-
-  // V2: after startTapSequence, invariants hold
-  it('V2 — after startTapSequence holds invariants', () => {
-    const s = makeSUT()
-    s.startTapSequence()
-    expect(stateInvariantViolation(s)).toBeNull()
-  })
-
-  // V3: single-tap completion holds invariants (iPad-bug end state)
-  it('V3 — after single-tap complete holds invariants', () => {
-    const s = makeSUT(1)
-    s.startTapSequence()
-    s.detectionState = 'idle'
-    s.capturedTaps = [fakeTap()]
-    s.currentTapCount = 1
-    s.processMultipleTaps()
-    expect(stateInvariantViolation(s)).toBeNull()
-  })
-
-  // V4: mid multi-tap sequence holds invariants — reached through the REAL capture path
-  // (finishGuitarGatedCapture), not by assigning the taps, count and state by hand.
-  // Checked resting through the tap cooldown, and re-armed after it.
-  it('V4 — mid multi-tap sequence holds invariants', async () => {
-    const s = makeSUT(3)
-    s.startTapSequence()
-    s.finishGuitarGatedCapture(tapSamples(100, GUITAR_FFT_SIZE), 48000)
-    expect(s.capturedTaps).toHaveLength(1)
-    expect(s.isDetecting, 'detection rests through the tap cooldown').toBe(false)
-    expect(stateInvariantViolation(s)).toBeNull()
-
-    advanceAudio(s, s.tapCooldown) // the rest runs on the audio clock
-    expect(s.isDetecting, 're-armed for the next tap once the cooldown has passed').toBe(true)
-    expect(stateInvariantViolation(s)).toBeNull()
-  })
-
-  // V5: cancel mid-sequence holds invariants
-  it('V5 — after cancel holds invariants', () => {
-    const s = makeSUT(3)
-    s.startTapSequence()
-    s.cancelTapSequence()
-    expect(stateInvariantViolation(s)).toBeNull()
-  })
-
-  // V6: paused state holds invariants
-  it('V6 — after pause holds invariants', () => {
-    const s = makeSUT(3)
-    s.startTapSequence()
-    s.pauseTapDetection()
-    expect(stateInvariantViolation(s)).toBeNull()
-  })
-
-  // V7: the impossible (detecting && complete) state must be flagged
-  it('V7 — impossible detecting+complete is flagged', () => {
-    const s = makeSUT(1)
-    s.detectionState = 'listening'
-    s.isMeasurementComplete = true
-    expect(stateInvariantViolation(s)).not.toBeNull()
-  })
-
-  // V8: a plate capture reaches its REVIEW phase through the real gated path, and invariants hold —
-  // including I6, which no guitar case can reach.
-  it('V8 — plate review phase holds invariants', () => {
-    const s = makeSUT(1)
-    s.measurementType = 'plate'
-    s.tapDetectionThreshold = -90 // accept the synthetic tap
-    s.startTapSequence()
-    s.finishGatedFFTCapture(tapSamples(60, 24_000), 48000, 'capturingL')
-    expect(s.materialTapPhase).toBe('reviewingL')
-    expect(s.isDetecting).toBe(false)
-    expect(stateInvariantViolation(s)).toBeNull()
-  })
-
-  // V9–V13: each invariant REPORTS its forbidden state, as V7 does for I1.
-  it('I2 — paused and complete is flagged', () => {
-    const s = makeSUT()
-    s.detectionState = 'paused'
-    s.isMeasurementComplete = true
-    expect(stateInvariantViolation(s)).toMatch(/^I2/)
-  })
-
-  it('I3 — more taps than requested is flagged', () => {
-    const s = makeSUT(1)
-    s.capturedTaps = [fakeTap(), fakeTap()]
-    expect(stateInvariantViolation(s)).toMatch(/^I3/)
-  })
-
-  it('I4 — count out of step with the taps is flagged', () => {
-    const s = makeSUT(3)
-    s.capturedTaps = [fakeTap()]
-    s.currentTapCount = 0
-    expect(stateInvariantViolation(s)).toMatch(/^I4/)
-  })
-
-  it('I5 — progress out of range is flagged', () => {
-    const s = makeSUT()
-    s.tapProgress = 1.5
-    expect(stateInvariantViolation(s)).toMatch(/^I5/)
-  })
-
-  it('I6 — detecting while reviewing is flagged', () => {
-    const s = makeSUT()
-    s.measurementType = 'plate'
-    s.materialTapPhase = 'reviewingL'
-    s.detectionState = 'listening'
-    expect(stateInvariantViolation(s)).toMatch(/^I6/)
+describe('state-invariants — the shared cases (state-invariants.json)', () => {
+  it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
+    const { a, store } = makeStepsAnalyzer()
+    for (const step of c.steps) {
+      if (step.check) check(step.check, a)
+      else if (step.write) write(step.write, a)
+      else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+    }
+    check(c.expect, a)
   })
 })

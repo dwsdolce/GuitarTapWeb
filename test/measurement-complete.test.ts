@@ -1,140 +1,69 @@
 // @parity test/measurement-complete
-// Mirrors GuitarTapTests/MeasurementCompleteTransitionTests.swift and Python
-// tests/test_measurement_complete_transitions.py: isMeasurementComplete must be
-// set true by every completion path and cleared/handled by every reset path.
+//
+// isMeasurementComplete gates whether the spectrum freezes or keeps showing live frames, so every path
+// that should set it true or false is a case here — a new completion path without one is a gap — and so
+// are the paths that move the loaded-settings warning with it. The shared cases in
+// measurement-complete.json (MC1–MC18), the same as Swift and Python, run through an analyzer attached
+// to its own settings store.
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer, type CapturedTap } from '../src/state/tapToneAnalyzer'
+import { parseGuitarTapFile } from '../src/measurement'
+import { SettingsStore } from '../src/settingsStore'
+import { DEFAULT_SETTINGS } from '../src/settings'
 
-function makeSUT(numberOfTaps = 1): TapToneAnalyzer {
-  const s = new TapToneAnalyzer()
-  s.numberOfTaps = numberOfTaps
-  s.measurementType = 'classical'
-  return s
+type Step = {
+  numberOfTaps?: number
+  captureTaps?: number[]
+  processTaps?: boolean
+  newTap?: boolean
+  cancel?: boolean
+  load?: string
+  warning?: boolean
+  setTaps?: number
+  setThreshold?: number
+}
+type CompleteCase = { id: string; note: string; steps: Step[]; expect: Record<string, unknown> }
+const DATA = JSON.parse(readFileSync('test/fixtures/measurement-complete.json', 'utf8')) as {
+  files: Record<string, unknown>
+  cases: CompleteCase[]
 }
 
-function fakeTap(n = 64, peakDB = -30): CapturedTap {
-  const magnitudes = new Array<number>(n).fill(-80)
-  magnitudes[Math.floor(n / 4)] = peakDB
-  const frequencies = Array.from({ length: n }, (_, i) => i * 31.25)
-  return { magnitudes, frequencies, captureTime: 0 }
+/** A captured tap: 64 bins at 31.25 Hz, −80 dB but bin 16 at `peakDB`. */
+function capturedTap(peakDB: number): CapturedTap {
+  const magnitudes = new Array<number>(64).fill(-80)
+  magnitudes[16] = peakDB
+  return { magnitudes, frequencies: Array.from({ length: 64 }, (_, i) => i * 31.25), captureTime: 0 }
 }
 
-describe('MeasurementCompleteTransitions', () => {
-  // MC1: processMultipleTaps sets isMeasurementComplete = true
-  it('MC1 — processMultipleTaps sets isMeasurementComplete', () => {
-    const s = makeSUT(1)
-    s.capturedTaps = [fakeTap()]
-    s.processMultipleTaps()
-    expect(s.isMeasurementComplete).toBe(true)
-  })
-
-  // MC2: processMultipleTaps populates the frozen spectrum
-  it('MC2 — processMultipleTaps populates frozen spectrum', () => {
-    const s = makeSUT(1)
-    s.capturedTaps = [fakeTap()]
-    s.processMultipleTaps()
-    expect(s.frozenMagnitudes.length).toBeGreaterThan(0)
-    expect(s.frozenFrequencies.length).toBeGreaterThan(0)
-  })
-
-  // MC3: two taps still set complete
-  it('MC3 — processMultipleTaps multi-tap sets complete', () => {
-    const s = makeSUT(2)
-    s.capturedTaps = [fakeTap(64, -32), fakeTap(64, -28)]
-    s.processMultipleTaps()
-    expect(s.isMeasurementComplete).toBe(true)
-  })
-
-  // MC4: startTapSequence clears complete
-  it('MC4 — startTapSequence clears measurement complete', () => {
-    const s = makeSUT(1)
-    s.capturedTaps = [fakeTap()]
-    s.processMultipleTaps()
-    expect(s.isMeasurementComplete).toBe(true)
-    s.startTapSequence()
-    expect(s.isMeasurementComplete).toBe(false)
-  })
-
-  // MC5: cancelTapSequence re-arms — clears frozen spectrum, resets complete, re-arms detection
-  it('MC5 — cancelTapSequence re-arms and clears frozen', () => {
-    const s = makeSUT(1)
-    s.capturedTaps = [fakeTap()]
-    s.processMultipleTaps()
-    expect(s.frozenMagnitudes.length).toBeGreaterThan(0)
-    expect(s.isMeasurementComplete).toBe(true)
-    s.cancelTapSequence()
-    expect(s.frozenMagnitudes.length).toBe(0)
-    expect(s.frozenFrequencies.length).toBe(0)
-    expect(s.isMeasurementComplete).toBe(false) // re-armed → not complete
-    expect(s.isDetecting).toBe(true) // re-armed detection
-  })
-
-  // MC6: empty capturedTaps does not complete
-  it('MC6 — processMultipleTaps with no taps does not complete', () => {
-    const s = makeSUT(1)
-    s.capturedTaps = []
-    s.processMultipleTaps()
-    expect(s.isMeasurementComplete).toBe(false)
-  })
-
-  // MC7: loadMeasurement sets complete
-  it('MC7 — loadMeasurement sets measurement complete', () => {
-    const s = makeSUT()
-    expect(s.isMeasurementComplete).toBe(false)
-    const frequencies = Array.from({ length: 64 }, (_, i) => i * 31.25)
-    const magnitudes = new Array<number>(64).fill(-80)
-    magnitudes[16] = -30
-    s.restoreSnapshot({ magnitudes, frequencies })
-    expect(s.isMeasurementComplete).toBe(true)
-  })
-
-  // MC8: completing clears the loaded-settings warning (didSet)
-  it('MC8 — measurement complete clears loaded-settings warning', () => {
-    const s = makeSUT()
-    s.showLoadedSettingsWarning = true
-    s.capturedTaps = [fakeTap()]
-    s.processMultipleTaps()
-    expect(s.showLoadedSettingsWarning).toBe(false)
-  })
-
-  // MC9-MC11: the OTHER three rules that move this flag, which the banner reads from the analyzer.
-  //
-  // MC9: starting a new sequence clears it — the user's own Threshold/Taps now apply.
-  it('MC9 — a new sequence clears the loaded-settings warning', () => {
-    const s = makeSUT()
-    s.showLoadedSettingsWarning = true
-    s.startTapSequence({ arm: false })
-    expect(s.showLoadedSettingsWarning).toBe(false)
-  })
-
-  // MC10: changing Taps clears it (Swift numberOfTaps.didSet / Python set_tap_num).
-  it('MC10 — a tap-count change clears the loaded-settings warning', () => {
-    const s = makeSUT()
-    s.showLoadedSettingsWarning = true
-    s.setNumberOfTaps(3)
-    expect(s.showLoadedSettingsWarning).toBe(false)
-  })
-
-  // MC11: a load RAISES it, and does so after the completion assignment that would clear it —
-  // the ordering dependency Swift carries between MeasMgmt:709 and :834.
-  it('MC11 — loading a measurement raises it, surviving the completion clear', () => {
-    const s = makeSUT()
-    expect(s.showLoadedSettingsWarning).toBe(false)
-    s.restoreSnapshot({ magnitudes: [-60, -60], frequencies: [100, 200] })
-    expect(s.isMeasurementComplete).toBe(true)
-    expect(s.showLoadedSettingsWarning).toBe(true)
-  })
-
-  // MC12: a load that CARRIES a tap count must still raise the banner. Two clearing hooks fire
-  // during a load — the completion setter and the tap-count hook — and the raise has to come after
-  // BOTH. MC11 passes no tap count, so it never exercised the second one, and a version of this
-  // code restored the tap count from App AFTER loadMeasurement returned: the banner was raised and
-  // then wiped four lines later, and the banner never appeared at all. Swift cannot have that,
-  // because loadMeasurement writes numberOfTaps itself, between the two (MeasMgmt:709/784/834).
-  it('MC12 — a load carrying a tap count still raises the banner, and applies the count', () => {
-    const s = makeSUT()
-    s.restoreSnapshot({ magnitudes: [-60, -60], frequencies: [100, 200], numberOfTaps: 3 })
-    expect(s.numberOfTaps).toBe(3)
-    expect(s.showLoadedSettingsWarning).toBe(true)
+describe('measurement-complete — the shared cases (measurement-complete.json)', () => {
+  it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
+    const store = new SettingsStore({ ...DEFAULT_SETTINGS, measurementType: 'classical', tapDetectionThreshold: -40 })
+    const a = new TapToneAnalyzer()
+    a.attachSettingsStore(store)
+    a.setNumberOfTaps(1)
+    for (const step of c.steps) {
+      if (step.numberOfTaps !== undefined) a.setNumberOfTaps(step.numberOfTaps)
+      else if (step.captureTaps) a.capturedTaps = step.captureTaps.map(capturedTap)
+      else if (step.processTaps) a.processMultipleTaps()
+      else if (step.newTap) a.startTapSequence()
+      else if (step.cancel) a.cancelTapSequence()
+      else if (step.load !== undefined) a.loadMeasurement(parseGuitarTapFile(JSON.stringify(DATA.files[step.load]))[0]!)
+      else if (step.warning) a.showLoadedSettingsWarning = true
+      else if (step.setTaps !== undefined) a.setNumberOfTaps(step.setTaps)
+      else if (step.setThreshold !== undefined) store.update({ tapDetectionThreshold: step.setThreshold })
+    }
+    for (const [field, want] of Object.entries(c.expect)) {
+      switch (field) {
+        case 'complete': expect(a.isMeasurementComplete, field).toBe(want); break
+        case 'frozenSpectrum':
+          expect(a.frozenMagnitudes.length > 0 && a.frozenFrequencies.length > 0, field).toBe(want)
+          break
+        case 'detecting': expect(a.isDetecting, field).toBe(want); break
+        case 'loadedSettingsWarning': expect(a.showLoadedSettingsWarning, field).toBe(want); break
+        case 'numberOfTaps': expect(a.numberOfTaps, field).toBe(want); break
+        default: throw new Error(`unknown field ${field}`)
+      }
+    }
   })
 })
