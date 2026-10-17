@@ -6,7 +6,7 @@
 // (plain, structured-clonable).
 
 import type { TapToneMeasurementModel } from './types'
-import { healMeasurement, parseGuitarTapFile } from './decode'
+import { checkMeasurement, healMeasurement, parseGuitarTapFile } from './decode'
 import { newId } from './newId'
 
 const DB_NAME = 'guitartap'
@@ -137,22 +137,53 @@ export async function importMeasurements(text: string): Promise<TapToneMeasureme
   return imported
 }
 
-/** All saved measurements in insertion order (last saved/imported last), mirroring the
- *  Swift/Python `savedMeasurements` array. */
-export function listMeasurements(): Promise<TapToneMeasurementModel[]> {
+/** The library as read: the measurements that can be read, in insertion order (last saved/imported
+ *  last, mirroring the Swift/Python `savedMeasurements` array), and the row keys of the records that
+ *  cannot. */
+export interface Library {
+  measurements: TapToneMeasurementModel[]
+  unreadable: string[]
+}
+
+/** Read the library. A record that cannot be read — an id that is not a UUID, or no spectrum — is skipped and left in
+ *  storage untouched, and named in `unreadable`, so nothing writes over it and the user can be told
+ *  (and offered {@link deleteUnreadable}). The web's form of the natives' rule for a library that
+ *  cannot be read: its records are stored one by one, so one bad record does not cost the rest. */
+export function readLibrary(): Promise<Library> {
   return tx<StoredMeasurement[]>('readonly', (s) => s.getAll()).then((all) => {
     const sorted = all.sort((a, b) => orderOf(a) - orderOf(b))
+    const measurements: StoredMeasurement[] = []
+    const unreadable: string[] = []
+    for (const m of sorted) {
+      try {
+        checkMeasurement(m)
+        measurements.push(m)
+      } catch {
+        unreadable.push(m.rowKey!)
+      }
+    }
     // Unlike Swift/Python — whose library is a JSON file and therefore passes through the
     // per-measurement decoder — this store holds already-decoded objects, so nothing here
     // reaches decodeMeasurement(). Measurements written by the web before the findPeaks
     // duplicate fix must be healed on read, or they stay corrupt forever.
-    const healed = sorted.filter((m) => healMeasurement(m))
+    const healed = measurements.filter((m) => healMeasurement(m))
     if (healed.length > 0) {
       // The library is ours: write the corrected form straight back, once.
       void Promise.all(healed.map((m) => saveMeasurement(m)))
     }
-    return sorted
+    return { measurements, unreadable }
   })
+}
+
+/** All saved measurements that can be read, in insertion order. See {@link readLibrary}. */
+export function listMeasurements(): Promise<TapToneMeasurementModel[]> {
+  return readLibrary().then((library) => library.measurements)
+}
+
+/** Remove the records {@link readLibrary} could not read — the user's choice; nothing removes them
+ *  otherwise. */
+export async function deleteUnreadable(rowKeys: string[]): Promise<void> {
+  for (const rowKey of rowKeys) await tx('readwrite', (s) => s.delete(rowKey))
 }
 
 /** Fetch one stored row by its library-local `rowKey` (NOT the dataset `id`). */

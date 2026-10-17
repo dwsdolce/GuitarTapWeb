@@ -11,6 +11,7 @@ import type { Spectrum } from '../src/dsp/guitarFFT'
 import type { ResonantPeak } from '../src/measurement/types'
 import { parseGuitarTapFile } from '../src/measurement'
 import { makeStepsAnalyzer, runAnalyzerStep, type AnalyzerStep } from './analyzerSteps'
+import { testId } from './testIds'
 
 type Fields = Record<string, unknown>
 type StatusStep = AnalyzerStep & {
@@ -83,7 +84,7 @@ function spectrum(peakHz: number | null): Spectrum {
   }
   return { magnitudesDb, frequencies }
 }
-const mp = (f: number): ResonantPeak => ({ id: '0', frequency: f, magnitude: -40, quality: 8, bandwidth: 2, timestamp: '2026-09-25T00:00:00Z' })
+const mp = (f: number): ResonantPeak => ({ id: testId(0), frequency: f, magnitude: -40, quality: 8, bandwidth: 2, timestamp: '2026-09-25T00:00:00Z' })
 
 /** A minimal device stand-in — the analyzer only needs playingFile + activeCalibration + its input level
  *  (observed for clipping) + no-op session/arm hooks (armMaterial etc. re-arm the real device; here they do

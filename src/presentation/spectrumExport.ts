@@ -280,6 +280,14 @@ export class ExportRenderError extends Error {
   }
 }
 
+/** What the "Export Failed" alert says, the same in every edition: the chart could not be drawn (its own
+ *  words), or the file could not be saved and why. Mirrors Python `export_failure_message`. */
+export function exportFailureMessage(err: unknown, fileName: string): string {
+  if (err instanceof ExportRenderError) return err.message
+  const reason = (err instanceof Error ? err.message : String(err)).replace(/\.$/, '')
+  return `Could not save "${fileName}": ${reason}.`
+}
+
 /** The spectrum report image as a PNG file, as Swift's export writes it: 2x pixels stating 144 pixels per
  *  inch, so a viewer that honours the figure shows it at its point size.
  *  @throws {@link ExportRenderError} when the browser produces no image. */

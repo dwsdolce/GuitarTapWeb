@@ -2,7 +2,6 @@
 import { AlertModal } from './AlertModal'
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import { listMeasurements } from '../measurement/store'
 import { measurementTapToneRatio, guitarTapFilename } from '../measurement/types'
 import { EditMeasurementSheet } from './EditMeasurementSheet'
 import { exportStem } from '../measurement/exportFilename'
@@ -10,13 +9,16 @@ import { formatDisplayDate } from '../format/date'
 import { serializeGuitarTapFile, type TapToneMeasurementModel } from '../measurement'
 import { MeasurementDetail } from './MeasurementDetail'
 import { menuPlacement } from './menuPlacement'
-import { exportSpectrumPng } from '../presentation/spectrumExport'
+import { exportFailureMessage, exportSpectrumPng } from '../presentation/spectrumExport'
 import { measurementToImageOpts, reportForMeasurement } from '../presentation/measurementImage'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
 import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon } from './icons'
+import { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 
 export interface MeasurementsPanelProps {
+  /** The saved measurements, as the model holds them (Swift's list reads `savedMeasurements`). */
+  measurements: TapToneMeasurementModel[]
   onClose: () => void
   onLoad: (m: TapToneMeasurementModel) => void
   onCompare: (measurements: TapToneMeasurementModel[]) => void
@@ -87,8 +89,7 @@ const isInstalled = (): boolean =>
  */
 const keyOf = (m: TapToneMeasurementModel): string => m.rowKey as string
 
-export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpdate, onDelete, onDeleteAll }: MeasurementsPanelProps) {
-  const [items, setItems] = useState<TapToneMeasurementModel[] | null>(null)
+export function MeasurementsPanel({ measurements: items, onClose, onLoad, onCompare, onImport, onUpdate, onDelete, onDeleteAll }: MeasurementsPanelProps) {
   const [comparing, setComparing] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [menuId, setMenuId] = useState<string | null>(null)
@@ -109,7 +110,10 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
   }, [menuId])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
-  const [importError, setImportError] = useState<string | null>(null)
+  // An export that failed: the "Export Failed" alert, with Swift's and Python's words.
+  const [exportFailure, setExportFailure] = useState<string | null>(null)
+  // An import that failed: the "Import Error" alert, with Swift's and Python's words.
+  const [importFailure, setImportFailure] = useState<string | null>(null)
   // The import's success message (Swift `importSuccess`, Python's Import Successful box).
   const [importMessage, setImportMessage] = useState<string | null>(null)
   // The measurement awaiting a Delete confirmation, and whether Delete All is. In-page alerts, as Swift's:
@@ -120,11 +124,6 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
   // deliberate no-op, so double-press fires immediately — see the guidelines).
   const lastTap = useRef<{ id: string; t: number } | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
-
-  const refresh = () => listMeasurements().then(setItems)
-  useEffect(() => {
-    void refresh()
-  }, [])
 
   // Close an open row menu on any outside pointer-down. The menu is portaled to <body>, so
   // identify "inside" by class (`.meas-menu` / the row's `.meas-menu-wrap`) rather than DOM
@@ -171,7 +170,6 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
   ) => {
     await onUpdate(m, measurementName, notes)
     setEditingId(null)
-    await refresh()
   }
   const remove = (m: TapToneMeasurementModel) => {
     setMenuId(null)
@@ -182,13 +180,11 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
     setPendingDelete(null)
     if (!m) return
     await onDelete(m)
-    await refresh()
   }
   const removeAll = () => setConfirmingDeleteAll(true)
   const confirmRemoveAll = async () => {
     setConfirmingDeleteAll(false)
     await onDeleteAll()
-    await refresh()
   }
 
   // ── Compare mode (4d) ─────────────────────────────────────────────────────
@@ -233,22 +229,26 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
   /** Export a saved measurement's spectrum as a PNG report image (row ⋯ menu). */
   const exportSpectrum = async (m: TapToneMeasurementModel) => {
     setMenuId(null)
+    // Saved-measurement export uses the MEASUREMENT's timestamp (matching Swift/Python), not now.
+    const ts = Math.floor((Date.parse(m.timestamp) || 0) / 1000)
+    const fileName = `${exportStem(m.measurementName, ts, 'spectrum')}.png`
     try {
-      // Saved-measurement export uses the MEASUREMENT's timestamp (matching Swift/Python), not now.
-      const ts = Math.floor((Date.parse(m.timestamp) || 0) / 1000)
-      await exportSpectrumPng(measurementToImageOpts(m), `${exportStem(m.measurementName, ts, 'spectrum')}.png`)
+      await exportSpectrumPng(measurementToImageOpts(m), fileName)
     } catch (err) {
-      setImportError(`Couldn't export spectrum: ${err instanceof Error ? err.message : String(err)}`)
+      setExportFailure(exportFailureMessage(err, fileName))
     }
   }
 
   const exportPdf = async (m: TapToneMeasurementModel) => {
     setMenuId(null)
+    let fileName = ''
     try {
       const report = await reportForMeasurement(m)
-      await saveFile(report.blob, `${report.basename}.pdf`, { description: 'PDF report', mime: 'application/pdf', ext: '.pdf' })
+      fileName = `${report.basename}.pdf`
+      await saveFile(report.blob, fileName, { description: 'PDF report', mime: 'application/pdf', ext: '.pdf' })
     } catch (err) {
-      setImportError(`Couldn't export PDF: ${err instanceof Error ? err.message : String(err)}`)
+      // A report that could not be made has no file yet; its error is the drawing's own.
+      setExportFailure(exportFailureMessage(err, fileName))
     }
   }
 
@@ -263,7 +263,6 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
   // Import: parse a picked `.guitartap`, add EVERY measurement to the library (group import),
   // and auto-load only when the file holds exactly one.
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    setImportError(null)
     setImportMessage(null)
     const file = e.target.files?.[0]
     e.target.value = '' // allow re-picking the same file
@@ -273,10 +272,9 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
       // and words the message — so the message is the same one Swift and Python show, and a load
       // performed by an import is the same load performed from this list.
       const message = await onImport(await file.text())
-      await refresh()
-      setImportMessage(message)
+        setImportMessage(message)
     } catch (err) {
-      setImportError(`Couldn't import "${file.name}": ${err instanceof Error ? err.message : String(err)}`)
+      setImportFailure(TapToneAnalyzer.importErrorMessage(err, file.name))
     }
   }
 
@@ -356,7 +354,22 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
         />
 
         <div className="settings-body">
-          {importError && <p className="error">⚠ {importError}</p>}
+          {exportFailure && (
+            <AlertModal
+              title="Export Failed"
+              message={exportFailure}
+              buttons={[{ label: 'OK', primary: true, onClick: () => setExportFailure(null) }]}
+              onDismiss={() => setExportFailure(null)}
+            />
+          )}
+          {importFailure && (
+            <AlertModal
+              title="Import Error"
+              message={importFailure}
+              buttons={[{ label: 'OK', primary: true, onClick: () => setImportFailure(null) }]}
+              onDismiss={() => setImportFailure(null)}
+            />
+          )}
           {/* The import's one message, as the natives show it: an "Import Successful" alert over
               the list, dismissed with OK (Swift MeasurementsListView `.alert("Import Successful")`,
               Python's Import Successful box). Rendered inside the panel so dismissing it leaves the
@@ -398,9 +411,7 @@ export function MeasurementsPanel({ onClose, onLoad, onCompare, onImport, onUpda
               durable storage, and use <b>Export All</b> to keep a backup.
             </p>
           )}
-          {items == null ? (
-            <p className="empty">Loading…</p>
-          ) : items.length === 0 ? (
+          {items.length === 0 ? (
             <p className="empty">No Saved Measurements. Tap the guitar and click Save to store measurements for comparison.</p>
           ) : (
             <>

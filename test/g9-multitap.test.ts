@@ -7,6 +7,8 @@ import { DEFAULT_SETTINGS } from '../src/settings'
 import { TapEntry, type SpectrumSnapshotModel, type ResonantPeak } from '../src/measurement/types'
 import { newId } from '../src/measurement/newId'
 import { saveGuitar } from './saveFromAnalyzer'
+import { testId } from './testIds'
+import type { Uuid } from '../src/measurement/newId'
 
 // A multi-tap guitar measurement records each tap as a tapEntry — its snapshot, peaks and auto-selected
 // peak ids (mirrors Swift). The analyzer builds them at capture; they are saved as they are and must
@@ -15,7 +17,7 @@ import { saveGuitar } from './saveFromAnalyzer'
 const spectrum = { frequencies: [100, 200, 300], magnitudesDb: [-50, -40, -60] }
 const tap1 = { frequencies: [100, 200, 300], magnitudesDb: [-48, -38, -62] }
 const tap2 = { frequencies: [100, 200, 300], magnitudesDb: [-52, -42, -58] }
-const peaks: ResonantPeak[] = [{ id: '1', frequency: 200, magnitude: -40, quality: 20, bandwidth: 10, timestamp: '2026-09-25T00:00:00Z' }]
+const peaks: ResonantPeak[] = [{ id: testId(1), frequency: 200, magnitude: -40, quality: 20, bandwidth: 10, timestamp: '2026-09-25T00:00:00Z' }]
 const snap = (sp: { frequencies: number[]; magnitudesDb: number[] }): SpectrumSnapshotModel => ({
   frequencies: sp.frequencies, magnitudes: sp.magnitudesDb, minFreq: 75, maxFreq: 350, minDB: -100, maxDB: 0,
   isLogarithmic: false, guitarType: 'Generic', measurementType: 'Generic Guitar',
@@ -28,8 +30,8 @@ const entry2 = new TapEntry(newId(), 2, snap(tap2), peaks2, [peaks2[0]!.id])
 const args = {
   name: 'Multi', notes: '',
   spectrum, peaks,
-  selectedIds: new Set<string>(['1']),
-  overridesById: new Map<string, string>(),
+  selectedIds: new Set([testId(1)]),
+  overridesById: new Map<Uuid, string>(),
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'generic' as const },
   numberOfTaps: 2,

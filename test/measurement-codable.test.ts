@@ -3,11 +3,12 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseGuitarTapFile, serializeGuitarTapFile, encodeMeasurement, encodeSnapshot, isComparison, type TapToneMeasurementModel } from '../src/measurement'
 import { measurementDefinitivePeak, measurementTapToneRatio, measurementPeakModeLabels, comparisonEntryModeFreqs } from '../src/measurement/types'
-import { healSelection } from '../src/measurement/decode'
+import { decodeSnapshot, healSelection } from '../src/measurement/decode'
 import { MODE_DISPLAY_NAME } from '../src/presentation/modeColors'
 import { classifyAll } from '../src/dsp/classify'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { ResonantPeak } from '../src/measurement/types'
+import { idEntries, newId, type Uuid } from '../src/measurement/newId'
 
 // `.guitartap` model + serialization parity. The canonical format is the
 // Swift user manual Appendix B; this mirrors the Swift MeasurementCodableTests and the
@@ -117,20 +118,20 @@ const LOGIC = JSON.parse(readFileSync('test/fixtures/measurement-codable.json', 
 }
 
 /** A case's measurement, and its peak ids by the case's peak names. */
-function caseMeasurement(row: LogicRow): { m: TapToneMeasurementModel; ids: Record<string, string> } {
-  const ids: Record<string, string> = {}
+function caseMeasurement(row: LogicRow): { m: TapToneMeasurementModel; ids: Record<string, Uuid> } {
+  const ids: Record<string, Uuid> = {}
   const peaks: ResonantPeak[] = row.peaks.map((p) => {
-    ids[p.id] = crypto.randomUUID().toUpperCase()
+    ids[p.id] = newId()
     return { id: ids[p.id]!, frequency: p.frequency, magnitude: p.magnitude, quality: 0, bandwidth: 0, timestamp: '2026-01-01T00:00:00Z' }
   })
   const snapshot = {
-    frequencies: new Float32Array(), magnitudes: new Float32Array(), minFreq: 50, maxFreq: 500, minDB: -100, maxDB: 0,
+    frequencies: new Float32Array([100, 200]), magnitudes: new Float32Array([-60, -60]), minFreq: 50, maxFreq: 500, minDB: -100, maxDB: 0,
     isLogarithmic: false,
     ...(row.material ? {} : { guitarType: LOGIC.guitarType, measurementType: LOGIC.measurementType }),
   }
   const overrides = Object.fromEntries(Object.entries(row.overrides).map(([name, label]) => [ids[name]!, label]))
   const m = {
-    id: crypto.randomUUID().toUpperCase(), timestamp: '2026-01-01T00:00:00Z', peaks,
+    id: newId(), timestamp: '2026-01-01T00:00:00Z', peaks,
     ...(row.material ? { longitudinalSnapshot: snapshot } : { spectrumSnapshot: snapshot }),
     ...(row.selected !== null ? { selectedPeakIDs: row.selected.map((n) => ids[n]!) } : {}),
     ...(Object.keys(overrides).length ? { peakModeOverrides: overrides } : {}),
@@ -199,7 +200,7 @@ describe('measurement-codable — the selection heal on decode (measurement-coda
 type Json = unknown
 const CODEC = JSON.parse(readFileSync('test/fixtures/measurement-codable.json', 'utf8')) as {
   snapshotBytes: { id: string; note: string; frequencies: number[]; magnitudes: number[]; frequenciesData: string; magnitudesData: string }[]
-  decode: { id: string; note: string; file: Json; expect: Record<string, unknown> }[]
+  decode: { id: string; note: string; file: Json; rejected?: boolean; expect: Record<string, unknown> }[]
   write: { id: string; note: string; file: Json; present?: string[]; absent?: string[]; text?: Record<string, string>; contains?: string[] }[]
   comparison: { id: string; note: string; file: Json; roundTrip?: boolean; expect: Record<string, unknown> }[]
   fixtures: { file: string; measurements: number; measurementName: string | null; peakCount: number; sampleRate: number | null; isComparison: boolean; overrideLabels: string[] }[]
@@ -235,14 +236,50 @@ describe('measurement-codable — the spectrum bytes (measurement-codable.json)'
     expect(d.frequenciesData).toBe(r.frequenciesData)
     expect(d.magnitudesData).toBe(r.magnitudesData)
     expect('frequencies' in d || 'magnitudes' in d).toBe(false)
-    const back = parseGuitarTapFile(JSON.stringify([{ id: 'x', timestamp: '2026-01-01T00:00:00Z', peaks: [], spectrumSnapshot: d }]))[0]!
-    expect(asF32(back.spectrumSnapshot!.frequencies)).toEqual(asF32(r.frequencies))
-    expect(asF32(back.spectrumSnapshot!.magnitudes)).toEqual(asF32(r.magnitudes))
+    const back = decodeSnapshot(JSON.parse(JSON.stringify(d)))
+    expect(asF32(back.frequencies)).toEqual(asF32(r.frequencies))
+    expect(asF32(back.magnitudes)).toEqual(asF32(r.magnitudes))
+  })
+})
+
+type IdCase = { id: string; note: string; file: unknown[]; rejected?: boolean; expect?: Record<string, unknown> }
+const ID_CASES = (JSON.parse(readFileSync('test/fixtures/measurement-codable.json', 'utf8')) as { ids: IdCase[] }).ids
+const UUID_TEXT = /[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}/g
+
+describe('measurement-codable — the rule for ids (measurement-codable.json)', () => {
+  it.each(ID_CASES.map((r) => [r.id, r] as const))('%s', (id, r) => {
+    if (r.rejected) {
+      expect(() => parseGuitarTapFile(JSON.stringify(r.file)), `${id}: ${r.note}`).toThrow()
+      return
+    }
+    const m = parseGuitarTapFile(JSON.stringify(r.file))[0]!
+    const freq = new Map(m.peaks.map((p) => [p.id, String(Math.round(p.frequency))]))
+    for (const [field, want] of Object.entries(r.expect ?? {})) {
+      switch (field) {
+        case 'selectedFrequencies':
+          expect((m.selectedPeakIDs ?? []).map((i) => m.peaks.find((p) => p.id === i)!.frequency), field).toEqual(want)
+          break
+        case 'overrideLabels':
+          expect(Object.fromEntries(idEntries(m.peakModeOverrides).filter(([k]) => freq.has(k)).map(([k, v]) => [freq.get(k), v])), field).toEqual(want)
+          break
+        case 'offsets':
+          expect(Object.fromEntries(idEntries(m.peakAnnotationOffsets).filter(([k]) => freq.has(k)).map(([k, v]) => [freq.get(k), v])), field).toEqual(want)
+          break
+        case 'writtenLowercaseIds':
+          expect((serializeGuitarTapFile([m]).match(UUID_TEXT) ?? []).filter((u) => u !== u.toUpperCase()), field).toHaveLength(want as number)
+          break
+        default: throw new Error(`${id}: unknown field ${field}`)
+      }
+    }
   })
 })
 
 describe('measurement-codable — what a file reads to (measurement-codable.json)', () => {
   it.each(CODEC.decode.map((r) => [r.id, r] as const))('%s', (_id, r) => {
+    if (r.rejected) {
+      expect(() => parseGuitarTapFile(JSON.stringify(r.file)), r.note).toThrow()
+      return
+    }
     const m = parseGuitarTapFile(JSON.stringify(r.file))[0]!
     for (const [field, want] of Object.entries(r.expect)) {
       switch (field) {

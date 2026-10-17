@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { guitarTapFilename } from '../src/measurement/types'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
+import { testId } from './testIds'
 
 // Export file names and the export → import round-trip. (The load-time microphone warning is
 // test/mic-selection, MS14–MS17.)
 
 const mk = (over: Partial<TapToneMeasurementModel>): TapToneMeasurementModel => ({
-  id: 'M1',
+  id: testId(1),
   timestamp: '2026-03-09T18:46:19Z',
   peaks: [],
   ...over,

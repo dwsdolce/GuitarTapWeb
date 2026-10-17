@@ -7,6 +7,7 @@
 // only matters when writing). Unknown fields are ignored.
 
 import { base64ToFloats } from './base64'
+import { NoSpectrumError, parseUuid, type Uuid } from './newId'
 import { classificationGuitarType, guitarTypeNameFromRaw, isMaterialMeasurement } from './types'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 import { MODE_DISPLAY_NAME, effectiveMode } from '../presentation/modeColors'
@@ -20,6 +21,11 @@ const boolOpt = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v
 const num = (v: unknown): number => (typeof v === 'number' ? v : 0)
 const strArrOpt = (v: unknown): string[] | undefined =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined
+// Ids as the file holds them, checked and put in the canonical case by canonicalIds() once the
+// measurement is read: a missing or wrong-typed one is kept as it is, so the check refuses it.
+const rawId = (v: unknown): Uuid => v as Uuid
+const rawIdOpt = (v: unknown): Uuid | undefined => (v == null ? undefined : (v as Uuid))
+const rawIdsOpt = (v: unknown): Uuid[] | undefined => (Array.isArray(v) ? (v as Uuid[]) : undefined)
 const numArrOpt = (v: unknown): number[] | undefined =>
   Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number') : undefined
 
@@ -38,9 +44,9 @@ function decodeOffsets(raw: unknown): AnnotationOffsets | undefined {
   if (!Array.isArray(raw)) return undefined
   const out: AnnotationOffsets = {}
   for (let i = 0; i + 1 < raw.length; i += 2) {
-    const key = raw[i]
+    const key = parseUuid(raw[i], 'peakAnnotationOffsets')
     const val = obj(raw[i + 1])
-    if (typeof key === 'string' && val && typeof val.absFreqHz === 'number' && typeof val.absDB === 'number') {
+    if (val && typeof val.absFreqHz === 'number' && typeof val.absDB === 'number') {
       out[key] = [val.absFreqHz, val.absDB]
     }
   }
@@ -58,9 +64,9 @@ function decodeOverrides(raw: unknown): PeakModeOverrides | undefined {
   if (Array.isArray(raw)) {
     const out: PeakModeOverrides = {}
     for (let i = 0; i + 1 < raw.length; i += 2) {
-      const key = raw[i]
+      const key = parseUuid(raw[i], 'peakModeOverrides')
       const label = take(raw[i + 1])
-      if (typeof key === 'string' && label != null) out[key] = label
+      if (label != null) out[key] = label
     }
     return out
   }
@@ -68,8 +74,9 @@ function decodeOverrides(raw: unknown): PeakModeOverrides | undefined {
   if (o) {
     const out: PeakModeOverrides = {}
     for (const [k, v] of Object.entries(o)) {
+      const key = parseUuid(k, 'peakModeOverrides')
       const label = take(v)
-      if (label != null) out[k] = label
+      if (label != null) out[key] = label
     }
     return out
   }
@@ -117,7 +124,7 @@ export function decodeSnapshot(d: Obj): SpectrumSnapshotModel {
 
 function decodePeak(d: Obj): ResonantPeak {
   return {
-    id: strOpt(d.id) ?? '',
+    id: rawId(d.id),
     frequency: num(d.frequency),
     magnitude: num(d.magnitude),
     quality: num(d.quality),
@@ -143,24 +150,24 @@ function decodeStrMap(raw: unknown): Record<string, string> | undefined {
 
 function decodeComparisonEntry(d: Obj): ComparisonEntryModel {
   return {
-    id: strOpt(d.id) ?? '',
+    id: rawId(d.id),
     label: strOpt(d.label) ?? '',
     colorComponents: numArrOpt(d.colorComponents) ?? [0, 0, 1, 1],
     snapshot: decodeSnapshot(obj(d.snapshot) ?? {}),
     peaks: decodePeaks(d.peaks),
     guitarType: strOpt(d.guitarType),
-    sourceMeasurementID: strOpt(d.sourceMeasurementID),
-    modePeakIDs: decodeStrMap(d.modePeakIDs),
+    sourceMeasurementID: rawIdOpt(d.sourceMeasurementID),
+    modePeakIDs: decodeStrMap(d.modePeakIDs) as Record<string, Uuid> | undefined,
   }
 }
 
 function decodeTapEntry(d: Obj): TapEntryModel {
   return {
-    id: strOpt(d.id) ?? '',
+    id: rawId(d.id),
     tapIndex: num(d.tapIndex),
     snapshot: decodeSnapshot(obj(d.snapshot) ?? {}),
     peaks: decodePeaks(d.peaks),
-    selectedPeakIDs: strArrOpt(d.selectedPeakIDs) ?? [],
+    selectedPeakIDs: rawIdsOpt(d.selectedPeakIDs) ?? [],
   }
 }
 
@@ -215,7 +222,7 @@ function healDuplicatePeaks(
 
 export function decodeMeasurement(d: Obj): TapToneMeasurementModel {
   const m: TapToneMeasurementModel = {
-    id: strOpt(d.id) ?? '',
+    id: rawId(d.id),
     timestamp: strOpt(d.timestamp) ?? '',
     peaks: decodePeaks(d.peaks),
     decayTime: numOpt(d.decayTime),
@@ -224,7 +231,7 @@ export function decodeMeasurement(d: Obj): TapToneMeasurementModel {
     notes: strOpt(d.notes),
     spectrumSnapshot: obj(d.spectrumSnapshot) ? decodeSnapshot(obj(d.spectrumSnapshot)!) : undefined,
     peakAnnotationOffsets: decodeOffsets(d.peakAnnotationOffsets),
-    selectedPeakIDs: strArrOpt(d.selectedPeakIDs),
+    selectedPeakIDs: rawIdsOpt(d.selectedPeakIDs),
     selectedPeakFrequencies: numArrOpt(d.selectedPeakFrequencies),
     userModifiedSelection: typeof d.userModifiedSelection === 'boolean' ? d.userModifiedSelection : undefined,
     annotationVisibilityMode: annModeOpt(d.annotationVisibilityMode),
@@ -232,9 +239,9 @@ export function decodeMeasurement(d: Obj): TapToneMeasurementModel {
     numberOfTaps: numOpt(d.numberOfTaps),
     // Legacy "peakThreshold" predates the "peakMinThreshold" rename; prefer the new key.
     peakMinThreshold: numOpt(d.peakMinThreshold) ?? numOpt(d.peakThreshold),
-    selectedLongitudinalPeakID: strOpt(d.selectedLongitudinalPeakID),
-    selectedCrossPeakID: strOpt(d.selectedCrossPeakID),
-    selectedFlcPeakID: strOpt(d.selectedFlcPeakID),
+    selectedLongitudinalPeakID: rawIdOpt(d.selectedLongitudinalPeakID),
+    selectedCrossPeakID: rawIdOpt(d.selectedCrossPeakID),
+    selectedFlcPeakID: rawIdOpt(d.selectedFlcPeakID),
     longitudinalSnapshot: obj(d.longitudinalSnapshot) ? decodeSnapshot(obj(d.longitudinalSnapshot)!) : undefined,
     crossSnapshot: obj(d.crossSnapshot) ? decodeSnapshot(obj(d.crossSnapshot)!) : undefined,
     flcSnapshot: obj(d.flcSnapshot) ? decodeSnapshot(obj(d.flcSnapshot)!) : undefined,
@@ -249,11 +256,73 @@ export function decodeMeasurement(d: Obj): TapToneMeasurementModel {
     tapEntries: Array.isArray(d.tapEntries) ? d.tapEntries.map((e) => decodeTapEntry(obj(e) ?? {})) : undefined,
   }
 
+  // Every id a UUID, in the canonical case, and a spectrum; a file without them cannot be read.
+  checkMeasurement(m)
+
   // Every read path reaches decodeMeasurement(): `.guitartap` import goes through it. The
   // IndexedDB store does NOT — it holds already-decoded objects — so it calls healMeasurement
   // directly on read (see store.ts). Both routes therefore repair pre-fix data.
   healMeasurement(m)
   return m
+}
+
+/**
+ * What makes a measurement readable, checked on reading a file and on reading the library's stored records:
+ * every id a UUID (put in the canonical case — {@link canonicalIds}), and a spectrum — a comparison of at
+ * least two entries, or a guitar spectrum or a plate/brace's longitudinal one; a spectrum with no points, or
+ * with frequencies and magnitudes that differ in number, is none, a comparison entry's included. No edition
+ * saves a measurement without its spectrum, so one without is not a measurement the app made. Throws InvalidIdError or
+ * NoSpectrumError. Mirrors Swift's decoder.
+ */
+export function checkMeasurement(m: TapToneMeasurementModel): void {
+  canonicalIds(m)
+  const holdsSpectrum = (s: SpectrumSnapshotModel | null | undefined): boolean =>
+    s != null && s.frequencies.length > 0 && s.frequencies.length === s.magnitudes.length
+  const hasSpectrum =
+    m.comparisonEntries != null
+      ? m.comparisonEntries.length >= 2 && m.comparisonEntries.every((e) => holdsSpectrum(e.snapshot))
+      : holdsSpectrum(m.spectrumSnapshot) || holdsSpectrum(m.longitudinalSnapshot)
+  if (!hasSpectrum) throw new NoSpectrumError()
+}
+
+/**
+ * Every id `m` holds — its own, its peaks', the selections, the plate/brace peaks, the mode-name and
+ * label-position keys, its tap entries' and comparison entries' — parsed as a UUID and put in the
+ * canonical case, in place. Throws InvalidIdError at the first one that is missing or not a UUID, so the
+ * measurement cannot be read: the one rule every edition applies (Swift decodes each as a `UUID`). A
+ * `.guitartap` reaches it through decodeMeasurement; the library's stored records, which are not decoded
+ * again, through store.ts.
+ */
+export function canonicalIds(m: TapToneMeasurementModel): void {
+  const ids = (list: string[] | undefined, field: string) => list?.map((id) => parseUuid(id, field))
+  const keys = <V>(map: Record<string, V> | undefined, field: string): Record<string, V> | undefined =>
+    map && Object.fromEntries(Object.entries(map).map(([k, v]) => [parseUuid(k, field), v]))
+  const peaks = (list: ResonantPeak[], field: string) => {
+    for (const p of list) p.id = parseUuid(p.id, field)
+  }
+  m.id = parseUuid(m.id, 'id')
+  peaks(m.peaks, 'peaks[].id')
+  m.selectedPeakIDs = ids(m.selectedPeakIDs, 'selectedPeakIDs')
+  if (m.selectedLongitudinalPeakID != null) m.selectedLongitudinalPeakID = parseUuid(m.selectedLongitudinalPeakID, 'selectedLongitudinalPeakID')
+  if (m.selectedCrossPeakID != null) m.selectedCrossPeakID = parseUuid(m.selectedCrossPeakID, 'selectedCrossPeakID')
+  if (m.selectedFlcPeakID != null) m.selectedFlcPeakID = parseUuid(m.selectedFlcPeakID, 'selectedFlcPeakID')
+  m.peakModeOverrides = keys(m.peakModeOverrides, 'peakModeOverrides')
+  m.peakAnnotationOffsets = keys(m.peakAnnotationOffsets, 'peakAnnotationOffsets')
+  for (const e of m.tapEntries ?? []) {
+    e.id = parseUuid(e.id, 'tapEntries[].id')
+    peaks(e.peaks, 'tapEntries[].peaks[].id')
+    e.selectedPeakIDs = ids(e.selectedPeakIDs, 'tapEntries[].selectedPeakIDs') ?? []
+  }
+  for (const e of m.comparisonEntries ?? []) {
+    e.id = parseUuid(e.id, 'comparisonEntries[].id')
+    peaks(e.peaks, 'comparisonEntries[].peaks[].id')
+    if (e.sourceMeasurementID != null) e.sourceMeasurementID = parseUuid(e.sourceMeasurementID, 'comparisonEntries[].sourceMeasurementID')
+    if (e.modePeakIDs) {
+      e.modePeakIDs = Object.fromEntries(
+        Object.entries(e.modePeakIDs).map(([mode, id]) => [mode, parseUuid(id, 'comparisonEntries[].modePeakIDs')]),
+      )
+    }
+  }
 }
 
 /**
@@ -381,7 +450,7 @@ export function healComparisonModes(m: TapToneMeasurementModel): boolean {
     if (entry.modePeakIDs != null) continue
     const gt = guitarTypeNameFromRaw(entry.guitarType)
     const resolved = resolvedModePeaks(entry.peaks, gt)
-    const map: Record<string, string> = {}
+    const map: Record<string, Uuid> = {}
     for (const mode of ['air', 'top', 'back'] as const) {
       const id = resolved.get(mode)?.id
       if (id != null) map[MODE_DISPLAY_NAME[mode]] = id

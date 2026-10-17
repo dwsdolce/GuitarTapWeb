@@ -4,12 +4,13 @@
 // don't have to import from a view.
 
 import type { Role } from './palette'
+import type { Uuid } from '../measurement/newId'
 
 /** One peak's dot + (optional) annotation badge. */
 export interface PeakMarker {
   /** The peak's stable id — carried so the chart can hit-test a clicked dot back to a peak (the
    *  dot ↔ results-row highlight). Omitted for markers built without a source peak id. */
-  id?: string
+  id?: Uuid
   frequency: number
   magnitude: number
   /** The dot's colour role, resolved in the chart's scheme when drawn. */
@@ -28,14 +29,14 @@ export interface PeakMarker {
   annotated?: boolean
   /** Stable key (peak frequency, `toFixed(1)`) identifying this badge for drag/offset edits.
    *  Present → the badge is draggable; the leader line tracks the peak. */
-  annoKey?: string
+  annoKey?: Uuid
   /** User-dragged badge position in data-space [absFreqHz, absDB]; omit → default placement. */
   annoOffset?: [number, number]
 }
 
 /** A drawn annotation badge's screen rectangle (CSS px), emitted by the renderer for hit-testing. */
 export interface AnnotationRect {
-  key: string
+  key: Uuid
   x: number
   y: number
   w: number
@@ -45,7 +46,7 @@ export interface AnnotationRect {
 /** A drawn peak dot's screen centre (CSS px) + radius + its peak id — pushed by the renderer so the
  *  chart can hit-test a click back to a peak (the dot ↔ results-row highlight). */
 export interface DotHit {
-  id: string
+  id: Uuid
   x: number
   y: number
   r: number

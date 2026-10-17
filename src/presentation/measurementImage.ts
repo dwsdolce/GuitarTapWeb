@@ -21,6 +21,7 @@ import type { PdfReportData, PdfPeakRow, PdfMaterialAnalysis, PdfMaterialProp, P
 import { generateMultiTapPdfReport, generatePdfReport } from './pdfReport'
 import { exportStem } from '../measurement/exportFilename'
 import type { ResonantPeak } from '../measurement/types'
+import { idEntries, type Uuid } from '../measurement/newId'
 
 // ── A saved measurement, read as its exports show it ────────────────────────────────────────────
 // Read from the measurement itself, as Swift's renderers (`renderSpectrumImageForMeasurement`,
@@ -38,8 +39,8 @@ function savedGuitar(m: TapToneMeasurementModel) {
     peaks: m.peaks,
     selectedIds: effectiveSelectedPeakIDs(m),
     modes: measurementAutoModes(m),
-    overridesById: new Map(Object.entries(m.peakModeOverrides ?? {})),
-    annotationOffsetsById: new Map(Object.entries(m.peakAnnotationOffsets ?? {})),
+    overridesById: new Map(idEntries(m.peakModeOverrides)),
+    annotationOffsetsById: new Map(idEntries(m.peakAnnotationOffsets)),
   }
 }
 
@@ -48,7 +49,7 @@ function savedMaterial(m: TapToneMeasurementModel) {
   const snap = m.longitudinalSnapshot!
   const measurementType = MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'plate'
   const byId = new Map(m.peaks.map((p) => [p.id, p]))
-  const peak = (id: string | undefined): ResonantPeak | null => (id != null ? byId.get(id) ?? null : null)
+  const peak = (id: Uuid | undefined): ResonantPeak | null => (id != null ? byId.get(id) ?? null : null)
   const spectrum = (s: typeof snap | undefined) => (s ? { magnitudesDb: s.magnitudes, frequencies: s.frequencies } : null)
   return {
     measurementType,
@@ -59,7 +60,7 @@ function savedMaterial(m: TapToneMeasurementModel) {
     // What the file lacks comes from the settings, as Swift's PDFReportData reads TapDisplaySettings.
     materialInputs: materialInputsFromSnapshot(measurementType === 'brace' ? 'brace' : 'plate', snap, settingsStore.get()),
     measureFlc: snap.measureFlc ?? DEFAULT_SETTINGS.measureFlc,
-    annotationOffsetsById: new Map(Object.entries(m.peakAnnotationOffsets ?? {})),
+    annotationOffsetsById: new Map(idEntries(m.peakAnnotationOffsets)),
   }
 }
 
@@ -77,7 +78,7 @@ const ROLE_FLC = roleColor('material.flc', undefined, 'light')
 /** A saved measurement's annotated peaks: its own annotation mode over its own selection — Swift's
  *  saved-measurement export (ExportableSpectrumChart) applies visiblePeaks' rule inline the same way. The
  *  live chart and export read the analyzer's `visiblePeaks` instead. */
-export const annotatedBy = (mode: AnnoMode, selectedIds: Set<string>) => (id: string): boolean =>
+export const annotatedBy = (mode: AnnoMode, selectedIds: Set<Uuid>) => (id: Uuid): boolean =>
   mode === 'all' || (mode === 'selected' && selectedIds.has(id))
 
 /** Styled guitar peak markers (dot color + mode label + pitch + override/annotation) — the SAME
@@ -85,10 +86,10 @@ export const annotatedBy = (mode: AnnoMode, selectedIds: Set<string>) => (id: st
  *  which carry a badge (the analyzer's visiblePeaks live; {@link annotatedBy} for a saved measurement). */
 export function buildGuitarMarkers(
   peaks: ResonantPeak[],
-  modeByPeak: Map<string, ResolvedMode>,
-  isAnnotated: (id: string) => boolean,
-  overridesById: Map<string, string>,
-  offsetsById?: Map<string, [number, number]>,
+  modeByPeak: Map<Uuid, ResolvedMode>,
+  isAnnotated: (id: Uuid) => boolean,
+  overridesById: Map<Uuid, string>,
+  offsetsById?: Map<Uuid, [number, number]>,
 ): PeakMarker[] {
   return peaks.map((p) => {
     const key = p.id // the annotation-offset key is the peak id (analyzer-owned store)
@@ -125,8 +126,8 @@ export function buildMaterialMarkers(
     cross: ResonantPeak | null
     flc: ResonantPeak | null
   },
-  isAnnotated: (id: string) => boolean,
-  offsetsById?: Map<string, [number, number]>,
+  isAnnotated: (id: Uuid) => boolean,
+  offsetsById?: Map<Uuid, [number, number]>,
 ): PeakMarker[] {
   const out: PeakMarker[] = []
   const push = (mp: ResonantPeak, role: Role, label: string) => {

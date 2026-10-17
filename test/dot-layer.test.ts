@@ -21,6 +21,8 @@ import { peaksInDisplayRange, isKnown } from '../src/dsp/guitarModes'
 import { annotatedBy, buildGuitarMarkers } from '../src/presentation/measurementImage'
 import type { ResolvedMode } from '../src/dsp/classify'
 import type { ResonantPeak } from '../src/measurement/types'
+import { testId } from './testIds'
+import type { Uuid } from '../src/measurement/newId'
 
 // ---------------------------------------------------------------------------
 // Fixture — generic guitar bands (guitarModes RANGES.generic):
@@ -41,7 +43,7 @@ const MAX_HZ = 350
 
 let nextId = 1
 const peak = (frequency: number, magnitude = -30): ResonantPeak => ({
-  id: String(nextId++),
+  id: testId(nextId++),
   frequency,
   magnitude,
   quality: 10,
@@ -88,8 +90,8 @@ describe('dot layer — the dot list is NOT the annotation list (DL6–DL7)', ()
   it('DL6 — the dot list is identical under every annotation mode and selection', () => {
     const p1 = peak(100), p2 = peak(200), p3 = peak(250)
     const peaks = [p1, p2, p3]
-    const modes = new Map<string, ResolvedMode>([[p1.id, 'air'], [p2.id, 'top'], [p3.id, 'back']])
-    const selected = new Set<string>([p2.id]) // only ONE peak selected
+    const modes = new Map<Uuid, ResolvedMode>([[p1.id, 'air'], [p2.id, 'top'], [p3.id, 'back']])
+    const selected = new Set<Uuid>([p2.id]) // only ONE peak selected
     const expected = [100, 200, 250]
 
     for (const mode of ['all', 'selected', 'none'] as const) {
@@ -145,7 +147,7 @@ describe('dot layer — a named peak is known (DL8–DL10)', () => {
     const overridden = new Set([named.id])
     expect(dots([named, unnamed], true, false, overridden)).toEqual([305]) // dot only for the named one
     const dotSet = peaksInDisplayRange([named, unnamed], MIN_HZ, MAX_HZ, true, false, overridden, 'generic')
-    const modes = new Map<string, ResolvedMode>([[named.id, 'unknown'], [unnamed.id, 'unknown']])
+    const modes = new Map<Uuid, ResolvedMode>([[named.id, 'unknown'], [unnamed.id, 'unknown']])
     const markers = buildGuitarMarkers(dotSet, modes, annotatedBy('all', new Set()), new Map())
     expect(markers.filter((m) => m.annotated).map((m) => m.frequency)).toEqual([305]) // badge follows the dot
   })

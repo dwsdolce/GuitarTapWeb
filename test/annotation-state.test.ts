@@ -19,6 +19,8 @@ import type { ResolvedMode } from '../src/dsp/classify'
 import type { ResonantPeak } from '../src/measurement/types'
 import type { SettingsStore } from '../src/settingsStore'
 import { makeStepsAnalyzer, runAnalyzerStep, type AnalyzerStep } from './analyzerSteps'
+import { testId } from './testIds'
+import { parseUuid, type Uuid } from '../src/measurement/newId'
 
 type Fields = Record<string, unknown>
 type AnnotationStep = AnalyzerStep & {
@@ -56,18 +58,18 @@ const MODE_NAME = Object.fromEntries(Object.entries(MODES_BY_NAME).map(([k, v]) 
 class Case {
   readonly a: TapToneAnalyzer
   readonly store: SettingsStore
-  readonly ids: Record<string, string>
+  readonly ids: Record<string, Uuid>
   readonly names: Map<string, string>
 
   constructor(readonly row: AnnotationCase) {
     ;({ a: this.a, store: this.store } = makeStepsAnalyzer())
-    this.ids = Object.fromEntries(Object.entries(row.peakIds).map(([n, id]) => [n, id.toUpperCase()]))
+    this.ids = Object.fromEntries(Object.entries(row.peakIds).map(([n, id]) => [n, parseUuid(id, 'peakIds')]))
     this.names = new Map(Object.entries(this.ids).map(([n, id]) => [id, n]))
   }
 
-  /** The id the analyzer holds for that name (its own spelling of it). */
-  id(name: string): string {
-    return this.a.peaks.find((p) => p.id.toUpperCase() === this.ids[name])?.id ?? this.ids[name]!
+  /** The id the analyzer holds for that name. */
+  id(name: string): Uuid {
+    return this.ids[name]!
   }
 
   nameOf(id: string): string {
@@ -184,18 +186,18 @@ describe('annotation-state — the shared cases (annotation-state.json)', () => 
 
 // The web's presentation helpers: three peaks, ids 1..3, with their modes.
 const PEAKS: ResonantPeak[] = [
-  { id: '1', frequency: 97.4, magnitude: -63.2, quality: 10, bandwidth: 9.74, timestamp: '2026-09-25T00:00:00Z' },
-  { id: '2', frequency: 197.4, magnitude: -41.5, quality: 10, bandwidth: 19.74, timestamp: '2026-09-25T00:00:00Z' },
-  { id: '3', frequency: 239.6, magnitude: -54.5, quality: 10, bandwidth: 23.96, timestamp: '2026-09-25T00:00:00Z' },
+  { id: testId(1), frequency: 97.4, magnitude: -63.2, quality: 10, bandwidth: 9.74, timestamp: '2026-09-25T00:00:00Z' },
+  { id: testId(2), frequency: 197.4, magnitude: -41.5, quality: 10, bandwidth: 19.74, timestamp: '2026-09-25T00:00:00Z' },
+  { id: testId(3), frequency: 239.6, magnitude: -54.5, quality: 10, bandwidth: 23.96, timestamp: '2026-09-25T00:00:00Z' },
 ]
-const MODES = new Map<string, ResolvedMode>([
-  ['1', 'air'],
-  ['2', 'top'],
-  ['3', 'back'],
+const MODES = new Map<Uuid, ResolvedMode>([
+  [testId(1), 'air'],
+  [testId(2), 'top'],
+  [testId(3), 'back'],
 ])
 
 /** A guitar analyzer holding `peaks` above Peak Min, with `selected` selected and `mode` set. */
-const visibleAnalyzer = (mode: AnnotationMode, selected: string[], peaks = PEAKS, modes = MODES, showUnknownModes = true) => {
+const visibleAnalyzer = (mode: AnnotationMode, selected: Uuid[], peaks = PEAKS, modes = MODES, showUnknownModes = true) => {
   const a = new TapToneAnalyzer()
   a.setSettings({ ...DEFAULT_SETTINGS, measurementType: 'classical', annotationVisibilityMode: mode, showUnknownModes })
   a.measurementType = 'classical'
@@ -208,7 +210,7 @@ const visibleAnalyzer = (mode: AnnotationMode, selected: string[], peaks = PEAKS
 describe('annotation-state — the report is about the visible peaks (regression)', () => {
   it('reports the selected count, not the detected count', () => {
     // The shipped bug: header read "Detected Peaks: <all>" (47 vs Swift's 6).
-    const markers = buildGuitarMarkers(PEAKS, MODES, annotatedBy('selected', new Set(['2'])), new Map())
+    const markers = buildGuitarMarkers(PEAKS, MODES, annotatedBy('selected', new Set([testId(2)])), new Map())
     expect(markers).toHaveLength(3) // markers still carry every peak…
     expect(reportPeaks(markers)).toHaveLength(1) // …but the report is about the selected one
   })
@@ -216,14 +218,14 @@ describe('annotation-state — the report is about the visible peaks (regression
   it('counts a visible peak OUTSIDE the chart\'s range', () => {
     // Swift's export counts and lists every visible peak (e.g. 409/623/1180 Hz under a 75–350 Hz view).
     // The report reads the analyzer's visiblePeaks, which has no range — not the chart's in-range markers.
-    const wide: ResonantPeak[] = [...PEAKS, { id: '4', frequency: 994.5, magnitude: -68.6, quality: 10, bandwidth: 99.45, timestamp: '2026-09-25T00:00:00Z' }]
-    const a = visibleAnalyzer('all', [], wide, new Map<string, ResolvedMode>([...MODES, ['4', 'dipole']]))
+    const wide: ResonantPeak[] = [...PEAKS, { id: testId(4), frequency: 994.5, magnitude: -68.6, quality: 10, bandwidth: 99.45, timestamp: '2026-09-25T00:00:00Z' }]
+    const a = visibleAnalyzer('all', [], wide, new Map<Uuid, ResolvedMode>([...MODES, [testId(4), 'dipole']]))
     const report = reportPeaks(buildGuitarMarkers(a.visiblePeaks, a.modeByPeak, () => true, new Map()))
     expect(report.map((m) => m.frequency)).toEqual([97.4, 197.4, 239.6, 994.5])
   })
 
   it('marks exactly the selected peaks as annotated — badges + report follow this flag', () => {
-    const markers = buildGuitarMarkers(PEAKS, MODES, annotatedBy('selected', new Set(['1', '3'])), new Map())
+    const markers = buildGuitarMarkers(PEAKS, MODES, annotatedBy('selected', new Set([testId(1), testId(3)])), new Map())
     expect(markers.map((m) => m.annotated)).toEqual([true, false, true])
   })
 })

@@ -34,6 +34,7 @@ import {
 } from '../src/measurement/calibrationStore'
 import { TapToneAnalyzer, microphoneNotFoundMessage } from '../src/state/tapToneAnalyzer'
 import type { TapToneMeasurementModel } from '../src/measurement'
+import { testId } from './testIds'
 
 const BUILT_IN = 'macbook-mic'
 const BLACK_HOLE = 'blackhole-2ch'
@@ -191,7 +192,7 @@ describe('the engine: what is selected, and what is saved', () => {
 
 describe('loading a measurement recorded with another connected microphone', () => {
   const measurement = (over: Partial<TapToneMeasurementModel>): TapToneMeasurementModel => ({
-    id: 'M1',
+    id: testId(1),
     timestamp: '2026-01-01T00:00:00Z',
     peaks: [],
     measurementName: 'USB',
@@ -297,7 +298,7 @@ describe('a load restores settings as the user setting them would', () => {
   it('MS21: a load hands App the thresholds it restores, to save as the settings', () => {
     const sut = new TapToneAnalyzer()
     sut.loadMeasurement({
-      id: 'M1',
+      id: testId(1),
       timestamp: '2026-01-01T00:00:00Z',
       peaks: [],
       measurementName: 'Loaded',
@@ -346,7 +347,7 @@ describe('a device that cannot be opened', () => {
     sut.setDevice(engine)
     media.failing = [UMIK]
     sut.loadMeasurement({
-      id: 'M1',
+      id: testId(1),
       timestamp: '2026-01-01T00:00:00Z',
       peaks: [],
       measurementName: 'Loaded',

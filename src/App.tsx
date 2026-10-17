@@ -30,7 +30,7 @@ import { importMeasurements, saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
 import { parseCalibration, type Calibration } from './dsp/calibration'
 import { decodeWav } from './dsp/wav'
-import { exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
+import { exportFailureMessage, exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
 import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData, multiTapPdfData } from './presentation/measurementImage'
 import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfReport'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
@@ -46,6 +46,7 @@ import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, isGuitarType, isMaterialType, minFreq
 import type { ResonantPeak } from './measurement/types'
 import { displayRangeLabel } from './presentation/frequencyFormat'
 import './App.css'
+import type { Uuid } from './measurement/newId'
 
 const pitch = new Pitch(440)
 
@@ -172,7 +173,7 @@ export default function App() {
   const visiblePeaks = snapshot.visiblePeaks
   const isVisible = useMemo(() => {
     const ids = new Set(visiblePeaks.map((p) => p.id))
-    return (id: string) => ids.has(id)
+    return (id: Uuid) => ids.has(id)
   }, [visiblePeaks])
   const guitarType: GuitarTypeName = isGuitarType(settings.measurementType) ? settings.measurementType : 'generic'
   const material = isMaterialType(settings.measurementType)
@@ -397,13 +398,13 @@ export default function App() {
   // read them from the snapshot, write via analyzer methods.
   const selectedIds = snapshot.selectedPeakIds
   const userModified = snapshot.userModifiedSelection
-  const toggleSelect = useCallback((id: string) => analyzer.togglePeakSelection(id), [analyzer])
+  const toggleSelect = useCallback((id: Uuid) => analyzer.togglePeakSelection(id), [analyzer])
   const selectNone = useCallback(() => analyzer.selectNoPeaks(), [analyzer])
   const resetSelection = useCallback(() => analyzer.resetToAutoSelection(), [analyzer])
   const overrides = snapshot.overrides
   const annotationOffsets = snapshot.annotationOffsets // id-keyed dragged label positions
   // Chart drag → analyzer (markers carry the peak id as their annoKey); Reset Labels clears the store.
-  const onAnnotationDrag = useCallback((k: string, pos: [number, number]) => analyzer.updateAnnotationOffset(k, pos), [analyzer])
+  const onAnnotationDrag = useCallback((k: Uuid, pos: [number, number]) => analyzer.updateAnnotationOffset(k, pos), [analyzer])
   const resetLabels = useCallback(() => analyzer.resetAllAnnotationOffsets(), [analyzer])
 
   // Re-analyze — re-detect peaks on the loaded/frozen spectrum with the current guitar type, letting you
@@ -677,8 +678,10 @@ export default function App() {
       // stale service worker after a deploy: the report code lazy-loads jsPDF, and an old cached shell
       // asks for a jsPDF chunk the new build renamed ("Importing a module script failed") — a reload
       // updates the worker and fixes it. Hence the reload hint, unlike the spectrum/PNG path.
-      setError(`Couldn't export the PDF report. A newer version of the app may be available — reload the page (or fully close and reopen), then try again.\n\n(${e instanceof Error ? e.message : String(e)})`)
-      setErrorKind('other')
+      const message = exportFailureMessage(e, filename)
+      const staleCode = e instanceof Error && /module script|dynamically imported module/i.test(e.message)
+      setError(staleCode ? `${message} A newer version of the app may be available — reload the page (or fully close and reopen), then try again.` : message)
+      setErrorKind('export')
     } finally {
       isExportingRef.current = false
       setIsExporting(false)
@@ -750,8 +753,8 @@ export default function App() {
     } catch (e) {
       // Surface the failure instead of a console-only rejection (mirrors the PDF path). No jsPDF/lazy
       // chunk here, so no reload hint — a plain image/save error.
-      setError(`Couldn't export the spectrum image.\n\n(${e instanceof Error ? e.message : String(e)})`)
-      setErrorKind('other')
+      setError(exportFailureMessage(e, `${exportStem(loadedName, Math.floor(Date.parse(stamp) / 1000), 'spectrum')}.png`))
+      setErrorKind('export')
     } finally {
       isExportingRef.current = false
       setIsExporting(false)
@@ -1356,6 +1359,8 @@ export default function App() {
               ? 'Microphone Access Required'
               : errorKind === 'microphone'
               ? 'Microphone Unavailable'
+              : errorKind === 'export'
+              ? 'Export Failed'
               : errorKind === 'other'
               ? 'Error'
               : 'Audio Engine Error'
@@ -1363,7 +1368,7 @@ export default function App() {
               ? 'GuitarTap needs microphone access to analyse tap tones. Please allow microphone access for this site in your browser settings, then retry.'
               : error
             const buttons =
-              errorKind === 'other' || errorKind === 'microphone'
+              errorKind === 'other' || errorKind === 'microphone' || errorKind === 'export'
                 ? [{ label: 'OK', primary: true, onClick: () => setError(null) }]
                 : [
                     { label: 'Retry', primary: true, onClick: () => { setError(null); void retry() } },
@@ -1379,6 +1384,24 @@ export default function App() {
               onDismiss={() => analyzer.clearMicrophoneWarning()}
             />
           )}
+
+      {/* Saved measurements the library could not read (an id that is not a UUID): kept in storage, out of
+          the list; the user is told once and may delete them (Swift/Python keep an unreadable library file
+          aside and say where). */}
+      {snapshot.unreadableMeasurements.length > 0 && (() => {
+        const n = snapshot.unreadableMeasurements.length
+        return (
+          <AlertModal
+            title="Saved Measurements Unreadable"
+            message={`${n === 1 ? '1 saved measurement' : `${n} saved measurements`} could not be read, so ${n === 1 ? 'it is' : 'they are'} not in the list. ${n === 1 ? 'It is' : 'They are'} kept as ${n === 1 ? 'it was' : 'they were'} unless you delete ${n === 1 ? 'it' : 'them'}.`}
+            buttons={[
+              { label: 'Keep', primary: true, onClick: () => analyzer.keepUnreadableMeasurements() },
+              { label: 'Delete', onClick: () => void analyzer.deleteUnreadableMeasurements() },
+            ]}
+            onDismiss={() => analyzer.keepUnreadableMeasurements()}
+          />
+        )
+      })()}
 
       {showSettings && (
         <SettingsPanel
@@ -1418,6 +1441,7 @@ export default function App() {
 
       {showMeasurements && (
         <MeasurementsPanel
+          measurements={snapshot.savedMeasurements}
           onClose={() => setShowMeasurements(false)}
           onLoad={onLoadMeasurement}
           onCompare={onCompare}

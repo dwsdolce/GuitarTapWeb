@@ -8,6 +8,7 @@ import type { ComparisonEntryModel, ResonantPeak, TapEntry, TapToneMeasurementMo
 import type { ChartView } from '../src/presentation/chartTypes'
 import type { Settings } from '../src/settings'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import type { Uuid } from '../src/measurement/newId'
 
 /** What the microphone side of a capture records. */
 interface Provenance {
@@ -21,9 +22,9 @@ export interface GuitarState extends Provenance {
   notes: string
   spectrum: Spectrum
   peaks: ResonantPeak[]
-  selectedIds: Set<string>
-  overridesById: Map<string, string>
-  annotationOffsetsById?: Map<string, [number, number]>
+  selectedIds: Set<Uuid>
+  overridesById: Map<Uuid, string>
+  annotationOffsetsById?: Map<Uuid, [number, number]>
   decayTime?: number | null
   view: ChartView
   settings: Settings

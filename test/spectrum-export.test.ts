@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseGuitarTapFile } from '../src/measurement'
 import { measurementToImageOpts } from '../src/presentation/measurementImage'
-import { ExportRenderError, renderSpectrumToCanvas, spectrumPng } from '../src/presentation/spectrumExport'
+import { EXPORT_RENDER_FAILED, ExportRenderError, exportFailureMessage, renderSpectrumToCanvas, spectrumPng } from '../src/presentation/spectrumExport'
 import { installCanvasStandIn } from './support/canvasStandIn'
 
 /** The shared cases: each fixture and the image it exports — pixels wide and high, and pixels per inch. */
@@ -48,5 +48,14 @@ describe('spectrum export', () => {
     } finally {
       installCanvasStandIn()
     }
+  })
+})
+
+describe('an export that fails says why, in every edition’s words', () => {
+  // The "Export Failed" alert: the chart could not be drawn (its own sentence), or the file could not be
+  // saved and why. The same words as Python's export_failure_message.
+  it('the chart could not be drawn, or the file could not be saved', () => {
+    expect(exportFailureMessage(new ExportRenderError(), 'a.png')).toBe(EXPORT_RENDER_FAILED)
+    expect(exportFailureMessage(new Error('Permission denied'), 'a.png')).toBe('Could not save "a.png": Permission denied.')
   })
 })

@@ -29,9 +29,9 @@ const args = {
   notes: 'hello',
   spectrum,
   peaks,
-  selectedIds: new Set<string>([TOP_ID]),
-  overridesById: new Map<string, string>([[AIR_ID, 'Custom']]), // the 100 Hz peak (id-keyed)
-  annotationOffsetsById: new Map<string, [number, number]>([[TOP_ID, [215.5, -32.0]]]), // the 200 Hz peak
+  selectedIds: new Set([TOP_ID]),
+  overridesById: new Map([[AIR_ID, 'Custom']]), // the 100 Hz peak (id-keyed)
+  annotationOffsetsById: new Map([[TOP_ID, [215.5, -32.0] as [number, number]]]), // the 200 Hz peak
   view: { minHz: 75, maxHz: 350, minDb: -100, maxDb: 0 },
   settings: { ...DEFAULT_SETTINGS, measurementType: 'classical' as const, showUnknownModes: true, peakMinThreshold: -55 },
   numberOfTaps: 3,

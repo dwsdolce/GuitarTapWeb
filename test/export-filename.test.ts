@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs'
 import { exportStem } from '../src/measurement/exportFilename'
 import { guitarTapFilename } from '../src/measurement/types'
 import type { TapToneMeasurementModel } from '../src/measurement/types'
+import { testId } from './testIds'
 
 const DATA = JSON.parse(readFileSync('test/fixtures/export-filename.json', 'utf8')) as {
   stem: { name: string | null; seconds: number; unnamed: string; expect: string }[]
@@ -20,7 +21,7 @@ describe('export-filename — shared cases', () => {
   }
   for (const row of DATA.measurementBaseFilename) {
     it(`measurement ${row.name} ${row.timestamp}`, () => {
-      const m = { id: 'x', timestamp: row.timestamp, peaks: [], measurementName: row.name ?? undefined } as TapToneMeasurementModel
+      const m = { id: testId(1), timestamp: row.timestamp, peaks: [], measurementName: row.name ?? undefined } as TapToneMeasurementModel
       expect(guitarTapFilename(m)).toBe(`${row.expect}.guitartap`)
     })
   }

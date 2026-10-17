@@ -34,6 +34,7 @@ import { enteredValue } from '../presentation/displayRange'
 import { APPEARANCES, APPEARANCE_LABEL, type Appearance } from '../presentation/appearance'
 import { AlertModal } from './AlertModal'
 import { MicrophoneIcon, GuitarsIcon, MaterialLayersIcon, CogsIcon, ChartLineIcon, PulseIcon, InfoIcon, FilePlusIcon, TrashIcon, SaveIcon, UndoIcon, HelpIcon, BookIcon, ChevronUpIcon, ChevronDownIcon, ChevronRightIcon, OpenInNewIcon, UnfoldMoreIcon } from './icons'
+import type { Uuid } from '../measurement/newId'
 
 /**
  * Props for {@link SettingsPanel}. Display/analysis/measurement edits are buffered and
@@ -72,7 +73,7 @@ export interface SettingsPanelProps {
   /** Make a stored calibration active (or None when null). */
   onSelectCalibration: (id: string | null) => void
   /** Delete a stored calibration profile. */
-  onDeleteCalibration: (id: string) => void
+  onDeleteCalibration: (id: Uuid) => void
 }
 
 /** The short mode names of Settings' Mode Frequency Ranges, as Swift's. */

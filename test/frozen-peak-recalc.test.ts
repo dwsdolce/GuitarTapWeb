@@ -16,6 +16,8 @@ import { MODE_DISPLAY_NAME } from '../src/presentation/modeColors'
 import type { ResolvedMode } from '../src/dsp/classify'
 import { makeStepsAnalyzer, runAnalyzerStep, PHASE_RAW, type AnalyzerStep } from './analyzerSteps'
 import { spectrum } from './spectrumSpec'
+import type { Uuid } from '../src/measurement/newId'
+import { testId } from './testIds'
 
 type Row = Record<string, unknown>
 type Load = {
@@ -40,14 +42,14 @@ const DATA = JSON.parse(readFileSync('test/fixtures/frozen-peak-recalc.json', 'u
 /** What a case's run keeps between steps: the ids a load wrote and the state a mark recorded. */
 class Run {
   nextId = 1
-  loadedIds: string[] = []
+  loadedIds: Uuid[] = []
   markedIds: string[] = []
   markedSelection = new Set<string>()
   markedTapEntries: string[][] = []
   markedTapSelections: string[][] = []
   engineAttached = false
-  newId(): string {
-    return `00000000-0000-0000-0000-${String(this.nextId++).padStart(12, '0')}`
+  newId(): Uuid {
+    return testId(this.nextId++)
   }
 }
 
@@ -60,9 +62,9 @@ function snapshot(spec: Row | undefined, type: string): Row {
 }
 
 /** The peaks of a load step, written as the file writes them, with each one's id by frequency. */
-function peaksOf(rows: [number, number][], run: Run): { json: Row[]; ids: [number, string][] } {
+function peaksOf(rows: [number, number][], run: Run): { json: Row[]; ids: [number, Uuid][] } {
   const json: Row[] = []
-  const ids: [number, string][] = []
+  const ids: [number, Uuid][] = []
   for (const [hz, db] of rows) {
     const id = run.newId()
     json.push({ id, frequency: hz, magnitude: db, quality: 10, bandwidth: hz / 10, timestamp: '2026-01-01T00:00:00Z' })
@@ -71,7 +73,7 @@ function peaksOf(rows: [number, number][], run: Run): { json: Row[]; ids: [numbe
   return { json, ids }
 }
 
-const idAt = (hz: number | string, ids: [number, string][]) => ids.find(([f]) => Math.abs(f - Number(hz)) <= 1)![1]
+const idAt = (hz: number | string, ids: [number, Uuid][]) => ids.find(([f]) => Math.abs(f - Number(hz)) <= 1)![1]
 
 function document(load: Load, run: Run): Row {
   const snap = snapshot(load.spectrum, load.type)
@@ -251,7 +253,7 @@ describe('frozen-peak-recalc — a tap entry’s modes (frozen-peak-recalc.json)
     const run = new Run()
     const { json, ids } = peaksOf(c.peaks, run)
     const m = parseGuitarTapFile(JSON.stringify([{
-      id: run.newId(), timestamp: '2026-01-01T00:00:00Z', peaks: [],
+      id: run.newId(), timestamp: '2026-01-01T00:00:00Z', peaks: [], spectrumSnapshot: snapshot(undefined, 'Generic Guitar'),
       tapEntries: [{ id: run.newId(), tapIndex: 1, snapshot: snapshot(undefined, 'Generic Guitar'), peaks: json,
         selectedPeakIDs: c.selected.map((hz) => idAt(hz, ids)) }],
     }]))[0]!

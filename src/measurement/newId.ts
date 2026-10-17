@@ -19,8 +19,14 @@
  * HTTP — the preview opened from a phone on the local network — builds the same version-4 UUID from
  * `crypto.getRandomValues`, which every context has.
  */
-export const newId = (): string =>
-  (typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : uuidV4()).toUpperCase()
+/** A UUID in its canonical form — uppercase, as every edition writes it. At run time a string, so it works as
+ *  a `Map`/`Set` key, a React key and a JSON value (an object would compare by identity); only
+ *  {@link parseUuid} and {@link newId} make one, so the compiler finds any other string used as an id.
+ *  The web's form of Swift's `UUID` and Python's `uuid.UUID`. */
+export type Uuid = string & { readonly __brand: 'Uuid' }
+
+export const newId = (): Uuid =>
+  (typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : uuidV4()).toUpperCase() as Uuid
 
 function uuidV4(): string {
   const b = crypto.getRandomValues(new Uint8Array(16))
@@ -29,3 +35,36 @@ function uuidV4(): string {
   const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`
 }
+
+/** The form an id must have, as Swift's `UUID(uuidString:)` takes it: 36 characters, hexadecimal in
+ *  groups of 8-4-4-4-12 joined by hyphens, either case (RFC 9562: case-insensitive on input). */
+const UUID_FORM = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/
+
+/** A measurement with no spectrum — no guitar spectrum, no plate/brace longitudinal one, or a comparison of
+ *  fewer than two entries; a spectrum with no points is none: no edition makes one, so the file or record
+ *  holding it cannot be read. Mirrors Swift `NoSpectrumError`. */
+export class NoSpectrumError extends Error {
+  constructor() {
+    super('no spectrum')
+    this.name = 'NoSpectrumError'
+  }
+}
+
+/** An id that is not a UUID: the file or record holding it cannot be read. */
+export class InvalidIdError extends Error {
+  constructor(readonly value: unknown, readonly field: string) {
+    super(value == null ? `${field} is missing` : `"${String(value)}" in ${field} is not a UUID`)
+    this.name = 'InvalidIdError'
+  }
+}
+
+/** `value` as a UUID in its canonical form — uppercase, as every edition writes it — or InvalidIdError
+ *  naming `field` when it is missing or not a UUID. Mirrors Swift decoding a `UUID`. */
+export function parseUuid(value: unknown, field: string): Uuid {
+  if (typeof value !== 'string' || !UUID_FORM.test(value)) throw new InvalidIdError(value, field)
+  return value.toUpperCase() as Uuid
+}
+
+/** The entries of an id-keyed map with their keys as ids (`Object.entries` gives plain strings). */
+export const idEntries = <V>(map: Partial<Record<Uuid, V>> | undefined): [Uuid, V][] =>
+  Object.entries(map ?? {}) as [Uuid, V][]

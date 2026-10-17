@@ -110,6 +110,10 @@ export const RELEASES: RNRelease[] = [
             body: 'While a file plays, Cancel stops it and returns to the live microphone, and Pause and New Tap are disabled; changing the measurement type stops it, and Play File is tinted while it plays. The file’s name stays on the chart until a new measurement starts, and its result shows “Microphone: unknown”. Playback timing follows the audio itself, so a busy computer — or a hidden browser tab — gives the same results.',
           },
           {
+            title: 'Saved Measurements and Files',
+            body: 'A saved measurement that cannot be read is left out of the list and kept as it is; Guitar Tap tells you when it starts and offers to delete it. A measurement file is read the same way by every edition: its ids may be in upper or lower case, and a file with an id that is missing or malformed is refused with a message rather than opened in part.',
+          },
+          {
             title: 'Measurements',
             body: 'Guitar taps are analysed from the tap’s onset, as in the other editions, so the same recording gives the same peaks everywhere. Each guitar tap in a sequence is followed by a short rest before listening again, and “All taps captured. Processing...” shows briefly before averaging; during a microphone change, New Tap waits the same three seconds as the other editions. Generic Guitar is the default type. The Ring-Out / Tap Ratio box shows a placeholder until there is a value, and “Unknown” for an invalid one. Values are shown at the same precision as the other editions (sample rate and bandwidth in whole hertz, digital silence as “−∞”), and the number fields fill at that precision. Mode colours match the other editions, and a note exactly halfway between two pitches is named the same way everywhere. Edit Name & Notes enables Save only when the name or notes actually change.',
           },

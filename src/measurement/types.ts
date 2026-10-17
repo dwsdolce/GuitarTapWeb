@@ -9,7 +9,7 @@
 // values. Dates/UUIDs are strings (ISO-8601 / RFC 4122), as on the wire.
 
 import { MEASUREMENT_FULL_NAME, MEASUREMENT_SHORT_NAME, type AnnotationMode, type MeasurementType } from '../settings'
-import { newId } from './newId'
+import { newId, type Uuid } from './newId'
 import type { GuitarTypeName, ModeName } from '../dsp/guitarModes'
 import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classify'
 import { MODE_DISPLAY_NAME, effectiveMode } from '../presentation/modeColors'
@@ -18,17 +18,17 @@ import { pair, seriesRole, type Role } from '../presentation/palette'
 import type { ChartView } from '../presentation/chartTypes'
 
 /** Guitar mode label overrides are stored per peak as the assigned label string. */
-export type PeakModeOverrides = Record<string, string>
+export type PeakModeOverrides = Record<Uuid, string>
 
 /** Absolute data-space annotation label positions: uuid → [absFreqHz, absDB]. */
-export type AnnotationOffsets = Record<string, [number, number]>
+export type AnnotationOffsets = Record<Uuid, [number, number]>
 
 // @parity dsp/find-peaks tests=test/peaks
 /** A detected resonant peak — one type in memory and on file, guitar and material alike. Mirrors Swift
  *  `ResonantPeak` / Python `ResonantPeak`. Make one with {@link makeResonantPeak}. */
 export interface ResonantPeak {
   /** Stable unique id (an uppercase UUID), kept through save and load. */
-  id: string
+  id: Uuid
   /** Interpolated peak frequency, in Hz. */
   frequency: number
   /** Interpolated peak magnitude, in dB. */
@@ -76,28 +76,28 @@ export interface SpectrumSnapshotModel {
 }
 
 export interface ComparisonEntryModel {
-  id: string
+  id: Uuid
   label: string
   /** RGBA, each 0.0–1.0 (double precision). */
   colorComponents: number[]
   snapshot: SpectrumSnapshotModel
   peaks: ResonantPeak[]
   guitarType?: string
-  sourceMeasurementID?: string
+  sourceMeasurementID?: Uuid
   /** The DEFINITIVE Air/Top/Back for this overlaid spectrum, `{mode display name → peak id}` referencing
    *  this entry's own `peaks`, resolved override-aware from the SOURCE at build. Makes a saved comparison
    *  self-describing — a reader reproduces the table by id lookup, no `classifyAll`, no source overrides.
    *  Absent on pre-6b files → healed positionally on decode + re-saved. Mirrors Swift/Python
    *  `ComparisonEntry.modePeakIDs` (keyed by `GuitarMode.rawValue` = the mode's display name). */
-  modePeakIDs?: Record<string, string>
+  modePeakIDs?: Record<string, Uuid>
 }
 
 export interface TapEntryModel {
-  id: string
+  id: Uuid
   tapIndex: number
   snapshot: SpectrumSnapshotModel
   peaks: ResonantPeak[]
-  selectedPeakIDs: string[]
+  selectedPeakIDs: Uuid[]
 }
 
 /** ISO-8601 without fractional seconds, matching Swift's `.iso8601` date strategy. */
@@ -123,7 +123,7 @@ export function guitarTypeNameFromRaw(raw: string | undefined): GuitarTypeName {
 export class TapEntry {
   constructor(
     /** Stable unique identifier (an uppercase UUID). */
-    readonly id: string,
+    readonly id: Uuid,
     /** 1-based display index ("Tap 1", "Tap 2", …). */
     readonly tapIndex: number,
     /** Full spectrum snapshot for this tap, recording the guitar type it was captured under. */
@@ -131,7 +131,7 @@ export class TapEntry {
     /** Every peak found in this tap's spectrum, at the detection floor. */
     readonly peaks: ResonantPeak[],
     /** Ids of the auto-selected peaks — one per guitar mode where found. */
-    readonly selectedPeakIDs: string[],
+    readonly selectedPeakIDs: Uuid[],
   ) {}
 
   /** The strongest peak per guitar mode among this tap's SELECTED peaks. Used by the multi-tap
@@ -163,7 +163,7 @@ export interface TapToneMeasurementModel {
    * It is deliberately NOT how the library addresses a row: duplicate imports share it. Rows are
    * addressed by `rowKey`, so import keeps this field as the file carries it.
    */
-  id: string
+  id: Uuid
   /**
    * Library-local row handle: unique per stored row, minted on insert, never written to a
    * `.guitartap` file. It is this edition's equivalent of the natives' array position — they can
@@ -181,7 +181,7 @@ export interface TapToneMeasurementModel {
   notes?: string
   spectrumSnapshot?: SpectrumSnapshotModel
   peakAnnotationOffsets?: AnnotationOffsets
-  selectedPeakIDs?: string[]
+  selectedPeakIDs?: Uuid[]
   /** Frequencies (Hz) of the selected peaks, parallel to `selectedPeakIDs`. Written for a program reading
    *  the file that wants the selected peaks' frequencies without resolving the IDs or repeating the
    *  selection; GuitarTap itself does not read it back. Mirrors Swift/Python selectedPeakFrequencies. */
@@ -194,9 +194,9 @@ export interface TapToneMeasurementModel {
   tapDetectionThreshold?: number
   numberOfTaps?: number
   peakMinThreshold?: number
-  selectedLongitudinalPeakID?: string
-  selectedCrossPeakID?: string
-  selectedFlcPeakID?: string
+  selectedLongitudinalPeakID?: Uuid
+  selectedCrossPeakID?: Uuid
+  selectedFlcPeakID?: Uuid
   longitudinalSnapshot?: SpectrumSnapshotModel
   crossSnapshot?: SpectrumSnapshotModel
   flcSnapshot?: SpectrumSnapshotModel
@@ -214,6 +214,7 @@ export interface TapToneMeasurementModel {
 
 /** True when this record is a saved comparison rather than a single tap measurement. */
 export const isComparison = (m: TapToneMeasurementModel): boolean => m.comparisonEntries != null
+
 
 /** Measurement type resolved from the stored snapshots; undefined for legacy files.
  *  Mirrors Swift `TapToneMeasurement.resolvedMeasurementType`. */
@@ -237,7 +238,7 @@ export const isMaterialMeasurement = (m: TapToneMeasurementModel): boolean => {
  *    aggregate can be corrupted by an intermittent phase-transition write (an iPad-only Swift
  *    glitch), so it is ignored on read — healing existing corrupt files at render time.
  *  Mirrors Swift/Python `effectiveSelectedPeakIDs`. */
-export const effectiveSelectedPeakIDs = (m: TapToneMeasurementModel): Set<string> => {
+export const effectiveSelectedPeakIDs = (m: TapToneMeasurementModel): Set<Uuid> => {
   if (isMaterialMeasurement(m)) return new Set(m.peaks.map((p) => p.id))
   return m.selectedPeakIDs != null ? new Set(m.selectedPeakIDs) : new Set(m.peaks.map((p) => p.id))
 }
@@ -254,7 +255,7 @@ export const classificationGuitarType = (m: TapToneMeasurementModel): GuitarType
  *  {@link classificationGuitarType} — the rule the live analyzer applies (`reclassifyPeaks`). The Top
  *  and Back bands overlap and peaks compete for them, so classifying a subset (the selected peaks, the
  *  peaks on screen) can turn a Back into a Top. Empty for a material measurement. Swift `autoModes`. */
-export function measurementAutoModes(m: TapToneMeasurementModel): Map<string, ResolvedMode> {
+export function measurementAutoModes(m: TapToneMeasurementModel): Map<Uuid, ResolvedMode> {
   return isMaterialMeasurement(m) ? new Map() : classifyAll(m.peaks, classificationGuitarType(m))
 }
 
@@ -263,8 +264,8 @@ export function measurementAutoModes(m: TapToneMeasurementModel): Map<string, Re
  *  for the file's `modeLabel` and the Details pane, so the two cannot disagree. Never the peak's stored
  *  `modeLabel`: that is written for external readers and derived afresh on every write. Swift
  *  `peakModeLabels`. */
-export function measurementPeakModeLabels(m: TapToneMeasurementModel): Map<string, string> {
-  const labels = new Map<string, string>()
+export function measurementPeakModeLabels(m: TapToneMeasurementModel): Map<Uuid, string> {
+  const labels = new Map<Uuid, string>()
   if (isMaterialMeasurement(m)) {
     for (const p of m.peaks) {
       labels.set(
@@ -349,8 +350,8 @@ export function guitarTapFilename(m: TapToneMeasurementModel): string {
  *  (selected + override-aware). Keyed by `MODE_DISPLAY_NAME` = Swift `GuitarMode.rawValue`, so the saved
  *  map is cross-platform. The ids reference selected peaks, which the comparison entry keeps. Mirrors
  *  Swift `ComparisonEntry.modeIDMap`. */
-export function comparisonModeIDMap(m: TapToneMeasurementModel): Record<string, string> {
-  const map: Record<string, string> = {}
+export function comparisonModeIDMap(m: TapToneMeasurementModel): Record<string, Uuid> {
+  const map: Record<string, Uuid> = {}
   for (const mode of ['air', 'top', 'back'] as const) {
     const p = measurementDefinitivePeak(m, mode)
     if (p) map[MODE_DISPLAY_NAME[mode]] = p.id

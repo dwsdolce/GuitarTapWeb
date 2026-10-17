@@ -8,12 +8,17 @@
 import 'fake-indexeddb/auto'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { listMeasurements, clearMeasurements, importMeasurements } from '../src/measurement/store'
+import { listMeasurements, clearMeasurements, importMeasurements, readLibrary, deleteUnreadable, saveMeasurement } from '../src/measurement/store'
 import { serializeGuitarTapFile } from '../src/measurement'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import type { Uuid } from '../src/measurement/newId'
+import type { TapToneMeasurementModel } from '../src/measurement/types'
 
 type Step = {
   import?: string[]
+  importFails?: string[]
+  file?: string
+  message?: string
   edit?: { entry: number; name: string; notes: string | null }
   save?: string
   deleteAll?: boolean
@@ -40,6 +45,14 @@ describe('import-persistence — the shared cases (import-persistence.json)', ()
       if (step.import) {
         const text = JSON.stringify(step.import.map((n) => DATA.measurements[n]))
         message = await a.importAndLoadMeasurements(text, importMeasurements)
+      } else if (step.importFails) {
+        const text = JSON.stringify(step.importFails.map((n) => DATA.measurements[n]))
+        const failure = await a.importAndLoadMeasurements(text, importMeasurements).then(
+          () => null,
+          (err: unknown) => err,
+        )
+        expect(failure, `${c.id}: the import fails`).not.toBeNull()
+        if (step.message !== undefined) expect(TapToneAnalyzer.importErrorMessage(failure, step.file!), `${c.id}: message`).toBe(step.message)
       } else if (step.edit) {
         // As the Edit sheet commits: the model's updateMeasurement on the listed entry.
         const row = (await listMeasurements())[step.edit.entry]!
@@ -50,7 +63,7 @@ describe('import-persistence — the shared cases (import-persistence.json)', ()
         await a.deleteAllMeasurements()
       } else if (step.warning !== undefined) {
         a.microphoneWarning = step.warning
-      }
+      } else throw new Error(`${c.id}: unknown step ${JSON.stringify(step)}`)
     }
 
     const library = await listMeasurements()
@@ -89,3 +102,53 @@ describe('import-persistence — the shared cases (import-persistence.json)', ()
     }
   })
 })
+
+describe('a saved measurement that cannot be read', () => {
+  // The web's form of the natives' rule for a library that cannot be read: records are stored one by
+  // one, so a record with an id that is not a UUID, or with no spectrum, is skipped, kept in storage
+  // untouched and reported; the user may delete it, and nothing else does.
+  it('the analyzer holds the library and the unreadable records, as Swift holds savedMeasurements', async () => {
+    const [good] = await importMeasurements(JSON.stringify([Object.values(DATA.measurements)[0]]))
+    await saveMeasurement({ ...good!, rowKey: undefined, id: 'not-a-uuid' as Uuid })
+
+    const a = new TapToneAnalyzer()
+    await a.loadPersistedMeasurements()
+    expect(a.getSnapshot().savedMeasurements.map((m) => m.id)).toEqual([good!.id])
+    expect(a.getSnapshot().unreadableMeasurements).toHaveLength(1)
+
+    a.keepUnreadableMeasurements() // Keep: the alert goes, the record stays
+    expect(a.getSnapshot().unreadableMeasurements).toEqual([])
+    await a.loadPersistedMeasurements()
+    expect(a.getSnapshot().unreadableMeasurements).toHaveLength(1)
+
+    await a.deleteUnreadableMeasurements() // Delete: the record goes
+    await a.loadPersistedMeasurements()
+    expect(a.getSnapshot().unreadableMeasurements).toEqual([])
+    expect(a.getSnapshot().savedMeasurements).toHaveLength(1)
+  })
+
+  // What makes a stored record unreadable, made from a good one.
+  const DAMAGE: Record<string, (m: TapToneMeasurementModel) => TapToneMeasurementModel> = {
+    'bad id': (m) => ({ ...m, id: 'not-a-uuid' as Uuid }),
+    'no spectrum': (m) => ({ ...m, spectrumSnapshot: undefined }),
+    'empty spectrum': (m) => ({ ...m, spectrumSnapshot: { ...m.spectrumSnapshot!, frequencies: [], magnitudes: [] } }),
+  }
+
+  it.each(Object.keys(DAMAGE))('%s: is skipped, kept and reported, and removed only when the user deletes it', async (kind) => {
+    const [good] = await importMeasurements(JSON.stringify([Object.values(DATA.measurements)[0]]))
+    await saveMeasurement({ ...DAMAGE[kind]!(good!), rowKey: undefined })
+
+    const first = await readLibrary()
+    expect(first.measurements.map((m) => m.id)).toEqual([good!.id])
+    expect(first.unreadable).toHaveLength(1)
+
+    await saveMeasurement({ ...good!, rowKey: undefined }) // another save leaves it as it was
+    const second = await readLibrary()
+    expect(second.unreadable).toEqual(first.unreadable)
+    expect(await listMeasurements()).toHaveLength(2)
+
+    await deleteUnreadable(second.unreadable)
+    expect((await readLibrary()).unreadable).toEqual([])
+  })
+})
+

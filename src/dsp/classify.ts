@@ -1,6 +1,7 @@
 // @parity model/guitar-mode-classify tests=test/classify
 import { modeBands, type GuitarTypeName, type ModeName } from './guitarModes'
 import type { ResonantPeak } from '../measurement/types'
+import type { Uuid } from '../measurement/newId'
 
 /**
  * Mode classification, ported from `GuitarMode.classify` / `classifyAll`.
@@ -31,10 +32,10 @@ function classifySingle(freq: number, guitarType: GuitarTypeName): ResolvedMode 
  *    Top and within the Back range resolves to `back`, preserving Top-below-Back.
  * @returns Map of peak `id` -> resolved mode (`'unknown'` if outside all ranges).
  */
-export function classifyAll(peaks: ResonantPeak[], guitarType: GuitarTypeName): Map<string, ResolvedMode> {
+export function classifyAll(peaks: ResonantPeak[], guitarType: GuitarTypeName): Map<Uuid, ResolvedMode> {
   const ordered = modeBands(guitarType).sort((a, b) => a.lo - b.lo)
-  const result = new Map<string, ResolvedMode>()
-  const claimed = new Set<string>()
+  const result = new Map<Uuid, ResolvedMode>()
+  const claimed = new Set<Uuid>()
   let claimedTopFreq: number | null = null
 
   for (const m of ordered) {

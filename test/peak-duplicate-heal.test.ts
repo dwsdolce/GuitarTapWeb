@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { parseGuitarTapFile, serializeGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
+import { idEntries } from '../src/measurement/newId'
 
 type Row = { fixture: string; peakCount: number; twinHz: number; twinTolerance: number; proximityHz: number }
 const CASES = (JSON.parse(readFileSync('test/fixtures/peak-heal.json', 'utf8')) as { cases: Row[] }).cases
@@ -47,8 +48,8 @@ describe('duplicate-peak heal on decode — shared cases', () => {
       const m = decode(row)
       const ids = new Set(m.peaks.map((p) => p.id))
       for (const id of m.selectedPeakIDs ?? []) expect(ids.has(id), `selectedPeakIDs references a removed peak: ${id}`).toBe(true)
-      for (const id of Object.keys(m.peakAnnotationOffsets ?? {})) expect(ids.has(id), `peakAnnotationOffsets references a removed peak: ${id}`).toBe(true)
-      for (const id of Object.keys(m.peakModeOverrides ?? {})) expect(ids.has(id), `peakModeOverrides references a removed peak: ${id}`).toBe(true)
+      for (const [id] of idEntries(m.peakAnnotationOffsets)) expect(ids.has(id), `peakAnnotationOffsets references a removed peak: ${id}`).toBe(true)
+      for (const [id] of idEntries(m.peakModeOverrides)) expect(ids.has(id), `peakModeOverrides references a removed peak: ${id}`).toBe(true)
     })
 
     it(`${row.fixture}: the heal is reported`, () => {

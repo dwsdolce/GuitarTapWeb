@@ -17,6 +17,7 @@ import {
   type StoredCalibration,
 } from '../measurement/calibrationStore'
 import { parseCalibration } from '../dsp/calibration'
+import type { Uuid } from '../measurement/newId'
 
 interface UseAudioEngineArgs {
   /** The lifecycle-state owner, whose engine this shows and starts. */
@@ -34,15 +35,15 @@ export interface AudioEngineModel {
   error: string | null
   /** What kind of error, so the UI shows the right native-style alert title:
    *  'permission' → "Microphone Access Required", else → "Audio Engine Error". */
-  errorKind: 'permission' | 'engine' | 'other' | 'microphone' | null
+  errorKind: 'permission' | 'engine' | 'other' | 'microphone' | 'export' | null
   setError: (e: string | null) => void
   /** Set alongside `setError` so a non-audio failure (e.g. an export error) shows the neutral
    *  "Error" alert with a plain OK, not "Audio Engine Error" with a bogus Retry. */
-  setErrorKind: (k: 'permission' | 'engine' | 'other' | 'microphone' | null) => void
+  setErrorKind: (k: 'permission' | 'engine' | 'other' | 'microphone' | 'export' | null) => void
   inputDevices: { deviceId: string; label: string }[]
   currentDeviceId: string | null
   calibrations: StoredCalibration[]
-  activeCalId: string | null
+  activeCalId: Uuid | null
   engineMetrics: EngineMetrics | null
   /** Live ring-out (decay) time in seconds, or null — for the Analysis Results panel. */
   /** Re-attempt engine start after a mic error ("Retry microphone"). */
@@ -52,7 +53,7 @@ export interface AudioEngineModel {
   onSelectDevice: (deviceId: string) => Promise<void>
   onImportCalibration: (file: File) => Promise<void>
   onSelectCalibration: (id: string | null) => void
-  onDeleteCalibration: (id: string) => void
+  onDeleteCalibration: (id: Uuid) => void
 }
 
 export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineModel {
@@ -64,11 +65,11 @@ export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineMod
   const [audioSettings, setAudioSettings] = useState<MediaTrackSettings | null>(null)
   const [deviceLabel, setDeviceLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [errorKind, setErrorKind] = useState<'permission' | 'engine' | 'other' | 'microphone' | null>(null)
+  const [errorKind, setErrorKind] = useState<'permission' | 'engine' | 'other' | 'microphone' | 'export' | null>(null)
   const [inputDevices, setInputDevices] = useState<{ deviceId: string; label: string }[]>([])
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null)
   const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
-  const [activeCalId, setActiveCalId] = useState<string | null>(null)
+  const [activeCalId, setActiveCalId] = useState<Uuid | null>(null)
   const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
 
   // Mirror the engine's input state — the device list, the selected input and its calibration.
@@ -118,7 +119,7 @@ export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineMod
   )
 
   const onDeleteCalibration = useCallback(
-    (id: string) => {
+    (id: Uuid) => {
       deleteStoredCalibration(id)
       setCalibrations(listCalibrations())
       engine.reloadDeviceCalibration()

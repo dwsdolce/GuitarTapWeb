@@ -15,6 +15,7 @@ import {
   MIN_MAGNITUDE_SPAN_DB,
 } from '../presentation/chartLimits'
 import { RefreshIcon } from './icons'
+import type { Uuid } from '../measurement/newId'
 
 /** Props for {@link SpectrumChart} — spectrum data, axis range, overlays/markers, and interaction callbacks. */
 export interface SpectrumChartProps {
@@ -38,12 +39,12 @@ export interface SpectrumChartProps {
   onReset?: (target: ResetTarget, axis: ResetAxis) => void
   /** A draggable annotation badge was moved → its new data-space position [absFreqHz, absDB].
    *  Omit to make labels non-draggable. */
-  onAnnotationDrag?: (key: string, pos: [number, number]) => void
+  onAnnotationDrag?: (key: Uuid, pos: [number, number]) => void
   /** "Reset Labels" menu action → clear all dragged label positions. */
   onResetLabels?: () => void
   /** Right-clicking a SINGLE badge → reset just that label to its auto-position (Swift/Python
    *  `resetAnnotationOffset`). `key` is the badge's `annoKey`. Omit to disable the per-label menu. */
-  onResetAnnotation?: (key: string) => void
+  onResetAnnotation?: (key: Uuid) => void
   /** Enables the "Reset Labels" menu item (true when any label has been moved). */
   hasMovedLabels?: boolean
   /** A frozen/captured result is shown → the crosshair snaps to the nearest spectrum bin
@@ -56,7 +57,7 @@ export interface SpectrumChartProps {
   highlightedPeakId?: string | null
   /** Clicking a peak dot toggles the highlight (desktop only — the parent omits this on touch, so the
    *  dot-click is inert there, matching Swift's macOS-only behaviour). */
-  onToggleHighlight?: (id: string) => void
+  onToggleHighlight?: (id: Uuid) => void
 }
 
 // The chart's limits — one set for Settings, zoom, pan and widening (presentation/chartLimits).
@@ -128,7 +129,7 @@ export function SpectrumChart({
   // Reset/⋯ menu — stored in VIEWPORT coords and rendered `position: fixed` so it escapes the
   // chart wrapper's `overflow: hidden` (which used to clip it) and is clamped to stay on screen.
   // `alignRight` anchors the menu's right edge to `x` (for the top-right ⋯ button).
-  const [menu, setMenu] = useState<{ x: number; y: number; alignRight?: boolean; annoKey?: string } | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number; alignRight?: boolean; annoKey?: Uuid } | null>(null)
   const ctxRef = useRef<HTMLDivElement>(null)
   const [menuStyle, setMenuStyle] = useState<{ left: number; top: number } | null>(null)
   useLayoutEffect(() => {
@@ -323,7 +324,7 @@ export function SpectrumChart({
     // Dragging an annotation badge: freeze the grab point + the badge's bottom-center anchor
     // at drag start; every move re-derives the anchor's data-space position (mirrors Swift's
     // frozenChartPosition so the label tracks the cursor through re-renders).
-    let annoDrag: { key: string; pStartX: number; pStartY: number; anchorSX: number; anchorSY: number } | null = null
+    let annoDrag: { key: Uuid; pStartX: number; pStartY: number; anchorSX: number; anchorSY: number } | null = null
     // Two-finger pinch-zoom (touch). The pinch midpoint picks the region, exactly like
     // the wheel/pointer; zoom is applied from the start view by the cumulative scale.
     const pointers = new Map<number, { x: number; y: number }>()

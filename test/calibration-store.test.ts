@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
+  listCalibrations,
   saveCalibration,
   setCalibrationForDevice,
   setActiveCalibrationId,
@@ -53,3 +54,30 @@ describe('calibration resolution is device-specific (no cross-device global fall
     expect(resolveActiveCalibration(null)?.id).toBe(umik.id)
   })
 })
+
+describe('stored calibrations that cannot be read', () => {
+  // They are moved to a key of their own, the list starts empty, and a later save leaves them as they
+  // were. Mirrors the Swift and Python tests of the same.
+  it('are kept aside and not written over', () => {
+    const damaged = JSON.stringify([{ id: 'not-a-uuid', name: 'Room' }])
+    localStorage.setItem('gt.calibrations', damaged)
+    const keptKeys = () =>
+      Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)!).filter((k) => k.startsWith('gt.calibrations-unreadable-'))
+
+    expect(listCalibrations()).toEqual([])
+    const kept = keptKeys()
+    expect(kept).toHaveLength(1)
+    expect(localStorage.getItem(kept[0]!), 'kept as it was').toBe(damaged)
+
+    saveCalibration(cal('Room'))
+    expect(listCalibrations(), 'a new list is written').toHaveLength(1)
+    expect(localStorage.getItem(kept[0]!), 'and the kept one is not touched').toBe(damaged)
+  })
+
+  it('a lowercase id is read as the same id, in the canonical case', () => {
+    const id = '5e2a8c7d-0000-4000-8000-0000000000a1'
+    localStorage.setItem('gt.calibrations', JSON.stringify([{ ...cal('Room'), id, importDate: 0 }]))
+    expect(listCalibrations().map((c) => c.id)).toEqual([id.toUpperCase()])
+  })
+})
+

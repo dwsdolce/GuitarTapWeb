@@ -8,6 +8,7 @@ import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../src/dsp/cl
 import { modeBands, type GuitarTypeName } from '../src/dsp/guitarModes'
 import { ADDITIONAL_MODE_LABELS, MODE_BY_DISPLAY_NAME, MODE_DISPLAY_NAME, MODE_LABEL, effectiveMode } from '../src/presentation/modeColors'
 import type { ResonantPeak } from '../src/measurement/types'
+import { testId } from './testIds'
 
 type Row = Record<string, unknown>
 const DATA = JSON.parse(readFileSync('test/fixtures/classify.json', 'utf8')) as Record<string, unknown>
@@ -25,7 +26,7 @@ function mode(name: string): ResolvedMode {
 
 const peaksOf = (row: Row): ResonantPeak[] =>
   (row.peaks as [number, number][]).map(([frequency, magnitude], i) => ({
-    id: String(i), frequency, magnitude, quality: 0, bandwidth: 0, timestamp: '2026-10-02T00:00:00Z',
+    id: testId(i + 1), frequency, magnitude, quality: 0, bandwidth: 0, timestamp: '2026-10-02T00:00:00Z',
   }))
 
 describe('classify — shared cases', () => {
@@ -43,7 +44,7 @@ describe('classify — shared cases', () => {
       const peaks = peaksOf(row)
       const resolved = resolvedModePeaks(peaks, row.guitarType as GuitarTypeName)
       expect(Object.fromEntries([...resolved].map(([m, p]) => [m, p.id]))).toEqual(
-        Object.fromEntries(Object.entries(row.expect as Record<string, number>).map(([m, i]) => [mode(m), String(i)])),
+        Object.fromEntries(Object.entries(row.expect as Record<string, number>).map(([m, i]) => [mode(m), testId(i + 1)])),
       )
     })
   }
