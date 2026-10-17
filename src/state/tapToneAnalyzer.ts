@@ -38,6 +38,7 @@ import { materialInputsFromSettings, materialInputsFromSnapshot, type MaterialMe
 import { dumpCaptureProbe, dumpCaptureWav } from '../measurement/dumpWav'
 import { FieldPrecision } from '../precision'
 import { captureProbe } from './captureProbe'
+import { SystemWallClock, type WallClock } from './wallClock'
 
 /** The tap detector's state. Mirrors Swift `DetectionState` (DetectionState.swift) and Python
  *  `DetectionState` (models/detection_state.py).
@@ -1870,7 +1871,11 @@ export class TapToneAnalyzer {
 
   /** An analyzer and the engine it owns for its life — Swift `init(fftAnalyzer:)`. Tests make one
    *  without and attach a headless engine with `setDevice`. */
-  constructor(device: RealtimeFFTAnalyzer | null = null) {
+  /** The wall clock the capture's safety timeout reads and schedules on — the system's in the app. */
+  readonly wallClock: WallClock
+
+  constructor(device: RealtimeFFTAnalyzer | null = null, wallClock: WallClock = new SystemWallClock()) {
+    this.wallClock = wallClock
     if (device) this.setDevice(device)
   }
 
@@ -2484,7 +2489,7 @@ export class TapToneAnalyzer {
   private lastChunkLevelDb = -100
   /** Tap-lifecycle actions waiting on the audio clock — see `afterAudio`. Swift `pendingAudioActions`. */
   private pendingAudioActions: { due: number; releasedAtFileEnd: boolean; action: () => void }[] = []
-  /** The WALL time (`performance.now()`) at which the latest chunk reached `processAudioFrame` — what the
+  /** The WALL time (`wallClock`, seconds) at which the latest chunk reached `processAudioFrame` — what the
    *  capture safety timeout measures its silence from. Swift `lastChunkWallTime`. */
   private lastChunkWallTime = 0
   /** Identity of the current gated capture, so a stale safety timeout does nothing. Swift `gatedCaptureID`. */
@@ -2686,7 +2691,7 @@ export class TapToneAnalyzer {
     // `onRmsLevelChanged`.
     this.lastAudioTime = audioTime
     this.lastChunkLevelDb = levelDb
-    this.lastChunkWallTime = performance.now()
+    this.lastChunkWallTime = this.wallClock.now()
     if (!this.runDueAudioActions()) {
       // Detection is off through a capture: a detected tap turns it off first, as Swift's and Python's
       // `handleTapDetection` does, and the capture's finish and the rest keep it off until the re-arm.
@@ -3079,7 +3084,7 @@ export class TapToneAnalyzer {
     this.captureKind = 'material'
     this.capture = this.materialCapture
     const captureId = this.openCaptureWindow()
-    this.afterAudioStall(MATERIAL_CAPTURE_SAFETY_MS, () => captureId === this.gatedCaptureId && this.gatedCaptureActive, () => {
+    this.afterAudioStall(MATERIAL_CAPTURE_SAFETY_MS / 1000, () => captureId === this.gatedCaptureId && this.gatedCaptureActive, () => {
       this.gatedCaptureActive = false
       const partial = this.capture.slice(0, this.captureIdx)
       this.captureIdx = 0
@@ -3102,7 +3107,7 @@ export class TapToneAnalyzer {
     this.capture = this.guitarCaptureBuf
     const captureId = this.openCaptureWindow()
     const timeoutMs = (this.capture.length / Math.max(this.mpmSampleRate, 1)) * 1000 + GUITAR_CAPTURE_SAFETY_EXTRA_MS
-    this.afterAudioStall(timeoutMs, () => captureId === this.gatedCaptureId && this.gatedCaptureActive, () => {
+    this.afterAudioStall(timeoutMs / 1000, () => captureId === this.gatedCaptureId && this.gatedCaptureActive, () => {
       this.gatedCaptureActive = false
       const partial = this.capture.slice(0, this.captureIdx)
       this.captureIdx = 0
@@ -3116,15 +3121,15 @@ export class TapToneAnalyzer {
     })
   }
 
-  /** Run `action` once NO audio has arrived for `intervalMs` of WALL time; stops checking once
+  /** Run `action` once NO audio has arrived for `interval` seconds of WALL time; stops checking once
    *  `relevant()` is false. Swift `afterAudioStall`. */
-  private afterAudioStall(intervalMs: number, relevant: () => boolean, action: () => void): void {
-    setTimeout(() => {
+  private afterAudioStall(interval: number, relevant: () => boolean, action: () => void): void {
+    this.wallClock.after(interval, () => {
       if (!relevant()) return
-      const quiet = performance.now() - this.lastChunkWallTime
-      if (quiet >= intervalMs) action()
-      else this.afterAudioStall(intervalMs - quiet, relevant, action)
-    }, intervalMs)
+      const quiet = this.wallClock.now() - this.lastChunkWallTime
+      if (quiet >= interval) action()
+      else this.afterAudioStall(interval - quiet, relevant, action)
+    })
   }
 
   private feedCapture(s: Float32Array): void {

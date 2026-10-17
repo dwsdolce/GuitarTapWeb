@@ -10,7 +10,7 @@ import { MEASUREMENT_TYPE_FROM_RAW, parseGuitarTapFile } from '../src/measuremen
 import { SettingsStore } from '../src/settingsStore'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
-import { advanceAudio, AUDIO_FEED_CHUNK_SECONDS } from './audioClockFeed'
+import { advanceAudio, AUDIO_FEED_CHUNK_SECONDS, ManualWallClock } from './audioClockFeed'
 import { syntheticTap } from './syntheticTap'
 
 export type AnalyzerStep = {
@@ -38,6 +38,8 @@ export type AnalyzerStep = {
   level?: number
   /** Exactly n chunks of audio at `level`, each one chunk after the last (two loud ones are a tap). */
   audioChunks?: number
+  /** That much wall time with no audio. */
+  stall?: number
 }
 
 /** One chunk's samples; the level a chunk is fed at is given with it. */
@@ -52,11 +54,12 @@ export const PHASE_RAW: Record<MaterialTapPhase, string> = {
   capturingFlc: 'Capturing FLC', reviewingFlc: 'Reviewing FLC', complete: 'Complete',
 }
 
-/** A fresh analyzer as the shared scenario cases start one — threshold −40, Taps 1 — attached to its own
- *  settings store, which the settings step writes as Settings does. */
+/** A fresh analyzer as the shared scenario cases start one — threshold −40, Taps 1, and a wall clock that
+ *  moves only when a step stalls it — attached to its own settings store, which the settings step writes
+ *  as Settings does. */
 export function makeStepsAnalyzer(): { a: TapToneAnalyzer; store: SettingsStore } {
   const store = new SettingsStore({ ...DEFAULT_SETTINGS, tapDetectionThreshold: -40 })
-  const a = new TapToneAnalyzer()
+  const a = new TapToneAnalyzer(null, new ManualWallClock())
   a.attachSettingsStore(store)
   a.setNumberOfTaps(1)
   return { a, store }
@@ -89,6 +92,8 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer, store: S
           : step.advance === 'warmupPeriod' ? a.warmupPeriod
             : step.advance
     advanceAudio(a, seconds * (step.fraction ?? 1) + (step.extra ?? 0), step.level ?? -90)
+  } else if (step.stall !== undefined) {
+    ;(a.wallClock as ManualWallClock).advance(step.stall)
   } else if (step.audioChunks !== undefined) {
     for (let i = 0; i < step.audioChunks; i++) {
       a.processAudioFrame(CHUNK_SAMPLES, step.level!, a.lastAudioTime + AUDIO_FEED_CHUNK_SECONDS)
