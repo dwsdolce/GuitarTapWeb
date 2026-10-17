@@ -1,3 +1,4 @@
+// @parity model/measurement-codable tests=test/measurement-codable,test/peak-heal,test/peak-selection-persistence
 // `.guitartap` reader. Accepts the canonical form the writer (./encode) produces and
 // every older shape documented in the Swift user manual App. B "Legacy compatibility
 // (reader-only)" table. The reader is deliberately permissive; the writer is minimal.

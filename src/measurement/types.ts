@@ -317,6 +317,7 @@ export function measurementDefinitiveModeInfo(m: TapToneMeasurementModel): Map<'
   return out
 }
 
+// @parity model/measurement-type tests=test/measurement-type-name
 /** A measurement type's raw name on file ("Classical Guitar" …) → its Settings type. */
 export const MEASUREMENT_TYPE_FROM_RAW: Record<string, MeasurementType> = Object.fromEntries(
   Object.entries(MEASUREMENT_FULL_NAME).map(([k, v]) => [v, k as MeasurementType]),

@@ -1,3 +1,4 @@
+// @parity dsp/calibration
 // Persistent storage for imported microphone calibrations — the web equivalent of Swift's
 // CalibrationStorage (UserDefaults) / Python's calibration_storage. Mirrors its model exactly:
 //   • a list of saved calibration profiles (each = a parsed `Calibration` + id + import date),

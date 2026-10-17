@@ -1,4 +1,4 @@
-// @parity presentation/display-range
+// @parity presentation/display-range tests=test/display-range
 //
 // The rule for widening the chart's frequency axis so a newly identified peak is visible.
 // Mirrors Swift Models/DisplayRange.swift and Python models/display_range.py.

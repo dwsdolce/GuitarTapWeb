@@ -1,3 +1,4 @@
+// @parity dsp/guitar-fft
 /** The live spectrum's shape and FFT size. The live FFT itself is `RealtimeFFTAnalyzer.computeFFT`. */
 
 

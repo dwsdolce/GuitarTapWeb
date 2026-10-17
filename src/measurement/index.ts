@@ -1,3 +1,4 @@
+// @parity none — re-exports the measurement modules only
 // `.guitartap` measurement model + (de)serialization. Canonical format spec:
 // Swift user manual Appendix B (Documentation/Manual/app-b-file-formats.md).
 export * from './types'

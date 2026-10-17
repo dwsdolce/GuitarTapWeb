@@ -1,3 +1,4 @@
+// @parity model/measurement-management tests=test/measurement-load,test/import-persistence,test/comparison
 // IndexedDB-backed measurement library — the web's private `saved_measurements.json`
 // equivalent (PHASE4-PERSISTENCE "Storage model"). Browser-sandboxed and NOT shared
 // with the Swift/Python apps; cross-app sharing is via `.guitartap` import/export (4c).

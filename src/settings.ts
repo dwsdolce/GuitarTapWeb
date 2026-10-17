@@ -13,6 +13,7 @@ import {
   MIN_MAGNITUDE_SPAN_DB,
 } from './presentation/chartLimits'
 
+// @parity model/measurement-type tests=test/measurement-type-name
 export type MeasurementType = GuitarTypeName | 'plate' | 'brace'
 export type StiffnessPreset = 'steelStringTop' | 'steelStringBack' | 'classicalTop' | 'classicalBack' | 'custom'
 

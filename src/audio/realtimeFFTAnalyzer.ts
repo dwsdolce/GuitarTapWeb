@@ -623,6 +623,7 @@ export class RealtimeFFTAnalyzer {
     this.deviceStateEvent.emit()
   }
 
+  // @parity audio/device-management tests=test/mic-selection
   /** Switch the live input to `deviceId` — a Settings choice, a device plugged in, or a loaded
    *  measurement's microphone — and save it (selectInput). The input and its calibration are selected
    *  before the first await, so a caller that does not wait reads them at once; the stream follows.
@@ -679,6 +680,7 @@ export class RealtimeFFTAnalyzer {
     this.inputChangedEvent.emit(this.inputDeviceId)
   }
 
+  // @parity audio/engine-control tests=test/file-playback
   /** Open the input and start the pipeline. A start while one is in flight joins it, and `stop` during
    *  a start ends it at its next step — so React's remount (start, stop, start) leaves one input
    *  running. The caller (the analyzer's `start`) makes the guarded auto-start once this resolves. */
@@ -765,6 +767,7 @@ export class RealtimeFFTAnalyzer {
   }
 
   // ── Buffer-delivery watchdog ────────────────────────────────────────────────
+  // @parity audio/buffer-watchdog
   // Detects a silently-starved mic stream (worklet stops posting chunks, no error)
   // and re-acquires the input with bounded backoff. Mirrors Swift/Python.
 

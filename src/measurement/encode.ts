@@ -1,3 +1,4 @@
+// @parity model/measurement-codable tests=test/measurement-codable,test/peak-heal,test/peak-selection-persistence
 // `.guitartap` writer. Emits only the canonical, current field set documented in the
 // Swift user manual App. B — never legacy keys (peakMinThreshold, never peakThreshold;
 // no hysteresisMargin/maxPeaks; sampleRate only when known). The reader (./decode)

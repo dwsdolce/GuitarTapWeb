@@ -1,3 +1,4 @@
+// @parity model/measurement-codable tests=test/measurement-codable,test/peak-heal,test/peak-selection-persistence
 // Float32 JSON encoding for `.guitartap` parity (see Documentation/Manual App. B,
 // "Number precision"). The Swift writer stores most scalars as `Float` (IEEE-754
 // binary32) and its JSONEncoder emits the *shortest decimal that round-trips to that

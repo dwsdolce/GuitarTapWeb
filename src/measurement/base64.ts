@@ -1,3 +1,4 @@
+// @parity model/measurement-codable tests=test/measurement-codable,test/peak-heal,test/peak-selection-persistence
 // Compact spectrum encoding for `.guitartap` parity (App. B, "Spectrum data
 // encoding"). `frequenciesData` / `magnitudesData` are Base64 strings whose decoded
 // bytes are a contiguous little-endian IEEE-754 float32 array (4 bytes per value,

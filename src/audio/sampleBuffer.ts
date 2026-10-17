@@ -1,3 +1,4 @@
+// @parity dsp/session-recording tests=test/session-pre-roll
 // A growable buffer of 32-bit float samples — the web's form of Swift's `[Float]` session buffer, four bytes
 // a sample rather than a JavaScript array's eight. It grows by doubling, so appending a chunk is amortised
 // constant time, and it keeps its storage when trimmed or truncated.

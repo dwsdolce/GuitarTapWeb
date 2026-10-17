@@ -8,8 +8,8 @@
 // methods. The React hooks own a TapToneAnalyzer and mirror its fields into
 // render state, delegating every transition to it.
 //
-// @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/measurement-complete,test/frozen-peak-recalc
-// @parity audio/tap-analyzer  tests=test/tap-decisions
+// @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/measurement-complete,test/frozen-peak-recalc,test/audio-clock-timers
+// @parity audio/tap-analyzer  tests=test/tap-decisions,test/effective-peak-id,test/tap-count-change
 import type { Spectrum } from '../dsp/guitarFFT'
 import { SampleBuffer } from '../audio/sampleBuffer'
 import type { Calibration } from '../dsp/calibration'
@@ -1091,6 +1091,7 @@ export class TapToneAnalyzer {
     })
   }
 
+  // @parity model/measurement-management tests=test/measurement-load,test/import-persistence,test/comparison
   /** Save the current measurement to the measurement store. Mirrors Swift `saveMeasurement`. */
   async saveMeasurement(name: string, notes: string, view: ChartView): Promise<void> {
     const m = this.buildMeasurement(name, notes, view)
@@ -1515,6 +1516,7 @@ export class TapToneAnalyzer {
   }
 
   // ── Per-peak mode overrides (id-keyed) ───────────────────────────────────────────────────────────
+  // @parity state/mode-overrides tests=test/frozen-peak-recalc,test/annotation-state
 
   /** Assign a manual mode-label override to a peak (mirrors Swift `setModeOverride`). The label is the
    *  display string (a predefined mode name or a freeform label). Overriding an already-SELECTED peak into
@@ -1546,6 +1548,7 @@ export class TapToneAnalyzer {
   }
 
   // ── Dragged annotation offsets (one id-keyed store for guitar + material, mirrors Swift/Python) ──────
+  // @parity state/annotation-management tests=test/annotation-state,test/frozen-peak-recalc
 
   /** Set a peak's dragged annotation-label position (absolute [Hz, dB]). Fresh Map for memo identity.
    *  Mirrors Swift `updateAnnotationOffset` / Python `update_annotation_offset`. */
@@ -1745,6 +1748,7 @@ export class TapToneAnalyzer {
     return this.overrides.has(id)
   }
 
+  // @parity state/mode-lookup tests=test/measurement-codable,test/frozen-peak-recalc
   /** The DEFINITIVE peak for a mode — the *selected* peak whose *effective* (override-aware) mode is that
    *  mode, strongest wins. Deselecting or relabelling a peak removes it here exactly as on screen. Mirrors
    *  Swift analyzer `getPeak(for:)`. (Definitive-mode uniqueness means normally ≤1 candidate; `max`
@@ -2394,7 +2398,7 @@ export class TapToneAnalyzer {
   }
 
   // ── Tap detection + gated capture ───────────────────────────────────────────────────────────
-  // @parity state/tap-detection  tests=test/tap-decisions,test/status-message
+  // @parity state/tap-detection  tests=test/tap-decisions,test/status-message,test/audio-clock-timers
   // Swift keeps all of this on the analyzer: TapToneAnalyzer+TapDetection (the detector) and
   // +SpectrumCapture (the pre-roll ring, the capture window, the completion paths). The engine is
   // the microphone, the FFT primitive and the watchdogs — nothing more. The web draws the same line:
@@ -2510,6 +2514,7 @@ export class TapToneAnalyzer {
   private mpmSampleRate = 48000
 
   // ── Continuous session recording (Swift TapToneAnalyzer+SpectrumCapture) ────────────────────
+  // @parity dsp/session-recording tests=test/session-pre-roll
   // Swift keeps the whole session WAV on the analyzer: the buffer, the bounded pre-roll, the phase
   // checkpoints and the write. Web had it on the engine, which is why the first tap had to be
   // signalled across the seam; both live here now, so the latch freezes where the capture starts.
@@ -3142,7 +3147,7 @@ export class TapToneAnalyzer {
   }
 
   // ── The gated capture's alignment and peak selection ──────────────────────────────────────────
-  // @parity dsp/gated-capture tests=test/file-playback,test/tap-decisions,test/guitar-capture-window
+  // @parity dsp/gated-capture tests=test/file-playback,test/tap-decisions,test/guitar-capture-window,test/self-regression
   // @parity dsp/gated-fft tests=test/gated-fft
   // Swift keeps these on the analyzer (TapToneAnalyzer statics and +SpectrumCapture), as does Python,
   // and so does the web. The gated TRANSFORM is the engine's `computeGatedFFT`, as Swift's is its FFT
@@ -3709,6 +3714,7 @@ export class TapToneAnalyzer {
   //   loadComparisonRecord Swift :545         · Python :464   — loading a SAVED comparison
   //   enterLive           Swift Control:134   · Python control:621 — New Tap
 
+  // @parity model/measurement-management tests=test/measurement-load,test/import-persistence,test/comparison
   /** Overlay saved measurements. An EMPTY list leaves the mode 'live', matching
    *  `comparisonSpectra.isEmpty ? .live : .comparison` — the mode follows the data. */
   /** Compare saved measurements: one entry per measurement with a spectrum — its label (made unique
