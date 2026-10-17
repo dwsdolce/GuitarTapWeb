@@ -15,7 +15,7 @@
  * Mirrors: GuitarTapTests/InputLevelTests.swift · tests/test_input_level.py
  */
 import { describe, it, expect } from 'vitest'
-import { RealtimeFFTAnalyzer, type RealtimeFFTAnalyzerCallbacks } from '../src/audio/realtimeFFTAnalyzer'
+import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 
 /** One 0.1 s buffer at 48 kHz of a quiet 1 kHz sine: well below any detection threshold, and far
@@ -31,14 +31,15 @@ describe('input level — a buffer is announced on the input level alone', () =>
     const analyzer = new TapToneAnalyzer()
     analyzer.measurementType = 'generic'
     const engineCalls: string[] = []
-    const callbacks = new Proxy({} as RealtimeFFTAnalyzerCallbacks, {
-      get: (_t, name: string) =>
-        name === 'onAudioFrame'
-          ? (s: Float32Array, db: number, t: number) => analyzer.processAudioFrame(s, db, t)
-          : () => engineCalls.push(name),
-    })
-    const engine = new RealtimeFFTAnalyzer(callbacks)
-    analyzer.setDevice(engine)
+    const engine = new RealtimeFFTAnalyzer()
+    analyzer.setDevice(engine) // the analyzer takes each chunk
+    // Every other event the engine announces, recorded by name.
+    engine.onSpectrum(() => engineCalls.push('spectrum'))
+    engine.onMetrics(() => engineCalls.push('metrics'))
+    engine.onDeviceStateChanged(() => engineCalls.push('deviceState'))
+    engine.onInputChanged(() => engineCalls.push('inputChanged'))
+    engine.onInputOpenFailed(() => engineCalls.push('inputOpenFailed'))
+    engine.onInputAppearsDead(() => engineCalls.push('inputAppearsDead'))
     analyzer.startTapSequence({ skipWarmup: true })
     await new Promise((r) => setTimeout(r, 0))
     engineCalls.length = 0

@@ -48,10 +48,7 @@ async function capture(samples: Float32Array, dropped: number): Promise<{ window
     analyzer.measurementType = 'generic'
     analyzer.setNumberOfTaps(1)
     analyzer.tapDetectionThreshold = -40
-    const engine = new RealtimeFFTAnalyzer(
-      { onAudioFrame: (chunk, levelDb, audioTime) => analyzer.processAudioFrame(chunk, levelDb, audioTime) },
-      { tapDetectionThreshold: -40, numberOfTaps: 1 },
-    )
+    const engine = new RealtimeFFTAnalyzer()
     engine.initForTesting()
     analyzer.setDevice(engine)
     await analyzer.playFile(samples.subarray(dropped), SAMPLE_RATE, null)

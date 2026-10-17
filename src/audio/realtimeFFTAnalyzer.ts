@@ -37,29 +37,18 @@ export interface MaterialSearch {
 /** Lifecycle state of the {@link RealtimeFFTAnalyzer}. */
 export type EngineState = 'idle' | 'listening' | 'capturing' | 'paused'
 
-/** Optional callbacks the caller supplies to observe the engine (spectrum, level, captures, state…). */
-export interface RealtimeFFTAnalyzerCallbacks {
-  onSpectrum?: (spectrum: Spectrum) => void
-  /** Every pipeline chunk, with its level and audio-clock value. The TapToneAnalyzer owns the
-   *  pre-roll, the detector and the capture window (Swift's split), so this is the whole seam
-   *  between the device and the model. */
-  onAudioFrame?: (samples: Float32Array, levelDb: number, audioTime: number) => void
-  /** Continuous session recording for the "Dump Capture Audio" diagnostic — fired ONCE at the end of a
-   *  measurement with every chunk that flowed through the pipeline while recording (minus paused
-   *  segments and redone phases), so replaying it reproduces the session. `label` identifies the
-   *  measurement ("Guitar_8tap" / "Plate_LC" / "Plate_LCF" / "Brace"). Mirrors Swift finishSessionRecording. */
-  /** Live-FFT performance, emitted once per continuous spectrum (FFTAnalysisMetricsView). */
-  onMetrics?: (m: EngineMetrics) => void
-  /** The input device list, the selected input or its calibration changed; the view re-reads them.
-   *  Swift: the views observing @Published availableInputDevices / selectedInputDevice /
-   *  activeCalibration. */
-  onDeviceStateChanged?: () => void
-  /** The hardware changed the input (a mic was attached → selected, or the active mic was unplugged →
-   *  fell back): the caller shows the route-change settle. Swift's route-change restart. */
-  onInputChanged?: (deviceId: string | null) => void
-  /** A device plugged in while running could not be opened; the previous input is kept. The caller
-   *  shows `message` in an alert. Swift `inputDeviceOpenFailure`. */
-  onInputOpenFailed?: (message: string) => void
+/** Listeners for one of the engine's events; `on` adds one and returns its removal. The analyzer
+ *  subscribes to what it acts on and the view to what it shows — Swift's Combine sinks on the engine's
+ *  publishers. */
+class EngineEvent<A extends unknown[]> {
+  private readonly listeners = new Set<(...args: A) => void>()
+  on(listener: (...args: A) => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+  emit(...args: A): void {
+    for (const listener of this.listeners) listener(...args)
+  }
 }
 
 /** The message shown when an input device cannot be opened. Swift
@@ -88,18 +77,6 @@ export interface EngineMetrics {
 }
 
 /** Tunable engine settings the caller can change while running (threshold, tap count, diagnostics). */
-export interface RealtimeFFTAnalyzerConfig {
-  /** Level-crossing threshold for tap onset (dBFS). */
-  tapDetectionThreshold: number
-  /** Number of taps to average (1–10). */
-  numberOfTaps: number
-}
-
-const DEFAULT_CONFIG: RealtimeFFTAnalyzerConfig = {
-  tapDetectionThreshold: -40,
-  numberOfTaps: 1,
-}
-
 const CLIP_HOLD_SECONDS = 1.5
 // Decay-seed peak hold (Swift `peakHoldDuration`): how long level.recentPeakLevelDB latches its max before
 // releasing to the current level. Canonical value is Swift's CODE (2.0 s); the Swift "0.5 s" comment
@@ -129,8 +106,53 @@ export class RealtimeFFTAnalyzer {
   private node: AudioWorkletNode | null = null
   private source: MediaStreamAudioSourceNode | null = null
   private stream: MediaStream | null = null
-  private readonly callbacks: RealtimeFFTAnalyzerCallbacks
-  private config: RealtimeFFTAnalyzerConfig
+  private readonly audioFrameEvent = new EngineEvent<[Float32Array, number, number]>()
+  private readonly spectrumEvent = new EngineEvent<[Spectrum]>()
+  private readonly metricsEvent = new EngineEvent<[EngineMetrics]>()
+  private readonly deviceStateEvent = new EngineEvent<[]>()
+  private readonly inputChangedEvent = new EngineEvent<[string | null]>()
+  private readonly inputOpenFailedEvent = new EngineEvent<[string]>()
+  private readonly inputAppearsDeadEvent = new EngineEvent<[boolean]>()
+
+  /** Every pipeline chunk, with its level and audio-clock value. The TapToneAnalyzer owns the pre-roll,
+   *  the detector and the capture window (Swift's split), so this is the whole seam between the device
+   *  and the model. */
+  onAudioFrame(listener: (samples: Float32Array, levelDb: number, audioTime: number) => void): () => void {
+    return this.audioFrameEvent.on(listener)
+  }
+  /** Each continuous spectrum. */
+  onSpectrum(listener: (spectrum: Spectrum) => void): () => void {
+    return this.spectrumEvent.on(listener)
+  }
+  /** Live-FFT performance, once per continuous spectrum (FFTAnalysisMetricsView). */
+  onMetrics(listener: (metrics: EngineMetrics) => void): () => void {
+    return this.metricsEvent.on(listener)
+  }
+  /** The input device list, the selected input or its calibration changed. Swift: the views observing
+   *  @Published availableInputDevices / selectedInputDevice / activeCalibration. */
+  onDeviceStateChanged(listener: () => void): () => void {
+    return this.deviceStateEvent.on(listener)
+  }
+  /** The hardware changed the input (a mic was attached → selected, or the active mic was unplugged →
+   *  fell back). Swift's route-change restart. */
+  onInputChanged(listener: (deviceId: string | null) => void): () => void {
+    return this.inputChangedEvent.on(listener)
+  }
+  /** A device plugged in while running could not be opened; the previous input is kept. Swift
+   *  `inputDeviceOpenFailure`. */
+  onInputOpenFailed(listener: (message: string) => void): () => void {
+    return this.inputOpenFailedEvent.on(listener)
+  }
+  /** The input delivers chunks carrying no signal (true), or delivers signal again (false). */
+  onInputAppearsDead(listener: (dead: boolean) => void): () => void {
+    return this.inputAppearsDeadEvent.on(listener)
+  }
+
+  /** Whether the engine should be running: set by `start`, cleared by `stop`. A start checks it after
+   *  each step, so a stop during a start — React's remount — ends it there. */
+  private wantRunning = false
+  /** The start in flight, which a second `start` joins rather than opening a second input. */
+  private starting: Promise<void> | null = null
 
   sampleRate = 48000
   /** True while a file is playing through the pipeline (mic chunks are ignored meanwhile). */
@@ -351,11 +373,6 @@ export class RealtimeFFTAnalyzer {
   processingMs = 0
   avgProcessingMs = 0
 
-  constructor(callbacks: RealtimeFFTAnalyzerCallbacks = {}, config?: Partial<RealtimeFFTAnalyzerConfig>) {
-    this.callbacks = callbacks
-    this.config = { ...DEFAULT_CONFIG, ...config }
-  }
-
   get running(): boolean {
     return this.context !== null || this.headless
   }
@@ -364,12 +381,6 @@ export class RealtimeFFTAnalyzer {
    *  with no AudioContext/mic. Mirrors Swift TapToneAnalyzer.forTesting() + playFileAndWait. */
   initForTesting(): void {
     this.headless = true
-  }
-
-  setConfig(config: Partial<RealtimeFFTAnalyzerConfig>): void {
-    this.config = { ...this.config, ...config }
-    // The tap count's "Tap the guitar N times…" prompt is refreshed by the analyzer
-    // (TapToneAnalyzer.setNumberOfTaps, mirroring Swift numberOfTaps.didSet), not here.
   }
 
   /** Set (or clear) the active mic calibration. Adds interpolated per-bin dB corrections to every
@@ -562,7 +573,7 @@ export class RealtimeFFTAnalyzer {
     this.source.connect(this.node)
     this.audioSettings = track.getSettings() ?? null
     this.deviceLabel = track.label ?? ''
-    this.callbacks.onDeviceStateChanged?.()
+    this.deviceStateEvent.emit()
     return track.getSettings().deviceId ?? requestedDeviceId ?? null
   }
 
@@ -594,14 +605,14 @@ export class RealtimeFFTAnalyzer {
     setActiveCalibrationId(cal?.id ?? null)
     if (this.inputDeviceId) setCalibrationForDevice(this.inputDeviceId, cal?.id ?? null)
     this.setCalibration(cal)
-    this.callbacks.onDeviceStateChanged?.()
+    this.deviceStateEvent.emit()
   }
 
   /** Apply the selected input's calibration from the store (after a selection, or after a stored
    *  calibration is deleted). */
   reloadDeviceCalibration(): void {
     this.setCalibration(resolveActiveCalibration(this.inputDeviceId))
-    this.callbacks.onDeviceStateChanged?.()
+    this.deviceStateEvent.emit()
   }
 
   /** Refresh `availableInputDevices` from the browser. */
@@ -609,7 +620,7 @@ export class RealtimeFFTAnalyzer {
     this.availableInputDevices = await this.listInputs()
     for (const d of this.availableInputDevices) console.info(`[engine] 🎤 Found input device: '${d.label}' (id ${d.deviceId})`)
     console.info(`[engine] 🎤 Found ${this.availableInputDevices.length} audio input device(s) total`)
-    this.callbacks.onDeviceStateChanged?.()
+    this.deviceStateEvent.emit()
   }
 
   /** Switch the live input to `deviceId` — a Settings choice, a device plugged in, or a loaded
@@ -652,10 +663,10 @@ export class RealtimeFFTAnalyzer {
       } catch {
         // Not selected, not saved: setInputDevice kept the previous input (its stream untouched).
         const label = this.availableInputDevices.find((d) => d.deviceId === attached)?.label ?? attached
-        this.callbacks.onInputOpenFailed?.(failedOpenMessage(label))
+        this.inputOpenFailedEvent.emit(failedOpenMessage(label))
         return
       }
-      this.callbacks.onInputChanged?.(this.inputDeviceId)
+      this.inputChangedEvent.emit(this.inputDeviceId)
       return
     }
     if (!this.inputDeviceId || ids.includes(this.inputDeviceId)) return // the selected input is unaffected
@@ -665,11 +676,30 @@ export class RealtimeFFTAnalyzer {
     } catch {
       return /* mic fully unavailable */
     }
-    this.callbacks.onInputChanged?.(this.inputDeviceId)
+    this.inputChangedEvent.emit(this.inputDeviceId)
   }
 
+  /** Open the input and start the pipeline. A start while one is in flight joins it, and `stop` during
+   *  a start ends it at its next step — so React's remount (start, stop, start) leaves one input
+   *  running. The caller (the analyzer's `start`) makes the guarded auto-start once this resolves. */
   async start(): Promise<void> {
+    this.wantRunning = true
+    if (this.starting) return this.starting
     if (this.context) return
+    this.starting = this.startInput().finally(() => {
+      this.starting = null
+    })
+    return this.starting
+  }
+
+  /** Whether a start has been withdrawn by `stop`; if so, shut down what has been opened so far. */
+  private async withdrawn(): Promise<boolean> {
+    if (this.wantRunning) return false
+    await this.teardown()
+    return true
+  }
+
+  private async startInput(): Promise<void> {
     // Don't force a rate: browsers expose no device "nominal" rate (no constraint →
     // system default; getCapabilities → device MAX), so we let the OS decide. The rate
     // is set in macOS Audio MIDI Setup (the AudioContext follows the default OUTPUT
@@ -680,6 +710,7 @@ export class RealtimeFFTAnalyzer {
     const savedId = getSavedInputDeviceId()
     console.info(`[engine] 🎤 Starting — saved input id ${savedId ?? 'none'}`)
     this.stream = await this.acquireInputToUse()
+    if (await this.withdrawn()) return
     const track = this.stream.getAudioTracks()[0]!
     this.watchTrack(track)
     // Re-assert processing-off; some UAs only honor applyConstraints.
@@ -697,6 +728,7 @@ export class RealtimeFFTAnalyzer {
     // the first frame.
     await ctx.audioWorklet.addModule(`${import.meta.env.BASE_URL}spectrum-processor.js`)
     await ctx.resume()
+    if (await this.withdrawn()) return
     // Browsers may bring the context up suspended without a user gesture (e.g. on
     // reload with permission already granted). Resume transparently on first input.
     if (ctx.state === 'suspended') this.installGestureResume(ctx)
@@ -722,14 +754,11 @@ export class RealtimeFFTAnalyzer {
     this.source.connect(this.node)
     this.node.connect(ctx.destination) // processor emits no output → silent
 
-    // Arming is driven by the caller after start resolves (App's armForCurrentType, via
-    // useAudioEngine's onStarted) so guitar and material go through one branch — mirrors
-    // Swift/Python start() → startTapSequence(). start() no longer self-arms guitar.
-
     // The input is selected (its calibration loads); list the inputs as the baseline for hot-plug
     // changes, and watch for them (attach → select and save, unplug → fall back).
     this.selectInput(track.getSettings().deviceId ?? null)
     await this.refreshAvailableInputDevices()
+    if (await this.withdrawn()) return
     navigator.mediaDevices.addEventListener('devicechange', this.handleDeviceChange)
 
     this.startBufferWatchdog()
@@ -752,11 +781,8 @@ export class RealtimeFFTAnalyzer {
   private setInputAppearsDead(dead: boolean): void {
     if (this.inputAppearsDead === dead) return
     this.inputAppearsDead = dead
-    this.onInputAppearsDeadChange?.(dead)
+    this.inputAppearsDeadEvent.emit(dead)
   }
-
-  /** Set by the owner to surface "no audio input" in the status line. */
-  onInputAppearsDeadChange: ((dead: boolean) => void) | null = null
 
   private stopBufferWatchdog(): void {
     if (this.watchdogTimer != null) {
@@ -930,7 +956,7 @@ export class RealtimeFFTAnalyzer {
     this.feedContinuous(s)
     // Detection and gated capture belong to the TapToneAnalyzer, as they do in Swift — this layer is
     // the microphone, the FFT and the watchdogs. Hand the chunk up.
-    this.callbacks.onAudioFrame?.(s, db, this.audioElapsed)
+    this.audioFrameEvent.emit(s, db, this.audioElapsed)
   }
 
   // @parity util/timing-activity
@@ -1071,8 +1097,8 @@ export class RealtimeFFTAnalyzer {
         const t0 = performance.now()
         const spectrum = this.performFFT(this.accum)
         this.recordProcessing(performance.now() - t0)
-        this.callbacks.onSpectrum?.(spectrum)
-        this.callbacks.onMetrics?.({
+        this.spectrumEvent.emit(spectrum)
+        this.metricsEvent.emit({
           processingMs: this.processingMs,
           avgProcessingMs: this.avgProcessingMs,
           frameRate: this.sampleRate / GUITAR_FFT_SIZE,
@@ -1091,7 +1117,14 @@ export class RealtimeFFTAnalyzer {
 
 
 
+  /** Stop the input. During a start, the start ends itself at its next step. */
   async stop(): Promise<void> {
+    this.wantRunning = false
+    if (this.starting) return
+    await this.teardown()
+  }
+
+  private async teardown(): Promise<void> {
     this.stopBufferWatchdog()
     navigator.mediaDevices.removeEventListener('devicechange', this.handleDeviceChange)
     this.availableInputDevices = []

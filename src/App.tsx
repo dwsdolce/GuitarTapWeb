@@ -1,6 +1,5 @@
 // @parity view/main
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { RealtimeFFTAnalyzer } from './audio/realtimeFFTAnalyzer'
 import { SpectrumChart } from './components/SpectrumChart'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
@@ -85,7 +84,7 @@ const HINTS = {
 
 /**
  * Top-level app: the live-analysis orchestrator. Mirrors Swift `TapToneAnalysisView` /
- * Python `TapToneAnalysisView` (MainWindow) — owns the {@link RealtimeFFTAnalyzer}, wires the
+ * Python `TapToneAnalysisView` (MainWindow) — shows the analyzer and its engine, wires the
  * spectrum chart, controls, threshold meter, results / peak cards, and the Settings /
  * Metrics / Help / Save / Measurements modals, delegating chart, annotation, material,
  * and engine concerns to the `useChartView` / `useAnnotations` / `useMaterialSession` /
@@ -189,13 +188,9 @@ export default function App() {
   // and measurement type are mirrored into refs for the onMaterialCapture handler.
   const measRef = useRef(settings.measurementType)
   measRef.current = settings.measurementType
-  const tapThresholdRef = useRef(settings.tapDetectionThreshold)
-  tapThresholdRef.current = settings.tapDetectionThreshold
 
-  // The audio engine handle (constructed in `start`) — declared early so the material session
-  // can arm it. The analyzer owns the plate/brace phase machine: App reads the phase +
+  // The analyzer owns the audio engine and the plate/brace phase machine: App reads the phase +
   // per-phase spectra/peaks from the snapshot and drives the transitions via thin stable wrappers.
-  const engineRef = useRef<RealtimeFFTAnalyzer | null>(null)
   const matPhase = snapshot.materialTapPhase
   // The identified peaks (the analyzer's selected…Peak, Swift's names) as the per-role bundle the material
   // views take.
@@ -247,16 +242,6 @@ export default function App() {
   useEffect(() => {
     void navigator.storage?.persist?.()
   }, [])
-  // The web's startTapSequence()-equivalent: arm a fresh sequence for the CURRENT measurement
-  // type. Guitar arms the always-on detector; plate/brace start the phase machine straight into
-  // capturingLongitudinal + armed. There is no not-yet-started gate. One branch, and the single
-  // arming path for both engine-start (via useAudioEngine's onStarted) and a measurement-type
-  // switch — mirrors Swift/Python start() → startTapSequence() and onApply(measurementChanged)
-  // → startTapSequence(). Reads measRef so it always sees the live type (fires outside render).
-  const armForCurrentType = useCallback(() => {
-    if (!engineRef.current?.running) return
-    analyzer.requestStartTapSequence() // one path, guitar or material; stops a playing file first
-  }, [analyzer])
   // Settings' Done. A change of measurement type is the model's to act on: between guitar types it
   // re-derives the classification, otherwise it drops the result and starts a new sequence — and a new
   // measurement context drops the loaded measurement's chart range. Mirrors Swift Settings' onApply. A load
@@ -302,12 +287,12 @@ export default function App() {
     onSelectCalibration,
     onDeleteCalibration,
     retry,
-  } = useAudioEngine({ engineRef, tapThresholdRef, onStarted: armForCurrentType, analyzer })
+  } = useAudioEngine({ analyzer })
 
   // Play a recorded WAV through the live pipeline (Swift openAudioFile). The calibration is the one the
   // user gives for the file, or none — never the live input's.
   const onPlayFile = useCallback(async (audio: File, calFile: File | null) => {
-    if (!engineRef.current) return
+    if (!analyzer.device?.running) return
     try {
       // downmix:true → average channels to mono (matches Swift readAudioFileAsMonoFloat32 and the
       // mono live-mic path); a no-op for already-mono files.
@@ -351,7 +336,6 @@ export default function App() {
   const changeTaps = useCallback((n: number) => {
     const v = Math.max(1, Math.min(10, n))
     analyzer.setNumberOfTaps(v)
-    engineRef.current?.setConfig({ numberOfTaps: v })
   }, [analyzer])
 
   // Cancel is a restart (Swift cancelTapSequence): re-arm a fresh sequence exactly like New Tap, and
@@ -962,7 +946,6 @@ export default function App() {
                 value={tapThreshold}
                 onChange={(v) => {
                   updateSettings({ tapDetectionThreshold: v })
-                  engineRef.current?.setConfig({ tapDetectionThreshold: v })
                 }}
               />
             </div>

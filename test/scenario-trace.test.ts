@@ -4,7 +4,7 @@
 // and the taps held — not only where they end: the app's behaviour on screen follows each intermediate
 // state, so two editions reaching the same result by different paths would differ. Every tap is a real
 // capture finish and every wait is audio fed through the analyzer's clock. The shared cases in
-// scenario-trace.json (S1–S5), the same as Swift and Python.
+// scenario-trace.json (S1–S9), the same as Swift and Python.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import type { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'

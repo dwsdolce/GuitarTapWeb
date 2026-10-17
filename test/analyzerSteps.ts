@@ -5,7 +5,8 @@
 // synthetic tap, Accept, Redo, and audio fed through the analyzer's clock. A case file names its steps;
 // this runs one. Mirrors Swift GuitarTapTests/AnalyzerSteps.swift and Python tests/analyzer_steps.py.
 import { TapToneAnalyzer, type MaterialTapPhase } from '../src/state/tapToneAnalyzer'
-import { MEASUREMENT_TYPE_FROM_RAW } from '../src/measurement'
+import { readFileSync } from 'node:fs'
+import { MEASUREMENT_TYPE_FROM_RAW, parseGuitarTapFile } from '../src/measurement'
 import { SettingsStore } from '../src/settingsStore'
 import { DEFAULT_SETTINGS } from '../src/settings'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
@@ -20,6 +21,10 @@ export type AnalyzerStep = {
   newTap?: boolean
   /** The start a guitar file's playback makes. */
   newTapSkippingWarmUp?: boolean
+  /** What the engine coming up does (its guarded auto-start). */
+  engineStarted?: boolean
+  /** A fixture every edition carries, loaded as the app loads a file. */
+  loadFixture?: string
   pause?: boolean
   resume?: boolean
   cancel?: boolean
@@ -67,6 +72,8 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer, store: S
   else if (step.setPeakMin !== undefined) store.update({ peakMinThreshold: step.setPeakMin })
   else if (step.newTap) a.startTapSequence()
   else if (step.newTapSkippingWarmUp) a.startTapSequence({ skipWarmup: true })
+  else if (step.engineStarted) a.autoStartTapSequence()
+  else if (step.loadFixture) a.loadMeasurement(parseGuitarTapFile(readFileSync(`test/fixtures/${step.loadFixture}`, 'utf8'))[0]!)
   else if (step.pause) a.pauseTapDetection()
   else if (step.resume) a.resumeTapDetection()
   else if (step.cancel) a.cancelTapSequence()

@@ -67,13 +67,7 @@ async function playGuitarSession(
   // The analyzer owns the session WAV now and writes it itself, as Swift's analyzer does — so the
   // switch is a SETTING on the analyzer, not engine config, and the write is captured by the mock.
   analyzer.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio })
-  const engine = new RealtimeFFTAnalyzer(
-    { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
-    {
-      tapDetectionThreshold: reg.settings.tapDetectionThreshold,
-      numberOfTaps: reg.settings.numberOfTaps ?? 1,
-    },
-  )
+  const engine = new RealtimeFFTAnalyzer()
   engine.initForTesting()
   analyzer.setDevice(engine)
   // The analyzer owns detection and therefore the session's start and finish.
@@ -242,7 +236,7 @@ describe('file playback rules', () => {
     analyzer.peakMinThreshold = reg.settings.peakMinThreshold!
     analyzer.setNumberOfTaps(8)
     analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
-    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: (s, db, t) => analyzer.processAudioFrame(s, db, t) })
+    const engine = new RealtimeFFTAnalyzer()
     engine.initForTesting()
     analyzer.setDevice(engine)
     engine.setCalibration(input)
@@ -295,7 +289,7 @@ describe('file playback rules', () => {
     const wav = loadWav(reg.fixture)
     const analyzer = new TapToneAnalyzer()
     analyzer.measurementType = 'generic'
-    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: (s, db, t) => analyzer.processAudioFrame(s, db, t) })
+    const engine = new RealtimeFFTAnalyzer()
     engine.initForTesting()
     analyzer.setDevice(engine)
     const playing = analyzer.playFile(wav.samples, wav.sampleRate, null, 'Recording 5')
@@ -333,7 +327,7 @@ describe('file playback rules', () => {
 
     // Loaded by an analyzer whose input has no calibration: the loaded result reports the file's.
     const sut = new TapToneAnalyzer()
-    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: (s, db, t) => sut.processAudioFrame(s, db, t) })
+    const engine = new RealtimeFFTAnalyzer()
     engine.initForTesting()
     sut.setDevice(engine)
     sut.loadMeasurement(saved)
@@ -353,7 +347,7 @@ describe('file playback rules', () => {
     const input = loadCal(oracle.filePlayback['REG-B1'].calibration)
     const analyzer = new TapToneAnalyzer()
     analyzer.measurementType = 'generic'
-    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: (s, db, t) => analyzer.processAudioFrame(s, db, t) })
+    const engine = new RealtimeFFTAnalyzer()
     engine.initForTesting()
     analyzer.setDevice(engine)
     engine.setCalibration(input)
@@ -373,7 +367,7 @@ describe('file playback rules', () => {
     const wav = loadWav(reg.fixture)
     const analyzer = new TapToneAnalyzer()
     analyzer.measurementType = 'generic'
-    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: (s, db, t) => analyzer.processAudioFrame(s, db, t) })
+    const engine = new RealtimeFFTAnalyzer()
     engine.initForTesting()
     analyzer.setDevice(engine)
     engine.setCalibration(input)

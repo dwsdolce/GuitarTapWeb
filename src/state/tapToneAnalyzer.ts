@@ -8,7 +8,7 @@
 // methods. The React hooks own a TapToneAnalyzer and mirror its fields into
 // render state, delegating every transition to it.
 //
-// @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/measurement-complete
+// @parity state/tap-tone-analyzer  tests=test/state-invariants,test/scenario-trace,test/measurement-complete,test/frozen-peak-recalc
 // @parity audio/tap-analyzer  tests=test/tap-decisions
 import type { Spectrum } from '../dsp/guitarFFT'
 import { SampleBuffer } from '../audio/sampleBuffer'
@@ -881,6 +881,12 @@ export class TapToneAnalyzer {
     this.clearResult()
     this.currentTapCount = 0
     this.tapProgress = 0
+    // Clear the previous peaks so the chart shows a clean slate while waiting — not the last
+    // measurement's dots until the first live frame replaces them. Mirrors Swift startTapSequence
+    // (allPeaks = [], identifiedModes = []) / Python start_tap_sequence.
+    this.peaks = []
+    this.modeByPeak = new Map()
+    this.refreshDisplayedPeaks()
     // The user is explicitly starting a new sequence, so the loaded measurement's Threshold/Taps are
     // now theirs. Mirrors Swift startTapSequence (Control.swift:149) and Python start_tap_sequence;
     // covers the measurement-type change, file playback and New Tap/Cancel paths.
@@ -897,7 +903,7 @@ export class TapToneAnalyzer {
     this.materialPeaksFromLoad = false
     // A new sequence listens to the input until playFile says otherwise, and no longer names a file.
     this.resultProvenance = null
-    if (this.device) this.device.playingFileName = null
+    if (this.attachedDevice) this.attachedDevice.playingFileName = null
     // No pause-clear here: the arming below moves straight to 'listening', which leaves 'paused'
     // on its own. Mirrors Swift/Python startTapSequence.
 
@@ -1000,7 +1006,7 @@ export class TapToneAnalyzer {
    *  sequence is active, and throughout a file playback. During a playback it stops the file first,
    *  so the fresh sequence listens to the microphone and the partial result is discarded. */
   cancelTapSequence(): void {
-    this.device?.stopFilePlayback()
+    this.attachedDevice?.stopFilePlayback()
     this.startTapSequence()
   }
 
@@ -1205,7 +1211,7 @@ export class TapToneAnalyzer {
     // (a measurement made in this browser); then the name, so a measurement from another edition —
     // a CoreAudio UID, or Python's "Name:SampleRate" fingerprint — still resolves. Swift
     // `loadMeasurement(_:)`.
-    const device = this.device
+    const device = this.attachedDevice
     if (m.microphoneUID) {
       const name = m.microphoneName ?? m.microphoneUID
       const available = device?.availableInputDevices ?? []
@@ -1449,7 +1455,7 @@ export class TapToneAnalyzer {
    *  web shows no live material peaks (Swift finds them against an adaptive median threshold). */
   analyzeMagnitudes(magnitudes: number[], frequencies: number[]): void {
     // Nothing to analyze unless the engine is running. Mirrors Swift's guard fftAnalyzer.isRunning.
-    if (!this.device?.running) return
+    if (!this.attachedDevice?.running) return
     if (!(this.isDetecting || this.isDetectionPaused || this.gatedCaptureActive) || this.isMeasurementComplete) return
     if (!this.isGuitar) {
       // Material: no live peaks on the web (its result is matPeaks), so the set is empty.
@@ -1852,10 +1858,22 @@ export class TapToneAnalyzer {
   }
 
   // ── Material (plate/brace) phase machine (mirrors Swift TapToneAnalyzer+SpectrumCapture) ──────────
-  // The analyzer holds a REFERENCE to the device (Swift's TapToneAnalyzer owns fftAnalyzer); its
-  // lifecycle stays in useAudioEngine. Material transitions arm/checkpoint it and read its
-  // calibration + playingFile.
-  private device: RealtimeFFTAnalyzer | null = null
+  // The engine the analyzer owns for its life, as Swift's TapToneAnalyzer owns `fftAnalyzer`: given at
+  // construction (or, in tests, by `setDevice`), started and stopped through `start` / `stop`, and
+  // subscribed to — each chunk, each frame, a dead input and an input change reach the analyzer here,
+  // as Swift's sinks on the engine's publishers do.
+  private attachedDevice: RealtimeFFTAnalyzer | null = null
+
+  /** An analyzer and the engine it owns for its life — Swift `init(fftAnalyzer:)`. Tests make one
+   *  without and attach a headless engine with `setDevice`. */
+  constructor(device: RealtimeFFTAnalyzer | null = null) {
+    if (device) this.setDevice(device)
+  }
+
+  /** The analyzer's engine, for the view to show what it reports (its level, devices and spectrum). */
+  get device(): RealtimeFFTAnalyzer | null {
+    return this.attachedDevice
+  }
   // Raw gated taps accumulated for the CURRENT material phase; the analyzer averages them +
   // findDominantPeak at phase completion.
   private materialBuffer: Spectrum[] = []
@@ -1864,19 +1882,62 @@ export class TapToneAnalyzer {
    *  analyzer sets `fftAnalyzer.preMicRestartHandler`, it asks the engine to flush its gated capture
    *  when a played file ends. */
   setDevice(device: RealtimeFFTAnalyzer | null): void {
-    if (this.device === device) return
-    if (this.device) this.device.preMicRestartHandler = null
-    this.stopObservingClipping?.()
-    this.stopObservingClipping = null
-    this.device = device
+    if (this.attachedDevice === device) return
+    if (this.attachedDevice) this.attachedDevice.preMicRestartHandler = null
+    for (const unsubscribe of this.deviceSubscriptions) unsubscribe()
+    this.deviceSubscriptions = []
+    this.attachedDevice = device
     if (device) {
       device.preMicRestartHandler = () => this.flushGatedCaptureOnFileEnd()
-      // Input clipping → the status override (Swift `fftAnalyzer.level.$isClipping` sink /
-      // Python `level.clippingChanged` → `_set_clipping`).
-      this.stopObservingClipping = device.level.onClipping((c) => this.setClipping(c))
+      this.deviceSubscriptions = [
+        // The device is the microphone, the FFT and the watchdogs — it hands every chunk up and the
+        // analyzer does the rest: pre-roll, detection, gated capture, the tap count, the status
+        // strings and the L→C→FLC phase machine. That is Swift's split.
+        device.onAudioFrame((samples, levelDb, audioTime) => this.processAudioFrame(samples, levelDb, audioTime)),
+        // Each live spectrum: the live peaks while a sequence runs (Swift onFftFrame → analyzeMagnitudes).
+        device.onSpectrum((spectrum) => this.onFftFrame(spectrum.magnitudesDb, spectrum.frequencies)),
+        // Input clipping → the status override (Swift `fftAnalyzer.level.$isClipping` sink /
+        // Python `level.clippingChanged` → `_set_clipping`).
+        device.level.onClipping((c) => this.setClipping(c)),
+        // The dead-input watchdog's verdict → the "no audio input" status (Swift `$inputAppearsDead`
+        // sink / Python `inputAppearsDeadChanged` → `_set_input_appears_dead`).
+        device.onInputAppearsDead((dead) => this.setInputAppearsDead(dead)),
+        // The hardware changed the input → the route-change settle.
+        device.onInputChanged(() => this.onInputChanged()),
+      ]
     }
   }
-  private stopObservingClipping: (() => void) | null = null
+  private deviceSubscriptions: (() => void)[] = []
+
+  /** Route-change settle: "Audio device changed - reinitializing…", then the resting prompt after 3 s.
+   *  3000 ms matches Swift's fftSettleTime and Python's mirror of it. The settle is how long New Tap
+   *  stays disabled after a device change, so the number is user-visible behaviour. */
+  private onInputChanged(): void {
+    this.handleDeviceChange(true)
+    if (this.deviceChangeTimer) clearTimeout(this.deviceChangeTimer)
+    this.deviceChangeTimer = setTimeout(() => this.handleDeviceChange(false), 3000)
+  }
+  private deviceChangeTimer: ReturnType<typeof setTimeout> | null = null
+
+  /** Start the engine, anchor the warm-up and, one pass later, make the guarded auto-start. Throws
+   *  what the engine's start throws (permission denied, no input), for the view to report. Mirrors
+   *  Swift `start()` / Python `start()`. */
+  async start(): Promise<void> {
+    const device = this.attachedDevice
+    if (!device) return
+    await device.start()
+    if (!device.running) return // stopped while starting
+    this.warmupStartAudioTime = device.audioTime // begin the warm-up period for the new session
+    // Evaluate the auto-start guard after pending state changes have settled.
+    setTimeout(() => this.autoStartTapSequence(), 0)
+  }
+
+  /** Stop the engine (the view going away). */
+  async stop(): Promise<void> {
+    if (this.deviceChangeTimer) clearTimeout(this.deviceChangeTimer)
+    this.deviceChangeTimer = null
+    await this.attachedDevice?.stop()
+  }
 
   /** Play a decoded audio file through the live pipeline — the Play File action. Plays with the
    *  calibration given for the file, or with none: the microphone the file was recorded with is unknown,
@@ -1899,7 +1960,7 @@ export class TapToneAnalyzer {
     calibration: Calibration | null,
     fileName: string | null = null,
   ): Promise<void> {
-    const device = this.device
+    const device = this.attachedDevice
     if (!device) return
     const previousCalibration = device.activeCalibration
     device.setCalibration(calibration)
@@ -1925,7 +1986,7 @@ export class TapToneAnalyzer {
 
   /** A file is playing through the device. Mirrors Swift `fftAnalyzer.isPlayingFile`. */
   get isPlayingFile(): boolean {
-    return this.device?.playingFile ?? false
+    return this.attachedDevice?.playingFile ?? false
   }
 
   /** Where the current result came from when it is not the live input — a played file or a loaded
@@ -1945,35 +2006,43 @@ export class TapToneAnalyzer {
    *  when there is none. Mirrors Swift `captureMicrophoneName`. */
   get captureMicrophoneName(): string | undefined {
     if (this.resultProvenance) return this.resultProvenance.microphoneName ?? undefined
-    return this.device?.deviceLabel || undefined
+    return this.attachedDevice?.deviceLabel || undefined
   }
 
   /** The id of `captureMicrophoneName`'s device. Mirrors Swift `captureMicrophoneUID`. */
   get captureMicrophoneUID(): string | undefined {
     if (this.resultProvenance) return this.resultProvenance.microphoneUID ?? undefined
-    return this.device?.inputDeviceId ?? undefined
+    return this.attachedDevice?.inputDeviceId ?? undefined
   }
 
   /** The calibration the current result was captured with: the input's for a live result, the recorded
    *  one otherwise (none for a file played uncalibrated). Mirrors Swift `captureCalibrationName`. */
   get captureCalibrationName(): string | undefined {
     if (this.resultProvenance) return this.resultProvenance.calibrationName ?? undefined
-    return this.device?.activeCalibration?.name
+    return this.attachedDevice?.activeCalibration?.name
   }
 
   /** The sample rate the current result was captured at: the input's for a live result (null when there is
    *  no rate yet), the recorded one otherwise. Mirrors Swift `captureSampleRate`. */
   get captureSampleRate(): number | null {
     if (this.resultProvenance) return this.resultProvenance.sampleRate
-    return this.device?.sampleRate || null
+    return this.attachedDevice?.sampleRate || null
   }
 
   /** User-initiated arming (New Tap, a measurement-type change). A file that is playing is stopped
    *  first: a new sequence — for a changed measurement type, say — must not be fed the rest of the
    *  file. Mirrors Swift `requestStartTapSequence` (the web has no dump-folder guard to check). */
   requestStartTapSequence(): void {
-    this.device?.stopFilePlayback()
+    this.attachedDevice?.stopFilePlayback()
     this.startTapSequence()
+  }
+
+  /** What the engine coming up does: start a tap sequence — only when nothing is under way or on screen
+   *  (not detecting, not complete, not paused, no taps taken), so an engine start never replaces a
+   *  measurement. Mirrors Swift `autoStartTapSequence()` / Python `auto_start_tap_sequence()`. */
+  autoStartTapSequence(): void {
+    if (this.isDetecting || this.isMeasurementComplete || this.isDetectionPaused || this.currentTapCount > 0) return
+    this.requestStartTapSequence()
   }
 
   /** Mirror the plate FLC-measurement setting (applied from the settings store). */
@@ -2032,7 +2101,7 @@ export class TapToneAnalyzer {
     }
     this.clearResult()
     this.resetMaterial()
-    if (this.device?.running) this.requestStartTapSequence()
+    if (this.attachedDevice?.running) this.requestStartTapSequence()
   }
 
   /** Build the gated search for a material phase: its frequency range and peak-selection rule. The
@@ -2073,7 +2142,7 @@ export class TapToneAnalyzer {
       this.materialTapPhase = 'capturingC'
       this.materialBuffer = []
       this.checkpointSession() // C phase start (so a redo can drop it)
-      this.armMaterialPhase(this.matSearch('cross'), this.inputLevelDb, this.device?.audioTime ?? 0)
+      this.armMaterialPhase(this.matSearch('cross'), this.inputLevelDb, this.attachedDevice?.audioTime ?? 0)
       this.setStatusMessage(this.materialArmPrompt()) // phase is capturingC — one source
       this.notify()
     } else if (phase === 'reviewingC') {
@@ -2122,19 +2191,19 @@ export class TapToneAnalyzer {
       this.matSpectra = { ...this.matSpectra, longitudinal: null }
       this.selectedLongitudinalPeak = null
       this.materialTapPhase = 'capturingL'
-      this.armMaterialPhase(this.matSearch('longitudinal'), this.inputLevelDb, this.device?.audioTime ?? 0)
+      this.armMaterialPhase(this.matSearch('longitudinal'), this.inputLevelDb, this.attachedDevice?.audioTime ?? 0)
       this.setStatusMessage('Ready for fL tap — tap again')
     } else if (phase === 'reviewingC') {
       this.matSpectra = { ...this.matSpectra, cross: null }
       this.selectedCrossPeak = null
       this.materialTapPhase = 'capturingC'
-      this.armMaterialPhase(this.matSearch('cross'), this.inputLevelDb, this.device?.audioTime ?? 0)
+      this.armMaterialPhase(this.matSearch('cross'), this.inputLevelDb, this.attachedDevice?.audioTime ?? 0)
       this.setStatusMessage('Ready for fC tap — tap again')
     } else if (phase === 'reviewingFlc') {
       this.matSpectra = { ...this.matSpectra, flc: null }
       this.selectedFlcPeak = null
       this.materialTapPhase = 'capturingFlc'
-      this.armMaterialPhase(this.matSearch('flc'), this.inputLevelDb, this.device?.audioTime ?? 0)
+      this.armMaterialPhase(this.matSearch('flc'), this.inputLevelDb, this.attachedDevice?.audioTime ?? 0)
       this.setStatusMessage('Ready for fLC tap — tap again')
     }
     // Rebase the cumulative count to the taps completed in the PRIOR phases — redoing C keeps L's taps
@@ -2202,7 +2271,7 @@ export class TapToneAnalyzer {
    *  Accepts/Redos), or auto-advance to the next phase when playing a file (arming it — the analyzer owns
    *  the L→C→FLC auto-advance, Swift `isPlayingFile`). Sets the phase's status string. */
   private advanceAfterPhase(ph: MaterialPhaseName, avg: Spectrum, avgPeak: ResonantPeak | null): void {
-    const playing = this.device?.playingFile ?? false
+    const playing = this.attachedDevice?.playingFile ?? false
     const stored = avgPeak // a fresh peak (its own id) per phase, as Swift's findDominantPeak returns
     if (ph === 'longitudinal') {
       this.matSpectra = { ...this.matSpectra, longitudinal: avg }
@@ -2470,7 +2539,7 @@ export class TapToneAnalyzer {
   startSessionRecording(): void {
     this.sessionSamples = new SampleBuffer()
     this.sessionCheckpoints = [0] // first-phase truncation anchor (Swift/Python seed [0] at start)
-    this.sessionRate = this.device?.sampleRate ?? 48000
+    this.sessionRate = this.attachedDevice?.sampleRate ?? 48000
     this.sessionActive = this.settings.dumpCaptureAudio
     this.sessionRecording = true
     this.sessionPreRollActive = true // bound the pre-first-tap audio to ~2 s
@@ -2597,7 +2666,7 @@ export class TapToneAnalyzer {
    *  audio-queue level-crossing handler. */
   processAudioFrame(samples: Float32Array, levelDb: number, audioTime: number): void {
     this.inputLevelDb = levelDb
-    const rate = this.device?.sampleRate ?? this.mpmSampleRate
+    const rate = this.attachedDevice?.sampleRate ?? this.mpmSampleRate
     if (rate !== this.mpmSampleRate || this.preroll.length === 0) this.resizeCaptureBuffers(rate)
     this.maintainSessionRecording(samples)
     this.feedPreroll(samples)
@@ -2685,7 +2754,7 @@ export class TapToneAnalyzer {
     this.preroll = new Float32Array(this.prerollSamples)
     this.prerollIdx = 0
     this.prerollFilled = 0
-    this.guitarCaptureBuf = new Float32Array(this.device?.fftSize ?? GUITAR_FFT_SIZE)
+    this.guitarCaptureBuf = new Float32Array(this.attachedDevice?.fftSize ?? GUITAR_FFT_SIZE)
     this.materialCapture = new Float32Array(Math.round(rate * TapToneAnalyzer.gatedCaptureDuration))
     this.capture = this.captureKind === 'material' ? this.materialCapture : this.guitarCaptureBuf
     this.captureIdx = 0
@@ -2693,7 +2762,7 @@ export class TapToneAnalyzer {
 
   /** Arm guitar tap detection — a fresh sequence. Swift startTapSequence's guitar arm. */
   private armGuitarDetection(skipWarmup: boolean): void {
-    this.resizeCaptureBuffers(this.device?.sampleRate ?? this.mpmSampleRate)
+    this.resizeCaptureBuffers(this.attachedDevice?.sampleRate ?? this.mpmSampleRate)
     this.captureKind = 'guitar'
     this.capture = this.guitarCaptureBuf
     this.guitarTapCount = 0
@@ -2705,7 +2774,7 @@ export class TapToneAnalyzer {
   /** Point the capture at a material phase's search range — the buffers only. How detection then
    *  resumes is the caller's: the natives arm a material phase in three different shapes. */
   private prepareMaterialCapture(search: MaterialSearch): void {
-    if (this.preroll.length === 0) this.resizeCaptureBuffers(this.device?.sampleRate ?? this.mpmSampleRate)
+    if (this.preroll.length === 0) this.resizeCaptureBuffers(this.attachedDevice?.sampleRate ?? this.mpmSampleRate)
     this.captureKind = 'material'
     this.materialSearch = search
     this.capture = this.materialCapture
@@ -2772,7 +2841,7 @@ export class TapToneAnalyzer {
     // Swift `resumeTapDetection`: the warm-up restarts from now and the latch goes down; the noise floor
     // and the sync flag are left as they were. The tap counter restarts too, so a chunk counted before
     // the pause cannot help confirm a tap after it, as in Swift and Python.
-    this.warmupStartAudioTime = this.device?.audioTime ?? 0
+    this.warmupStartAudioTime = this.attachedDevice?.audioTime ?? 0
     this.isAboveThreshold = false
     this.consecutive = 0
     this.detectionState = 'listening'
@@ -2784,7 +2853,7 @@ export class TapToneAnalyzer {
   /** Apply the engine's per-bin calibration corrections — Swift reads
    *  `fftAnalyzer.calibrationCorrections` and applies them in finishGuitarGatedCapture. */
   private applyCalibration(spec: Spectrum): Spectrum {
-    const corr = this.device?.calibrationCorrections ?? null
+    const corr = this.attachedDevice?.calibrationCorrections ?? null
     if (!corr || corr.length !== spec.magnitudesDb.length) return spec
     return { ...spec, magnitudesDb: spec.magnitudesDb.map((m: number, i: number) => m + corr[i]!) }
   }
@@ -2934,7 +3003,7 @@ export class TapToneAnalyzer {
   }
 
   private armWarmup(skip: boolean): void {
-    this.warmupStartAudioTime = skip ? (this.device?.audioTime ?? 0) - (this.warmupPeriod + 0.1) : (this.device?.audioTime ?? 0)
+    this.warmupStartAudioTime = skip ? (this.attachedDevice?.audioTime ?? 0) - (this.warmupPeriod + 0.1) : (this.attachedDevice?.audioTime ?? 0)
     this.justExitedWarmup = false
     // Mirrors Swift startTapSequence's `isAboveThreshold = skipWarmup`. With the warm-up running,
     // the post-warm-up sync frame sets the latch from the first real level; when it is SKIPPED there
@@ -3109,7 +3178,7 @@ export class TapToneAnalyzer {
   guitarWindowAudioSamples(sampleRate: number): number {
     const margin =
       Math.round(sampleRate * TapToneAnalyzer.preRollDuration) - Math.round(sampleRate * TapToneAnalyzer.preOnsetDuration)
-    return (this.device?.fftSize ?? GUITAR_FFT_SIZE) - Math.max(0, margin)
+    return (this.attachedDevice?.fftSize ?? GUITAR_FFT_SIZE) - Math.max(0, margin)
   }
   /** Samples at the start of a capture used to estimate its noise. Swift `onsetNoiseEstimateSamples`. */
   static readonly onsetNoiseEstimateSamples = 2048
@@ -3462,7 +3531,7 @@ export class TapToneAnalyzer {
     // sides of the alignment step. Inert unless captureProbe.enabled. Mirrors Swift's
     // CaptureProbe.record call in the material capture.
     captureProbe.record(samples, aligned)
-    const { magnitudesDb, frequencies } = (this.device ?? new RealtimeFFTAnalyzer()).computeGatedFFT(aligned, sampleRate)
+    const { magnitudesDb, frequencies } = (this.attachedDevice ?? new RealtimeFFTAnalyzer()).computeGatedFFT(aligned, sampleRate)
     // Disarm BEFORE recording, so the analyzer's re-arm (guarded on state !== 'capturing') isn't
     // blocked; during file playback the next phase is armed synchronously from here.
     this.gatedCaptureActive = false
@@ -3482,7 +3551,7 @@ export class TapToneAnalyzer {
    *  The capture window is aligned to the sample-level tap onset so chunk-boundary differences (live
    *  vs file playback) don't shift the FFT input. */
   finishGuitarGatedCapture(samples: Float32Array, sampleRate: number): void {
-    const fftSize = this.device?.fftSize ?? GUITAR_FFT_SIZE
+    const fftSize = this.attachedDevice?.fftSize ?? GUITAR_FFT_SIZE
     const preOnsetSamples = Math.round(sampleRate * TapToneAnalyzer.preOnsetDuration)
     const aligned = this.alignCaptureToOnset(samples, fftSize, preOnsetSamples)
     // The window's audio ends at a fixed length, and zeros follow: where the capture ran out depends
@@ -3496,7 +3565,7 @@ export class TapToneAnalyzer {
     captureProbe.record(samples, aligned)
     // The live path's rectangular window and fftSize, so the spectrum is bin-compatible with the live
     // frames (Swift `fftAnalyzer.computeFFT(on: chunk)`), then the input's calibration.
-    const engine = this.device ?? new RealtimeFFTAnalyzer()
+    const engine = this.attachedDevice ?? new RealtimeFFTAnalyzer()
     const spectrum = this.applyCalibration({ magnitudesDb: engine.computeFFT(aligned), frequencies: engine.frequencies })
     this.gatedCaptureActive = false
     this.guitarTapCount += 1
@@ -3576,7 +3645,7 @@ export class TapToneAnalyzer {
         isDetectionPaused: this.isDetectionPaused,
         isPlayingFile: this.isPlayingFile,
         hasResultToSaveOrExport: this.hasResultToSaveOrExport,
-        playingFileName: this.device?.playingFileName ?? null,
+        playingFileName: this.attachedDevice?.playingFileName ?? null,
         resultProvenance: this.resultProvenance,
         isReadyForDetection: this.isReadyForDetection,
         isMeasurementComplete: this.isMeasurementComplete,

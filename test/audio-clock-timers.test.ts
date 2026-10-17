@@ -99,7 +99,8 @@ describe('file playback pacing (the web\'s own)', () => {
   // more file chunk through, so a throttled hidden tab still plays at real time.
   it('file playback is paced by the audio the device renders, not by a timer', async () => {
     const played: number[] = []
-    const engine = new RealtimeFFTAnalyzer({ onAudioFrame: () => played.push(1) })
+    const engine = new RealtimeFFTAnalyzer()
+    engine.onAudioFrame(() => played.push(1))
     const internal = engine as unknown as { context: unknown; onChunk(d: { samples: Float32Array; rms: number }): void }
     internal.context = { sampleRate: 48000 } // an AudioContext, as far as pacing is concerned
     const tick = () => internal.onChunk({ samples: new Float32Array(1024), rms: 0 })

@@ -93,13 +93,12 @@ async function makeSUT(
   saved: string | null,
   connected: string[],
   defaultId: string,
-  callbacks: ConstructorParameters<typeof RealtimeFFTAnalyzer>[0] = {},
 ): Promise<RealtimeFFTAnalyzer> {
   setSavedInputDeviceId(saved)
   media.connected = connected
   media.defaultId = defaultId
   media.failing = []
-  const engine = new RealtimeFFTAnalyzer(callbacks)
+  const engine = new RealtimeFFTAnalyzer()
   const sourceNode = { connect: () => {}, disconnect: () => {} }
   Object.assign(engine as unknown as Record<string, unknown>, {
     context: { createMediaStreamSource: () => sourceNode },
@@ -332,7 +331,8 @@ describe('a device that cannot be opened', () => {
 
   it('MS24: a device plugged in that cannot be opened keeps the previous input and is reported', async () => {
     const reported: string[] = []
-    const engine = await makeSUT(BUILT_IN, [BUILT_IN], BUILT_IN, { onInputOpenFailed: (m) => reported.push(m) })
+    const engine = await makeSUT(BUILT_IN, [BUILT_IN], BUILT_IN)
+    engine.onInputOpenFailed((m) => reported.push(m))
     media.failing = [UMIK]
     await devicesChange(engine, [BUILT_IN, UMIK])
     expect(engine.inputDeviceId).toBe(BUILT_IN)

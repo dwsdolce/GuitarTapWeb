@@ -7,7 +7,6 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
-import { InputLevel } from '../src/audio/inputLevel'
 import type { Spectrum } from '../src/dsp/guitarFFT'
 import type { ResonantPeak } from '../src/measurement/types'
 import { parseGuitarTapFile } from '../src/measurement'
@@ -90,19 +89,9 @@ const mp = (f: number): ResonantPeak => ({ id: '0', frequency: f, magnitude: -40
  *  (observed for clipping) + no-op session/arm hooks (armMaterial etc. re-arm the real device; here they do
  *  nothing). */
 function fakeDevice(playingFile = false): RealtimeFFTAnalyzer {
-  return {
-    playingFile,
-    activeCalibration: null,
-    level: new InputLevel(),
-    armMaterial() {},
-    arm() {},
-    disarm() {},
-    checkpointSession() {},
-    redoSession() {},
-    startSessionRecording() {},
-    finishSessionRecording() {},
-    cancelSessionRecording() {},
-  } as unknown as RealtimeFFTAnalyzer
+  const engine = new RealtimeFFTAnalyzer()
+  engine.playingFile = playingFile
+  return engine
 }
 
 describe('statusMessage — removed web-only inventions are never produced', () => {

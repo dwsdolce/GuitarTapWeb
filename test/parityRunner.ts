@@ -92,10 +92,7 @@ export async function playGuitar(reg: RegCase): Promise<TapToneAnalyzer> {
   analyzer.peakMinThreshold = reg.settings.peakMinThreshold!
   analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1)
   analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
-  const engine = new RealtimeFFTAnalyzer(
-    { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
-    { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
-  )
+  const engine = new RealtimeFFTAnalyzer()
   engine.initForTesting()
   analyzer.setDevice(engine)
   await analyzer.playFile(wav.samples, wav.sampleRate, loadCal(reg.calibration))
@@ -119,10 +116,7 @@ export async function playMaterial(reg: RegCase, brace: boolean): Promise<TapTon
   analyzer.measureFlc = reg.settings.measureFlc ?? false
   analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1) // analyzer owns the material tap count now
   analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
-  const engine = new RealtimeFFTAnalyzer(
-    { onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime) },
-    { tapDetectionThreshold: reg.settings.tapDetectionThreshold, numberOfTaps: reg.settings.numberOfTaps ?? 1 },
-  )
+  const engine = new RealtimeFFTAnalyzer()
   engine.initForTesting()
   analyzer.setDevice(engine)
   await analyzer.playFile(wav.samples, wav.sampleRate, loadCal(reg.calibration))

@@ -1,13 +1,13 @@
 // Constructs the single TapToneAnalyzer (the web's lifecycle-state owner, mirroring Swift/Python
-// TapToneAnalyzer) and exposes its immutable snapshot to React via useSyncExternalStore. The audio
-// device (RealtimeFFTAnalyzer) and App drive the analyzer through its setters; the
-// snapshot re-renders on each notify().
+// TapToneAnalyzer), with the engine it owns for its life, and exposes its immutable snapshot to React via
+// useSyncExternalStore; the snapshot re-renders on each notify().
 import { useRef, useSyncExternalStore } from 'react'
+import { RealtimeFFTAnalyzer } from '../audio/realtimeFFTAnalyzer'
 import { TapToneAnalyzer, type TapToneSnapshot } from '../state/tapToneAnalyzer'
 
 export function useTapToneAnalyzer(): { analyzer: TapToneAnalyzer; snapshot: TapToneSnapshot } {
   const ref = useRef<TapToneAnalyzer | null>(null)
-  if (ref.current === null) ref.current = new TapToneAnalyzer()
+  if (ref.current === null) ref.current = new TapToneAnalyzer(new RealtimeFFTAnalyzer())
   const analyzer = ref.current
   // Debug handle — the live analyzer on `window`, for inspecting the model from the browser
   // console:

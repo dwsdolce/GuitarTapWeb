@@ -1,19 +1,12 @@
-// ViewModel for the audio engine — the web counterpart of Swift's RealtimeFFTAnalyzer /
-// Python's tap_tone_analyzer (the audio *model* layer). Owns the engine instance lifecycle
-// (auto-start on mount, stop on unmount), the live telemetry state (running / input level / spectrum /
-// engine state / clipping / multi-tap progress / FFT metrics / sample rate / device label / error),
-// and the calibration store's picker actions (import/select/delete). The engine owns the input
-// devices — their list, the selection, what is saved and each device's calibration — and this hook
-// mirrors that state for React whenever the engine reports a change.
-//
-// `engineRef` is owned by App (a shared handle: the material session arms the engine) and passed
-// in — this hook populates it. The
-// capture-result callbacks (guitar tap, material phase, raw-audio dump) are passed in stable so the
-// engine's once-registered callbacks never capture stale closures.
+// The view's side of the audio engine, as Swift's view is of `tapToneAnalyzer.fftAnalyzer`: it starts
+// the analyzer when the app comes up and stops it when the app goes away, reports a start that fails
+// (the alerts, and Retry), and shows what the engine reports — the input level, the live spectrum, the
+// FFT metrics, the sample rate, the input devices and their calibrations — subscribing only to those.
+// The engine belongs to the analyzer, which subscribes to what it acts on (chunks, frames, a dead input,
+// an input change). The calibration store's picker actions (import/select/delete) are here.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { MutableRefObject } from 'react'
-import { RealtimeFFTAnalyzer, failedOpenMessage, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
+import { useCallback, useEffect, useState } from 'react'
+import { failedOpenMessage, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
 import type { InputLevel } from '../audio/inputLevel'
 import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 import type { Spectrum } from '../dsp/guitarFFT'
@@ -26,16 +19,7 @@ import {
 import { parseCalibration } from '../dsp/calibration'
 
 interface UseAudioEngineArgs {
-  engineRef: MutableRefObject<RealtimeFFTAnalyzer | null>
-  /** Tap-detection threshold for the engine's initial config. */
-  tapThresholdRef: MutableRefObject<number>
-  /** The guitar tap sequence finished — App averages the analyzer's accumulated taps into the frozen
-   *  result (unless a comparison is frozen) and clears the loaded-measurement state. STABLE. */
-  /** Continuous session WAV for the Dump-Capture-Audio diagnostic (one per measurement). STABLE. */
-  /** Engine came up — App arms a fresh sequence for the current measurement type (the web's
-   *  start() → startTapSequence() branch: guitar arms, plate/brace start the phase machine). STABLE. */
-  onStarted: () => void
-  /** The lifecycle-state owner, which the engine's callbacks drive. */
+  /** The lifecycle-state owner, whose engine this shows and starts. */
   analyzer: TapToneAnalyzer
 }
 
@@ -71,12 +55,8 @@ export interface AudioEngineModel {
   onDeleteCalibration: (id: string) => void
 }
 
-export function useAudioEngine({
-  engineRef,
-  tapThresholdRef,
-  onStarted,
-  analyzer,
-}: UseAudioEngineArgs): AudioEngineModel {
+export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineModel {
+  const engine = analyzer.device!
   const [running, setRunning] = useState(false)
   const [inputLevel, setInputLevel] = useState<InputLevel | null>(null)
   const [liveSpectrum, setLiveSpectrum] = useState<Spectrum | null>(null)
@@ -89,34 +69,29 @@ export function useAudioEngine({
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null)
   const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
   const [activeCalId, setActiveCalId] = useState<string | null>(null)
-  // Route-change settle timer: on an automatic hardware change the analyzer shows "Audio device changed
-  // - reinitializing…" then restores the prompt after this fires (the status is analyzer-owned).
-  const deviceChangeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
 
   // Mirror the engine's input state — the device list, the selected input and its calibration.
   const syncDeviceState = useCallback(() => {
-    const engine = engineRef.current
-    if (!engine) return
     setInputDevices(engine.availableInputDevices)
     setCurrentDeviceId(engine.inputDeviceId)
     setDeviceLabel(engine.deviceLabel)
     setAudioSettings(engine.audioSettings)
     setActiveCalId((engine.activeCalibration as StoredCalibration | null)?.id ?? null)
-  }, [engineRef])
+  }, [engine])
 
   const onSelectDevice = useCallback(
     async (deviceId: string) => {
       try {
-        await engineRef.current?.setInputDevice(deviceId)
+        await engine.setInputDevice(deviceId)
       } catch {
         // Not selected, not saved: the previous input is still in use.
-        const label = engineRef.current?.availableInputDevices.find((d) => d.deviceId === deviceId)?.label ?? deviceId
+        const label = engine.availableInputDevices.find((d) => d.deviceId === deviceId)?.label ?? deviceId
         setError(failedOpenMessage(label))
         setErrorKind('microphone')
       }
     },
-    [engineRef],
+    [engine],
   )
 
   const onImportCalibration = useCallback(
@@ -126,110 +101,71 @@ export function useAudioEngine({
         if (cal.points.length === 0) throw new Error('No calibration data points found in the file.')
         const stored = saveCalibration(cal)
         setCalibrations(listCalibrations())
-        engineRef.current?.chooseCalibration(stored) // activate the newly imported calibration
+        engine.chooseCalibration(stored) // activate the newly imported calibration
       } catch (e) {
         setError(`Couldn't import calibration: ${e instanceof Error ? e.message : String(e)}`)
         setErrorKind('other')
       }
     },
-    [engineRef],
+    [engine],
   )
 
   const onSelectCalibration = useCallback(
     (id: string | null) => {
-      engineRef.current?.chooseCalibration(listCalibrations().find((c) => c.id === id) ?? null)
+      engine.chooseCalibration(listCalibrations().find((c) => c.id === id) ?? null)
     },
-    [engineRef],
+    [engine],
   )
 
   const onDeleteCalibration = useCallback(
     (id: string) => {
       deleteStoredCalibration(id)
       setCalibrations(listCalibrations())
-      engineRef.current?.reloadDeviceCalibration()
+      engine.reloadDeviceCalibration()
     },
-    [engineRef],
+    [engine],
   )
 
+  // Start the analyzer — its engine, the warm-up and the guarded auto-start — and report a failure as
+  // the native-style alert: a blocked/denied mic → "Microphone Access Required"; anything else (no
+  // device, engine failure) → "Audio Engine Error". Retry calls it again, on the same engine.
   const start = useCallback(async () => {
-    if (engineRef.current) return
     setError(null)
     setErrorKind(null)
-    const engine = new RealtimeFFTAnalyzer(
-      {
-        // Each live spectrum is shown AND handed to the analyzer, which finds the live peaks from it
-        // while a sequence runs (Swift onFftFrame → analyzeMagnitudes).
-        onSpectrum: (spectrum) => {
-          setLiveSpectrum(spectrum)
-          analyzer.onFftFrame(spectrum.magnitudesDb, spectrum.frequencies)
-        },
-        // The device is the microphone, the FFT and the watchdogs — it hands every chunk up and the
-        // TapToneAnalyzer does the rest: pre-roll, detection, gated capture, the tap count, the
-        // status strings and the L→C→FLC phase machine. That is Swift's split.
-        onAudioFrame: (samples, levelDb, audioTime) => analyzer.processAudioFrame(samples, levelDb, audioTime),
-        onMetrics: setEngineMetrics,
-        onDeviceStateChanged: syncDeviceState,
-        // A device plugged in while running could not be opened; the previous input is kept.
-        onInputOpenFailed: (message) => {
-          setError(message)
-          setErrorKind('microphone')
-        },
-        // The hardware changed the input (a mic attached and selected, or the active one unplugged).
-        onInputChanged: () => {
-          // Briefly surface "Audio device changed - reinitializing…" then restore the resting prompt
-          // (mirrors Swift route change). The analyzer owns the status field.
-          analyzer.handleDeviceChange(true)
-          if (deviceChangeTimer.current) clearTimeout(deviceChangeTimer.current)
-          // 3000 ms matches Swift's fftSettleTime and Python's mirror of it. The settle is how long
-          // New Tap stays disabled after a device change, so the number is user-visible behaviour.
-          deviceChangeTimer.current = setTimeout(() => analyzer.handleDeviceChange(false), 3000)
-        },
-      },
-      { tapDetectionThreshold: tapThresholdRef.current },
-    )
-    engineRef.current = engine
-    // The dead-input watchdog's user-visible half: the engine detects a silent input, warns to the
-    // console and retries; this hands its verdict to the analyzer, which shows the "no audio input"
-    // warning in the status line as both natives do. Swift `$inputAppearsDead` sink / Python
-    // `inputAppearsDeadChanged` → `_set_input_appears_dead`.
-    engine.onInputAppearsDeadChange = (dead) => analyzer.setInputAppearsDead(dead)
-    setInputLevel(engine.level)
-    analyzer.setDevice(engine) // the analyzer holds the device to orchestrate material
     try {
-      await engine.start()
-      // Remount / StrictMode guard: start() is async, so if this component was torn down mid-start the
-      // cleanup already nulled engineRef and a second start() may have created a replacement. This
-      // engine is orphaned — stop it (so its mic worklet doesn't keep feeding the pipeline as a ghost
-      // second instance) and bail before touching any React state. Without this, React's dev double-mount
-      // leaves two live mics, and any real remount would leak the same way. stop() is idempotent.
-      if (engineRef.current !== engine) {
-        void engine.stop()
-        return
-      }
+      await analyzer.start()
+      if (!engine.running) return // stopped while starting (the app went away)
       setSampleRate(engine.sampleRate)
       syncDeviceState()
       setRunning(true)
-      onStarted() // arm a fresh sequence for the current type (guitar or material) — one branch
     } catch (e) {
-      // Categorize for the native-style alert: a blocked/denied mic → "Microphone Access
-      // Required"; anything else (no device, engine failure) → "Audio Engine Error".
       const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError')
       setError(e instanceof Error ? e.message : String(e))
       setErrorKind(denied ? 'permission' : 'engine')
-      engineRef.current = null
     }
-  }, [analyzer, engineRef, tapThresholdRef, onStarted, syncDeviceState])
+  }, [analyzer, engine, syncDeviceState])
 
-  // Start listening automatically — GuitarTap has no Start button; the only
-  // browser-mandated gate is the mic permission prompt itself.
+  // Start listening automatically — GuitarTap has no Start button; the only browser-mandated gate is
+  // the mic permission prompt itself. The engine handles React's remount (start, stop, start) itself.
   useEffect(() => {
+    setInputLevel(engine.level)
+    const unsubscribe = [
+      engine.onSpectrum(setLiveSpectrum),
+      engine.onMetrics(setEngineMetrics),
+      engine.onDeviceStateChanged(syncDeviceState),
+      // A device plugged in while running could not be opened; the previous input is kept.
+      engine.onInputOpenFailed((message) => {
+        setError(message)
+        setErrorKind('microphone')
+      }),
+    ]
     void start()
     return () => {
-      void engineRef.current?.stop()
-      engineRef.current = null
+      for (const off of unsubscribe) off()
+      void analyzer.stop()
       setRunning(false)
     }
-  }, [start, engineRef])
+  }, [analyzer, engine, start, syncDeviceState])
 
   const pauseTap = useCallback(() => analyzer.pauseTapDetection(), [analyzer])
   const resumeTap = useCallback(() => analyzer.resumeTapDetection(), [analyzer])

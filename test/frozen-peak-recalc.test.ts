@@ -24,7 +24,7 @@ type Load = {
   tapEntries?: { peaks: [number, number][]; selected: number[] }[]
 }
 type FrozenStep = AnalyzerStep & {
-  load?: Load; loadFixture?: string; reanalyze?: boolean; toggleSelection?: number; nameMode?: { at: number; label: string }
+  load?: Load; reanalyze?: boolean; toggleSelection?: number; nameMode?: { at: number; label: string }
   dragLabel?: { at: number; to: [number, number] }; liveFrame?: Row; save?: boolean; loadSaved?: boolean
   mark?: boolean; check?: Row
 }
@@ -206,7 +206,6 @@ async function check(fields: Row, a: TapToneAnalyzer, run: Run): Promise<void> {
 
 async function step(s: FrozenStep, a: TapToneAnalyzer, run: Run, store: Parameters<typeof runAnalyzerStep>[2]): Promise<void> {
   if (s.load) a.loadMeasurement(parseGuitarTapFile(JSON.stringify([document(s.load, run)]))[0]!)
-  else if (s.loadFixture) a.loadMeasurement(parseGuitarTapFile(readFileSync(`test/fixtures/${s.loadFixture}`, 'utf8'))[0]!)
   else if (s.reanalyze) a.reanalyzePeaks()
   else if (s.toggleSelection !== undefined) a.togglePeakSelection(peakAt(s.toggleSelection, a).id)
   else if (s.nameMode) a.setModeOverride(peakAt(s.nameMode.at, a).id, s.nameMode.label)
