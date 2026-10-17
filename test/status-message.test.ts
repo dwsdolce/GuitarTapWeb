@@ -53,7 +53,7 @@ describe('status-message — the shared cases (status-message.json)', () => {
       }
       before = a.statusMessage
       if (step.clipping !== undefined) a.setClipping(step.clipping) // as the device forwards its input level
-      else if (step.deviceChange) a.handleDeviceChange(true)
+      else if (step.deviceChange) a.handleRouteChangeRestart()
       else if (step.load !== undefined) a.loadMeasurement(parseGuitarTapFile(JSON.stringify(DATA.files[step.load]))[0]!)
       else if (step.playingFile) {
         const engine = new RealtimeFFTAnalyzer()

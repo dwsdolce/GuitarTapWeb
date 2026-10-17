@@ -1,227 +1,86 @@
 // @parity test/notification
 //
-// One contract, three mechanisms: when the model's readiness changes, the view layer is told.
-//
-// Web satisfies it by putting the field on the snapshot and calling notify() (this file), Swift
-// with @Published (observed via objectWillChange), Python with an explicit signal. Every one of
-// those can be broken by an ordinary edit — drop the @Published, forget to add the signal, leave
-// the field off the snapshot — so each edition pins it.
-//
-// The contract is not "does this framework emit" but "does a state change reach the UI", which all
-// three implement and all three can break.
+// A device change and the settle after it, against the shared cases in notification.json (N1–N18), the
+// same as Swift and Python: detection stands down and New Tap greys out — and the view is told, which the
+// web does by putting the field on the snapshot and calling notify(), Swift with @Published and Python
+// with a signal, each of which an ordinary edit can break — a live chart is blanked, and once 3 s of
+// audio have passed since the last change and the next frame has arrived, the latch is re-anchored,
+// readiness and listening come back and the status is put back.
 //
 // Mirrors: GuitarTapTests/StateNotificationTests.swift · tests/test_state_notification.py
 import { describe, it, expect } from 'vitest'
-import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import { makeResonantPeak } from '../src/measurement/types'
+import { readFileSync } from 'node:fs'
+import type { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import { makeStepsAnalyzer, runAnalyzerStep, PHASE_RAW, type AnalyzerStep } from './analyzerSteps'
 
-const sut = () => new TapToneAnalyzer()
+type Fields = Record<string, unknown>
+type Step = AnalyzerStep & {
+  note?: boolean
+  watchNotifications?: boolean
+  clipping?: boolean
+  inputDead?: boolean
+  check?: Fields
+}
+type Case = { id: string; note: string; steps: Step[]; expect: Fields }
+const DATA = JSON.parse(readFileSync('test/fixtures/notification.json', 'utf8')) as { cases: Case[] }
 
-describe('StateNotification', () => {
-  // N1: standing readiness down notifies subscribers and is visible on the snapshot.
-  it('N1 — readiness cleared notifies observers', () => {
-    const a = sut()
-    let fired = 0
-    const unsubscribe = a.subscribe(() => { fired += 1 })
+type Internals = { isAboveThreshold: boolean; statusBeforeSettle: string | null; restingPrompt(): string }
 
-    a.handleDeviceChange(true)
+/** What a case's run keeps between steps. */
+type Run = { notedStatus: string | null; notedPeaks: string[]; readinessNotified: boolean; watching: boolean }
 
-    expect(a.getSnapshot().isReadyForDetection).toBe(false)
-    expect(fired).toBeGreaterThan(0)
-    unsubscribe()
-  })
+function check(fields: Fields, a: TapToneAnalyzer, run: Run, id: string): void {
+  const internal = a as unknown as Internals
+  for (const [field, want] of Object.entries(fields)) {
+    const msg = `${id} ${field}`
+    switch (field) {
+      case 'ready': expect(a.getSnapshot().isReadyForDetection, msg).toBe(want); break
+      case 'readinessNotified': expect(run.readinessNotified, msg).toBe(want); break
+      case 'settling': expect(a.isSettling, msg).toBe(want); break
+      case 'statusMessage': expect(a.statusMessage, msg).toBe(want); break
+      case 'statusAsNoted': expect(a.statusMessage === run.notedStatus, `${msg}: ${a.statusMessage} vs ${run.notedStatus}`).toBe(want); break
+      case 'statusBeforeSettleAsNoted':
+        expect(internal.statusBeforeSettle === run.notedStatus, `${msg}: ${internal.statusBeforeSettle}`).toBe(want)
+        break
+      case 'statusIsArmedPrompt': expect(a.statusMessage === internal.restingPrompt(), msg).toBe(want); break
+      case 'detecting': expect(a.isDetecting, msg).toBe(want); break
+      case 'paused': expect(a.isDetectionPaused, msg).toBe(want); break
+      case 'complete': expect(a.isMeasurementComplete, msg).toBe(want); break
+      case 'phase': expect(PHASE_RAW[a.materialTapPhase], msg).toBe(want); break
+      case 'aboveThreshold': expect(internal.isAboveThreshold, msg).toBe(want); break
+      case 'hasPeaks': expect(a.peaks.length > 0, `${msg}: ${a.peaks.length}`).toBe(want); break
+      case 'peaksAsNoted': expect(JSON.stringify(a.peaks.map((p) => p.id)) === JSON.stringify(run.notedPeaks), msg).toBe(want); break
+      default: throw new Error(`${id}: unknown field ${field}`)
+    }
+  }
+}
 
-  // N2: restoring readiness notifies too — the button has to come back, not just go away.
-  it('N2 — readiness restored notifies observers', () => {
-    const a = sut()
-    a.handleDeviceChange(true)
-    let fired = 0
-    const unsubscribe = a.subscribe(() => { fired += 1 })
-
-    a.handleDeviceChange(false)
-
-    expect(a.getSnapshot().isReadyForDetection).toBe(true)
-    expect(fired).toBeGreaterThan(0)
-    unsubscribe()
-  })
-
-  // N3: the production path — the settling edge of a device change stands readiness down and says so.
-  it('N3 — a device change clears readiness and notifies', () => {
-    const a = sut()
-    let fired = 0
-    const unsubscribe = a.subscribe(() => { fired += 1 })
-
-    a.handleDeviceChange(true)
-
-    expect(a.isReadyForDetection).toBe(false)
-    expect(fired).toBeGreaterThan(0)
-    unsubscribe()
-  })
-
-  // N4: the settle must not tell a FINISHED measurement to tap again, and must not throw away a
-  // result announcement. Derived, not chosen — see statusAfterSettle().
-  it('N4 — a complete measurement keeps its status through a device change', () => {
-    const a = sut()
-    a.numberOfTaps = 1
-    a.currentTapCount = 1
-    a.isMeasurementComplete = true
-    const announced = 'Analysis complete! 12 peaks identified (from 1 averaged taps).'
-    expect(a.statusAfterSettle()).toBeNull()
-    expect(a.restoredStatus(announced)).toBe(announced)
-
-    // End to end, both edges: the transient must not survive the settle.
-    a.handleDeviceChange(true)
-    expect(a.statusMessage).toMatch(/reinitializing/)
-    a.handleDeviceChange(false)
-    expect(a.statusMessage).not.toMatch(/reinitializing/)
-    expect(a.statusMessage).not.toMatch(/Tap again/)
-  })
-
-  // N5: mid-sequence, the settle reports what was captured — not "tap N times", which is what the
-  // old two-branch guess said once a tap was already in hand.
-  it('N5 — mid-sequence the settle reports progress, not the opening instruction', () => {
-    const a = sut()
-    a.numberOfTaps = 3
-    a.startTapSequence()
-    a.currentTapCount = 1
-    expect(a.statusAfterSettle()).toBe('Tap 1/3 captured. Tap again...')
-  })
-
-  // N6: idle and nothing captured — "Ready".
-  it('N6 — idle settles to Ready', () => {
-    const a = sut()
-    expect(a.statusAfterSettle()).toBe('Ready')
-  })
-
-  // N7: a COMPLETED measurement survives a device change — the settle blanks only a LIVE spectrum,
-  // and `displayMode == live` alone would still be true of a finished measurement.
-  it('N7 — a device change leaves a completed measurement intact', () => {
-    const a = sut()
-    a.peaks = [makeResonantPeak({ frequency: 100, magnitude: -40, quality: 0, bandwidth: 0 })]
-    a.isMeasurementComplete = true
-
-    a.handleDeviceChange(true)
-
-    expect(a.isSettling).toBe(false) // a completed measurement is not a live spectrum — nothing to blank
-    expect(a.peaks).toHaveLength(1) // REGRESSION: the settle wiped a finished measurement's peaks
-  })
-
-  // N8: mid-sequence, with a live spectrum on screen, the settle DOES blank.
-  it('N8 — a device change blanks a live spectrum', () => {
-    const a = sut()
-    a.startTapSequence()
-    a.peaks = [makeResonantPeak({ frequency: 100, magnitude: -40, quality: 0, bandwidth: 0 })] // a live frame's peaks
-
-    a.handleDeviceChange(true)
-    expect(a.isSettling).toBe(true)
-    expect(a.peaks).toHaveLength(0) // and its peaks cleared, so no annotation floats on a blank chart
-
-    a.handleDeviceChange(false)
-    expect(a.isSettling).toBe(false)
-  })
-
-  // N9: a MATERIAL phase prompt is an instruction about something that already happened
-  // ("Rotate 90°…"), not a description of the state, so the settle must put it back rather than
-  // re-derive it. Two strings are equally correct for one phase — the advance's instruction and a
-  // redo's "…— tap again" — which is the proof it is not a function of the state.
-  it('N9 — the settle preserves a material phase instruction', () => {
-    const a = sut()
-    a.measurementType = 'plate'
-    a.materialTapPhase = 'capturingC'
-    a.startTapSequence()
-    a.materialTapPhase = 'capturingC' // startTapSequence resets the phase; this is mid-sequence
-    const afterRedo = 'Ready for fC tap — tap again'
-
-    expect(a.statusAfterSettle()).toBeNull()
-    expect(a.restoredStatus(afterRedo)).toBe(afterRedo)
-  })
-
-  // N10: the override precedence, in one place. Dead input outranks clipping, and an ordinary
-  // status write while a condition holds must not drop the warning.
-  it('N10 — dead input outranks clipping and survives a status write', () => {
-    const a = sut()
-    a.startTapSequence()
-    a.setNumberOfTaps(1)
-    expect(a.statusMessage).toBe('Tap the guitar...')
-
-    a.setClipping(true)
-    expect(a.statusMessage).toMatch(/clipping/)
-
-    a.setInputAppearsDead(true)
-    expect(a.statusMessage).toMatch(/No audio input/)
-
-    a.setNumberOfTaps(3) // an ordinary status write must not drop the warning
-    expect(a.statusMessage).toMatch(/No audio input/)
-
-    a.setInputAppearsDead(false)
-    expect(a.statusMessage).toMatch(/clipping/)
-    a.setClipping(false)
-    expect(a.statusMessage).toBe('Tap the guitar 3 times...')
-  })
-
-  // N11: what the settle PRESERVES is the analyzer's real status, not the override-resolved string.
-  // The natives assert the captured value (their restore is behind a 3 s timer); web can also reach
-  // the consequence synchronously, as the user would meet it: were the warning stored AS the real
-  // status, clearing the condition would restore the warning forever.
-  it('N11 — the settle captures the real status, not an override warning', () => {
-    const a = sut()
-    a.startTapSequence()
-    a.setNumberOfTaps(3)
-    a.setClipping(true)
-    expect(a.statusMessage).toMatch(/clipping/)
-
-    a.handleDeviceChange(true)
-    expect((a as unknown as { statusBeforeSettle: string | null }).statusBeforeSettle)
-      .toBe('Tap the guitar 3 times...')
-
-    a.handleDeviceChange(false)
-    a.setClipping(false)
-    expect(a.statusMessage).toBe('Tap the guitar 3 times...')
-  })
-
-  // N12: the phase ADVANCE and the armed DERIVATION must produce the same string, because they are
-  // the same string — otherwise a resume, settle or tap-count change would reword the instruction.
-  // Pinned from both ends: the advance's output, and a pause/resume round trip that re-derives it.
-  it('N12 — the material phase advance and the armed derivation agree', () => {
-    const a = sut()
-    a.measurementType = 'plate'
-    a.setMeasureFlc(false)
-    a.materialTapPhase = 'reviewingL'
-
-    a.acceptCurrentPhase()
-
-    expect(a.materialTapPhase).toBe('capturingC') // precondition: the accept advanced the phase
-    expect(a.statusMessage).toBe('Rotate 90° and tap for fC')
-
-    a.detectionState = 'listening' // no device in a unit test, so arming is a no-op
-    a.pauseTapDetection()
-    a.resumeTapDetection()
-    expect(a.statusMessage).toBe('Rotate 90° and tap for fC')
-  })
-
-  // N13: a settling edge during a settle must not capture the transient as the pre-settle status.
-  // A user unplugging and replugging faster than the settle makes that burst. Were the transient
-  // captured, every state whose status is not re-derivable (N4's completed measurement, N9's
-  // material phase instruction) would have it put back on top of itself, where it would stay until
-  // the next tap wrote over it. The guard is `statusBeforeSettle === null` here, with the
-  // device-change timer coalesced by `clearTimeout` in useAudioEngine; this pins the model's half.
-  it('N13 — a settling edge during a settle does not capture the transient', () => {
-    const a = sut()
-    a.measurementType = 'brace'
-    a.setNumberOfTaps(1)
-    a.startTapSequence()   // the production path to the material arm prompt
-    a.detectionState = 'listening'
-    expect(a.statusMessage).toBe('Ready for fL tap')   // precondition
-
-    a.handleDeviceChange(true)   // unplug
-    a.handleDeviceChange(true)   // replug, inside the settle
-
-    expect(a.statusMessage).toBe('Audio device changed - reinitializing...')
-    expect((a as unknown as { statusBeforeSettle: string | null }).statusBeforeSettle)
-      .toBe('Ready for fL tap')
-
-    a.handleDeviceChange(false)
-
-    expect(a.statusMessage).toBe('Ready for fL tap')
-  })
+describe('notification — the shared cases (notification.json)', () => {
+  for (const c of DATA.cases) {
+    it(c.id, () => {
+      const { a, store } = makeStepsAnalyzer()
+      const run: Run = { notedStatus: null, notedPeaks: [], readinessNotified: false, watching: false }
+      let readyBefore = a.getSnapshot().isReadyForDetection
+      // The view's subscription: it is told of each change and reads the snapshot.
+      const unsubscribe = a.subscribe(() => {
+        const ready = a.getSnapshot().isReadyForDetection
+        if (run.watching && ready !== readyBefore) run.readinessNotified = true
+        readyBefore = ready
+      })
+      for (const step of c.steps) {
+        if (step.note) {
+          run.notedStatus = a.statusMessage
+          run.notedPeaks = a.peaks.map((p) => p.id)
+        } else if (step.watchNotifications) {
+          run.watching = true
+          readyBefore = a.getSnapshot().isReadyForDetection
+        } else if (step.clipping !== undefined) a.setClipping(step.clipping)
+        else if (step.inputDead !== undefined) a.setInputAppearsDead(step.inputDead)
+        else if (step.check) check(step.check, a, run, c.id)
+        else expect(runAnalyzerStep(step, a, store), `${c.id}: unknown step ${JSON.stringify(step)}`).toBe(true)
+      }
+      check(c.expect, a, run, c.id)
+      unsubscribe()
+    })
+  }
 })

@@ -12,6 +12,8 @@ import { DEFAULT_SETTINGS } from '../src/settings'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
 import { advanceAudio, AUDIO_FEED_CHUNK_SECONDS, ManualWallClock } from './audioClockFeed'
 import { syntheticTap } from './syntheticTap'
+import { spectrum } from './spectrumSpec'
+import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 
 export type AnalyzerStep = {
   settings?: { type?: string; measureFlc?: boolean }
@@ -40,6 +42,18 @@ export type AnalyzerStep = {
   audioChunks?: number
   /** That much wall time with no audio. */
   stall?: number
+  /** The engine restarted on a device change. */
+  routeChange?: boolean
+  /** One FFT frame from the running engine, a spectrum as peaks.json describes one. */
+  spectrumFrame?: Record<string, unknown>
+}
+
+/** The analyzer's engine, running: a frame or a restart comes only from one. Attached on first use. */
+function runningEngine(a: TapToneAnalyzer): void {
+  if (a.device) return
+  const engine = new RealtimeFFTAnalyzer()
+  engine.initForTesting()
+  a.setDevice(engine)
 }
 
 /** One chunk's samples; the level a chunk is fed at is given with it. */
@@ -92,6 +106,13 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer, store: S
           : step.advance === 'warmupPeriod' ? a.warmupPeriod
             : step.advance
     advanceAudio(a, seconds * (step.fraction ?? 1) + (step.extra ?? 0), step.level ?? -90)
+  } else if (step.routeChange) {
+    runningEngine(a)
+    a.handleRouteChangeRestart()
+  } else if (step.spectrumFrame) {
+    runningEngine(a)
+    const { mags, freqs } = spectrum(step.spectrumFrame)
+    a.onFftFrame(mags, freqs)
   } else if (step.stall !== undefined) {
     ;(a.wallClock as ManualWallClock).advance(step.stall)
   } else if (step.audioChunks !== undefined) {

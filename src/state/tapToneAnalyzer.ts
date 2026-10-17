@@ -850,8 +850,18 @@ export class TapToneAnalyzer {
    *  rebase and a load — the last tap leaves it at 1. Mirrors Swift `tapProgress`. */
   tapProgress = 0
   /** The status from before a device-change settle began, restored when the settle has nothing of
-   *  its own to say. `null` when no settle is in flight. */
+   *  its own to say. Captured by the change that begins a settle; `null` when no settle is in flight.
+   *  Swift `statusBeforeSettle`. */
   private statusBeforeSettle: string | null = null
+  /** Whether the settle in flight puts detection back to listening when it ends — captured by the
+   *  change that begins it, since a later change inside the settle finds the detector already stood
+   *  down. `null` when no settle is in flight. Swift `detectingBeforeSettle`. */
+  private detectingBeforeSettle: boolean | null = null
+  /** Counts device changes: a settle's restore runs only if no later change superseded it, so the
+   *  settle always ends 3 s of audio after the LAST change. Swift `routeChangeGeneration`. */
+  private routeChangeGeneration = 0
+  /** Actions waiting for the next FFT frame — see `afterNextFrame`. Swift `pendingFrameActions`. */
+  private pendingFrameActions: ((peakMagnitude: number) => void)[] = []
 
   /** Cumulative taps completed in the phases BEFORE `phase` — the base the material `currentTapCount`
    *  counts on from at each tap, and rebases to on Redo. Guarded on the prior phases actually having been
@@ -1448,7 +1458,21 @@ export class TapToneAnalyzer {
 
   /** FFT-frame entry point: the device hands each live spectrum here. Mirrors Swift `onFftFrame`. */
   onFftFrame(magnitudes: number[], frequencies: number[]): void {
+    this.runNextFrameActions(magnitudes.length > 0 ? Math.max(...magnitudes) : -100)
     this.analyzeMagnitudes(magnitudes, frequencies)
+  }
+
+  /** Run `action` on the next FFT frame, with that frame's peak magnitude — the device-change settle's
+   *  end, which re-anchors detection on the first frame the user sees. Swift `afterNextFrame`. */
+  afterNextFrame(action: (peakMagnitude: number) => void): void {
+    this.pendingFrameActions.push(action)
+  }
+
+  /** Run, in scheduling order, every action waiting for this frame. Swift `runNextFrameActions`. */
+  private runNextFrameActions(peakMagnitude: number): void {
+    const due = this.pendingFrameActions
+    this.pendingFrameActions = []
+    for (const action of due) action(peakMagnitude)
   }
 
   /** Live peaks from one FFT frame, while a sequence is running (detecting, paused, or a capture window
@@ -1912,21 +1936,11 @@ export class TapToneAnalyzer {
         // sink / Python `inputAppearsDeadChanged` → `_set_input_appears_dead`).
         device.onInputAppearsDead((dead) => this.setInputAppearsDead(dead)),
         // The hardware changed the input → the route-change settle.
-        device.onInputChanged(() => this.onInputChanged()),
+        device.onInputChanged(() => this.handleRouteChangeRestart()),
       ]
     }
   }
   private deviceSubscriptions: (() => void)[] = []
-
-  /** Route-change settle: "Audio device changed - reinitializing…", then the resting prompt after 3 s.
-   *  3000 ms matches Swift's fftSettleTime and Python's mirror of it. The settle is how long New Tap
-   *  stays disabled after a device change, so the number is user-visible behaviour. */
-  private onInputChanged(): void {
-    this.handleDeviceChange(true)
-    if (this.deviceChangeTimer) clearTimeout(this.deviceChangeTimer)
-    this.deviceChangeTimer = setTimeout(() => this.handleDeviceChange(false), 3000)
-  }
-  private deviceChangeTimer: ReturnType<typeof setTimeout> | null = null
 
   /** Start the engine, anchor the warm-up and, one pass later, make the guarded auto-start. Throws
    *  what the engine's start throws (permission denied, no input), for the view to report. Mirrors
@@ -1943,8 +1957,6 @@ export class TapToneAnalyzer {
 
   /** Stop the engine (the view going away). */
   async stop(): Promise<void> {
-    if (this.deviceChangeTimer) clearTimeout(this.deviceChangeTimer)
-    this.deviceChangeTimer = null
     await this.attachedDevice?.stop()
   }
 
@@ -4051,36 +4063,72 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  /** A hardware input change: show "Audio device changed - reinitializing…" while settling, then restore
-   *  the resting prompt (Swift route-change status). The device layer drives both edges. */
-  handleDeviceChange(settling: boolean): void {
-    // Readiness follows the settle, as it does in Swift (`isReadyForDetection`, false for
-    // fftSettleTime) and Python. New Tap is disabled while the input is reinitialising.
-    this.isReadyForDetection = !settling
-    if (settling) {
-      // Remember what the status said BEFORE the transient replaces it. statusAfterSettle() returns
-      // null for the states whose status is a result announcement rather than a prompt, and "leave
-      // it alone" means restoring THIS, not leaving the transient up. Guarded so a repeated settling
-      // edge cannot capture the transient itself.
-      // `latestRealStatus`, NOT `statusMessage`: the latter is the OVERRIDE-RESOLVED string, and
-      // feeding a clipping or dead-input warning back through setStatusMessage() as the real status
-      // would restore the warning after its condition cleared. The override layer re-resolves on its own.
-      if (this.statusBeforeSettle === null) this.statusBeforeSettle = this.latestRealStatus
-      // Blank the chart only if a LIVE spectrum is on screen — a completed or loaded measurement
-      // keeps its result, exactly as in Swift/Python.
-      if (!this.isMeasurementComplete && this.displayMode !== 'comparison') {
-        this.isSettling = true
-        // Clear the peak annotations so they don't float on a blank chart during the settle (Swift).
-        this.peaks = []
-        this.modeByPeak = new Map()
-        this.refreshDisplayedPeaks()
-      }
-      this.setStatusMessage('Audio device changed - reinitializing...')
-    } else {
-      this.isSettling = false
-      this.setStatusMessage(this.restoredStatus(this.statusBeforeSettle ?? 'Ready'))
-      this.statusBeforeSettle = null
+  // @parity state/route-change-settle tests=test/notification
+  /** Responds to an engine restart on a device change. Stands the detector down, re-anchors the
+   *  warm-up and blanks a live chart; then, once 3 s of AUDIO have passed since the change (the FFT
+   *  window refilled with the new device's audio, plus margin for its startup transient) and the next
+   *  FFT frame has arrived, re-anchors the level latch from that frame, unblanks, sets readiness, puts
+   *  detection back to listening if it was, and restores the status. A later change inside the settle
+   *  supersedes this one's restore, so the settle always ends 3 s after the last change. Mirrors Swift
+   *  `handleRouteChangeRestart()`. */
+  handleRouteChangeRestart(): void {
+    const wasDetecting = this.detectionState === 'listening'
+    // The change that begins a settle decides whether its end re-arms; a later change inside it finds
+    // the detector already stood down.
+    if (this.detectingBeforeSettle === null) this.detectingBeforeSettle = wasDetecting
+
+    // New Tap and Resume are disabled while reinitialising. Stand the detector down only if it was
+    // listening: a sequence paused before the change must still be paused after it.
+    this.isReadyForDetection = false
+    if (wasDetecting) this.detectionState = 'idle'
+
+    // The new engine session starts its warm-up afresh.
+    this.warmupStartAudioTime = this.attachedDevice?.audioTime ?? 0
+
+    // Hold the latch up so the first frame cannot fire a false rising edge; the settle's end
+    // re-anchors it.
+    this.isAboveThreshold = true
+
+    // Blank the chart only if a LIVE spectrum is on screen — a completed or loaded measurement keeps
+    // its result.
+    const wasShowingLive = !this.isMeasurementComplete && this.displayMode !== 'comparison'
+    if (wasShowingLive) {
+      this.isSettling = true
+      // Clear the peak annotations so they don't float on a blank chart during the settle.
+      this.peaks = []
+      this.modeByPeak = new Map()
+      this.refreshDisplayedPeaks()
     }
+
+    // Remember what the status said BEFORE the transient replaces it: statusAfterSettle() returns null
+    // for the states whose status is a result announcement rather than a prompt, and "leave it alone"
+    // means restoring THIS. `latestRealStatus`, NOT `statusMessage`: the latter is the
+    // OVERRIDE-RESOLVED string, and a clipping or dead-input warning fed back as the real status would
+    // outlive its condition. The settle's end clears it, so a value already here means a settle is in
+    // flight and the change that began it captured the real status.
+    if (this.statusBeforeSettle === null) this.statusBeforeSettle = this.latestRealStatus
+    this.setStatusMessage('Audio device changed - reinitializing...')
+
+    this.routeChangeGeneration += 1
+    const generation = this.routeChangeGeneration
+    this.afterAudio(3.0, () => {
+      if (generation !== this.routeChangeGeneration || !this.attachedDevice?.running) return
+      // Wait for the next FFT frame, so the re-anchor and the unblanking happen on the first frame
+      // the user sees.
+      this.afterNextFrame((peakMagnitude) => {
+        if (generation !== this.routeChangeGeneration) return
+        this.isAboveThreshold = peakMagnitude > this.tapDetectionThreshold
+        if (wasShowingLive) this.isSettling = false
+        this.isReadyForDetection = true
+        if (this.detectingBeforeSettle) this.detectionState = 'listening'
+        this.detectingBeforeSettle = null
+        // Derive the status from the state we are now in; where that is a result announcement rather
+        // than a prompt, put back what was there before the settle.
+        this.setStatusMessage(this.restoredStatus(this.statusBeforeSettle ?? 'Ready'))
+        this.statusBeforeSettle = null
+        this.notify()
+      })
+    })
     this.notify()
   }
 }
