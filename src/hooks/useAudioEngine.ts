@@ -6,7 +6,7 @@
 // an input change). The calibration store's picker actions (import/select/delete) are here.
 
 import { useCallback, useEffect, useState } from 'react'
-import { failedOpenMessage, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
+import { failedOpenMessage, isPermissionError, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
 import type { InputLevel } from '../audio/inputLevel'
 import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 import type { Spectrum } from '../dsp/guitarFFT'
@@ -140,9 +140,8 @@ export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineMod
       syncDeviceState()
       setRunning(true)
     } catch (e) {
-      const denied = e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError')
       setError(e instanceof Error ? e.message : String(e))
-      setErrorKind(denied ? 'permission' : 'engine')
+      setErrorKind(isPermissionError(e) ? 'permission' : 'engine')
     }
   }, [analyzer, engine, syncDeviceState])
 

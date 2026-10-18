@@ -1,6 +1,7 @@
 // @parity audio/realtime-analyzer
 import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, watchdogDecision } from './deadInput'
 import { InputLevel } from './inputLevel'
+import { SystemWallClock, type WallClock } from '../state/wallClock'
 import { GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
 import { fftInPlace } from '../dsp/fft'
@@ -101,6 +102,12 @@ interface ChunkMessage {
  * Setup defines the actual capture rate). Mirrors Swift `TapToneAnalyzer` / Python
  * `tap_tone_analyzer`.
  */
+/** Whether a start error is a microphone permission refusal: the browser's `NotAllowedError` or
+ *  `SecurityError`. Mirrors Swift `RealtimeFFTAnalyzer.isPermissionError` and Python `is_permission_error`. */
+export function isPermissionError(error: unknown): boolean {
+  return error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError')
+}
+
 export class RealtimeFFTAnalyzer {
   private context: AudioContext | null = null
   private node: AudioWorkletNode | null = null
@@ -113,6 +120,9 @@ export class RealtimeFFTAnalyzer {
   private readonly inputChangedEvent = new EngineEvent<[string | null]>()
   private readonly inputOpenFailedEvent = new EngineEvent<[string]>()
   private readonly inputAppearsDeadEvent = new EngineEvent<[boolean]>()
+  private readonly inputCouldNotRestartEvent = new EngineEvent<[boolean]>()
+  private readonly microphonePermissionDeniedEvent = new EngineEvent<[boolean]>()
+  private readonly inputCouldNotStartEvent = new EngineEvent<[boolean]>()
 
   /** Every pipeline chunk, with its level and audio-clock value. The TapToneAnalyzer owns the pre-roll,
    *  the detector and the capture window (Swift's split), so this is the whole seam between the device
@@ -146,6 +156,18 @@ export class RealtimeFFTAnalyzer {
   /** The input delivers chunks carrying no signal (true), or delivers signal again (false). */
   onInputAppearsDead(listener: (dead: boolean) => void): () => void {
     return this.inputAppearsDeadEvent.on(listener)
+  }
+  /** A start failed for anything but the permission (true), or a start succeeded since (false). */
+  onInputCouldNotStart(listener: (failed: boolean) => void): () => void {
+    return this.inputCouldNotStartEvent.on(listener)
+  }
+  /** The microphone permission is refused (true), or no longer (false). */
+  onMicrophonePermissionDenied(listener: (denied: boolean) => void): () => void {
+    return this.microphonePermissionDeniedEvent.on(listener)
+  }
+  /** The recovery gave up after restarts that failed (true), or that has cleared (false). */
+  onInputCouldNotRestart(listener: (failed: boolean) => void): () => void {
+    return this.inputCouldNotRestartEvent.on(listener)
   }
 
   /** Whether the engine should be running: set by `start`, cleared by `stop`. A start checks it after
@@ -335,6 +357,12 @@ export class RealtimeFFTAnalyzer {
   // Recovers from a silently-starved mic stream: the worklet stops posting chunks with
   // no error (the active track ends/mutes, the OS reconfigures the device, another app
   // takes it). A timer detects the silence and re-acquires the stream with bounded backoff.
+  /** The wall clock the watchdog reads its times from and schedules its restart on — the system's in
+   *  the app, one moved by hand in a test. Mirrors Swift `wallClock`. */
+  wallClock: WallClock = new SystemWallClock()
+  /** The recovery's restart. Null re-acquires the input; a test stands in for it. Mirrors Swift
+   *  `watchdogRestart`. */
+  watchdogRestart: (() => Promise<void>) | null = null
   private lastChunkTime = 0
   private watchdogTimer: ReturnType<typeof setInterval> | null = null
   private engineStartTime = 0
@@ -367,6 +395,19 @@ export class RealtimeFFTAnalyzer {
    *  rather than only auto-healed: a device-level failure cannot be fixed by
    *  re-acquiring the stream, so recovery exhausts its attempts and stops. */
   inputAppearsDead = false
+  /** True once the recovery has given up after restarts that failed: the input could not be opened
+   *  again. Surfaced in the status line, above the dead-input warning; cleared by a deliberate start or
+   *  by signal returning. Mirrors Swift `inputCouldNotRestart` and Python `input_could_not_restart`. */
+  inputCouldNotRestart = false
+  /** True while the microphone permission is refused: set by a start the browser refuses
+   *  (`NotAllowedError` / `SecurityError`); cleared by a start that succeeds and by a healthy watchdog
+   *  tick. Mirrors Swift `microphonePermissionDenied` and Python `microphone_permission_denied`. */
+  microphonePermissionDenied = false
+  /** True once a start has failed for anything but the permission: the input is unavailable until a
+   *  start succeeds. Mirrors Swift `inputCouldNotStart` and Python `input_could_not_start`. */
+  inputCouldNotStart = false
+  /** Whether the last start or restart failed. Mirrors Swift `engineStartFailed`. */
+  private engineStartFailed = false
 
   // Live-FFT performance (30-frame moving average), for the Metrics panel.
   private readonly procTimes: number[] = []
@@ -688,9 +729,21 @@ export class RealtimeFFTAnalyzer {
     this.wantRunning = true
     if (this.starting) return this.starting
     if (this.context) return
-    this.starting = this.startInput().finally(() => {
-      this.starting = null
-    })
+    this.starting = this.startInput()
+      .then(
+        () => {
+          this.setMicrophonePermissionDenied(false)
+          this.setInputCouldNotStart(false)
+        },
+        (e: unknown) => {
+          if (isPermissionError(e)) this.setMicrophonePermissionDenied(true)
+          else this.setInputCouldNotStart(true)
+          throw e
+        },
+      )
+      .finally(() => {
+        this.starting = null
+      })
     return this.starting
   }
 
@@ -763,21 +816,62 @@ export class RealtimeFFTAnalyzer {
     if (await this.withdrawn()) return
     navigator.mediaDevices.addEventListener('devicechange', this.handleDeviceChange)
 
+    this.engineStartFailed = false
     this.startBufferWatchdog()
   }
 
   // ── Buffer-delivery watchdog ────────────────────────────────────────────────
-  // @parity audio/buffer-watchdog
+  // @parity audio/buffer-watchdog tests=test/buffer-watchdog
   // Detects a silently-starved mic stream (worklet stops posting chunks, no error)
   // and re-acquires the input with bounded backoff. Mirrors Swift/Python.
 
-  private startBufferWatchdog(): void {
+  /** (Re)start the watchdog: stamp its clocks from the wall clock, give a deliberate start a clean
+   *  slate, and start the 1 Hz tick. Called by a start and by a recovery's successful restart. Mirrors
+   *  Swift `startBufferWatchdog(isRecovery:)` and Python `start_buffer_watchdog(is_watchdog_recovery)`. */
+  startBufferWatchdog(isRecovery = false): void {
     this.stopBufferWatchdog()
-    this.engineStartTime = performance.now()
-    this.lastChunkTime = performance.now()
-    this.lastSignalTime = performance.now() // measure the no-signal window from the start
-    this.watchdogRecoveryExhausted = false  // a deliberate (re)start gets full attempts again
+    this.engineStartTime = this.nowMs()
+    this.lastChunkTime = this.nowMs()
+    // Prime the dead-input clock too, so its window is measured from the start — but ONLY for a start
+    // the user asked for. A recovery must not stamp it: lastSignalTime means "signal was last
+    // OBSERVED", and a restart observes nothing. Stamping it would make the next tick read 'healthy',
+    // clearing the warning and the attempt streak, while the clean slate below cleared the given-up
+    // latch — so a permanently silent input (a BlackHole 2ch virtual input, say) would never reach
+    // 'deadInputExhausted' and would be re-acquired every 15 s forever, strobing the warning.
+    if (!isRecovery) {
+      this.lastSignalTime = this.nowMs()
+      // A deliberate (re)start gets a clean slate: full recovery attempts again.
+      this.watchdogRecoveryExhausted = false
+      this.recoveryAttempts = 0
+      this.setInputCouldNotRestart(false)
+    }
     this.watchdogTimer = setInterval(() => this.checkBufferWatchdog(), 1000)
+  }
+
+  /** The wall clock's time in milliseconds, the unit the watchdog keeps its times in. */
+  private nowMs(): number {
+    return this.wallClock.now() * 1000
+  }
+
+  /** Edge-triggered could-not-start state change, forwarded to the UI. */
+  private setInputCouldNotStart(failed: boolean): void {
+    if (this.inputCouldNotStart === failed) return
+    this.inputCouldNotStart = failed
+    this.inputCouldNotStartEvent.emit(failed)
+  }
+
+  /** Edge-triggered microphone-permission state change, forwarded to the UI. */
+  private setMicrophonePermissionDenied(denied: boolean): void {
+    if (this.microphonePermissionDenied === denied) return
+    this.microphonePermissionDenied = denied
+    this.microphonePermissionDeniedEvent.emit(denied)
+  }
+
+  /** Edge-triggered could-not-restart state change, forwarded to the UI. */
+  private setInputCouldNotRestart(failed: boolean): void {
+    if (this.inputCouldNotRestart === failed) return
+    this.inputCouldNotRestart = failed
+    this.inputCouldNotRestartEvent.emit(failed)
   }
 
   /** Edge-triggered dead-input state change, forwarded to the UI. */
@@ -794,12 +888,13 @@ export class RealtimeFFTAnalyzer {
     }
   }
 
-  private checkBufferWatchdog(): void {
+  /** One watchdog tick — run every second by the timer, and by a test. */
+  checkBufferWatchdog(): void {
     // Only watch a live, running mic context (a suspended context — backgrounded tab —
     // legitimately delivers no chunks and must not be "recovered").
     if (!this.context || this.context.state !== 'running' || this.playingFile || this.isRecovering) return
-    if (performance.now() - this.engineStartTime <= 4000) return // startup grace
-    const now = performance.now()
+    const now = this.nowMs()
+    if (now - this.engineStartTime <= 4000) return // startup grace
 
     // The rule itself lives in deadInput.ts as a pure function, so the whole truth
     // table is unit-testable without an AudioContext. This tick only carries out the
@@ -837,6 +932,9 @@ export class RealtimeFFTAnalyzer {
         // Signal is flowing again. Clear the warning, the recovery streak and the
         // exhausted latch, so a later failure gets a full set of attempts.
         this.setInputAppearsDead(false)
+        this.setInputCouldNotRestart(false)
+        // Real audio falsifies any earlier "permission denied" determination. Mirrors Swift.
+        this.setMicrophonePermissionDenied(false)
         if (this.watchdogRecoveryExhausted) {
           console.warn('[engine] audio input returned — dead-input warning cleared, recovery re-armed')
           this.watchdogRecoveryExhausted = false
@@ -857,34 +955,56 @@ export class RealtimeFFTAnalyzer {
       console.error(`[engine] buffer watchdog: gave up on re-acquiring after ${this.watchdogMaxAttempts} attempts — still watching; will clear as soon as audio returns`)
       this.isRecovering = false
       this.watchdogRecoveryExhausted = true
+      // The last restart failed, so the stream is closed: say so, and re-arm the watchdog, so it keeps
+      // watching — the dead-input warning follows, and signal returning clears both.
+      if (this.engineStartFailed) {
+        this.setInputCouldNotRestart(true)
+        this.startBufferWatchdog(true)
+      }
       return
     }
     const backoff = this.watchdogBackoffsMs[Math.min(this.recoveryAttempts - 1, this.watchdogBackoffsMs.length - 1)]!
-    await new Promise((r) => setTimeout(r, backoff))
+    console.warn(`[engine] buffer watchdog: recovery attempt ${this.recoveryAttempts}/${this.watchdogMaxAttempts} in ${backoff} ms`)
+    // Close the stream now, as Swift's recovery stops the engine and Python's closes its stream when
+    // they schedule the restart; the restart opens the input again.
+    this.closeStreamOnly()
+    this.wallClock.after(backoff / 1000, () => void this.doWatchdogRestart())
+  }
+
+  /** The recovery's restart, after its backoff: re-acquire the input, then re-arm the watchdog; a
+   *  restart that fails retries at once, bounded by the attempts. Mirrors Python `_do_watchdog_restart`
+   *  and the restart in Swift's `attemptWatchdogRecovery`. */
+  private async doWatchdogRestart(): Promise<void> {
     try {
-      // Re-acquire the current input (exact device, else default) and reconnect the
-      // source to the existing worklet node — the context/worklet survive.
-      const reacquired = await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId)
-      if (reacquired !== this.inputDeviceId) this.selectInput(reacquired) // it fell back to the default
-      this.lastChunkTime = performance.now() // give the fresh stream a grace window
-      // NOT lastSignalTime: it means "signal was last OBSERVED", and re-acquiring a stream observes
-      // nothing. Stamping it here would make the next tick read 'healthy', clearing the warning and
-      // resetting the attempt streak, so a permanently silent input (a BlackHole 2ch virtual input,
-      // say) would never reach 'deadInputExhausted' and would be re-acquired every 15 s forever,
-      // strobing the warning. Only a chunk that carries signal moves this stamp (see the onAudioFrame
-      // path). Mirrors Swift
-      // start(isWatchdogRecovery:) and Python start_buffer_watchdog(is_watchdog_recovery=True).
-      this.engineStartTime = performance.now()
+      await (this.watchdogRestart ?? (() => this.reacquireInput()))()
+      this.engineStartFailed = false
       console.warn('[engine] buffer watchdog: input re-acquired')
       this.isRecovering = false
+      this.startBufferWatchdog(true) // re-arm; only REAL signal clears the streak
     } catch (e) {
       console.warn('[engine] buffer watchdog: re-acquire failed, retrying', e)
+      this.engineStartFailed = true
       void this.attemptWatchdogRecovery() // bounded retry
     }
   }
 
+  /** Re-acquire the current input (exact device, else default) and connect it to the existing worklet
+   *  node — the context and worklet survive. */
+  private async reacquireInput(): Promise<void> {
+    const reacquired = await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId)
+    if (reacquired !== this.inputDeviceId) this.selectInput(reacquired) // it fell back to the default
+  }
+
+  /** Disconnect and stop the input stream, keeping the context and worklet. */
+  private closeStreamOnly(): void {
+    this.source?.disconnect()
+    this.source = null
+    this.stream?.getTracks().forEach((t) => t.stop())
+    this.stream = null
+  }
+
   private onChunk(data: ChunkMessage): void {
-    const now = performance.now()
+    const now = this.nowMs()
     this.lastChunkTime = now // watchdog liveness stamp (the mic worklet is alive)
     // Dead-input stamp: reuses the rms the worklet already computed, so this costs
     // nothing. A dead track feeds exact zeros, giving rms 0.
@@ -913,11 +1033,11 @@ export class RealtimeFFTAnalyzer {
     track.onmute = () => {
       console.warn('[engine] input track muted — silence until it unmutes; dead-input watchdog is armed')
       // Leave most of the window intact so a transient mute self-resolves.
-      this.lastSignalTime = Math.min(this.lastSignalTime, performance.now() - this.watchdogDeadInputMs / 2)
+      this.lastSignalTime = Math.min(this.lastSignalTime, this.nowMs() - this.watchdogDeadInputMs / 2)
     }
     track.onunmute = () => {
       console.warn('[engine] input track unmuted')
-      this.lastSignalTime = performance.now()
+      this.lastSignalTime = this.nowMs()
     }
   }
 

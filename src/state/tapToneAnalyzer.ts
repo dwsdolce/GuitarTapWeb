@@ -81,6 +81,15 @@ const CLIPPING_WARNING = '⚠ Input clipping — reduce mic gain'
 /** Shown while the input delivers buffers that carry no signal. Outranks the clipping warning.
  *  Mirrors Swift `TapToneAnalyzer.deadInputStatus` / Python `DEAD_INPUT_STATUS`. */
 const DEAD_INPUT_WARNING = '⚠ No audio input — check the microphone connection'
+/** Shown once the recovery has given up after restarts that failed. Outranks every other input warning.
+ *  Mirrors Swift `TapToneAnalyzer.couldNotRestartStatus` / Python `COULD_NOT_RESTART_STATUS`. */
+const COULD_NOT_RESTART_WARNING = '⚠ The microphone could not be restarted — check its connection, or choose it again in Settings'
+/** Shown while the microphone permission is refused. Outranks every other input warning. Mirrors Swift
+ *  `TapToneAnalyzer.microphoneAccessStatus` / Python `MICROPHONE_ACCESS_STATUS`. */
+export const MICROPHONE_ACCESS_WARNING = '⚠ Microphone access required — enable it in Settings, then reload the page'
+/** Shown while the input could not be started. Ranks just below the permission warning. Mirrors Swift
+ *  `TapToneAnalyzer.couldNotStartStatus` / Python `COULD_NOT_START_STATUS`. */
+const COULD_NOT_START_WARNING = '⚠ The audio input could not be started — check it, or choose another input in Settings'
 
 /** A material phase peak's frequency, 1 dp, or '?' when none — for the status-bar review/complete strings. */
 const fHz = (p: { frequency: number } | null): string => (p ? FieldPrecision.string(p.frequency, FieldPrecision.peakFrequencyHz) : '?')
@@ -772,6 +781,9 @@ export class TapToneAnalyzer {
   private isClipping = false
   /** Input delivering chunks that carry no signal — outranks clipping in the status override. */
   private inputAppearsDead = false
+  private inputCouldNotRestart = false
+  private microphonePermissionDenied = false
+  private inputCouldNotStart = false
   /** The file name of the last capture audio handed to the browser as a download; null when none
    *  is shown. */
   private captureAudioSaved: string | null = null
@@ -1970,6 +1982,9 @@ export class TapToneAnalyzer {
         // The dead-input watchdog's verdict → the "no audio input" status (Swift `$inputAppearsDead`
         // sink / Python `inputAppearsDeadChanged` → `_set_input_appears_dead`).
         device.onInputAppearsDead((dead) => this.setInputAppearsDead(dead)),
+        device.onInputCouldNotRestart((failed) => this.setInputCouldNotRestart(failed)),
+        device.onMicrophonePermissionDenied((denied) => this.setMicrophonePermissionDenied(denied)),
+        device.onInputCouldNotStart((failed) => this.setInputCouldNotStart(failed)),
         // The hardware changed the input → the route-change settle.
         device.onInputChanged(() => this.handleRouteChangeRestart()),
       ]
@@ -3690,6 +3705,7 @@ export class TapToneAnalyzer {
         statusMessage: this.statusMessage,
         isClipping: this.isClipping,
         inputAppearsDead: this.inputAppearsDead,
+        inputUnavailable: this.microphonePermissionDenied || this.inputCouldNotStart,
         captureAudioSaved: this.captureAudioSaved,
         materialPeaksFromLoad: this.materialPeaksFromLoad,
         sequenceStarts: this.sequenceStarts,
@@ -3873,13 +3889,20 @@ export class TapToneAnalyzer {
 
   /** Resolves the displayed status against the active input-condition overrides.
    *
-   *  One place decides precedence — dead input, then clipping, then whatever the analyzer last set
-   *  — so the two overrides cannot fight each other or leave a stale warning on screen after its
+   *  One place decides precedence — the microphone permission refused, then an input that could not
+   *  be started, then one that could not be restarted, then dead input, then
+   *  clipping, then whatever the analyzer last set — so the overrides cannot fight each other or leave a stale warning on screen after its
    *  condition clears. Dead input outranks clipping: a dead input cannot also be clipping, and "no
    *  audio" is the more actionable message. Mirrors Swift `applyStatusOverrides()` and Python
    *  `_apply_status_overrides()`. */
   private applyStatusOverrides(): void {
-    this.statusMessage = this.inputAppearsDead
+    this.statusMessage = this.microphonePermissionDenied
+      ? MICROPHONE_ACCESS_WARNING
+      : this.inputCouldNotStart
+      ? COULD_NOT_START_WARNING
+      : this.inputCouldNotRestart
+      ? COULD_NOT_RESTART_WARNING
+      : this.inputAppearsDead
       ? DEAD_INPUT_WARNING
       : this.isClipping
         ? CLIPPING_WARNING
@@ -3901,6 +3924,36 @@ export class TapToneAnalyzer {
   setInputAppearsDead(dead: boolean): void {
     if (dead === this.inputAppearsDead) return
     this.inputAppearsDead = dead
+    this.applyStatusOverrides()
+    this.notify()
+  }
+
+  /** The device forwards a start failing for anything but the permission here (Swift
+   *  `fftAnalyzer.$inputCouldNotStart` sink / Python `_set_input_could_not_start`). Raises its warning
+   *  over the status, just below the permission's, and restores the status when it clears. */
+  setInputCouldNotStart(failed: boolean): void {
+    if (failed === this.inputCouldNotStart) return
+    this.inputCouldNotStart = failed
+    this.applyStatusOverrides()
+    this.notify()
+  }
+
+  /** The device forwards the microphone permission being refused here (Swift
+   *  `fftAnalyzer.$microphonePermissionDenied` sink / Python `_set_microphone_permission_denied`). Raises
+   *  its warning over the status, above every other, and restores the status when it clears. */
+  setMicrophonePermissionDenied(denied: boolean): void {
+    if (denied === this.microphonePermissionDenied) return
+    this.microphonePermissionDenied = denied
+    this.applyStatusOverrides()
+    this.notify()
+  }
+
+  /** The device forwards its recovery giving up after failed restarts here (Swift
+   *  `fftAnalyzer.$inputCouldNotRestart` sink / Python `_set_input_could_not_restart`). Raises its warning
+   *  over the status, above the dead input, and restores the status when it clears. */
+  setInputCouldNotRestart(failed: boolean): void {
+    if (failed === this.inputCouldNotRestart) return
+    this.inputCouldNotRestart = failed
     this.applyStatusOverrides()
     this.notify()
   }
@@ -4207,6 +4260,9 @@ export interface TapToneSnapshot {
   isClipping: boolean
   /** Input delivering chunks with no signal — the dead-input watchdog's user-visible state. */
   inputAppearsDead: boolean
+  /** The engine is not running because its input is unavailable — the permission refused, or a start
+   *  failed — rather than because it is starting. Swift `fft.inputUnavailable`. */
+  inputUnavailable: boolean
   /** The file name of the last capture audio handed to the browser as a download (Dump Capture
    *  Audio), for the "saved" notice; null when none is shown. A new sequence clears it. */
   captureAudioSaved: string | null

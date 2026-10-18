@@ -1338,13 +1338,15 @@ export default function App() {
             <span className="sb-sep sb-right">•</span>
           </>
         )}
-        {running && (
-          <span className="sb-peak">
-            {metrics.peakFrequency != null && metrics.peakMagnitude != null
+        <span className="sb-peak">
+          {!running
+            ? snapshot.inputUnavailable
+              ? 'Audio input unavailable'
+              : 'Starting...'
+            : metrics.peakFrequency != null && metrics.peakMagnitude != null
               ? `Peak: ${FieldPrecision.string(metrics.peakMagnitude, FieldPrecision.peakMagnitudeDB)} dB @ ${FieldPrecision.string(metrics.peakFrequency, FieldPrecision.peakFrequencyHz)} Hz`
               : 'Starting...'}
-          </span>
-        )}
+        </span>
         <span className={`sb-active-dot${sbDetecting ? ' on' : ''}`} />
         <span className={`sb-msg${sbDetecting ? '' : ' idle'}`}>{snapshot.statusMessage}</span>
         {sbProgress && <span className="sb-progress">{sbProgress}</span>}
@@ -1369,14 +1371,16 @@ export default function App() {
               ? 'Error'
               : 'Audio Engine Error'
             const message = permission
-              ? 'GuitarTap needs microphone access to analyse tap tones. Please allow microphone access for this site in your browser settings, then retry.'
+              ? 'GuitarTap needs microphone access to analyse tap tones. Please allow microphone access for this site in your browser settings, then reload the page.'
               : error
             const buttons =
-              errorKind === 'other' || errorKind === 'microphone' || errorKind === 'export'
+              // A permission granted while the page is open takes effect when it is reloaded, so the
+              // permission alert has OK alone, as the natives' have Open Settings and Cancel.
+              permission || errorKind === 'other' || errorKind === 'microphone' || errorKind === 'export'
                 ? [{ label: 'OK', primary: true, onClick: () => setError(null) }]
                 : [
                     { label: 'Retry', primary: true, onClick: () => { setError(null); void retry() } },
-                    { label: permission ? 'Cancel' : 'OK', onClick: () => setError(null) },
+                    { label: 'OK', onClick: () => setError(null) },
                   ]
             return <AlertModal title={title} message={message} buttons={buttons} onDismiss={() => setError(null)} />
           })()
