@@ -102,3 +102,90 @@ describe('buffer-watchdog — the shared cases (buffer-watchdog.json)', () => {
     })
   }
 })
+
+// Web only: the browser may not report an input coming back once nothing is capturing (Chrome on Linux
+// did not), so while the input could not be restarted the tick asks the browser for an input every 5 s
+// and reopens it — where the natives hear of the device from the system.
+describe('buffer-watchdog — the input coming back after failed restarts (web)', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }))
+  afterEach(() => vi.useRealTimers())
+
+  /** An engine whose restarts failed until the recovery gave up (as BW7), at 30 s. */
+  async function givenUp() {
+    const clock = new ManualWallClock()
+    const engine = new RealtimeFFTAnalyzer()
+    const internal = engine as unknown as Internals
+    engine.wallClock = clock
+    let opens = 0
+    let openable = false
+    engine.watchdogRestart = async () => {
+      opens += 1
+      if (!openable) throw new Error('no input')
+    }
+    let available = false
+    engine.inputAvailable = async () => available
+    internal.context = { state: 'running' }
+    engine.startBufferWatchdog()
+    // While an input is available it delivers chunks carrying signal, as a reopened input does.
+    const run = async (seconds: number) => {
+      for (let i = 0; i < seconds / STEP; i++) {
+        clock.advance(STEP)
+        await settle()
+        if (available) internal.lastChunkTime = internal.lastSignalTime = clock.now() * 1000
+        if (clock.now() % 1 === 0) engine.checkBufferWatchdog()
+        await settle()
+      }
+    }
+    await run(30)
+    expect(engine.inputCouldNotRestart, 'precondition: could not be restarted').toBe(true)
+    const opensAtGiveUp = opens
+    return {
+      engine, internal, run,
+      setAvailable: (v: boolean) => { available = v; openable = v },
+      opensSince: () => opens - opensAtGiveUp,
+    }
+  }
+
+  it('no input listed: nothing is opened, and the warning stays', async () => {
+    const t = await givenUp()
+    await t.run(12)
+    expect(t.opensSince()).toBe(0)
+    expect(t.engine.inputCouldNotRestart).toBe(true)
+  })
+
+  it('an input listed again: reopened within 5 s, with a clean slate', async () => {
+    const t = await givenUp()
+    t.setAvailable(true)
+    await t.run(6)
+    expect(t.opensSince()).toBe(1)
+    expect(t.engine.inputCouldNotRestart).toBe(false)
+    expect(t.internal.watchdogRecoveryExhausted).toBe(false)
+    expect(t.internal.recoveryAttempts).toBe(0)
+  })
+})
+
+describe("the input behind Chrome's default alias (web)", () => {
+  const real = (deviceId: string, label: string, groupId: string) => ({ kind: 'audioinput', deviceId, label, groupId })
+  async function resolve(id: string | null, devices: object[]) {
+    vi.stubGlobal('navigator', { mediaDevices: { enumerateDevices: async () => devices } })
+    try {
+      return await (new RealtimeFFTAnalyzer() as unknown as { realDeviceId(id: string | null): Promise<string | null> }).realDeviceId(id)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  }
+
+  it('"default" is the device its label names', async () => {
+    const devices = [real('default', 'Default - UMIK-1', 'g2'), real('a1', 'MacBook Pro Microphone', 'g1'), real('u1', 'UMIK-1', 'g2')]
+    expect(await resolve('default', devices)).toBe('u1')
+  })
+
+  it('without a matching label, the device sharing its group', async () => {
+    const devices = [real('default', 'Default', 'g1'), real('a1', 'Built-in Audio Analog Stereo', 'g1')]
+    expect(await resolve('default', devices)).toBe('a1')
+  })
+
+  it('a real id is kept as it is', async () => {
+    expect(await resolve('u1', [real('u1', 'UMIK-1', 'g2')])).toBe('u1')
+  })
+})

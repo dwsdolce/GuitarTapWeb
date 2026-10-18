@@ -174,6 +174,29 @@ describe('the engine: what is selected, and what is saved', () => {
     expect(getSavedInputDeviceId()).toBe(BUILT_IN)
   })
 
+  it('MS26 (web): the only input gone and back — the list was empty, so the saved input is opened again, as Swift selects the input to use for a first list', async () => {
+    const engine = await makeSUT(UMIK, [UMIK], UMIK)
+    media.defaultId = ''
+    await devicesChange(engine, [])
+    const opened: string[] = []
+    const real = navigator.mediaDevices.getUserMedia
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        enumerateDevices,
+        getUserMedia: async (c: MediaStreamConstraints) => {
+          const stream = await real(c)
+          opened.push(stream.getAudioTracks()[0]!.getSettings().deviceId!)
+          return stream
+        },
+      },
+    })
+    media.defaultId = UMIK
+    await devicesChange(engine, [UMIK])
+    expect(opened).toEqual([UMIK])
+    expect(engine.inputDeviceId).toBe(UMIK)
+    expect(getSavedInputDeviceId()).toBe(UMIK)
+  })
+
   it('MS10: the input in use unplugged falls to the default, not to another connected USB mic', async () => {
     const engine = await makeSUT(USB2, [BUILT_IN, UMIK, USB2], BUILT_IN)
     expect(engine.inputDeviceId).toBe(USB2)

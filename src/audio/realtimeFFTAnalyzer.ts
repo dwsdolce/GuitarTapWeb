@@ -108,6 +108,9 @@ export function isPermissionError(error: unknown): boolean {
   return error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError')
 }
 
+/** How often the watchdog asks the browser for an input once it could not be restarted. */
+const INPUT_RECHECK_MS = 5000
+
 export class RealtimeFFTAnalyzer {
   private context: AudioContext | null = null
   private node: AudioWorkletNode | null = null
@@ -363,6 +366,14 @@ export class RealtimeFFTAnalyzer {
   /** The recovery's restart. Null re-acquires the input; a test stands in for it. Mirrors Swift
    *  `watchdogRestart`. */
   watchdogRestart: (() => Promise<void>) | null = null
+  /** Whether the browser now lists a real input. A test stands in for it. */
+  inputAvailable: () => Promise<boolean> = async () =>
+    (await navigator.mediaDevices.enumerateDevices()).some(
+      (d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications',
+    )
+  /** When the tick last asked the browser for an input, while the input could not be restarted. */
+  private lastInputCheckMs = 0
+  private reopeningInput = false
   private lastChunkTime = 0
   private watchdogTimer: ReturnType<typeof setInterval> | null = null
   private engineStartTime = 0
@@ -595,6 +606,20 @@ export class RealtimeFFTAnalyzer {
       .map((d) => ({ deviceId: d.deviceId, label: d.label.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '') }))
   }
 
+  /** The real input behind one of Chrome's "default" / "communications" aliases — the listed device
+   *  whose label the alias carries ("Default - X" is X), else the one sharing its groupId — so the
+   *  selection, and what is saved, is always a real device, as Swift's and Python's selection is (their
+   *  system default resolves to the device itself). Any other id is returned as it is. */
+  private async realDeviceId(deviceId: string | null): Promise<string | null> {
+    if (deviceId !== 'default' && deviceId !== 'communications') return deviceId
+    const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput')
+    const alias = devices.find((d) => d.deviceId === deviceId)
+    if (!alias) return deviceId
+    const real = devices.filter((d) => d.deviceId !== 'default' && d.deviceId !== 'communications')
+    const name = alias.label.replace(/^(Default|Communications)\s*-\s*/i, '')
+    return (real.find((d) => d.label === name) ?? real.find((d) => d.groupId === alias.groupId))?.deviceId ?? deviceId
+  }
+
   /** Swap the live source to `stream`, keeping the same AudioContext/worklet (so the sample rate
    *  and DSP state survive). Updates the label and settings from the new track and returns its
    *  deviceId; selecting the input is selectInput's. */
@@ -697,6 +722,23 @@ export class RealtimeFFTAnalyzer {
     const prev = this.availableInputDevices.map((d) => d.deviceId)
     await this.refreshAvailableInputDevices()
     const ids = this.availableInputDevices.map((d) => d.deviceId)
+    if (!prev.length && ids.length && !this.isRecovering) {
+      // The list was empty — no input until now: select the input to use, the saved one if it is listed,
+      // else the default, and open it, as Swift's applyInputDeviceList does for a first list. A start, so
+      // the watchdog gets its clean slate. (While a recovery is under way its own restart opens it.)
+      const saved = getSavedInputDeviceId()
+      const id = saved && ids.includes(saved) ? saved : null
+      console.info(`[engine] 🎤 An input is available again — opening ${id ? `'${this.labelOf(id)}'` : 'the default input'}`)
+      try {
+        this.selectInput(await this.realDeviceId(await this.applyStream(await this.acquireStream(id), id)))
+      } catch {
+        return /* not openable: the watchdog's check tries again */
+      }
+      this.engineStartFailed = false
+      this.startBufferWatchdog()
+      this.inputChangedEvent.emit(this.inputDeviceId)
+      return
+    }
     const attached = ids.find((id) => !prev.includes(id))
     if (prev.length && attached) {
       console.info(`[engine] 🎤 New device connected: '${this.labelOf(attached)}'`)
@@ -714,7 +756,7 @@ export class RealtimeFFTAnalyzer {
     if (!this.inputDeviceId || ids.includes(this.inputDeviceId)) return // the selected input is unaffected
     console.info(`[engine] 🎤 The input in use (id ${this.inputDeviceId}) disconnected — switching to the default input`)
     try {
-      this.selectInput(await this.applyStream(await this.acquireStream(null)))
+      this.selectInput(await this.realDeviceId(await this.applyStream(await this.acquireStream(null))))
     } catch {
       return /* mic fully unavailable */
     }
@@ -811,7 +853,7 @@ export class RealtimeFFTAnalyzer {
 
     // The input is selected (its calibration loads); list the inputs as the baseline for hot-plug
     // changes, and watch for them (attach → select and save, unplug → fall back).
-    this.selectInput(track.getSettings().deviceId ?? null)
+    this.selectInput(await this.realDeviceId(track.getSettings().deviceId ?? null))
     await this.refreshAvailableInputDevices()
     if (await this.withdrawn()) return
     navigator.mediaDevices.addEventListener('devicechange', this.handleDeviceChange)
@@ -894,6 +936,13 @@ export class RealtimeFFTAnalyzer {
     // legitimately delivers no chunks and must not be "recovered").
     if (!this.context || this.context.state !== 'running' || this.playingFile || this.isRecovering) return
     const now = this.nowMs()
+    // Given up after restarts that failed: the browser may not report the input coming back (Chrome did
+    // not, on Linux, once nothing was capturing), so ask it every few seconds and reopen the input as
+    // soon as one is there. The natives hear of the device from the system.
+    if (this.inputCouldNotRestart && now - this.lastInputCheckMs >= INPUT_RECHECK_MS) {
+      this.lastInputCheckMs = now
+      void this.reopenIfInputAvailable()
+    }
     if (now - this.engineStartTime <= 4000) return // startup grace
 
     // The rule itself lives in deadInput.ts as a pure function, so the whole truth
@@ -988,10 +1037,29 @@ export class RealtimeFFTAnalyzer {
     }
   }
 
+  /** The input could not be restarted: if the browser lists an input now, reopen it and give the watchdog
+   *  a deliberate start's clean slate — the warnings, the given-up latch and the count clear. Still not
+   *  there, or not openable: the next check tries again. */
+  private async reopenIfInputAvailable(): Promise<void> {
+    if (this.reopeningInput) return
+    this.reopeningInput = true
+    try {
+      if (!(await this.inputAvailable())) return
+      await (this.watchdogRestart ?? (() => this.reacquireInput()))()
+      console.warn('[engine] buffer watchdog: an input is available again — reopened')
+      this.engineStartFailed = false
+      this.startBufferWatchdog()
+    } catch {
+      /* not openable yet */
+    } finally {
+      this.reopeningInput = false
+    }
+  }
+
   /** Re-acquire the current input (exact device, else default) and connect it to the existing worklet
    *  node — the context and worklet survive. */
   private async reacquireInput(): Promise<void> {
-    const reacquired = await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId)
+    const reacquired = await this.realDeviceId(await this.applyStream(await this.acquireStream(this.inputDeviceId), this.inputDeviceId))
     if (reacquired !== this.inputDeviceId) this.selectInput(reacquired) // it fell back to the default
   }
 
