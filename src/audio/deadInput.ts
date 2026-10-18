@@ -1,5 +1,6 @@
-// @parity dead-input — mirrors Swift GuitarTap/Models/DeadInput.swift and Python
-// models/dead_input.py.
+// @parity audio/dead-input tests=test/dead-input-threshold
+//
+// Mirrors Swift GuitarTap/Models/DeadInput.swift and Python models/dead_input.py.
 //
 // The audio-liveness DECISIONS live here, apart from the engine, so they can be tested
 // without an AudioContext. The behaviour is otherwise gated on a timer and a live

@@ -1,4 +1,4 @@
-// @parity models/capture-probe
+// @parity util/capture-probe
 /**
  * Diagnostic for where the editions' captured tap buffers diverge.
  *

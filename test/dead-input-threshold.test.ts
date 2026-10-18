@@ -1,5 +1,7 @@
-// @parity dead-input — paired with Swift GuitarTapTests/DeadInputThresholdTests.swift
-// and Python tests/test_dead_input_threshold.py. All three pin the SAME table.
+// @parity test/dead-input-threshold
+//
+// Paired with Swift GuitarTapTests/DeadInputThresholdTests.swift and Python
+// tests/test_dead_input_threshold.py. All three pin the SAME table.
 //
 // Why these exist: the threshold is a FIELD CALIBRATION, not a derivation. Set it too
 // low and a genuinely dead stream (measured at ~-100 dBFS, NOT digital zero) is never
