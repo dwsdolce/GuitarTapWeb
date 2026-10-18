@@ -9,8 +9,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer, type CapturedTap } from '../src/state/tapToneAnalyzer'
 import { parseGuitarTapFile } from '../src/measurement'
-import { SettingsStore } from '../src/settingsStore'
-import { DEFAULT_SETTINGS } from '../src/settings'
+import { settingsStore } from '../src/settingsStore'
 
 type Step = {
   numberOfTaps?: number
@@ -38,9 +37,9 @@ function capturedTap(peakDB: number): CapturedTap {
 
 describe('measurement-complete — the shared cases (measurement-complete.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const store = new SettingsStore({ ...DEFAULT_SETTINGS, measurementType: 'classical', tapDetectionThreshold: -40 })
+    settingsStore.update({ measurementType: 'classical' })
     const a = new TapToneAnalyzer()
-    a.attachSettingsStore(store)
+    a.tapDetectionThreshold = -40
     a.setNumberOfTaps(1)
     for (const step of c.steps) {
       if (step.numberOfTaps !== undefined) a.setNumberOfTaps(step.numberOfTaps)
@@ -51,7 +50,7 @@ describe('measurement-complete — the shared cases (measurement-complete.json)'
       else if (step.load !== undefined) a.loadMeasurement(parseGuitarTapFile(JSON.stringify(DATA.files[step.load]))[0]!)
       else if (step.warning) a.showLoadedSettingsWarning = true
       else if (step.setTaps !== undefined) a.setNumberOfTaps(step.setTaps)
-      else if (step.setThreshold !== undefined) store.update({ tapDetectionThreshold: step.setThreshold })
+      else if (step.setThreshold !== undefined) a.tapDetectionThreshold = step.setThreshold
     }
     for (const [field, want] of Object.entries(c.expect)) {
       switch (field) {

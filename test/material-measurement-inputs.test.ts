@@ -8,8 +8,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { parseGuitarTapFile, MEASUREMENT_TYPE_FROM_RAW } from '../src/measurement'
-import { SettingsStore } from '../src/settingsStore'
-import { DEFAULT_SETTINGS, STIFFNESS_FROM_RAW, STIFFNESS_RAW_NAME, type Settings } from '../src/settings'
+import { settingsStore } from '../src/settingsStore'
+import { STIFFNESS_FROM_RAW, STIFFNESS_RAW_NAME, type Settings } from '../src/settings'
 import type { MaterialMeasurementInputs } from '../src/measurement/materialMeasurementInputs'
 import type { TapToneMeasurementModel } from '../src/measurement/types'
 
@@ -52,18 +52,16 @@ function measurement(step: Step): TapToneMeasurementModel {
 
 describe('material-measurement-inputs — the shared cases (material-measurement-inputs.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const store = new SettingsStore({ ...DEFAULT_SETTINGS })
     const a = new TapToneAnalyzer()
-    a.attachSettingsStore(store)
     let saved: TapToneMeasurementModel | null = null
     for (const step of c.steps) {
       if (step.settings) {
         // The type first, as a load applies it before the rest.
         if (step.settings.measurementType !== undefined) {
-          store.update(settingPatch('measurementType', step.settings.measurementType))
+          settingsStore.update(settingPatch('measurementType', step.settings.measurementType))
         }
         for (const [name, value] of Object.entries(step.settings)) {
-          if (name !== 'measurementType') store.update(settingPatch(name, value))
+          if (name !== 'measurementType') settingsStore.update(settingPatch(name, value))
         }
       }
       else if (step.complete) a.isMeasurementComplete = true
@@ -76,7 +74,7 @@ describe('material-measurement-inputs — the shared cases (material-measurement
       else if (step.save) saved = a.buildMeasurement('', '', { minHz: 50, maxHz: 300, minDb: -100, maxDb: 0 })
     }
 
-    const s = store.get()
+    const s = settingsStore.get()
     for (const [field, want] of Object.entries(c.expect)) {
       switch (field) {
         case 'inputs': {

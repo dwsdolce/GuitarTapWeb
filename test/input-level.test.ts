@@ -17,6 +17,7 @@
 import { describe, it, expect } from 'vitest'
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
+import { settingsStore } from '../src/settingsStore'
 
 /** One 0.1 s buffer at 48 kHz of a quiet 1 kHz sine: well below any detection threshold, and far
  *  short of an FFT frame (65 536 samples). */
@@ -29,7 +30,7 @@ describe('input level — a buffer is announced on the input level alone', () =>
   // else. Mirrors Swift buffer_isAnnouncedOnTheInputLevelAlone.
   it('announces a buffer on the input level, and nothing else does', async () => {
     const analyzer = new TapToneAnalyzer()
-    analyzer.measurementType = 'generic'
+    settingsStore.update({ measurementType: 'generic' })
     const engineCalls: string[] = []
     const engine = new RealtimeFFTAnalyzer()
     analyzer.setDevice(engine) // the analyzer takes each chunk

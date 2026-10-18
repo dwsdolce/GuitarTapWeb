@@ -16,6 +16,7 @@ import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { captureProbe } from '../src/state/captureProbe'
 import { waitForCompletion } from './parityRunner'
+import { settingsStore } from '../src/settingsStore'
 
 const SAMPLE_RATE = 48000
 
@@ -45,7 +46,7 @@ async function capture(samples: Float32Array, dropped: number): Promise<{ window
   captureProbe.enabled = true
   try {
     const analyzer = new TapToneAnalyzer()
-    analyzer.measurementType = 'generic'
+    settingsStore.update({ measurementType: 'generic' })
     analyzer.setNumberOfTaps(1)
     analyzer.tapDetectionThreshold = -40
     const engine = new RealtimeFFTAnalyzer()

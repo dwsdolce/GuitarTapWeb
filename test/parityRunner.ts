@@ -24,6 +24,7 @@ import { decodeWav } from '../src/dsp/wav'
 import { parseCalibration, type Calibration } from '../src/dsp/calibration'
 import { makeGatedTestSignal, gatedMagnitudeAt, type Tone } from './gatedSignal'
 import { reviveNonFinite } from './selfBaseline'
+import { settingsStore } from '../src/settingsStore'
 
 export const oracle = JSON.parse(
   readFileSync(new URL('./fixtures/parity-oracle.json', import.meta.url), 'utf8'),
@@ -88,7 +89,7 @@ export function loadCal(name: string | null): Calibration | null {
 export async function playGuitar(reg: RegCase): Promise<TapToneAnalyzer> {
   const wav = loadWav(reg.fixture)
   const analyzer = new TapToneAnalyzer()
-  analyzer.measurementType = 'generic'
+  settingsStore.update({ measurementType: 'generic' })
   analyzer.peakMinThreshold = reg.settings.peakMinThreshold!
   analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1)
   analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
@@ -112,8 +113,8 @@ export async function playGuitar(reg: RegCase): Promise<TapToneAnalyzer> {
 export async function playMaterial(reg: RegCase, brace: boolean): Promise<TapToneAnalyzer> {
   const wav = loadWav(reg.fixture)
   const analyzer = new TapToneAnalyzer()
-  analyzer.measurementType = brace ? 'brace' : 'plate'
-  analyzer.measureFlc = reg.settings.measureFlc ?? false
+  settingsStore.update({ measurementType: brace ? 'brace' : 'plate' })
+  settingsStore.update({ measureFlc: reg.settings.measureFlc ?? false })
   analyzer.setNumberOfTaps(reg.settings.numberOfTaps ?? 1) // analyzer owns the material tap count now
   analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
   const engine = new RealtimeFFTAnalyzer()

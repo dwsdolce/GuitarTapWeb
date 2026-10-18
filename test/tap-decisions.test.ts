@@ -50,10 +50,10 @@ describe('tap-decisions — the shared cases (tap-decisions.json)', () => {
   })
 
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
+    const a = makeStepsAnalyzer()
     for (const step of c.steps) {
       if (step.check) check(step.check, a)
-      else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+      else expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
     check(c.expect, a)
   })

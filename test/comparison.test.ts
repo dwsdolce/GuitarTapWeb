@@ -81,7 +81,7 @@ beforeEach(async () => {
 
 describe('comparison — the shared cases (comparison.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', async (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
+    const a = makeStepsAnalyzer()
     for (const step of c.steps) {
       if (step.compare) a.loadComparison(step.compare.map(measurement))
       else if (step.clearComparison) a.clearComparison()
@@ -90,7 +90,7 @@ describe('comparison — the shared cases (comparison.json)', () => {
       else if (step.saveComparison !== undefined) await a.saveComparison(step.saveComparison, '')
       else if (step.loadSaved) a.loadMeasurement((await listMeasurements()).at(-1)!)
       else if (step.check) await check(step.check, a)
-      else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+      else expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
     await check(c.expect, a)
   })

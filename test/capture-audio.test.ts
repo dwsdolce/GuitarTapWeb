@@ -18,12 +18,12 @@ vi.mock('../src/measurement/dumpWav', async (importOriginal) => ({
   dumpCaptureProbe: () => {},
 }))
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import { DEFAULT_SETTINGS } from '../src/settings'
+import { settingsStore } from '../src/settingsStore'
 
 function recordingAnalyzer(dumpCaptureAudio: boolean): TapToneAnalyzer {
   dumped.length = 0
   const analyzer = new TapToneAnalyzer()
-  analyzer.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio })
+  settingsStore.update({ dumpCaptureAudio })
   analyzer.startSessionRecording()
   analyzer['maintainSessionRecording'](new Float32Array(1024).fill(0.1))
   return analyzer
@@ -46,7 +46,7 @@ describe('Dump Capture Audio — recording is decided when the sequence starts',
   it('saving turned on after the first tap takes effect from the next sequence', () => {
     const analyzer = recordingAnalyzer(false)
     firstTap(analyzer)
-    analyzer.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio: true })
+    settingsStore.update({ dumpCaptureAudio: true })
     // A pause and resume does not start it either.
     analyzer['suspendSessionRecording']()
     analyzer['resumeSessionRecording']()
@@ -64,7 +64,7 @@ describe('Dump Capture Audio — recording is decided when the sequence starts',
 
   it('saving turned off after the sequence started saves nothing', () => {
     const analyzer = recordingAnalyzer(true)
-    analyzer.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio: false })
+    settingsStore.update({ dumpCaptureAudio: false })
     analyzer.finishSessionRecording('Guitar_1tap')
     expect(dumped).toEqual([])
   })

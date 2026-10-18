@@ -42,7 +42,7 @@ import { Pitch } from './dsp/pitch'
 import { FieldPrecision } from './precision'
 import { formatDisplayDate } from './format/date'
 import { settingsStore } from './settingsStore'
-import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
+import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, guitarTypeSetting, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
 import type { ResonantPeak } from './measurement/types'
 import { displayRangeLabel } from './presentation/frequencyFormat'
 import './App.css'
@@ -175,7 +175,7 @@ export default function App() {
     const ids = new Set(visiblePeaks.map((p) => p.id))
     return (id: Uuid) => ids.has(id)
   }, [visiblePeaks])
-  const guitarType: GuitarTypeName = isGuitarType(settings.measurementType) ? settings.measurementType : 'generic'
+  const guitarType: GuitarTypeName = guitarTypeSetting(settings)
   const material = isMaterialType(settings.measurementType)
   const brace = settings.measurementType === 'brace'
   const { minDb, maxDb, showUnknownModes } = settings
@@ -208,9 +208,6 @@ export default function App() {
   // for MaterialResults' calc + Save, never the live Settings.
   const matInputs = snapshot.materialInputs
 
-  // The analyzer reads the settings store itself — as Swift's analyzer reads TapDisplaySettings — and
-  // applies a change the moment it is made. A layout effect, so it is attached before anything is shown.
-  useLayoutEffect(() => analyzer.attachSettingsStore(settingsStore), [analyzer])
 
   // Browser tab title carries the version+build, like the Swift/Python window titles
   // ("Guitar Tap 1.0.1 (NNN)"). Set once at mount.
@@ -243,19 +240,27 @@ export default function App() {
   useEffect(() => {
     void navigator.storage?.persist?.()
   }, [])
-  // Settings' Done. A change of measurement type is the model's to act on: between guitar types it
-  // re-derives the classification, otherwise it drops the result and starts a new sequence — and a new
-  // measurement context drops the loaded measurement's chart range. Mirrors Swift Settings' onApply. A load
-  // changes the type too, but never comes here.
+  // Settings' Done, as Swift's applySettings and onApply. A change of measurement type other than between
+  // guitar types, or of Measure FLC, starts a new tap sequence — a new measurement context, which drops the
+  // loaded measurement's chart range; a change between guitar types re-derives the classification for the new
+  // type, keeping the measurement; any other change is display-only.
   const applySettings = useCallback(
     (next: Settings) => {
-      const previous = settingsStore.get().measurementType
+      const previous = settingsStore.get()
       settingsStore.update(next)
-      // Dump Capture Audio takes effect for the sequence, as Swift's Settings onApply applies it.
+      // Peak Min is the analyzer's, which saves it — as Swift's Settings sets the analyzer's peakMinThreshold.
+      analyzer.setPeakMinThreshold(next.peakMinThreshold)
+      const typeChanged = next.measurementType !== previous.measurementType
+      const bothGuitar = isGuitarType(previous.measurementType) && isGuitarType(next.measurementType)
+      const measurementChanged = (typeChanged && !bothGuitar) || next.measureFlc !== previous.measureFlc
+      const guitarTypeChanged = typeChanged && bothGuitar
       analyzer.applyDumpCaptureAudioSetting()
-      if (next.measurementType === previous) return
-      if (!(isGuitarType(previous) && isGuitarType(next.measurementType))) setLoadedView(null)
-      analyzer.changeMeasurementType(previous, next.measurementType)
+      if (measurementChanged) {
+        setLoadedView(null)
+        analyzer.requestStartTapSequence()
+      } else if (guitarTypeChanged) {
+        analyzer.reclassifyForGuitarTypeChange()
+      }
     },
     [analyzer, setLoadedView],
   )
@@ -540,10 +545,9 @@ export default function App() {
   )
 
   const cycleAnnotations = useCallback(() => {
-    // The analyzer advances its mode; the settings store keeps it, as Swift's writes TapDisplaySettings.
+    // The analyzer advances its mode and saves it, as Swift's writes TapDisplaySettings.
     analyzer.cycleAnnotationVisibility()
-    updateSettings({ annotationVisibilityMode: analyzer.annotationVisibilityMode })
-  }, [analyzer, updateSettings])
+  }, [analyzer])
 
   // ── Metrics panel inputs (FFTAnalysisMetricsView) ─────────────────────────
   const metrics = useMemo<Metrics>(() => {
@@ -695,7 +699,7 @@ export default function App() {
   useLayoutEffect(() => {
     if (!loadedAxisRange) return
     setLoadedView(loadedAxisRange)
-    if (analyzer.displayMode !== 'comparison' && !isMaterialType(analyzer.measurementType)) setView(loadedAxisRange)
+    if (analyzer.displayMode !== 'comparison' && !isMaterialType(settingsStore.get().measurementType)) setView(loadedAxisRange)
   }, [analyzer, loadedAxisRange, setView])
 
   const onLoadMeasurement = useCallback(
@@ -948,7 +952,7 @@ export default function App() {
                 inputLevel={inputLevel}
                 value={tapThreshold}
                 onChange={(v) => {
-                  updateSettings({ tapDetectionThreshold: v })
+                  analyzer.setTapDetectionThreshold(v)
                 }}
               />
             </div>
@@ -965,7 +969,7 @@ export default function App() {
                 step={1}
                 value={peakMin}
                 disabled={material || inComparison}
-                onChange={(e) => updateSettings({ peakMinThreshold: Number(e.target.value) })}
+                onChange={(e) => analyzer.setPeakMinThreshold(Number(e.target.value))}
               />
               <span className="val peak-min">{peakMin} dB</span>
             </div>

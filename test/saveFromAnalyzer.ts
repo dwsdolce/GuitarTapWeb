@@ -9,6 +9,7 @@ import type { ChartView } from '../src/presentation/chartTypes'
 import type { Settings } from '../src/settings'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { Uuid } from '../src/measurement/newId'
+import { settingsStore } from '../src/settingsStore'
 
 /** What the microphone side of a capture records. */
 interface Provenance {
@@ -47,9 +48,8 @@ export interface MaterialState extends Provenance {
 }
 
 function analyzerWith(settings: Settings, p: Provenance): TapToneAnalyzer {
+  settingsStore.update(settings)
   const analyzer = new TapToneAnalyzer()
-  analyzer.measurementType = settings.measurementType
-  analyzer.settings = settings
   const engine = new RealtimeFFTAnalyzer()
   engine.sampleRate = p.sampleRate ?? 0
   engine.deviceLabel = p.deviceLabel ?? ''

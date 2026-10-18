@@ -15,7 +15,6 @@ vi.mock('../src/measurement/dumpWav', () => ({
 }))
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import { DEFAULT_SETTINGS } from '../src/settings'
 import type { Calibration } from '../src/dsp/calibration'
 import type { ResonantPeak } from '../src/measurement/types'
 import {
@@ -28,6 +27,7 @@ import {
   type PeakRef,
   type RegSettings,
 } from './parityRunner'
+import { settingsStore } from '../src/settingsStore'
 
 // End-to-end regression of the FULL audio chain through the SAME analyzer.playFile path the app
 // uses — WAV → chunk pacing → RMS → level-crossing tap detection → gated/guitar FFT → peak
@@ -66,7 +66,7 @@ async function playGuitarSession(
   analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
   // The analyzer owns the session WAV now and writes it itself, as Swift's analyzer does — so the
   // switch is a SETTING on the analyzer, not engine config, and the write is captured by the mock.
-  analyzer.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio })
+  settingsStore.update({ dumpCaptureAudio })
   const engine = new RealtimeFFTAnalyzer()
   engine.initForTesting()
   analyzer.setDevice(engine)
@@ -232,7 +232,7 @@ describe('file playback rules', () => {
     const wav = loadWav(reg.fixture)
     const input = loadCal(oracle.filePlayback['REG-B1'].calibration)
     const analyzer = new TapToneAnalyzer()
-    analyzer.measurementType = 'generic'
+    settingsStore.update({ measurementType: 'generic' })
     analyzer.peakMinThreshold = reg.settings.peakMinThreshold!
     analyzer.setNumberOfTaps(8)
     analyzer.tapDetectionThreshold = reg.settings.tapDetectionThreshold
@@ -270,7 +270,7 @@ describe('file playback rules', () => {
 
   it('a measurement-type change during a playback stops the file before arming the new type', async () => {
     const { analyzer, engine, ended } = await stopPlaybackAfterFirstTap((a) => {
-      a.measurementType = 'plate'
+      settingsStore.update({ measurementType: 'plate' })
       a.requestStartTapSequence() // what App's type-change arm does
     })
     expect(engine.playingFile, 'the file is stopped').toBe(false)
@@ -288,7 +288,7 @@ describe('file playback rules', () => {
     const reg = oracle.filePlayback['REG-G1']
     const wav = loadWav(reg.fixture)
     const analyzer = new TapToneAnalyzer()
-    analyzer.measurementType = 'generic'
+    settingsStore.update({ measurementType: 'generic' })
     const engine = new RealtimeFFTAnalyzer()
     engine.initForTesting()
     analyzer.setDevice(engine)
@@ -346,7 +346,7 @@ describe('file playback rules', () => {
     const reg = oracle.filePlayback['REG-G1']
     const input = loadCal(oracle.filePlayback['REG-B1'].calibration)
     const analyzer = new TapToneAnalyzer()
-    analyzer.measurementType = 'generic'
+    settingsStore.update({ measurementType: 'generic' })
     const engine = new RealtimeFFTAnalyzer()
     engine.initForTesting()
     analyzer.setDevice(engine)
@@ -366,7 +366,7 @@ describe('file playback rules', () => {
     const reg = oracle.filePlayback['REG-G1']
     const wav = loadWav(reg.fixture)
     const analyzer = new TapToneAnalyzer()
-    analyzer.measurementType = 'generic'
+    settingsStore.update({ measurementType: 'generic' })
     const engine = new RealtimeFFTAnalyzer()
     engine.initForTesting()
     analyzer.setDevice(engine)

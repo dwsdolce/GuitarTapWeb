@@ -37,7 +37,7 @@ function check(fields: Fields, a: TapToneAnalyzer, notedWarmup: number | null | 
 
 describe('audio-clock-timers — the shared cases (audio-clock-timers.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
+    const a = makeStepsAnalyzer()
     let notedWarmup: number | null | undefined
     for (const step of c.steps) {
       if (step.fileEnd) a.flushGatedCaptureOnFileEnd()
@@ -47,7 +47,7 @@ describe('audio-clock-timers — the shared cases (audio-clock-timers.json)', ()
         a.setDevice(engine)
       } else if (step.noteWarmup) notedWarmup = (a as unknown as Internals).warmupStartAudioTime
       else if (step.check) check(step.check, a, notedWarmup)
-      else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+      else expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
     check(c.expect, a, notedWarmup)
   })

@@ -8,8 +8,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { parseGuitarTapFile } from '../src/measurement'
-import { SettingsStore } from '../src/settingsStore'
-import { DEFAULT_SETTINGS, MEASUREMENT_FULL_NAME, isGuitarType } from '../src/settings'
+import { settingsStore } from '../src/settingsStore'
+import { MEASUREMENT_FULL_NAME, isGuitarType } from '../src/settings'
 
 type Step = { newTap?: boolean; peakMin?: number; load?: string; name?: string; compare?: string[]; highlightFirstPeak?: boolean }
 type LoadCase = { id: string; note: string; steps: Step[]; expect: Record<string, unknown> }
@@ -33,15 +33,13 @@ function measurement(name: string, renamed?: string) {
 
 describe('measurement-load — the shared cases (measurement-load.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const store = new SettingsStore({ ...DEFAULT_SETTINGS })
     const a = new TapToneAnalyzer()
-    a.attachSettingsStore(store)
     for (const step of c.steps) {
       if (step.newTap) {
         a.startTapSequence()
         expect(a.isDetecting, 'precondition: a new tap sequence arms detection').toBe(true)
       }
-      else if (step.peakMin !== undefined) store.update({ peakMinThreshold: step.peakMin })
+      else if (step.peakMin !== undefined) a.peakMinThreshold = step.peakMin
       else if (step.load !== undefined) a.loadMeasurement(measurement(step.load, step.name))
       else if (step.compare !== undefined) a.loadComparison(step.compare.map((n) => measurement(n)))
       else if (step.highlightFirstPeak) {
@@ -49,7 +47,7 @@ describe('measurement-load — the shared cases (measurement-load.json)', () => 
         expect(a.highlightedPeakId, 'precondition: a peak is highlighted').not.toBeNull()
       }
     }
-    const s = store.get()
+    const s = settingsStore.get()
     const guitar = isGuitarType(s.measurementType)
     for (const [field, want] of Object.entries(c.expect)) {
       switch (field) {

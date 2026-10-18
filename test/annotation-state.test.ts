@@ -17,7 +17,7 @@ import { parseGuitarTapFile, MEASUREMENT_TYPE_FROM_RAW } from '../src/measuremen
 import { DEFAULT_SETTINGS, type AnnotationMode } from '../src/settings'
 import type { ResolvedMode } from '../src/dsp/classify'
 import type { ResonantPeak } from '../src/measurement/types'
-import type { SettingsStore } from '../src/settingsStore'
+import { settingsStore } from '../src/settingsStore'
 import { makeStepsAnalyzer, runAnalyzerStep, type AnalyzerStep } from './analyzerSteps'
 import { testId } from './testIds'
 import { parseUuid, type Uuid } from '../src/measurement/newId'
@@ -57,12 +57,11 @@ const MODE_NAME = Object.fromEntries(Object.entries(MODES_BY_NAME).map(([k, v]) 
 /** One case's analyzer and the names it gives its peaks. Ids are compared ignoring case. */
 class Case {
   readonly a: TapToneAnalyzer
-  readonly store: SettingsStore
   readonly ids: Record<string, Uuid>
   readonly names: Map<string, string>
 
   constructor(readonly row: AnnotationCase) {
-    ;({ a: this.a, store: this.store } = makeStepsAnalyzer())
+    this.a = makeStepsAnalyzer()
     this.ids = Object.fromEntries(Object.entries(row.peakIds).map(([n, id]) => [n, parseUuid(id, 'peakIds')]))
     this.names = new Map(Object.entries(this.ids).map(([n, id]) => [id, n]))
   }
@@ -87,15 +86,13 @@ class Case {
     else if (step.offset) a.updateAnnotationOffset(this.id(step.offset[0]), [step.offset[1], step.offset[2]])
     else if (step.resetOffset !== undefined) a.resetAnnotationOffset(this.id(step.resetOffset))
     else if (step.resetAllOffsets) a.resetAllAnnotationOffsets()
-    else if (step.visibility !== undefined) this.store.update({ annotationVisibilityMode: step.visibility })
+    else if (step.visibility !== undefined) a.annotationVisibilityMode = step.visibility
     else if (step.cycleVisibility) a.cycleAnnotationVisibility()
     else if (step.guitarTypeChange !== undefined) {
-      // As Settings applies a type change: the setting, then the model's change of type.
-      const previous = this.store.get().measurementType
-      const next = MEASUREMENT_TYPE_FROM_RAW[step.guitarTypeChange]!
-      this.store.update({ measurementType: next })
-      a.changeMeasurementType(previous, next)
-    } else return runAnalyzerStep(step, a, this.store)
+      // As Settings applies a change between guitar types: the setting, then the re-derivation.
+      settingsStore.update({ measurementType: MEASUREMENT_TYPE_FROM_RAW[step.guitarTypeChange]! })
+      a.reclassifyForGuitarTypeChange()
+    } else return runAnalyzerStep(step, a)
     return true
   }
 
@@ -198,9 +195,9 @@ const MODES = new Map<Uuid, ResolvedMode>([
 
 /** A guitar analyzer holding `peaks` above Peak Min, with `selected` selected and `mode` set. */
 const visibleAnalyzer = (mode: AnnotationMode, selected: Uuid[], peaks = PEAKS, modes = MODES, showUnknownModes = true) => {
+  settingsStore.update({ measurementType: 'classical', showUnknownModes })
   const a = new TapToneAnalyzer()
-  a.setSettings({ ...DEFAULT_SETTINGS, measurementType: 'classical', annotationVisibilityMode: mode, showUnknownModes })
-  a.measurementType = 'classical'
+  a.annotationVisibilityMode = mode
   a.peaksAbovePeakMin = peaks
   a.modeByPeak = modes
   a.selectedPeakIds = new Set(selected)

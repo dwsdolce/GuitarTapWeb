@@ -15,6 +15,8 @@ import {
   type Settings,
 } from '../src/settings'
 import { enteredValue } from '../src/presentation/displayRange'
+import { settingsStore } from '../src/settingsStore'
+import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 
 // The per-measurement-type display frequency range store: each type has its own default and its
 // own stored minimum and maximum, a bound never stored reads the default, a stored bound keeps its exact
@@ -131,5 +133,21 @@ describe('settings-store — the store keeps the saved settings where they were'
     } finally {
       ;(globalThis as { localStorage?: unknown }).localStorage = previous
     }
+  })
+})
+
+// The web's form of Swift's views re-reading the analyzer when they redraw: the analyzer's snapshot is
+// rebuilt at the next read after any settings change, with no notify from the analyzer.
+describe("the analyzer's snapshot follows the settings", () => {
+  it('a settings change shows in the next snapshot', () => {
+    const a = new TapToneAnalyzer()
+    const before = a.getSnapshot()
+    expect(before.measurementType).toBe('generic')
+    expect(a.getSnapshot()).toBe(before) // unchanged settings: the same snapshot
+    settingsStore.update({ measurementType: 'plate' })
+    const after = a.getSnapshot()
+    expect(after).not.toBe(before)
+    expect(after.measurementType).toBe('plate')
+    expect(after.isGuitar).toBe(false)
   })
 })

@@ -7,8 +7,7 @@
 import { TapToneAnalyzer, type MaterialTapPhase } from '../src/state/tapToneAnalyzer'
 import { readFileSync } from 'node:fs'
 import { MEASUREMENT_TYPE_FROM_RAW, parseGuitarTapFile } from '../src/measurement'
-import { SettingsStore } from '../src/settingsStore'
-import { DEFAULT_SETTINGS } from '../src/settings'
+import { settingsStore } from '../src/settingsStore'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
 import { advanceAudio, AUDIO_FEED_CHUNK_SECONDS, ManualWallClock } from './audioClockFeed'
 import { syntheticTap } from './syntheticTap'
@@ -69,24 +68,22 @@ export const PHASE_RAW: Record<MaterialTapPhase, string> = {
 }
 
 /** A fresh analyzer as the shared scenario cases start one — threshold −40, Taps 1, and a wall clock that
- *  moves only when a step stalls it — attached to its own settings store, which the settings step writes
- *  as Settings does. */
-export function makeStepsAnalyzer(): { a: TapToneAnalyzer; store: SettingsStore } {
-  const store = new SettingsStore({ ...DEFAULT_SETTINGS, tapDetectionThreshold: -40 })
+ *  moves only when a step stalls it. The settings step writes the settings store, as Settings does. */
+export function makeStepsAnalyzer(): TapToneAnalyzer {
   const a = new TapToneAnalyzer(null, new ManualWallClock())
-  a.attachSettingsStore(store)
   a.setNumberOfTaps(1)
-  return { a, store }
+  a.tapDetectionThreshold = -40
+  return a
 }
 
 /** Run `step` if it is one of the shared steps, and say whether it was. */
-export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer, store: SettingsStore): boolean {
+export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer): boolean {
   if (step.settings) {
-    if (step.settings.type !== undefined) store.update({ measurementType: MEASUREMENT_TYPE_FROM_RAW[step.settings.type]! })
-    if (step.settings.measureFlc !== undefined) store.update({ measureFlc: step.settings.measureFlc })
+    if (step.settings.type !== undefined) settingsStore.update({ measurementType: MEASUREMENT_TYPE_FROM_RAW[step.settings.type]! })
+    if (step.settings.measureFlc !== undefined) settingsStore.update({ measureFlc: step.settings.measureFlc })
   } else if (step.setTaps !== undefined) a.setNumberOfTaps(step.setTaps)
-  else if (step.setThreshold !== undefined) store.update({ tapDetectionThreshold: step.setThreshold })
-  else if (step.setPeakMin !== undefined) store.update({ peakMinThreshold: step.setPeakMin })
+  else if (step.setThreshold !== undefined) a.tapDetectionThreshold = step.setThreshold
+  else if (step.setPeakMin !== undefined) a.peakMinThreshold = step.setPeakMin
   else if (step.newTap) a.startTapSequence()
   else if (step.newTapSkippingWarmUp) a.startTapSequence({ skipWarmup: true })
   else if (step.engineStarted) a.autoStartTapSequence()

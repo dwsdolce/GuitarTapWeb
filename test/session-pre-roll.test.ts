@@ -7,9 +7,9 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
-import { DEFAULT_SETTINGS } from '../src/settings'
 import { captureProbe, LIVE_PROBE } from '../src/state/captureProbe'
 import { SampleBuffer } from '../src/audio/sampleBuffer'
+import { settingsStore } from '../src/settingsStore'
 
 /** Access the analyzer's internal session state (TS `private` is compile-time only). */
 type SessionInternals = {
@@ -40,7 +40,7 @@ describe('session-pre-roll — the shared cases (session-pre-roll.json)', () => 
     const chunk = () => new Float32Array(DATA.chunk).fill(0.1)
     for (const step of c.steps) {
       if (step.start !== undefined) {
-        a.setSettings({ ...a.settings, dumpCaptureAudio: step.start })
+        settingsStore.update({ dumpCaptureAudio: step.start })
         a.startTapSequence()
         s.sessionRate = DATA.rate
         s.gatedCaptureActive = false
@@ -52,7 +52,7 @@ describe('session-pre-roll — the shared cases (session-pre-roll.json)', () => 
       } else if (step.release) {
         s.gatedCaptureActive = false
       } else if (step.dump !== undefined) {
-        a.setSettings({ ...a.settings, dumpCaptureAudio: step.dump })
+        settingsStore.update({ dumpCaptureAudio: step.dump })
         a.applyDumpCaptureAudioSetting()
       } else if (step.pause) {
         a.pauseTapDetection()
@@ -85,18 +85,18 @@ describe('session-pre-roll — the capture probe follows the recording', () => {
     try {
       const a = new TapToneAnalyzer()
       const s = a as unknown as SessionInternals
-      a.setSettings({ ...DEFAULT_SETTINGS, dumpCaptureAudio: false })
+      settingsStore.update({ dumpCaptureAudio: false })
       a.startTapSequence()
       expect(captureProbe.liveSession).toBe(false)
-      a.setSettings({ ...a.settings, dumpCaptureAudio: true })
+      settingsStore.update({ dumpCaptureAudio: true })
       a.applyDumpCaptureAudioSetting()
       expect(captureProbe.liveSession, 'turned on before the first tap').toBe(true)
-      a.setSettings({ ...a.settings, dumpCaptureAudio: false })
+      settingsStore.update({ dumpCaptureAudio: false })
       a.applyDumpCaptureAudioSetting()
       expect(captureProbe.liveSession, 'turned off').toBe(false)
       s.gatedCaptureActive = true
       s.maintainSessionRecording(new Float32Array(1024).fill(0.1))
-      a.setSettings({ ...a.settings, dumpCaptureAudio: true })
+      settingsStore.update({ dumpCaptureAudio: true })
       a.applyDumpCaptureAudioSetting()
       expect(captureProbe.liveSession, 'turned on after the first tap').toBe(false)
     } finally {

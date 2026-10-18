@@ -9,6 +9,7 @@ import { classifyAll } from '../src/dsp/classify'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import type { ResonantPeak } from '../src/measurement/types'
 import { idEntries, newId, type Uuid } from '../src/measurement/newId'
+import { settingsStore } from '../src/settingsStore'
 
 // `.guitartap` model + serialization parity. The canonical format is the
 // Swift user manual Appendix B; this mirrors the Swift MeasurementCodableTests and the
@@ -150,7 +151,7 @@ describe('measurement-codable — the tap-tone ratio (measurement-codable.json)'
       expect(ratioMatches(measurementTapToneRatio(m), expected), `saved ratio ${measurementTapToneRatio(m)}`).toBe(true)
       if (!row.live) return
       const a = new TapToneAnalyzer()
-      a.measurementType = 'classical'
+      settingsStore.update({ measurementType: 'classical' })
       a.peaks = m.peaks.map((p) => ({ ...p }))
       a.modeByPeak = classifyAll(a.peaks, 'classical')
       const selected = new Set(m.selectedPeakIDs ?? [])

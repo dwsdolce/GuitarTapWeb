@@ -13,8 +13,8 @@ const DATA = JSON.parse(readFileSync('test/fixtures/effective-peak-id.json', 'ut
 
 describe('effective-peak-id — the shared cases (effective-peak-id.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
-    for (const step of c.steps) expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+    const a = makeStepsAnalyzer()
+    for (const step of c.steps) expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)
     const phases = {
       L: [a.effectiveLongitudinalPeakID, a.selectedLongitudinalPeak],
       C: [a.effectiveCrossPeakID, a.selectedCrossPeak],

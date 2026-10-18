@@ -24,11 +24,11 @@ function snapshot(label: string, a: TapToneAnalyzer): Record<string, unknown> {
 
 describe('scenario-trace — the shared cases (scenario-trace.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
+    const a = makeStepsAnalyzer()
     const trace: Record<string, unknown>[] = []
     for (const step of c.steps) {
       if (step.snap !== undefined) trace.push(snapshot(step.snap, a))
-      else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+      else expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
     expect(trace).toEqual(c.expect.trace)
   })

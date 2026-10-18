@@ -24,7 +24,7 @@ type Step = AnalyzerStep & {
 type Case = { id: string; note: string; steps: Step[]; expect: Fields }
 const DATA = JSON.parse(readFileSync('test/fixtures/notification.json', 'utf8')) as { cases: Case[] }
 
-type Internals = { isAboveThreshold: boolean; statusBeforeSettle: string | null; restingPrompt(): string }
+type Internals = { isAboveThreshold: boolean; statusBeforeSettle: string | null }
 
 /** What a case's run keeps between steps. */
 type Run = { notedStatus: string | null; notedPeaks: string[]; readinessNotified: boolean; watching: boolean }
@@ -42,7 +42,7 @@ function check(fields: Fields, a: TapToneAnalyzer, run: Run, id: string): void {
       case 'statusBeforeSettleAsNoted':
         expect(internal.statusBeforeSettle === run.notedStatus, `${msg}: ${internal.statusBeforeSettle}`).toBe(want)
         break
-      case 'statusIsArmedPrompt': expect(a.statusMessage === internal.restingPrompt(), msg).toBe(want); break
+      case 'statusIsArmedPrompt': expect(a.statusMessage === a.armedPrompt(), msg).toBe(want); break
       case 'detecting': expect(a.isDetecting, msg).toBe(want); break
       case 'paused': expect(a.isDetectionPaused, msg).toBe(want); break
       case 'complete': expect(a.isMeasurementComplete, msg).toBe(want); break
@@ -58,7 +58,7 @@ function check(fields: Fields, a: TapToneAnalyzer, run: Run, id: string): void {
 describe('notification — the shared cases (notification.json)', () => {
   for (const c of DATA.cases) {
     it(c.id, () => {
-      const { a, store } = makeStepsAnalyzer()
+      const a = makeStepsAnalyzer()
       const run: Run = { notedStatus: null, notedPeaks: [], readinessNotified: false, watching: false }
       let readyBefore = a.getSnapshot().isReadyForDetection
       // The view's subscription: it is told of each change and reads the snapshot.
@@ -77,7 +77,7 @@ describe('notification — the shared cases (notification.json)', () => {
         } else if (step.clipping !== undefined) a.setClipping(step.clipping)
         else if (step.inputDead !== undefined) a.setInputAppearsDead(step.inputDead)
         else if (step.check) check(step.check, a, run, c.id)
-        else expect(runAnalyzerStep(step, a, store), `${c.id}: unknown step ${JSON.stringify(step)}`).toBe(true)
+        else expect(runAnalyzerStep(step, a), `${c.id}: unknown step ${JSON.stringify(step)}`).toBe(true)
       }
       check(c.expect, a, run, c.id)
       unsubscribe()

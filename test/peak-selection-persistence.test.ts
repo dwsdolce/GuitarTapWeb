@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { serializeGuitarTapFile, parseGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
 import { newId } from '../src/measurement/newId'
+import { settingsStore } from '../src/settingsStore'
 
 type Case = { id: string; note: string; userModified: boolean | null }
 const DATA = JSON.parse(readFileSync('test/fixtures/peak-selection-persistence.json', 'utf8')) as {
@@ -24,7 +25,7 @@ const DATA = JSON.parse(readFileSync('test/fixtures/peak-selection-persistence.j
 
 function analyzer(): TapToneAnalyzer {
   const a = new TapToneAnalyzer()
-  a.measurementType = 'generic'
+  settingsStore.update({ measurementType: 'generic' })
   a.minFrequency = DATA.minHz
   a.maxFrequency = DATA.maxHz
   return a

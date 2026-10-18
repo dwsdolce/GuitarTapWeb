@@ -49,11 +49,11 @@ function check(fields: Fields, a: TapToneAnalyzer): void {
 
 describe('tap-progress — the shared cases (tap-progress.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
+    const a = makeStepsAnalyzer()
     for (const step of c.steps) {
       if (step.check) check(step.check, a)
       else if (step.load !== undefined) a.loadMeasurement(measurement(step.load))
-      else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+      else expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
     check(c.expect, a)
   })

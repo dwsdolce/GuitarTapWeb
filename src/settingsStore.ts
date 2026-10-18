@@ -3,8 +3,10 @@
 // The app's settings, held outside React so the model can read and write them — the web's counterpart of
 // the natives' TapDisplaySettings. The storage is unchanged: the same localStorage key and JSON layout
 // (`loadSettings` / `saveSettings`), so existing settings carry over as they are. The view reads the store
-// and re-renders when it changes; the analyzer applies the settings it needs when they change, and a load
-// writes the measurement's own settings here.
+// and re-renders when it changes; the analyzer reads each setting from it where it uses it, as Swift's reads
+// TapDisplaySettings, saves its own (Peak Min, the tap threshold, the annotation mode) to it, and a load
+// writes the measurement's own settings here. In a test each file has its own instance, starting at the
+// defaults and saving nothing (no localStorage) — as Swift's tests have their own settings per process.
 import { loadSettings, saveSettings, type Settings } from './settings'
 
 type Listener = () => void

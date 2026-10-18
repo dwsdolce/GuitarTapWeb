@@ -206,7 +206,7 @@ async function check(fields: Row, a: TapToneAnalyzer, run: Run): Promise<void> {
   }
 }
 
-async function step(s: FrozenStep, a: TapToneAnalyzer, run: Run, store: Parameters<typeof runAnalyzerStep>[2]): Promise<void> {
+async function step(s: FrozenStep, a: TapToneAnalyzer, run: Run): Promise<void> {
   if (s.load) a.loadMeasurement(parseGuitarTapFile(JSON.stringify([document(s.load, run)]))[0]!)
   else if (s.reanalyze) a.reanalyzePeaks()
   else if (s.toggleSelection !== undefined) a.togglePeakSelection(peakAt(s.toggleSelection, a).id)
@@ -229,7 +229,7 @@ async function step(s: FrozenStep, a: TapToneAnalyzer, run: Run, store: Paramete
     run.markedSelection = new Set(a.selectedPeakIds)
     run.markedTapEntries = a.tapEntries.map((e) => e.peaks.map((p) => p.id))
     run.markedTapSelections = a.tapEntries.map((e) => [...e.selectedPeakIDs])
-  } else expect(runAnalyzerStep(s, a, store), `unknown step ${JSON.stringify(s)}`).toBe(true)
+  } else expect(runAnalyzerStep(s, a), `unknown step ${JSON.stringify(s)}`).toBe(true)
 }
 
 beforeEach(async () => {
@@ -238,11 +238,11 @@ beforeEach(async () => {
 
 describe('frozen-peak-recalc — the shared cases (frozen-peak-recalc.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', async (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
+    const a = makeStepsAnalyzer()
     const run = new Run()
     for (const s of c.steps) {
       if (s.check) await check(s.check, a, run)
-      else await step(s, a, run, store)
+      else await step(s, a, run)
     }
     await check(c.expect, a, run)
   })

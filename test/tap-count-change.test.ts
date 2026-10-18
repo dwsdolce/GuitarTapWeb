@@ -15,11 +15,11 @@ const DATA = JSON.parse(readFileSync('test/fixtures/tap-count-change.json', 'utf
 
 describe('tap-count-change — the shared cases (tap-count-change.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
+    const a = makeStepsAnalyzer()
     let statusBeforeStep = a.statusMessage
     for (const step of c.steps) {
       statusBeforeStep = a.statusMessage
-      expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+      expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
     for (const [field, want] of Object.entries(c.expect)) {
       switch (field) {

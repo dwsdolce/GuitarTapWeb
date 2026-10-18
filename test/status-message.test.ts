@@ -12,6 +12,7 @@ import type { ResonantPeak } from '../src/measurement/types'
 import { parseGuitarTapFile } from '../src/measurement'
 import { makeStepsAnalyzer, runAnalyzerStep, type AnalyzerStep } from './analyzerSteps'
 import { testId } from './testIds'
+import { settingsStore } from '../src/settingsStore'
 
 type Fields = Record<string, unknown>
 type StatusStep = AnalyzerStep & {
@@ -43,7 +44,7 @@ function check(fields: Fields, a: TapToneAnalyzer, before: string, writes: numbe
 
 describe('status-message — the shared cases (status-message.json)', () => {
   it.each(DATA.cases.map((c) => [c.id, c] as const))('%s', async (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
+    const a = makeStepsAnalyzer()
     let before = a.statusMessage
     let writes = 0
     let unsubscribe: (() => void) | undefined
@@ -65,7 +66,7 @@ describe('status-message — the shared cases (status-message.json)', () => {
         for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0))
       } else if (step.countStatusWrites) {
         unsubscribe = a.subscribe(() => writes++)
-      } else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+      } else expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
     unsubscribe?.()
     check(c.expect, a, before, writes)
@@ -104,7 +105,7 @@ describe('statusMessage — removed web-only inventions are never produced', () 
     a.restoreSnapshot({ magnitudes: [1, 2], frequencies: [1, 2] })
     seen.push(a.statusMessage)
     const b = new TapToneAnalyzer()
-    b.measurementType = 'brace'
+    settingsStore.update({ measurementType: 'brace' })
     b.setDevice(fakeDevice())
     b.setNumberOfTaps(1)
     b.startTapSequence()

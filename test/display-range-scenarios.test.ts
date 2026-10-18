@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import type { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { parseGuitarTapFile } from '../src/measurement'
 import { minFrequency, maxFrequency } from '../src/settings'
-import type { SettingsStore } from '../src/settingsStore'
+import { settingsStore } from '../src/settingsStore'
 import { makeStepsAnalyzer, runAnalyzerStep, type AnalyzerStep } from './analyzerSteps'
 
 type Fields = Record<string, unknown>
@@ -42,12 +42,12 @@ function listen(a: TapToneAnalyzer): Record<Phase, (number | null)[]> {
   return heard
 }
 
-function check(fields: Fields, a: TapToneAnalyzer, store: SettingsStore, heard: Record<Phase, (number | null)[]> | null): void {
+function check(fields: Fields, a: TapToneAnalyzer, heard: Record<Phase, (number | null)[]> | null): void {
   for (const [field, want] of Object.entries(fields)) {
     switch (field) {
       case 'loadedRange': {
         const r = a.loadedAxisRange
-        const s = store.get()
+        const s = settingsStore.get()
         const wanted = want === 'saved'
           ? [minFrequency(s, s.measurementType), maxFrequency(s, s.measurementType), s.minDb, s.maxDb]
           : (want as number[])
@@ -75,14 +75,14 @@ function check(fields: Fields, a: TapToneAnalyzer, store: SettingsStore, heard: 
 
 describe('display-range — the shared scenarios (display-range.json)', () => {
   it.each(SCENARIOS.map((c) => [c.id, c] as const))('%s', (_id, c) => {
-    const { a, store } = makeStepsAnalyzer()
+    const a = makeStepsAnalyzer()
     let heard: Record<Phase, (number | null)[]> | null = null
     for (const step of c.steps) {
       if (step.load !== undefined) a.loadMeasurement(parseGuitarTapFile(JSON.stringify(DATA.files[step.load]))[0]!)
       else if (step.listen) heard = listen(a)
-      else if (step.check) check(step.check, a, store, heard)
-      else expect(runAnalyzerStep(step, a, store), `unknown step ${JSON.stringify(step)}`).toBe(true)
+      else if (step.check) check(step.check, a, heard)
+      else expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)
     }
-    check(c.expect, a, store, heard)
+    check(c.expect, a, heard)
   })
 })

@@ -80,6 +80,11 @@ export const isGuitarType = (t: MeasurementType): t is GuitarTypeName =>
   t === 'generic' || t === 'acoustic' || t === 'classical' || t === 'flamenco'
 export const isMaterialType = (t: MeasurementType): t is 'plate' | 'brace' => t === 'plate' || t === 'brace'
 
+/** The guitar type: the measurement type when it is a guitar, else the stored guitar type. Mirrors Swift
+ *  `TapDisplaySettings.guitarType` and Python `TapDisplaySettings.guitar_type()`. */
+export const guitarTypeSetting = (s: Settings): GuitarTypeName =>
+  isGuitarType(s.measurementType) ? s.measurementType : s.guitarType
+
 // Plate stiffness presets (PlateStiffnessPreset.swift): target longitudinal stiffness.
 export const STIFFNESS_VALUE: Record<StiffnessPreset, number> = {
   steelStringTop: 75,
@@ -112,6 +117,10 @@ export const STIFFNESS_FROM_RAW: Record<string, StiffnessPreset> = Object.fromEn
 
 export interface Settings {
   measurementType: MeasurementType
+  /** The guitar type stored apart from the measurement type — written only by loading a guitar
+   *  measurement, read only while the measurement type is a plate or brace (`guitarTypeSetting`).
+   *  Swift `TapDisplaySettings.guitarTypeKey`, Python `AppSettings.guitar_type`. */
+  guitarType: GuitarTypeName
   // Plate
   plateLength: number
   plateWidth: number
@@ -153,6 +162,7 @@ export interface Settings {
 // Defaults mirror TapDisplaySettings.swift / tap_display_settings.py.
 export const DEFAULT_SETTINGS: Settings = {
   measurementType: 'generic',
+  guitarType: 'generic',
   plateLength: 500,
   plateWidth: 200,
   plateThickness: 3,

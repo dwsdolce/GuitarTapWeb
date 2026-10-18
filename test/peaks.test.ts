@@ -12,9 +12,9 @@ import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { classifyAll, type ResolvedMode } from '../src/dsp/classify'
 import { base64ToFloats } from '../src/measurement/base64'
-import { DEFAULT_SETTINGS } from '../src/settings'
 import { makeResonantPeak, type ResonantPeak } from '../src/measurement/types'
 import { spectrum } from './spectrumSpec'
+import { settingsStore } from '../src/settingsStore'
 
 type Row = Record<string, unknown>
 const DATA = JSON.parse(readFileSync('test/fixtures/peaks.json', 'utf8')) as Row
@@ -42,8 +42,7 @@ function close(actual: number | undefined | null, expected: unknown): boolean {
 /** A case's spectrum, built as the file describes it. */
 function genericAnalyzer(): TapToneAnalyzer {
   const a = new TapToneAnalyzer()
-  a.measurementType = 'generic'
-  a.settings = { ...DEFAULT_SETTINGS, measurementType: 'generic' }
+  settingsStore.update({ measurementType: 'generic' })
   return a
 }
 
