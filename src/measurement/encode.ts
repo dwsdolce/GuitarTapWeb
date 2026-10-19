@@ -151,6 +151,11 @@ export function encodeMeasurement(m: TapToneMeasurementModel): JsonObj {
   d.peaks = m.peaks.map((p) => encodePeak(p, modeLabels.get(p.id)))
 
   if (m.comparisonEntries) d.comparisonEntries = m.comparisonEntries.map(encodeComparisonEntry)
+  // A saved comparison's range, with a spectrum snapshot's keys for its range; omitted when absent.
+  if (m.comparisonRange) {
+    const r = m.comparisonRange
+    d.comparisonRange = { minFreq: r.minHz, maxFreq: r.maxHz, minDB: r.minDb, maxDB: r.maxDb }
+  }
   if (m.tapEntries) d.tapEntries = m.tapEntries.map(encodeTapEntry)
   return d
 }

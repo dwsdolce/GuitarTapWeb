@@ -106,6 +106,7 @@ class Case {
         case 'userModified': expect(a.userModifiedSelection, field).toBe(want); break
         case 'visible': expect(a.visiblePeaks.map((p) => p.frequency).sort((x, y) => x - y), field).toEqual(want); break
         case 'visibility': expect(a.annotationVisibilityMode, field).toBe(want); break
+        case 'savedVisibility': expect(settingsStore.get().annotationVisibilityMode, field).toBe(want); break
         case 'label':
           for (const [name, label] of Object.entries(want as Record<string, string>)) {
             expect(a.effectiveModeLabel(this.id(name)), `${field} ${name}`).toBe(label)

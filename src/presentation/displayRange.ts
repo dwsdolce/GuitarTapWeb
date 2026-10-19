@@ -1,10 +1,11 @@
-// @parity presentation/display-range tests=test/display-range
+// @parity presentation/display-range tests=test/display-range,test/comparison
 //
 // The rule for widening the chart's frequency axis so a newly identified peak is visible.
 // Mirrors Swift Models/DisplayRange.swift and Python models/display_range.py.
 
 import { isGuitarType, type MeasurementType } from '../settings'
 import type { ChartView } from './chartTypes'
+import type { SpectrumSnapshotModel } from '../measurement/types'
 import { FieldPrecision } from '../precision'
 import { MIN_FREQUENCY_HZ, MAX_FREQUENCY_HZ } from './chartLimits'
 
@@ -111,6 +112,20 @@ export function drawnIndices(frequencies: ArrayLike<number>, minHz: number, maxH
 /** One zoom step of an axis about `anchor` (`scale` > 1 zooms in), kept within `[lower, upper]`: the
  *  new `[lo, hi]`, or null — the step is refused — if it would leave the range narrower than `minSpan`.
  *  Mirrors Swift `applyFrequencyZoom` / `applyMagnitudeZoom`. */
+/** The range that spans every one of `snapshots` — the lowest of their lower bounds and the highest of
+ *  their upper ones — or null for none. A comparison with no range of its own shows this, and a saved
+ *  comparison's or multi-tap's image from the measurements list spans its spectra. Mirrors Swift
+ *  `DisplayRange.spanning` / Python `spanning_range`. */
+export function spanningRange(snapshots: SpectrumSnapshotModel[]): ChartView | null {
+  if (snapshots.length === 0) return null
+  return {
+    minHz: Math.min(...snapshots.map((s) => s.minFreq)),
+    maxHz: Math.max(...snapshots.map((s) => s.maxFreq)),
+    minDb: Math.min(...snapshots.map((s) => s.minDB)),
+    maxDb: Math.max(...snapshots.map((s) => s.maxDB)),
+  }
+}
+
 export function zoomedRange(
   lo: number,
   hi: number,
@@ -123,5 +138,21 @@ export function zoomedRange(
   const newLo = Math.max(lower, anchor - (anchor - lo) / scale)
   const newHi = Math.min(upper, anchor + (hi - anchor) / scale)
   return newHi - newLo >= minSpan ? [newLo, newHi] : null
+}
+
+/** An axis `[lo, hi]` moved by `delta`, kept within `[lower, upper]`: a move past a bound stops there, the span
+ *  kept. Mirrors Swift `DisplayRange.panned`. */
+export function pannedRange(lo: number, hi: number, delta: number, lower: number, upper: number): [number, number] {
+  let newLo = lo + delta
+  let newHi = hi + delta
+  if (newLo < lower) {
+    newHi += lower - newLo
+    newLo = lower
+  }
+  if (newHi > upper) {
+    newLo -= newHi - upper
+    newHi = upper
+  }
+  return [Math.max(lower, newLo), Math.min(upper, newHi)]
 }
 

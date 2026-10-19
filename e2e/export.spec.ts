@@ -1,3 +1,4 @@
+// @parity test/export-e2e
 import { expect, test } from '@playwright/test'
 import { catchDownload, exportPath, importMeasurement, openApp, openRowMenu } from './app'
 

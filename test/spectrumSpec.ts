@@ -1,3 +1,4 @@
+// @parity none — a test helper of the web's: Swift and Python build these spectra inside their peak tests.
 // The spectra the shared case files describe — 'gaussians' (each peak 'peakDB' − (f − peakHz)² / (2σ²),
 // σ = halfWidthHz / 2.355, floored at noiseFloor, the element-wise maximum of the peaks), 'flat' (one value)
 // or 'triangle' (peakDB − slopeDBPerBin × |i − peakBin|) — with bins binSpacingHz apart, or at

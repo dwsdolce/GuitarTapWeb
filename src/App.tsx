@@ -168,13 +168,15 @@ export default function App() {
   // unsaved result, whose exports use the time of export.
   const sourceTimestamp = snapshot.sourceMeasurementTimestamp
   const loadedNotes = snapshot.loadedNotes
-  // Which peaks carry a badge is ANALYZER state (Swift `annotationVisibilityMode` / `visiblePeaks`).
+  // Which peaks the chart marks and labels is ANALYZER state — none of either while comparing (Swift
+  // `tap.chartPeaks` / `tap.chartAnnotationPeaks`, from `annotationVisibilityMode` / `visiblePeaks`).
   const annotationMode = snapshot.annotationVisibilityMode
   const visiblePeaks = snapshot.visiblePeaks
+  const chartAnnotationPeaks = snapshot.chartAnnotationPeaks
   const isVisible = useMemo(() => {
-    const ids = new Set(visiblePeaks.map((p) => p.id))
+    const ids = new Set((chartAnnotationPeaks ?? []).map((p) => p.id))
     return (id: Uuid) => ids.has(id)
-  }, [visiblePeaks])
+  }, [chartAnnotationPeaks])
   const guitarType: GuitarTypeName = guitarTypeSetting(settings)
   const material = isMaterialType(settings.measurementType)
   const brace = settings.measurementType === 'brace'
@@ -203,7 +205,7 @@ export default function App() {
   const matSpectra = snapshot.matSpectra
   // Store B — the current material measurement's OWN dimensions. Owned by the ANALYZER, like Swift
   // `analyzer.materialInputs` and Python `analyzer.material_inputs`: seeded from Settings by the
-  // completion setter (the didSet), restored from the file by restoreMaterial, edited through
+  // completion setter (the didSet), restored from the file by the analyzer's loadMeasurement, edited through
   // setMaterialInputs. `null` for guitar and before a material measurement completes. The sole source
   // for MaterialResults' calc + Save, never the live Settings.
   const matInputs = snapshot.materialInputs
@@ -307,8 +309,12 @@ export default function App() {
       })
       let cal: Calibration | null = null
       if (calFile) {
-        const parsed = parseCalibration(await calFile.text(), calFile.name.replace(/\.[^.]+$/, ''))
-        if (parsed.points.length) cal = parsed
+        // A calibration that cannot be read is logged and the file plays without one, as Swift's playFile.
+        try {
+          cal = parseCalibration(await calFile.text(), calFile.name.replace(/\.[^.]+$/, ''))
+        } catch (e) {
+          console.warn(`[app] ⚠️ Could not parse calibration file: ${e instanceof Error ? e.message : String(e)}`)
+        }
       }
       setLoadedView(null) // playing a file starts a new measurement — drop any loaded range
       // The analyzer applies the calibration, arms the sequence and plays the file (the app's one Play
@@ -442,8 +448,8 @@ export default function App() {
   // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors). Reuses the shared
   // annotation-offset store so L/C/FLC labels drag exactly like guitar labels (Swift/Python parity).
   const materialMarkers = useMemo<PeakMarker[]>(() => {
-    return buildMaterialMarkers(matPeaks, isVisible, annotationOffsets)
-  }, [matPeaks, isVisible, annotationOffsets])
+    return snapshot.chartPeaks === null ? [] : buildMaterialMarkers(matPeaks, isVisible, annotationOffsets)
+  }, [snapshot.chartPeaks, matPeaks, isVisible, annotationOffsets])
 
   // ── Multi-tap comparison (guitar, >1 tap) ───────────────────────────────────
   const multiTapAvailable = !material && !!captured && tapEntries.length > 1
@@ -529,8 +535,12 @@ export default function App() {
   // Styled markers via the SHARED builder (measurementImage.ts) so the live view and the exported
   // image (incl. saved-measurement export) use identical peak styling.
   const chartPeaks = useMemo(
-    () => peaksInDisplayRange(sortedPeaks, view.minHz, view.maxHz, !material, showUnknownModes, overriddenPeakIds, guitarType),
-    [sortedPeaks, view.minHz, view.maxHz, material, showUnknownModes, overriddenPeakIds, guitarType],
+    () =>
+      peaksInDisplayRange(
+        [...(snapshot.chartPeaks ?? [])].sort((a, b) => a.frequency - b.frequency),
+        view.minHz, view.maxHz, !material, showUnknownModes, overriddenPeakIds, guitarType,
+      ),
+    [snapshot.chartPeaks, view.minHz, view.maxHz, material, showUnknownModes, overriddenPeakIds, guitarType],
   )
   const markers = useMemo<PeakMarker[]>(
     () => buildGuitarMarkers(chartPeaks, modeByPeak, isVisible, overrides, annotationOffsets),
@@ -623,7 +633,7 @@ export default function App() {
   // comparison is App's, as Swift's view branches to saveComparison.
   const buildCurrentMeasurement = useCallback(
     (name: string, notes: string): TapToneMeasurementModel | null => {
-      if (comparison) return analyzer.buildComparisonMeasurement(name, notes)
+      if (comparison) return analyzer.buildComparisonMeasurement(name, notes, view)
       return analyzer.buildMeasurement(name, notes, view)
     },
     [analyzer, comparison, view],
@@ -632,7 +642,7 @@ export default function App() {
   const onSaveMeasurement = useCallback(
     (name: string, notes: string) => {
       if (comparison) {
-        void analyzer.saveComparison(name, notes)
+        void analyzer.saveComparison(name, notes, view)
         return
       }
       void analyzer.saveMeasurement(name, notes, view)
@@ -748,8 +758,8 @@ export default function App() {
       markers: inComparison ? [] : exportMarkers,
       view,
       measurementTypeName: comparison ? 'Comparison' : MEASUREMENT_FULL_NAME[settings.measurementType],
-      // A comparison is always of guitars, so its image has the mode bands, as Swift's and Python's.
       guitarType: material ? undefined : guitarType,
+      showModeBoundaries: snapshot.showsModeBoundaries,
       date: formatDisplayDate(stamp),
     }
     try {
@@ -763,7 +773,7 @@ export default function App() {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [comparison, material, inComparison, displaySpectrum, comparisonOverlays, matOverlays, exportMarkers, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, setError, setErrorKind])
+  }, [comparison, material, inComparison, displaySpectrum, comparisonOverlays, matOverlays, exportMarkers, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, snapshot.showsModeBoundaries, setError, setErrorKind])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
@@ -799,7 +809,9 @@ export default function App() {
         <button
           className={`btn tint ${snapshot.isPlayingFile ? 'tint-playing-file' : 'tint-accent'}`}
           onClick={() => setShowPlayFile(true)}
-          disabled={!running || comparison != null}
+          // Open while comparing, as Swift's: playing a file starts a new measurement, which ends the
+          // comparison. The web's file plays through the running audio device, so not without one.
+          disabled={!running}
           title={HINTS.playFile}
         >
           <FilePlayIcon />
@@ -808,7 +820,6 @@ export default function App() {
         <button
           className={`btn tint tint-accent toggle ${autoDb ? 'on' : ''}`}
           onClick={toggleAutoDb}
-          disabled={!running}
           aria-pressed={autoDb}
           title={HINTS.autoScale(autoDb)}
         >
@@ -850,7 +861,7 @@ export default function App() {
           <ClipboardIcon />
           <span>Measurements</span>
         </button>
-        <button className="btn tint tint-accent" onClick={() => setShowMetrics(true)} disabled={!running} title={HINTS.showMetrics}>
+        <button className="btn tint tint-accent" onClick={() => setShowMetrics(true)} title={HINTS.showMetrics}>
           <BarChartIcon />
           <span>Metrics</span>
         </button>
@@ -1062,8 +1073,9 @@ export default function App() {
               title={`FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`}
               overlays={inComparison ? comparisonOverlays : material ? matOverlays : undefined}
               guitarType={material ? undefined : guitarType}
+              showModeBoundaries={snapshot.showsModeBoundaries}
               peakMin={peakMin}
-              markers={inComparison ? [] : chartMarkers}
+              markers={chartMarkers}
               minHz={view.minHz}
               maxHz={view.maxHz}
               minDb={view.minDb}
@@ -1087,7 +1099,7 @@ export default function App() {
             {!running && (
               <div className="chart-placeholder">
                 <WaveformIcon size={48} />
-                <span>{snapshot.inputUnavailable ? 'Audio input unavailable' : 'Starting...'}</span>
+                <span>{snapshot.notRunningMessage}</span>
               </div>
             )}
           </div>
@@ -1347,9 +1359,7 @@ export default function App() {
         )}
         <span className="sb-peak">
           {!running
-            ? snapshot.inputUnavailable
-              ? 'Audio input unavailable'
-              : 'Starting...'
+            ? snapshot.notRunningMessage
             : metrics.peakFrequency != null && metrics.peakMagnitude != null
               ? `Peak: ${FieldPrecision.string(metrics.peakMagnitude, FieldPrecision.peakMagnitudeDB)} dB @ ${FieldPrecision.string(metrics.peakFrequency, FieldPrecision.peakFrequencyHz)} Hz`
               : 'Starting...'}

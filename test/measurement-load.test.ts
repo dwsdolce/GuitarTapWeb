@@ -70,6 +70,8 @@ describe('measurement-load — the shared cases (measurement-load.json)', () => 
         case 'recordedMicrophone': expect(a.resultProvenance != null, field).toBe(want); break
         case 'loadedName': expect(a.loadedMeasurementName, field).toBe(want); break
         case 'labelPositions': expect(a.annotationOffsets.size, field).toBe(want); break
+        case 'annotationVisibility': expect(a.annotationVisibilityMode, field).toBe(want); break
+        case 'savedAnnotationVisibility': expect(settingsStore.get().annotationVisibilityMode, field).toBe(want); break
         default: throw new Error(`unknown field ${field}`)
       }
     }

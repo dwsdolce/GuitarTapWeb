@@ -423,6 +423,11 @@ export class RealtimeFFTAnalyzer {
   get inputUnavailable(): boolean {
     return this.microphonePermissionDenied || this.inputCouldNotStart || this.inputCouldNotRestart
   }
+  /** What the not-running placeholders say: why the engine is not running. Swift `notRunningMessage` and
+   *  Python `not_running_message`. */
+  get notRunningMessage(): string {
+    return this.inputUnavailable ? 'Audio input unavailable' : 'Starting...'
+  }
   /** Whether the last start or restart failed. Mirrors Swift `engineStartFailed`. */
   private engineStartFailed = false
 
@@ -746,6 +751,14 @@ export class RealtimeFFTAnalyzer {
       return
     }
     const attached = ids.find((id) => !prev.includes(id))
+    if (this.isRecovering) {
+      // The watchdog's restart is pending: it opens the input selected when it runs, so a change now only
+      // selects — the new device, or the default when the one in use went — and opens nothing (one open,
+      // not two). As Swift's selection change and Python's refresh while a recovery is pending.
+      if (prev.length && attached) this.selectInput(attached)
+      else if (this.inputDeviceId && !ids.includes(this.inputDeviceId)) this.selectInput(null)
+      return
+    }
     if (prev.length && attached) {
       console.info(`[engine] 🎤 New device connected: '${this.labelOf(attached)}'`)
       try {

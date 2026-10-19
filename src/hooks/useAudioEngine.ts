@@ -99,7 +99,6 @@ export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineMod
     async (file: File) => {
       try {
         const cal = parseCalibration(await file.text(), file.name.replace(/\.[^.]+$/, ''))
-        if (cal.points.length === 0) throw new Error('No calibration data points found in the file.')
         const stored = saveCalibration(cal)
         setCalibrations(listCalibrations())
         engine.chooseCalibration(stored) // activate the newly imported calibration

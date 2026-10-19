@@ -4,8 +4,8 @@
 // shared cases in mic-selection.json), the engine driven through setInputDevice and the hardware-change
 // handler (MS6–MS11), a measurement load switching to its recorded microphone (MS14–MS17), and
 // choosing a calibration for the selected
-// input (MS18–MS20), the thresholds a load restores (MS21), and a device that cannot be opened
-// (MS23–MS25).
+// input (MS18–MS20), the thresholds a load restores and the analyzer's thresholds, saved as settings
+// (MS21–MS22), and a device that cannot be opened (MS23–MS25).
 //
 // The rules: at start, the saved device when it is present, otherwise the browser's default input (the
 // system default); a device connected while running is selected; the input in use disappearing selects
@@ -15,15 +15,13 @@
 //   MS4, MS5 — the browser resolves the default input itself; there is no first-device step (marked
 //              in mic-selection.json).
 //   MS12, MS13 — Python only (which PortAudio default is the system default).
-//   MS21     — the load applies the measurement's thresholds to the analyzer (and, in the app, to the
-//              settings store), so the test checks the analyzer.
-//   MS22     — no counterpart: the analyzer holds no threshold setting of its own.
 //
 // The browser's media devices are replaced by a fake: a set of connected inputs and a default.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { RealtimeFFTAnalyzer, failedOpenMessage } from '../src/audio/realtimeFFTAnalyzer'
+import { settingsStore } from '../src/settingsStore'
 import {
   calibrationIdForDevice,
   getActiveCalibrationId,
@@ -318,7 +316,8 @@ describe('choosing a calibration', () => {
 })
 
 describe('a load restores settings as the user setting them would', () => {
-  it('MS21: a load hands App the thresholds it restores, to save as the settings', () => {
+  it('MS21: a load saves the thresholds it restores, so they are the settings at the next start', () => {
+    settingsStore.update({ tapDetectionThreshold: -40, peakMinThreshold: -60 })
     const sut = new TapToneAnalyzer()
     sut.loadMeasurement({
       id: testId(1),
@@ -339,8 +338,49 @@ describe('a load restores settings as the user setting them would', () => {
         guitarType: 'Classical',
       },
     })
-    expect(sut.tapDetectionThreshold).toBe(-30)
-    expect(sut.peakMinThreshold).toBe(-50)
+    expect(settingsStore.get().tapDetectionThreshold).toBe(-30)
+    expect(settingsStore.get().peakMinThreshold).toBe(-50)
+  })
+
+  it('MS22: setting a threshold on the analyzer saves it', () => {
+    const sut = new TapToneAnalyzer()
+    sut.tapDetectionThreshold = -35
+    sut.peakMinThreshold = -45
+    expect(settingsStore.get().tapDetectionThreshold).toBe(-35)
+    expect(settingsStore.get().peakMinThreshold).toBe(-45)
+  })
+})
+
+describe('a device change while the watchdog restart is pending', () => {
+  // The pending restart opens the input selected when it runs, so a change meanwhile only selects — the
+  // twin of Python's SR5 (test_stream_restart_coordination) and Swift's MS31 (restartsOnSelectionChange).
+  const pending = (engine: RealtimeFFTAnalyzer) => {
+    const opened: (string | null)[] = []
+    const real = navigator.mediaDevices.getUserMedia
+    navigator.mediaDevices.getUserMedia = async (c: MediaStreamConstraints) => {
+      opened.push(((c.audio as MediaTrackConstraints).deviceId as { exact?: string } | undefined)?.exact ?? null)
+      return real(c)
+    }
+    ;(engine as unknown as { isRecovering: boolean }).isRecovering = true
+    return opened
+  }
+
+  it('a device connected is selected, nothing is opened, and the restart opens it', async () => {
+    const engine = await makeSUT(BUILT_IN, [BUILT_IN], BUILT_IN)
+    const opened = pending(engine)
+    await devicesChange(engine, [BUILT_IN, UMIK])
+    expect(engine.inputDeviceId).toBe(UMIK)
+    expect(opened).toEqual([])
+    await (engine as unknown as { reacquireInput(): Promise<void> }).reacquireInput()
+    expect(opened).toEqual([UMIK])
+  })
+
+  it('the device in use disconnected: the default is selected, and nothing is opened', async () => {
+    const engine = await makeSUT(UMIK, [BUILT_IN, UMIK], BUILT_IN)
+    const opened = pending(engine)
+    await devicesChange(engine, [BUILT_IN])
+    expect(engine.inputDeviceId).toBeNull()
+    expect(opened).toEqual([])
   })
 })
 

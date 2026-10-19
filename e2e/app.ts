@@ -1,3 +1,4 @@
+// @parity none — Playwright helpers for the web's end-to-end tests: opening the app, importing, catching downloads.
 import { expect, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'

@@ -1,3 +1,8 @@
+// @parity test/mic-selection
+// The calibration store: with no device selected no calibration is applied (a device's own is MS18–MS19 in
+// test/mic-selection.test.ts); stored calibrations that cannot be read are kept aside, as Swift's and Python's
+// mic-selection tests; and a lowercase id is read as the same id (the web keeps ids as strings, where Swift's
+// UUID and Python's uuid ignore case by nature).
 import { describe, it, expect, beforeEach } from 'vitest'
 import {
   listCalibrations,
@@ -25,33 +30,12 @@ beforeEach(() => {
 
 const cal = (name: string): Calibration => ({ name, sensitivityFactor: null, referenceLevel: null, points: [{ frequency: 1000, correction: 0 }] })
 
-describe('calibration resolution is device-specific (no cross-device global fallback)', () => {
-  it('switching to a device with no mapping clears to NONE, even with a global active', () => {
-    // Import a UMIK-1 calibration while the UMIK-1 is the active device: it gets a device mapping
-    // AND becomes the global active (what onImportCalibration does).
-    const umik = saveCalibration(cal('UMIK-1'))
-    setCalibrationForDevice('umik-1-device', umik.id)
-    setActiveCalibrationId(umik.id)
-
-    // The UMIK-1 keeps its calibration…
-    expect(resolveActiveCalibration('umik-1-device')?.id).toBe(umik.id)
-    // …but switching to the built-in mic (no mapping) must NOT inherit the UMIK-1 cal — the bug.
-    expect(resolveActiveCalibration('macbook-mic')).toBeNull()
-  })
-
-  it('selecting None for a device (removing its mapping) resolves to NONE', () => {
-    const umik = saveCalibration(cal('UMIK-1'))
-    setCalibrationForDevice('dev', umik.id)
-    expect(resolveActiveCalibration('dev')?.id).toBe(umik.id)
-    setCalibrationForDevice('dev', null) // "None (flat)"
-    expect(resolveActiveCalibration('dev')).toBeNull()
-  })
-
-  it('falls back to the global active only when no device is known (pre-start)', () => {
+describe('the calibration a device resolves to', () => {
+  it('with no device selected, no calibration — the last one chosen is not applied', () => {
     const umik = saveCalibration(cal('UMIK-1'))
     setActiveCalibrationId(umik.id)
-    expect(resolveActiveCalibration(undefined)?.id).toBe(umik.id)
-    expect(resolveActiveCalibration(null)?.id).toBe(umik.id)
+    expect(resolveActiveCalibration(undefined)).toBeNull()
+    expect(resolveActiveCalibration(null)).toBeNull()
   })
 })
 

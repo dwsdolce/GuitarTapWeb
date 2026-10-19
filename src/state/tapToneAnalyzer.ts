@@ -18,7 +18,7 @@ import { classifyAll, type ResolvedMode } from '../dsp/classify'
 // import (precedent: MaterialPeaks from components) — the resolver lives with the mode↔label map it needs.
 import { effectiveMode as resolveEffectiveMode, MODE_DISPLAY_NAME } from '../presentation/modeColors'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import { comparisonAxisRange, comparisonModeIDMap, effectiveSelectedPeakIDs, MEASUREMENT_TYPE_FROM_RAW, measurementMultiTapComparisonEntries, storedComponents, guitarTypeNameFromRaw, isoNow, makeResonantPeak, TapEntry, type AnnotationOffsets, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapEntryModel, type TapToneMeasurementModel } from '../measurement/types'
+import { comparisonModeIDMap, effectiveSelectedPeakIDs, MEASUREMENT_TYPE_FROM_RAW, measurementMultiTapComparisonEntries, storedComponents, guitarTypeNameFromRaw, isoNow, makeResonantPeak, TapEntry, type AnnotationOffsets, type ComparisonEntryModel, type ResonantPeak, type SpectrumSnapshotModel, type TapEntryModel, type TapToneMeasurementModel } from '../measurement/types'
 import { normalizedMeasurementName, normalizedMeasurementNotes } from '../measurement/measurementName'
 import { idEntries, InvalidIdError, newId, NoSpectrumError, type Uuid } from '../measurement/newId'
 import { Pitch } from '../dsp/pitch'
@@ -39,6 +39,7 @@ import { dumpCaptureProbe, dumpCaptureWav } from '../measurement/dumpWav'
 import { FieldPrecision } from '../precision'
 import { captureProbe } from './captureProbe'
 import { SystemWallClock, type WallClock } from './wallClock'
+import { spanningRange } from '../presentation/displayRange'
 
 /** The tap detector's state. Mirrors Swift `DetectionState` (DetectionState.swift) and Python
  *  `DetectionState` (models/detection_state.py).
@@ -430,9 +431,10 @@ function makeGuitarMeasurement(a: BuildMeasurementArgs): TapToneMeasurementModel
     if (offset != null) peakAnnotationOffsets[p.id] = offset
   }
 
-  // Per-tap entries for the multi-tap comparison view, saved as they are (mirrors Swift tapEntries).
+  // Per-tap entries for the multi-tap comparison view, saved as they are whenever there are any (a capture
+  // builds them only for more than one tap). As Swift: `!tapEntries.isEmpty ? tapEntries : nil`.
   const tapEntries: TapEntryModel[] | undefined =
-    a.tapEntries && a.tapEntries.length > 1
+    a.tapEntries && a.tapEntries.length > 0
       ? a.tapEntries.map((entry) => ({
           id: entry.id,
           tapIndex: entry.tapIndex,
@@ -591,7 +593,7 @@ function makeMaterialMeasurement(a: BuildMaterialArgs): TapToneMeasurementModel 
 
 /** Wrap live comparison entries into a saved comparison measurement (peaks: [] top-level,
  *  comparisonEntries populated) — mirrors Swift/Python save_comparison. */
-function makeComparisonMeasurement(a: { name: string; notes: string; entries: ComparisonEntryModel[] }): TapToneMeasurementModel {
+function makeComparisonMeasurement(a: { name: string; notes: string; entries: ComparisonEntryModel[]; range: ChartView }): TapToneMeasurementModel {
   return {
     id: newId(),
     timestamp: isoNow(),
@@ -599,6 +601,7 @@ function makeComparisonMeasurement(a: { name: string; notes: string; entries: Co
     measurementName: a.name.trim() || undefined,
     notes: normalizedMeasurementNotes(a.notes),
     comparisonEntries: a.entries,
+    comparisonRange: a.range,
   }
 }
 
@@ -766,7 +769,7 @@ export class TapToneAnalyzer {
   maxFrequency = ANALYSIS_MAX_HZ
   // Store B — the current material measurement's OWN dimensions. `null` for guitar and before a
   // material measurement completes. Seeded from Settings at the completion transition (the setter
-  // below), restored from the file's snapshot by restoreMaterial, and edited through
+  // below), restored from the file's snapshot by loadMeasurement, and edited through
   // setMaterialInputs. The sole source for MaterialResults' calc and for Save; never the live
   // Settings. Mirrors Swift `analyzer.materialInputs` / Python `analyzer.material_inputs`.
   materialInputs: MaterialMeasurementInputs | null = null
@@ -814,7 +817,7 @@ export class TapToneAnalyzer {
     // Seed Store B from the Settings defaults — the one and only seed hook (nothing on New Tap,
     // type-change or Cancel). Guarded on the TRANSITION, not on Store B being null: once the
     // transition is spent, anything that clears Store B while still complete must NOT re-seed, which
-    // is what Swift and Python do. Material types only, and never during a load — restoreMaterial
+    // is what Swift and Python do. Material types only, and never during a load — loadMeasurement
     // sets Store B from the file's own snapshot instead. Mirrors Swift didSet:
     // !oldValue && !isGuitar && !isLoadingMeasurement.
     if (oldValue || this.isGuitar || this.isLoadingMeasurement) return
@@ -853,6 +856,9 @@ export class TapToneAnalyzer {
   /** Counts device changes: a settle's restore runs only if no later change superseded it, so the
    *  settle always ends 3 s of audio after the LAST change. Swift `routeChangeGeneration`. */
   private routeChangeGeneration = 0
+  /** Counts abandoned captures (`abandonCapture`). What a capture schedules — its processing, the next tap's
+   *  re-arm — runs only if no abandon has come since. Swift `captureGeneration`. */
+  private captureGeneration = 0
   /** Actions waiting for the next FFT frame — see `afterNextFrame`. Swift `pendingFrameActions`. */
   private pendingFrameActions: ((peakMagnitude: number) => void)[] = []
 
@@ -914,6 +920,9 @@ export class TapToneAnalyzer {
     // A new sequence starts its tap confirmation from zero: a chunk counted before it cannot help confirm
     // its first tap. Swift's and Python's startTapSequence do the same.
     this.consecutive = 0
+    // Cancel any in-flight capture from a previous sequence and reset the pre-roll before arming, as
+    // Swift's startTapSequence.
+    this.abandonCapture()
 
     if (this.isGuitar) {
       // skipWarmup mirrors Swift startTapSequence(skipWarmup:) — guitar file playback skips it,
@@ -1108,14 +1117,19 @@ export class TapToneAnalyzer {
 
   /** The current comparison as a saved record — its entries as they are, no peaks of its own — or null
    *  when no comparison is showing. The comparison save and the comparison PDF both use it. */
-  buildComparisonMeasurement(name: string, notes: string): TapToneMeasurementModel | null {
+  buildComparisonMeasurement(name: string, notes: string, view?: ChartView): TapToneMeasurementModel | null {
     if (this.displayMode !== 'comparison' || this.comparisonEntries.length === 0) return null
-    return makeComparisonMeasurement({ name, notes, entries: this.comparisonEntries })
+    return makeComparisonMeasurement({
+      name, notes, entries: this.comparisonEntries,
+      range: view ?? spanningRange(this.comparisonEntries.map((e) => e.snapshot))!,
+    })
   }
 
-  /** Save the current comparison to the measurement store. Mirrors Swift `saveComparison(measurementName:notes:)`. */
-  async saveComparison(name: string, notes: string): Promise<void> {
-    const m = this.buildComparisonMeasurement(name, notes)
+  /** Save the current comparison to the measurement store, with the chart's range `view` (none: the range a
+   *  new comparison shows), which loading it shows. Mirrors Swift
+   *  `saveComparison(measurementName:notes:minFreq:maxFreq:minDB:maxDB:)`. */
+  async saveComparison(name: string, notes: string, view?: ChartView): Promise<void> {
+    const m = this.buildComparisonMeasurement(name, notes, view)
     if (!m) return
     await storeMeasurement(m)
     // The comparison on screen is now this saved one: its exports show its date and are named by it.
@@ -1135,134 +1149,171 @@ export class TapToneAnalyzer {
    *  TapDisplaySettings). The view only displays the result, and applies `loadedAxisRange` to the chart's
    *  range, as Swift's view does with its `.onReceive(tap.$loadedAxisRange)`. */
   loadMeasurement(m: TapToneMeasurementModel): void {
-    // A load replaces the guitar peaks (Swift `allPeaks = measurement.peaks`). A comparison record has
-    // none, and the web keeps a material measurement's L/C/FLC in `matPeaks`, so both leave the set
-    // empty; the guitar branch restores the saved peaks in restoreSnapshot.
-    if (m.comparisonEntries || m.longitudinalSnapshot) {
-      this.peaks = []
-      this.modeByPeak = new Map()
-      this.refreshDisplayedPeaks()
-    }
-    // A comparison record restores its overlay spectra directly and is not a single measurement.
+    // Comparison records: restore the overlay spectra directly from the saved entries and return early —
+    // no peak/spectrum restoration needed for the regular path.
     if (m.comparisonEntries) {
-      this.loadComparisonRecord(m.comparisonEntries) // enters comparison (clears the loaded state)
-      this.loadedMeasurementName = normalizedMeasurementName(m.measurementName ?? '') ?? null // ...but a SAVED record has a name
+      const entries = m.comparisonEntries
+      this.comparisonEntries = entries
+      // A saved comparison shows the range it was saved with, as a measurement does; one saved before
+      // comparisons kept their range spans its entries' ranges, as a new comparison does.
+      const savedRange = m.comparisonRange ?? spanningRange(entries.map((e) => e.snapshot))
+      if (savedRange) this.loadedAxisRange = savedRange
+      this.loadedMeasurementName = normalizedMeasurementName(m.measurementName ?? '') ?? null
       this.loadedNotes = normalizedMeasurementNotes(m.notes ?? '') ?? null
-      this.sourceMeasurementTimestamp = m.timestamp || null // ...and a date of its own
-      this.highlightedPeakId = null
+      // The saved comparison's own date, which its exports show and are named by.
+      this.sourceMeasurementTimestamp = m.timestamp || null
+      // Clear any per-tap entries from a previously loaded multi-tap measurement.
+      this.tapEntries = []
+      this.showingMultiTapComparison = false
+      this.displayMode = 'comparison'
       this.resultProvenance = null // a comparison has no microphone of its own
+      this.highlightedPeakId = null
+      this.detectionState = 'idle'
+      this.abandonCapture()
+      this.cancelSessionRecording()
       this.notify()
       return
     }
 
-    // The threshold and tap count it carries are the loaded ones, kept only when the file has them.
-    // Mirrors Swift loadMeasurement.
-    if (m.tapDetectionThreshold != null) this.loadedTapDetectionThreshold = m.tapDetectionThreshold
-    if (m.numberOfTaps != null) this.loadedNumberOfTaps = m.numberOfTaps
+    // One load, in Swift loadMeasurement's order.
+    this.isLoadingMeasurement = true
+    try {
+      // Loading a measurement ends any comparison, and its spectrum goes at once.
+      this.clearComparison()
+      this.frozenMagnitudes = []
+      this.frozenFrequencies = []
+      this.sourceMeasurementTimestamp = m.timestamp || null
+      this.loadedMeasurementName = normalizedMeasurementName(m.measurementName ?? '') ?? null
+      this.loadedNotes = normalizedMeasurementNotes(m.notes ?? '') ?? null
 
-    if (m.longitudinalSnapshot) {
-      // Material (plate/brace): per-phase snapshots, no guitar spectrum.
-      const mat = measurementToLiveMaterial(m, settingsStore.get())
-      this.applyLoadedSettings(mat.settingsPatch) // its own settings first, as Swift applies them; NOT the dims
-      this.loadedAxisRange = mat.view
-      this.clearResult() // material uses matSpectra; no frozen guitar spectrum or per-tap entries
-      this.restoreMaterial({
-        matSpectra: mat.matSpectra,
-        selectedLongitudinalPeak: mat.selectedLongitudinalPeak,
-        selectedCrossPeak: mat.selectedCrossPeak,
-        selectedFlcPeak: mat.selectedFlcPeak,
-        materialInputs: mat.materialInputs,
-        numberOfTaps: m.numberOfTaps,
-      })
-      this.restoreOffsets(mat.annotationOffsetsById) // dragged L/C/FLC labels (id-keyed shared store)
-    } else {
-      const live = measurementToLive(m, settingsStore.get())
-      // The measurement's own settings first, so its peaks are classified and shown under them — not
-      // under whatever the app is set to. Swift loadMeasurement applies them before the peaks.
-      this.applyLoadedSettings(live.settingsPatch)
-      this.loadedAxisRange = live.view
-      this.restoreSnapshot({
-        magnitudes: live.captured.magnitudesDb,
-        frequencies: live.captured.frequencies,
-        numberOfTaps: m.numberOfTaps,
-        tapEntries: live.tapEntries,
-        peaks: live.peaks,
-        overrides: live.overridesById,
-        annotationOffsets: live.annotationOffsetsById,
-        selection: {
-          ids: live.selectedIds,
-          frequencies: live.peaks
-            .filter((p) => live.selectedIds.has(p.id))
-            .map((p) => p.frequency),
-          userModified: live.userModified,
-        },
-      })
-    }
+      // The file read as the analyzer's values: a plate's or brace's per-phase snapshots, or a guitar's.
+      const material = m.longitudinalSnapshot ? measurementToLiveMaterial(m, settingsStore.get()) : null
+      const guitar = material ? null : measurementToLive(m, settingsStore.get())
+      const read = (material ?? guitar)!
+      const { peakMinThreshold, tapDetectionThreshold, annotationVisibilityMode, ...settings } = read.settingsPatch
 
-    this.showingMultiTapComparison = false
-    this.loadedMeasurementName = normalizedMeasurementName(m.measurementName ?? '') ?? null
-    this.loadedNotes = normalizedMeasurementNotes(m.notes ?? '') ?? null
-    this.sourceMeasurementTimestamp = m.timestamp || null
-    // The FILE's stored ring-out, not whatever the live tracker last reported.
-    this.currentDecayTime = m.decayTime ?? null
-    // The loaded result's provenance is what the file recorded; no microphone means unknown.
-    this.resultProvenance = {
-      microphoneName: m.microphoneName ?? null,
-      microphoneUID: m.microphoneUID ?? null,
-      calibrationName: m.calibrationName ?? null,
-      sampleRate: m.sampleRate ?? null,
-    }
-    // Select the recorded microphone if it is connected; warn if it is not. The id is tried first
-    // (a measurement made in this browser); then the name, so a measurement from another edition —
-    // a CoreAudio UID, or Python's "Name:SampleRate" fingerprint — still resolves. Swift
-    // `loadMeasurement(_:)`.
-    const device = this.attachedDevice
-    if (m.microphoneUID) {
-      const name = m.microphoneName ?? m.microphoneUID
-      const available = device?.availableInputDevices ?? []
-      const match =
-        available.find((d) => d.deviceId === m.microphoneUID) ??
-        available.find((d) => d.label === m.microphoneName)
-      console.info(
-        `[analyzer] 🎤 Load: recorded microphone '${name}' (uid ${m.microphoneUID}) — ` +
-          (match
-            ? `matched '${match.label}' by ${match.deviceId === m.microphoneUID ? 'id' : 'name'}; the input is ${device?.inputDeviceId === match.deviceId ? 'already it' : `'${device?.inputDeviceId}' — switching`}`
-            : `no connected input matches (${available.map((d) => `'${d.label}'`).join(', ') || 'none listed'})`) +
-          `; recorded rate ${m.sampleRate ?? 'none'} Hz, current rate ${device?.sampleRate ?? 'none'} Hz` +
-          ` (the browser's audio rate — it follows the output device), track rate ${device?.audioSettings?.sampleRate ?? 'unknown'} Hz`,
-      )
-      if (match && device) {
-        // Connected — switch to it for this session; its calibration is selected with it, before
-        // the check below reads it. The stream follows.
-        if (device.inputDeviceId !== match.deviceId) {
-          device.setInputDevice(match.deviceId).catch(() => {
-            // It could not be opened: setInputDevice kept the previous input, and the load says so.
-            this.microphoneWarningTitle = 'Microphone Unavailable'
-            this.microphoneWarning = failedOpenMessage(match.label)
-            this.notify()
-          })
-        }
-        // Same microphone — but flag a calibration or sample-rate difference, since a newly
-        // captured tap would then not match this saved measurement.
-        const currentCalibration = device.activeCalibration?.name ?? null
-        const calibrationDiffers = (m.calibrationName ?? null) !== currentCalibration
-        const rateDiffers = m.sampleRate != null && Math.round(m.sampleRate) !== Math.round(device.sampleRate)
-        this.microphoneWarningTitle = 'Recording Setup Differs'
-        this.microphoneWarning =
-          calibrationDiffers || rateDiffers
-            ? setupDiffersMessage(
-                calibrationDiffers ? [m.calibrationName ?? null, currentCalibration] : null,
-                rateDiffers ? [Math.round(m.sampleRate!), Math.round(device.sampleRate)] : null,
-              )
-            : null
-      } else {
-        // UNKNOWN, not "unplugged": a no-match can equally mean the device is attached under a
-        // different name on this platform; the message says both.
-        this.microphoneWarningTitle = 'Microphone Not Found'
-        this.microphoneWarning = microphoneNotFoundMessage(name, device ? device.deviceLabel || null : null)
+      // The measurement's settings: the chart range it was saved with, Show Unknown Modes, the guitar and
+      // measurement type — saved, as Swift's load writes TapDisplaySettings — and a plate's or brace's own
+      // dimensions.
+      this.loadedAxisRange = read.view
+      settingsStore.update(settings)
+      if (material) this.materialInputs = material.materialInputs
+      if (peakMinThreshold !== undefined) this.peakMinThreshold = peakMinThreshold
+
+      // The saved peaks — a guitar's (authoritative, never re-derived); a plate or brace keeps none.
+      this.peaks = guitar ? guitar.peaks : []
+      this.currentDecayTime = m.decayTime ?? null
+      this.matSpectra = material ? material.matSpectra : EMPTY_MAT_SPECTRA
+      if (guitar) {
+        this.frozenMagnitudes = guitar.captured.magnitudesDb
+        this.frozenFrequencies = guitar.captured.frequencies
       }
-    } else {
-      this.microphoneWarning = null // no microphone recorded: no warning from an earlier load stays (Swift)
+      this.materialTapPhase = 'complete'
+      this.materialPeaksFromLoad = true
+      this.selectedLongitudinalPeak = material?.selectedLongitudinalPeak ?? null
+      this.selectedCrossPeak = material?.selectedCrossPeak ?? null
+      this.selectedFlcPeak = material?.selectedFlcPeak ?? null
+      this.capturedTaps = [] // a loaded measurement has no raw taps
+
+      // Frozen: detection stops, a capture under way is dropped with all it scheduled (it would otherwise
+      // land on the loaded measurement), any session recording goes, and the measurement is complete.
+      this.detectionState = 'idle'
+      this.abandonCapture()
+      this.cancelSessionRecording()
+      this.isMeasurementComplete = true
+      this.currentTapCount = 0
+      this.tapProgress = 0
+      this.setStatusMessage(LOADED_STATUS)
+
+      this.annotationOffsets = new Map(read.annotationOffsetsById)
+      this.highlightedPeakId = null
+      // The selection — a plate or brace has none (its peaks are its identified L/C/FLC).
+      this.selectedPeakIds = guitar ? new Set(guitar.selectedIds) : new Set()
+      this.userModifiedSelection = guitar ? guitar.userModified : false
+      this.selectedPeakFrequencies = guitar ? guitar.peaks.filter((p) => guitar.selectedIds.has(p.id)).map((p) => p.frequency) : []
+      // The file's annotation mode — "all" when it has none — and saved, as Swift's.
+      this.annotationVisibilityMode = annotationVisibilityMode ?? 'all'
+      settingsStore.update({ annotationVisibilityMode: this.annotationVisibilityMode })
+      this.overrides = guitar ? new Map(guitar.overridesById) : new Map()
+      this.reclassifyPeaks()
+      this.refreshDisplayedPeaks()
+
+      // The threshold and tap count it carries are the loaded ones, and the analyzer's — when the file has them.
+      if (tapDetectionThreshold !== undefined) {
+        this.loadedTapDetectionThreshold = tapDetectionThreshold
+        this.tapDetectionThreshold = tapDetectionThreshold
+      }
+      if (m.numberOfTaps != null) {
+        this.loadedNumberOfTaps = m.numberOfTaps
+        this.setNumberOfTaps(m.numberOfTaps)
+      }
+
+      // Select the recorded microphone if it is connected; warn if it is not. The id is tried first
+      // (a measurement made in this browser); then the name, so a measurement from another edition —
+      // a CoreAudio UID, or Python's "Name:SampleRate" fingerprint — still resolves. Swift
+      // `loadMeasurement(_:)`.
+      const device = this.attachedDevice
+      if (m.microphoneUID) {
+        const name = m.microphoneName ?? m.microphoneUID
+        const available = device?.availableInputDevices ?? []
+        const match =
+          available.find((d) => d.deviceId === m.microphoneUID) ??
+          available.find((d) => d.label === m.microphoneName)
+        console.info(
+          `[analyzer] 🎤 Load: recorded microphone '${name}' (uid ${m.microphoneUID}) — ` +
+            (match
+              ? `matched '${match.label}' by ${match.deviceId === m.microphoneUID ? 'id' : 'name'}; the input is ${device?.inputDeviceId === match.deviceId ? 'already it' : `'${device?.inputDeviceId}' — switching`}`
+              : `no connected input matches (${available.map((d) => `'${d.label}'`).join(', ') || 'none listed'})`) +
+            `; recorded rate ${m.sampleRate ?? 'none'} Hz, current rate ${device?.sampleRate ?? 'none'} Hz` +
+            ` (the browser's audio rate — it follows the output device), track rate ${device?.audioSettings?.sampleRate ?? 'unknown'} Hz`,
+        )
+        if (match && device) {
+          // Connected — switch to it for this session; its calibration is selected with it, before
+          // the check below reads it. The stream follows.
+          if (device.inputDeviceId !== match.deviceId) {
+            device.setInputDevice(match.deviceId).catch(() => {
+              // It could not be opened: setInputDevice kept the previous input, and the load says so.
+              this.microphoneWarningTitle = 'Microphone Unavailable'
+              this.microphoneWarning = failedOpenMessage(match.label)
+              this.notify()
+            })
+          }
+          // Same microphone — but flag a calibration or sample-rate difference, since a newly
+          // captured tap would then not match this saved measurement.
+          const currentCalibration = device.activeCalibration?.name ?? null
+          const calibrationDiffers = (m.calibrationName ?? null) !== currentCalibration
+          const rateDiffers = m.sampleRate != null && Math.round(m.sampleRate) !== Math.round(device.sampleRate)
+          this.microphoneWarningTitle = 'Recording Setup Differs'
+          this.microphoneWarning =
+            calibrationDiffers || rateDiffers
+              ? setupDiffersMessage(
+                  calibrationDiffers ? [m.calibrationName ?? null, currentCalibration] : null,
+                  rateDiffers ? [Math.round(m.sampleRate!), Math.round(device.sampleRate)] : null,
+                )
+              : null
+        } else {
+          // UNKNOWN, not "unplugged": a no-match can equally mean the device is attached under a
+          // different name on this platform; the message says both.
+          this.microphoneWarningTitle = 'Microphone Not Found'
+          this.microphoneWarning = microphoneNotFoundMessage(name, device ? device.deviceLabel || null : null)
+        }
+      } else {
+        this.microphoneWarning = null // no microphone recorded: no warning from an earlier load stays (Swift)
+      }
+
+      // After the completion and the tap count, both of whose hooks clear it.
+      this.showLoadedSettingsWarning = true
+      // The loaded result's provenance is what the file recorded; no microphone means unknown.
+      this.resultProvenance = {
+        microphoneName: m.microphoneName ?? null,
+        microphoneUID: m.microphoneUID ?? null,
+        calibrationName: m.calibrationName ?? null,
+        sampleRate: m.sampleRate ?? null,
+      }
+      this.tapEntries = guitar?.tapEntries ?? [] // restored as saved — peaks and selection included
+      this.showingMultiTapComparison = false
+    } finally {
+      this.isLoadingMeasurement = false
     }
     this.notify()
   }
@@ -1331,77 +1382,6 @@ export class TapToneAnalyzer {
     return message
   }
 
-  /** The guitar restore STEP of {@link loadMeasurement} — the frozen spectrum and everything keyed
-   *  to it, applied as one.
-   *
-   *  Everything the file carries — the frozen spectrum, the per-tap entries, the authoritative
-   *  peaks, and the per-peak state keyed to them (overrides, dragged offsets, selection) — is
-   *  restored under `isLoadingMeasurement`, as one step. Mirrors Swift/Python `loadMeasurement`, which are
-   *  likewise one method.
-   *
-   *  The per-peak arguments are optional: the material load path restores only offsets, and the
-   *  unit tests that just need a frozen spectrum pass none. */
-  restoreSnapshot(snapshot: {
-    magnitudes: number[]
-    frequencies: number[]
-    /** The file's tap count. Restored HERE, not by the caller: Swift writes `numberOfTaps` inside
-     *  loadMeasurement (MeasMgmt:784) between the completion assignment and the settings-warning
-     *  raise. The tap-count hook clears the banner, so a restore after this method would wipe the
-     *  banner this method raises. */
-    numberOfTaps?: number
-    tapEntries?: TapEntry[]
-    /** The saved peaks — authoritative, never re-derived. Omit to leave the peaks unchanged. */
-    peaks?: ResonantPeak[]
-    overrides?: Map<Uuid, string>
-    annotationOffsets?: Map<Uuid, [number, number]>
-    selection?: { ids: Set<Uuid>; frequencies: number[]; userModified: boolean }
-  }): void {
-    this.isLoadingMeasurement = true
-    this.frozenMagnitudes = snapshot.magnitudes
-    this.frozenFrequencies = snapshot.frequencies
-    this.tapEntries = snapshot.tapEntries ?? [] // restored as saved — peaks and selection included (Swift)
-    this.capturedTaps = [] // a loaded measurement has no raw taps (Swift doesn't restore them)
-    // Tear down any in-progress capture the load interrupts (e.g. a plate sequence abandoned mid-phase),
-    // mirroring Swift loadMeasurement (SpectrumCapture:724-728 + materialTapPhase = .complete). Without
-    // this, an interrupted material capture leaves currentTapCount/isDetecting/materialTapPhase stale, so
-    // the status bar's progress bar (gated on currentTapCount > 0) and Analyzing indicator (isDetecting)
-    // linger over the loaded "frozen" measurement.
-    this.detectionState = 'idle'
-    this.currentTapCount = 0
-    this.tapProgress = 0
-    this.materialTapPhase = 'complete'
-    this.isMeasurementComplete = true
-    // The file's tap count, BEFORE the raise — its hook clears the warning, so restoring it
-    // afterwards (as App used to) wipes the banner the load is about to raise.
-    if (snapshot.numberOfTaps != null) this.setNumberOfTaps(snapshot.numberOfTaps)
-    // AFTER the completion assignment and the tap-count restore, both of whose hooks clear this
-    // flag — the ordering Swift has between MeasMgmt:709, :784 and :834.
-    this.showLoadedSettingsWarning = true
-    // A single measurement is now displayed — and any overlay it interrupted is gone. Swift
-    // MeasMgmt:562, Python :476. Set here, not by the caller, so every load clears the comparison.
-    // Through enterFrozen, so the freeze — including disarming the device — happens in ONE place.
-    this.enterFrozen()
-    this.setStatusMessage(LOADED_STATUS)
-    // The peaks and the state keyed to them land together with the spectrum above — that pairing is
-    // the whole point of doing this in one method.
-    if (snapshot.peaks !== undefined) {
-      // The saved peaks ARE the durable set (Swift `allPeaks = measurement.peaks`), classified
-      // (`reclassifyPeaks`).
-      this.peaks = snapshot.peaks
-      this.reclassifyPeaks()
-      this.refreshDisplayedPeaks()
-    }
-    this.highlightedPeakId = null // a newly loaded measurement has no highlighted peak
-    if (snapshot.overrides) this.overrides = new Map(snapshot.overrides)
-    if (snapshot.annotationOffsets) this.annotationOffsets = new Map(snapshot.annotationOffsets)
-    if (snapshot.selection) {
-      this.selectedPeakIds = new Set(snapshot.selection.ids)
-      this.selectedPeakFrequencies = [...snapshot.selection.frequencies]
-      this.userModifiedSelection = snapshot.selection.userModified
-    }
-    this.isLoadingMeasurement = false
-    this.notify()
-  }
 
   /** Clear the frozen result (New Tap / measurement-type switch / play-file / comparison / load-reset):
    *  drop the frozen spectrum, the per-tap entries, the raw tap accumulation, and completion.
@@ -1423,11 +1403,9 @@ export class TapToneAnalyzer {
     this.highlightedPeakId = null
     this.isMeasurementComplete = false // setter also clears the loaded-settings warning
     // New Tap / type-switch / play-file / cancel all return to live input, and drop any overlay
-    // with the result they are clearing. Swift Control:134 (comparisonSpectra = []; .live),
-    // Python control:621.
-    this.comparisonEntries = []
+    // with the result they are clearing — through clearComparison, as Swift's and Python's.
+    this.clearComparison()
     this.showingMultiTapComparison = false
-    this.displayMode = 'live'
     this.notify()
   }
 
@@ -1607,12 +1585,6 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  /** Replace the whole offset map from a loaded measurement (id-keyed). Guitar loaded peaks and restored
-   *  material peaks both keep stable ids, so no remap follows. */
-  restoreOffsets(map: Map<Uuid, [number, number]>): void {
-    this.annotationOffsets = new Map(map)
-    this.notify()
-  }
 
   /** Carry per-peak state across a peak RE-MINT (findPeaks assigns fresh ids), the web equivalent of
    *  Swift `applyFrozenPeakState`. Snapshots the old state BY FREQUENCY from the DURABLE old set (never
@@ -1675,7 +1647,7 @@ export class TapToneAnalyzer {
     )
   }
 
-  // @parity state/visible-peaks tests=test/annotation-state
+  // @parity state/visible-peaks tests=test/annotation-state,test/comparison
   /** Which peaks are annotated: all, the selected ones, or none. Set from the settings store at
    *  construction; cycled by `cycleAnnotationVisibility`. Swift / Python `annotationVisibilityMode`. */
   annotationVisibilityMode: AnnotationMode = settingsStore.get().annotationVisibilityMode
@@ -1698,6 +1670,26 @@ export class TapToneAnalyzer {
    *  Material: the identified L / C / FLC, which have no per-peak selection, so all and selected are the
    *  same. Guitar: every peak above Peak Min, or only the selected ones; unknown peaks dropped when Show
    *  Unknown Modes is off. Swift `visiblePeaks` / Python `visible_peaks`. */
+  /** The peaks the chart marks: a guitar's above Peak Min, a plate's or brace's identified ones — none (null)
+   *  while a comparison is shown, which draws its entries' own. Swift `chartPeaks` / Python `chart_peaks`. */
+  get chartPeaks(): ResonantPeak[] | null {
+    if (this.displayMode === 'comparison') return null
+    return this.isGuitar ? this.peaksAbovePeakMin : this.materialIdentifiedPeaks
+  }
+
+  /** The peaks the chart labels: `visiblePeaks` — none (null) while a comparison is shown. Swift
+   *  `chartAnnotationPeaks` / Python `chart_annotation_peaks`. */
+  get chartAnnotationPeaks(): ResonantPeak[] | null {
+    return this.displayMode === 'comparison' ? null : this.visiblePeaks
+  }
+
+  /** Whether the chart draws the guitar mode lines: not for a comparison of saved measurements, whose
+   *  entries need not be of one guitar type. A multi-tap guitar's per-tap overlay keeps them. Swift
+   *  `showsModeBoundaries` / Python `shows_mode_boundaries`. */
+  get showsModeBoundaries(): boolean {
+    return !this.isSavedMeasurementComparison
+  }
+
   get visiblePeaks(): ResonantPeak[] {
     if (!this.isGuitar) return this.annotationVisibilityMode === 'none' ? [] : this.materialIdentifiedPeaks
     let candidates: ResonantPeak[]
@@ -2362,46 +2354,6 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
-  /** Restore a loaded material measurement (per-phase spectra + peaks, dimensions, phase=complete).
-   *
-   *  Runs under `isLoadingMeasurement`, which is what suppresses the completion setter's Store B
-   *  seed: a load must show the measurement's OWN dimensions, not the current Settings defaults.
-   *  Swift gets this from loadMeasurement holding the flag across the whole restore; the web load is
-   *  orchestrated from App, so the window is held here, around the assignment that triggers didSet. */
-  restoreMaterial(m: {
-    matSpectra: MatSpectra
-    selectedLongitudinalPeak: ResonantPeak | null
-    selectedCrossPeak: ResonantPeak | null
-    selectedFlcPeak: ResonantPeak | null
-    materialInputs: MaterialMeasurementInputs | null
-    numberOfTaps?: number
-  }): void {
-    this.isLoadingMeasurement = true
-    try {
-      this.matSpectra = m.matSpectra
-      this.materialPeaksFromLoad = true
-      this.selectedLongitudinalPeak = m.selectedLongitudinalPeak
-      this.selectedCrossPeak = m.selectedCrossPeak
-      this.selectedFlcPeak = m.selectedFlcPeak
-      this.materialInputs = m.materialInputs // Store B ← the file's own dims, never Settings
-      this.materialTapPhase = 'complete'
-      this.isMeasurementComplete = true // a loaded material measurement is complete (Swift loadMeasurement)
-      // A sequence the load interrupts leaves no count behind — else the status bar's progress bar
-      // (gated on currentTapCount > 0) lingers over the loaded measurement. Swift loadMeasurement.
-      this.currentTapCount = 0
-      this.tapProgress = 0
-      // The file's tap count BEFORE the raise — its hook clears the warning.
-      if (m.numberOfTaps != null) this.setNumberOfTaps(m.numberOfTaps)
-      this.showLoadedSettingsWarning = true // after both clearing hooks have run
-      this.disarmDetection() // a loaded result is frozen — see enterFrozen
-      this.cancelSessionRecording()
-    } finally {
-      this.isLoadingMeasurement = false
-    }
-    this.setStatusMessage(LOADED_STATUS)
-    this.notify()
-  }
-
   /** Replace Store B — the Results-panel dimension editor. Mirrors Swift's
    *  `set: { analyzer.materialInputs = $0 }` binding in TapAnalysisResultsView. */
   setMaterialInputs(v: MaterialMeasurementInputs | null): void {
@@ -2830,16 +2782,29 @@ export class TapToneAnalyzer {
    *  then re-arm from the chunk that made the rest due. The warm-up and the noise floor are NOT
    *  restarted. Swift `reEnableDetectionForNextPlateTap`. */
   private reEnableDetectionForNextPlateTap(): void {
+    const generation = this.captureGeneration
     this.afterAudio(this.tapCooldown, () => {
+      if (generation !== this.captureGeneration) return
       this.reArmFromCurrentChunk()
       this.notify()
     })
   }
 
-  /** Stop detecting without discarding the result (a load, or entering comparison). */
-  private disarmDetection(): void {
-    this.detectionState = 'idle'
+  /** Ends any capture in progress and drops what the sequence has gathered: the gate closes, the window's
+   *  samples and the pre-roll go, the captured taps (guitar and material) go, the capture id resets — so a
+   *  pending timeout finds its capture gone — and what a capture scheduled (its processing, the next tap's
+   *  re-arm) does nothing when it comes due. New Tap and a load call it, so a capture under way when either
+   *  happens cannot land after it. Swift `abandonCapture`. */
+  abandonCapture(): void {
+    this.captureGeneration += 1
     this.gatedCaptureActive = false
+    this.captureIdx = 0
+    this.prerollIdx = 0
+    this.prerollFilled = 0
+    this.gatedCaptureId = 0
+    this.capturedTaps = []
+    this.materialBuffer = []
+    this.guitarTapCount = 0
   }
 
   /** Pause detection while the live spectrum keeps flowing. Swift `pauseTapDetection()`. */
@@ -3586,6 +3551,13 @@ export class TapToneAnalyzer {
     this.gatedCaptureActive = false
     this.guitarTapCount += 1
     this.recordGuitarTap(spectrum)
+    // The tap's own peaks, shown until the next tap or the average: all selected, classified — as Swift's
+    // finishGuitarGatedCapture.
+    const tapPeaks = this.findPeaks(spectrum.magnitudesDb, spectrum.frequencies, { peakMinOverride: TapToneAnalyzer.peakDetectionFloor })
+    this.peaks = tapPeaks
+    this.selectedPeakIds = new Set(tapPeaks.map((p) => p.id))
+    this.modeByPeak = classifyAll(tapPeaks, this.guitarType)
+    this.refreshDisplayedPeaks()
     // The ring-out, from the window's audio: from the onset to where the audio ends. Mirrors Swift
     // finishGuitarGatedCapture.
     this.setDecayTime(TapToneAnalyzer.ringOutTime(aligned, preOnsetSamples, Math.min(audioSamples, aligned.length),
@@ -3608,14 +3580,19 @@ export class TapToneAnalyzer {
     this.notify()
     // `captureWindow` of AUDIO. Released at file end: when the last capture ends with the file,
     // the audio clock stops and would never make it due.
-    this.afterAudio(this.captureWindow, () => this.processMultipleTaps(), true)
+    const generation = this.captureGeneration
+    this.afterAudio(this.captureWindow, () => {
+      if (generation === this.captureGeneration) this.processMultipleTaps()
+    }, true)
   }
 
   /** Re-arm guitar detection after the rest: `tapCooldown` of AUDIO, then the latch is
    *  re-anchored from the chunk that made the rest due. After each captured tap of a multi-tap
    *  sequence, and when a capture timed out with no audio. Swift `scheduleGuitarReEnable`. */
   private scheduleGuitarReEnable(): void {
+    const generation = this.captureGeneration
     this.afterAudio(this.tapCooldown, () => {
+      if (generation !== this.captureGeneration) return
       this.reArmFromCurrentChunk()
       this.notify()
     })
@@ -3686,6 +3663,9 @@ export class TapToneAnalyzer {
         overrides: this.overrides,
         annotationVisibilityMode: this.annotationVisibilityMode,
         visiblePeaks: this.visiblePeaks,
+        chartPeaks: this.chartPeaks,
+        chartAnnotationPeaks: this.chartAnnotationPeaks,
+        showsModeBoundaries: this.showsModeBoundaries,
         annotationOffsets: this.annotationOffsets,
         selectedPeakIds: this.selectedPeakIds,
         userModifiedSelection: this.userModifiedSelection,
@@ -3705,7 +3685,7 @@ export class TapToneAnalyzer {
         statusMessage: this.statusMessage,
         isClipping: this.isClipping,
         inputAppearsDead: this.inputAppearsDead,
-        inputUnavailable: this.attachedDevice?.inputUnavailable ?? false,
+        notRunningMessage: this.attachedDevice?.notRunningMessage ?? 'Starting...',
         captureAudioSaved: this.captureAudioSaved,
         materialPeaksFromLoad: this.materialPeaksFromLoad,
         sequenceStarts: this.sequenceStarts,
@@ -3727,11 +3707,8 @@ export class TapToneAnalyzer {
   // ── Display-mode transitions ────────────────────────────────────────────────────────────────
   // One method per transition Swift and Python perform, so the set is comparable line for line:
   //   loadComparison      Swift MeasMgmt:992  · Python :1163  — empty data ⇒ 'live'
-  //   clearComparison     Swift :1046         · Python :1177
+  //   clearComparison     Swift :1046         · Python :1177  — what a load, New Tap and the per-tap overlay off call
   //   applyMultiTapComparisonOverlays(true/false)  Swift :1134 / :1073 · Python :969 / :895
-  //   enterFrozen         Swift :562          · Python :476   — loading one measurement
-  //   loadComparisonRecord Swift :545         · Python :464   — loading a SAVED comparison
-  //   enterLive           Swift Control:134   · Python control:621 — New Tap
 
   // @parity model/measurement-management tests=test/measurement-load,test/import-persistence,test/comparison
   /** Overlay saved measurements. An EMPTY list leaves the mode 'live', matching
@@ -3741,8 +3718,13 @@ export class TapToneAnalyzer {
    *  resolved from the measurement itself (selection and overrides) — then shown as an overlay. Mirrors
    *  Swift `loadComparison(measurements:)`, which builds the entries in the analyzer. */
   loadComparison(measurements: TapToneMeasurementModel[]): void {
+    // An unsaved comparison has no date of its own: its exports use the time of export.
+    this.sourceMeasurementTimestamp = null
     this.resultProvenance = null // a comparison has no microphone of its own
-    this.tapEntries = [] // the per-tap overlay's taps go with it, as Swift's loadComparison
+    // Clear any active multi-tap comparison so the Taps button and per-tap table are hidden when the
+    // saved-measurement comparison is displayed.
+    this.tapEntries = []
+    this.showingMultiTapComparison = false
     const withSnapshots = measurements.filter((m) => m.spectrumSnapshot)
     const baseLabels = withSnapshots.map((m) => m.measurementName?.trim() || formatDisplayDateCompact(m.timestamp))
     const counts = new Map<string, number>()
@@ -3753,7 +3735,7 @@ export class TapToneAnalyzer {
       occurrence.set(label, (occurrence.get(label) ?? 0) + 1)
       return `${label} (${occurrence.get(label)})`
     })
-    this.applyComparison(withSnapshots.map((m, i) => {
+    this.comparisonEntries = withSnapshots.map((m, i) => {
       const snapshot = m.spectrumSnapshot!
       const selected = effectiveSelectedPeakIDs(m)
       return {
@@ -3766,7 +3748,22 @@ export class TapToneAnalyzer {
         sourceMeasurementID: m.id,
         modePeakIDs: comparisonModeIDMap(m),
       }
-    }))
+    })
+    this.loadedMeasurementName = null
+    this.loadedNotes = null
+    // A comparison spans its entries' ranges, whatever was shown before.
+    const spanned = spanningRange(withSnapshots.map((m) => m.spectrumSnapshot!))
+    if (spanned) this.loadedAxisRange = spanned
+    this.displayMode = this.comparisonEntries.length === 0 ? 'live' : 'comparison'
+    // An overlay is frozen, exactly like a loaded measurement — so stand the detector down, as
+    // loadMeasurement does for the same reason. Empty data means we stayed live, so there is nothing to
+    // freeze and nothing to disarm.
+    if (this.comparisonEntries.length > 0) {
+      this.detectionState = 'idle'
+      this.abandonCapture()
+      this.cancelSessionRecording()
+    }
+    this.notify()
   }
 
   /** The current measurement's tap comparison — the entries its report and its saved form show, from
@@ -3777,35 +3774,8 @@ export class TapToneAnalyzer {
     return m ? measurementMultiTapComparisonEntries(m) : []
   }
 
-  /** Show `entries` as the comparison overlay — a new comparison or a saved comparison record. */
-  private applyComparison(entries: ComparisonEntryModel[]): void {
-    this.comparisonEntries = entries
-    this.showingMultiTapComparison = false
-    this.displayMode = entries.length === 0 ? 'live' : 'comparison'
-    // An overlay is nobody's measurement: no name or notes. Its axis range is the union of the overlaid
-    // ones, set when there are any. Mirrors Swift loadComparison. `loadMeasurement` re-applies the name
-    // when the overlay came from a SAVED comparison record, which is the one case that has one.
-    this.loadedMeasurementName = null
-    this.loadedNotes = null
-    this.sourceMeasurementTimestamp = null
-    if (entries.length > 0) this.loadedAxisRange = comparisonAxisRange(entries)
-    // An overlay is frozen, like a loaded measurement — see enterFrozen. Empty entries mean we
-    // stayed live, so there is nothing to freeze.
-    if (entries.length > 0) {
-      this.disarmDetection()
-      this.cancelSessionRecording()
-    }
-    this.notify()
-  }
-
-  /** Loading a SAVED comparison record: like loadComparison, but the per-tap overlay is dropped
-   *  first (Swift clears tapEntries and showingMultiTapComparison at :545). */
-  loadComparisonRecord(entries: ComparisonEntryModel[]): void {
-    this.tapEntries = []
-    this.applyComparison(entries)
-  }
-
-  /** Stop comparing; back to live. Swift clearComparison. */
+  /** Ends a comparison: its overlay entries go, and the chart is live. The one place a comparison ends — a
+   *  load, New Tap, and turning the per-tap overlay off call it. Swift `clearComparison`. */
   clearComparison(): void {
     this.comparisonEntries = []
     this.displayMode = 'live'
@@ -3817,11 +3787,9 @@ export class TapToneAnalyzer {
   applyMultiTapComparisonOverlays(enabled: boolean): void {
     this.showingMultiTapComparison = enabled
     if (!enabled) {
-      this.comparisonEntries = []
       // Leave comparison; the chart goes back to the averaged spectrum on its own, because the
       // measurement is complete.
-      this.displayMode = 'live'
-      this.notify()
+      this.clearComparison()
       return
     }
     if (this.tapEntries.length === 0) {
@@ -3838,29 +3806,6 @@ export class TapToneAnalyzer {
       maxDb: s.maxDb,
     })
     this.displayMode = 'comparison'
-    this.notify()
-  }
-
-  /** A single measurement is displayed — loaded from the library, or just captured. */
-  enterFrozen(): void {
-    this.comparisonEntries = []
-    this.showingMultiTapComparison = false
-    // The loaded measurement displays because it is complete, not because of the mode.
-    this.displayMode = 'live'
-    // A frozen result must not keep listening: the engine arms into 'listening' at startup, so
-    // without this a stray tap captures over the loaded measurement, and isDetecting stays true
-    // alongside isMeasurementComplete (invariant I1). Mirrors Swift loadMeasurement ("Tap detection
-    // is disabled", isDetecting = false) / Python load_measurement (is_detecting = False).
-    this.disarmDetection()
-    this.cancelSessionRecording()
-    this.notify()
-  }
-
-  /** Live input. New Tap, and the end of a device-change settle. */
-  enterLive(): void {
-    this.comparisonEntries = []
-    this.showingMultiTapComparison = false
-    this.displayMode = 'live'
     this.notify()
   }
 
@@ -4219,6 +4164,12 @@ export interface TapToneSnapshot {
   annotationVisibilityMode: AnnotationMode
   /** The peaks to annotate for that mode — the chart's cards (in range) and a report's peaks (all). */
   visiblePeaks: ResonantPeak[]
+  /** The peaks the chart marks; null while a comparison is shown. Swift `chartPeaks`. */
+  chartPeaks: ResonantPeak[] | null
+  /** The peaks the chart labels; null while a comparison is shown. Swift `chartAnnotationPeaks`. */
+  chartAnnotationPeaks: ResonantPeak[] | null
+  /** Whether the chart draws the guitar mode lines. Swift `showsModeBoundaries`. */
+  showsModeBoundaries: boolean
   /** Dragged annotation-label positions, keyed by peak `id` (one store for guitar + material). */
   annotationOffsets: Map<Uuid, [number, number]>
   /** The definitive-peak selection, by peak `id` (concrete analyzer state). */
@@ -4260,10 +4211,8 @@ export interface TapToneSnapshot {
   isClipping: boolean
   /** Input delivering chunks with no signal — the dead-input watchdog's user-visible state. */
   inputAppearsDead: boolean
-  /** The engine is not running because its input is unavailable — the permission refused, a start
-   *  failed, or the recovery's restarts failed — rather than because it is starting. Swift
-   *  `fft.inputUnavailable`. */
-  inputUnavailable: boolean
+  /** What the not-running placeholders say: why the engine is not running. Swift `fft.notRunningMessage`. */
+  notRunningMessage: string
   /** The file name of the last capture audio handed to the browser as a download (Dump Capture
    *  Audio), for the "saved" notice; null when none is shown. A new sequence clears it. */
   captureAudioSaved: string | null

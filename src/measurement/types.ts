@@ -45,6 +45,7 @@ export interface ResonantPeak {
   pitchFrequency?: number
 }
 
+// @parity model/measurement-codable tests=test/measurement-codable,test/peak-heal,test/peak-selection-persistence
 export interface SpectrumSnapshotModel {
   frequencies: number[]
   magnitudes: number[]
@@ -209,6 +210,10 @@ export interface TapToneMeasurementModel {
    *  Mirrors Swift/Python `wasHealed`. */
   wasHealed?: boolean
   comparisonEntries?: ComparisonEntryModel[]
+  /** A saved comparison's chart range when it was saved — loading it shows this range, as loading a
+   *  measurement shows its own. Comparisons saved before this field existed have none; loading one shows
+   *  spans its entries' ranges, as a new comparison does. Swift `comparisonRange`. */
+  comparisonRange?: ChartView
   tapEntries?: TapEntryModel[]
 }
 
@@ -414,15 +419,3 @@ export function measurementMultiTapComparisonEntries(m: TapToneMeasurementModel)
   return entries
 }
 
-/** The union of comparison entries' axis ranges, or null for none. What Swift computes in
- *  `loadComparison` (`setLoadedAxisRange`) and its comparison chart renderers. */
-export function comparisonAxisRange(entries: ComparisonEntryModel[]): ChartView | null {
-  const snaps = entries.map((e) => e.snapshot)
-  if (snaps.length === 0) return null
-  return {
-    minHz: Math.min(...snaps.map((s) => s.minFreq)),
-    maxHz: Math.max(...snaps.map((s) => s.maxFreq)),
-    minDb: Math.min(...snaps.map((s) => s.minDB)),
-    maxDb: Math.max(...snaps.map((s) => s.maxDB)),
-  }
-}

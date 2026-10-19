@@ -102,7 +102,15 @@ describe('statusMessage — removed web-only inventions are never produced', () 
     const a = new TapToneAnalyzer()
     a.startTapSequence()
     seen.push(a.statusMessage)
-    a.restoreSnapshot({ magnitudes: [1, 2], frequencies: [1, 2] })
+    a.loadMeasurement({
+      id: testId(1),
+      timestamp: '2026-01-01T00:00:00Z',
+      peaks: [],
+      spectrumSnapshot: {
+        frequencies: [1, 2], magnitudes: [-50, -40], minFreq: 1, maxFreq: 2, minDB: -100, maxDB: 0,
+        isLogarithmic: false, measurementType: 'Classical Guitar', guitarType: 'Classical',
+      },
+    })
     seen.push(a.statusMessage)
     const b = new TapToneAnalyzer()
     settingsStore.update({ measurementType: 'brace' })

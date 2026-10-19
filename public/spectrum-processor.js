@@ -1,3 +1,4 @@
+// @parity audio/chunking tests=test/audio-chunking
 // AudioWorklet processor — intentionally minimal. It accumulates mono input into
 // 1024-sample chunks (the app's chunk granularity) and posts each chunk plus its
 // RMS to the main thread, where the tested src/dsp core runs. Keeping it tiny and

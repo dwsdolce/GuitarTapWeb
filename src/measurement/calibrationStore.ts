@@ -144,14 +144,12 @@ export function calibrationIdForDevice(deviceId: string): Uuid | null {
 }
 
 /**
- * The calibration to apply for the given input device. Device-specific only: a device with no
- * mapping resolves to NONE (flat) — we must not apply one mic's calibration to another (mirrors
- * Swift's clear-to-nil on switching to an unmapped device). The global active id is consulted only
- * when no device is known yet (pre-start).
+ * The calibration to apply for the given input device: its mapping, or none (flat) when it has none or no
+ * device is selected — one microphone's calibration is never applied to another. The global active id only
+ * records the last calibration chosen. As Swift's analyzer, which applies the selected device's profile.
  */
 export function resolveActiveCalibration(deviceId?: string | null): StoredCalibration | null {
-  if (deviceId) return getCalibration(calibrationIdForDevice(deviceId))
-  return getCalibration(getActiveCalibrationId())
+  return deviceId ? getCalibration(calibrationIdForDevice(deviceId)) : null
 }
 
 // ── Remembered input device (auto-select last used, mirrors native) ─────────

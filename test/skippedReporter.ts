@@ -1,3 +1,4 @@
+// @parity none — a Vitest reporter; Swift's and Python's runners list skipped tests themselves.
 // Lists each skipped test and why at the end of the run, as the Swift and Python runs do: the summary
 // alone gives only a count.
 import path from 'node:path'

@@ -9,8 +9,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
-import { parseGuitarTapFile } from '../src/measurement'
-import { guitarTypeNameFromRaw, TapEntry, type ResonantPeak } from '../src/measurement/types'
+import { parseGuitarTapFile, serializeGuitarTapFile, type TapToneMeasurementModel } from '../src/measurement'
+import { guitarTypeNameFromRaw, measurementMultiTapComparisonEntries, TapEntry, type ResonantPeak } from '../src/measurement/types'
 import { listMeasurements, clearMeasurements } from '../src/measurement/store'
 import { MODE_DISPLAY_NAME } from '../src/presentation/modeColors'
 import type { ResolvedMode } from '../src/dsp/classify'
@@ -21,13 +21,13 @@ import { testId } from './testIds'
 
 type Row = Record<string, unknown>
 type Load = {
-  type: string; spectrum?: Row; peaks: [number, number][]; selected?: number[]; userModified?: boolean
+  type: string; spectrum?: Row; showUnknownModes?: boolean; peaks: [number, number][]; selected?: number[]; userModified?: boolean
   overrides?: Record<string, string>; offsets?: Record<string, [number, number]>
   tapEntries?: { peaks: [number, number][]; selected: number[] }[]
 }
 type FrozenStep = AnalyzerStep & {
   load?: Load; reanalyze?: boolean; toggleSelection?: number; nameMode?: { at: number; label: string }
-  dragLabel?: { at: number; to: [number, number] }; liveFrame?: Row; save?: boolean; loadSaved?: boolean
+  dragLabel?: { at: number; to: [number, number] }; liveFrame?: Row; save?: boolean | { name?: string; notes?: string }; loadSaved?: boolean
   mark?: boolean; check?: Row
 }
 type FrozenCase = { id: string; note: string; steps: FrozenStep[]; expect: Row }
@@ -77,6 +77,7 @@ const idAt = (hz: number | string, ids: [number, Uuid][]) => ids.find(([f]) => M
 
 function document(load: Load, run: Run): Row {
   const snap = snapshot(load.spectrum, load.type)
+  if (load.showUnknownModes !== undefined) snap.showUnknownModes = load.showUnknownModes
   const { json, ids } = peaksOf(load.peaks, run)
   const doc: Row = { id: run.newId(), timestamp: '2026-01-01T00:00:00Z', peaks: json }
   if (load.spectrum) doc.spectrumSnapshot = snap
@@ -111,10 +112,16 @@ function sameFreqs(got: number[], want: unknown): boolean {
 }
 
 /** An id-keyed map, by its peaks' frequencies, against the case's frequency-keyed one. */
-function sameMap<V>(got: Map<string, V>, want: Row, a: TapToneAnalyzer, equal: (v: V, w: unknown) => boolean): boolean {
+function sameMap<V>(
+  got: Map<string, V>,
+  want: Row,
+  a: TapToneAnalyzer,
+  equal: (v: V, w: unknown) => boolean,
+  peaks?: { id: string; frequency: number }[],
+): boolean {
   if (got.size !== Object.keys(want).length) return false
   for (const [id, value] of got) {
-    const p = known(a).find((q) => q.id === id)
+    const p = (peaks ?? known(a)).find((q) => q.id === id)
     const key = p && Object.keys(want).find((k) => Math.abs(Number(k) - p.frequency) <= 1)
     if (key === undefined || !equal(value, want[key])) return false
   }
@@ -122,6 +129,62 @@ function sameMap<V>(got: Map<string, V>, want: Row, a: TapToneAnalyzer, equal: (
 }
 
 // ── Steps and checks ────────────────────────────────────────────────────────────────────────────
+
+/** The last saved measurement against the case's 'saved' fields. */
+function checkSaved(saved: TapToneMeasurementModel, want: Row, a: TapToneAnalyzer): void {
+  const snap = saved.spectrumSnapshot ?? saved.longitudinalSnapshot
+  for (const [key, w] of Object.entries(want)) {
+    const m = `saved ${key}`
+    switch (key) {
+      case 'peaks': expect(sameFreqs(saved.peaks.map((p) => p.frequency), w), m).toBe(true); break
+      case 'selectedAll': {
+        const sel = new Set(saved.selectedPeakIDs ?? [])
+        expect(sel.size === saved.peaks.length && saved.peaks.every((p) => sel.has(p.id)), m).toBe(w)
+        break
+      }
+      case 'selected': {
+        const sel = new Set(saved.selectedPeakIDs ?? [])
+        expect(sameFreqs(saved.peaks.filter((p) => sel.has(p.id)).map((p) => p.frequency), w), m).toBe(true)
+        break
+      }
+      case 'overrides':
+        expect(sameMap(new Map(Object.entries(saved.peakModeOverrides ?? {})), w as Row, a, (v, x) => v === x, saved.peaks), m).toBe(true)
+        break
+      case 'offsets':
+        expect(sameMap(new Map(Object.entries(saved.peakAnnotationOffsets ?? {})), w as Row, a,
+          (v: [number, number], x) => v[0] === (x as number[])[0] && v[1] === (x as number[])[1], saved.peaks), m).toBe(true)
+        break
+      case 'name': expect(saved.measurementName, m).toBe(w); break
+      case 'notes': expect(saved.notes, m).toBe(w); break
+      case 'tapThreshold': expect(saved.tapDetectionThreshold, m).toBe(w); break
+      case 'peakMin': expect(saved.peakMinThreshold, m).toBe(w); break
+      case 'numberOfTaps': expect(saved.numberOfTaps, m).toBe(w); break
+      case 'measurementType': expect(snap?.measurementType, m).toBe(w); break
+      case 'guitarType': expect(snap?.guitarType, m).toBe(w); break
+      case 'showUnknownModes': expect(snap?.showUnknownModes, m).toBe(w); break
+      case 'phaseSpectra': {
+        const got = ([['L', saved.longitudinalSnapshot], ['C', saved.crossSnapshot], ['FLC', saved.flcSnapshot]] as const)
+          .filter(([, sp]) => sp != null).map(([n]) => n)
+        expect(got, m).toEqual(w)
+        break
+      }
+      case 'tapEntries': expect(saved.tapEntries?.length ?? 0, m).toBe(w); break
+      case 'offsetsInFile': {
+        const file = JSON.parse(serializeGuitarTapFile([saved])) as Row[]
+        expect('peakAnnotationOffsets' in file[0]!, `${m}: ${JSON.stringify(file[0]!.peakAnnotationOffsets)}`).toBe(w)
+        break
+      }
+      case 'comparisonColors': {
+        const got = measurementMultiTapComparisonEntries(saved).map((e) => e.colorComponents)
+        const x = w as number[][]
+        expect(got.length === x.length && got.every((g, i) => g.length === x[i]!.length && g.every((v, j) => Math.abs(v - x[i]![j]!) <= 1e-6)),
+          `${m}: ${JSON.stringify(got)}`).toBe(true)
+        break
+      }
+      default: throw new Error(`unknown saved field ${key}`)
+    }
+  }
+}
 
 async function check(fields: Row, a: TapToneAnalyzer, run: Run): Promise<void> {
   for (const [field, want] of Object.entries(fields)) {
@@ -181,6 +244,7 @@ async function check(fields: Row, a: TapToneAnalyzer, run: Run): Promise<void> {
         break
       }
       case 'canReanalyze': expect(a.canReanalyze, field).toBe(want); break
+      case 'tapCount': expect(a.currentTapCount, field).toBe(want); break
       case 'complete': expect(a.isMeasurementComplete, field).toBe(want); break
       case 'phase': expect(PHASE_RAW[a.materialTapPhase], field).toBe(want); break
       case 'fL':
@@ -191,16 +255,9 @@ async function check(fields: Row, a: TapToneAnalyzer, run: Run): Promise<void> {
         break
       }
       case 'materialPeaks': expect(sameFreqs(a.materialIdentifiedPeaks.map((p) => p.frequency), want), field).toBe(true); break
-      case 'saved': {
-        const w = want as { peaks?: number[]; selectedAll?: boolean }
-        const saved = (await listMeasurements()).at(-1)!
-        if (w.peaks) expect(sameFreqs(saved.peaks.map((p) => p.frequency), w.peaks), 'saved peaks').toBe(true)
-        if (w.selectedAll !== undefined) {
-          const sel = new Set(saved.selectedPeakIDs ?? [])
-          expect(sel.size === saved.peaks.length && saved.peaks.every((p) => sel.has(p.id)), 'saved selectedAll').toBe(w.selectedAll)
-        }
+      case 'saved':
+        checkSaved((await listMeasurements()).at(-1)!, want as Row, a)
         break
-      }
       default: throw new Error(`unknown field ${field}`)
     }
   }
@@ -222,7 +279,10 @@ async function step(s: FrozenStep, a: TapToneAnalyzer, run: Run): Promise<void> 
       run.engineAttached = true
     }
     a.onFftFrame(mags, freqs)
-  } else if (s.save) await a.saveMeasurement('', '', { minHz: 0, maxHz: 600, minDb: -100, maxDb: 0 })
+  } else if (s.save) {
+    const given = typeof s.save === 'object' ? s.save : {}
+    await a.saveMeasurement(given.name ?? '', given.notes ?? '', { minHz: 0, maxHz: 600, minDb: -100, maxDb: 0 })
+  }
   else if (s.loadSaved) a.loadMeasurement((await listMeasurements()).at(-1)!)
   else if (s.mark) {
     run.markedIds = a.peaks.map((p) => p.id)

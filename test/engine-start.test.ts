@@ -1,4 +1,5 @@
-// @parity none — React's remount (start, stop, start) is the web's alone.
+// @parity none — the web's engine starts asynchronously (a start can be joined or ended part-way, as React's
+// remount does); Swift's and Python's starts complete before they return.
 //
 // The engine's start and stop: a start while one is in flight joins it, and a stop during a start ends it
 // at its next step — so a remount leaves one input running, and a stop that stays stopped leaves none.

@@ -5,6 +5,7 @@ import { FieldPrecision } from '../precision'
 import { formattedAsWholeHertz } from '../presentation/frequencyFormat'
 import type { StoredCalibration } from '../measurement/calibrationStore'
 import { MaterialDimensions, type Dimensions } from '../dsp/material'
+import { calibrationDetails } from '../dsp/calibration'
 import { modeBands } from '../dsp/guitarModes'
 import {
   ANALYSIS_KEYS,
@@ -365,19 +366,19 @@ export function SettingsPanel({
                 ))}
               </MenuPicker>
             </SetRow>
-            {activeCalibration && (
-              <div className="ts-cal-details">
-                <span>
-                  {activeCalibration.sensitivityFactor != null && <>Sensitivity: {activeCalibration.sensitivityFactor.toFixed(2)} dB<br /></>}
-                  Data points: {activeCalibration.points.length}
-                </span>
-                {activeCalibration.points.length > 0 && (
-                  <span>
-                    {activeCalibration.points[0]!.frequency.toFixed(0)}-{activeCalibration.points[activeCalibration.points.length - 1]!.frequency.toFixed(0)} Hz
-                  </span>
-                )}
-              </div>
-            )}
+            {activeCalibration &&
+              (() => {
+                const details = calibrationDetails(activeCalibration)
+                return (
+                  <div className="ts-cal-details">
+                    <span>
+                      {details.sensitivity && <>{details.sensitivity}<br /></>}
+                      {details.dataPoints}
+                    </span>
+                    {details.range && <span>{details.range}</span>}
+                  </div>
+                )
+              })()}
             <div className="ts-actions">
               <button className="btn mini tint tint-accent" onClick={() => calFileInput.current?.click()}>
                 <FilePlusIcon />

@@ -1,4 +1,4 @@
-// @parity view/spectrum-export tests=test/spectrum-export
+// @parity view/spectrum-export tests=test/spectrum-export,test/export-e2e
 // Spectrum REPORT image — a white-background composite (header · chart · peak-summary · mode legend)
 // matching Swift's ExportableSpectrumChart. The CHART itself is drawn by the SAME `renderSpectrum`
 // the on-screen view uses (light theme here), so the displayed graph and the exported image can't
@@ -25,6 +25,8 @@ export interface SpectrumImageOpts {
   view: ChartView
   measurementTypeName?: string
   guitarType?: GuitarTypeName
+  /** Whether the guitar mode lines are drawn (default true). Swift's `showModeBoundaries`. */
+  showModeBoundaries?: boolean
   date?: string
 }
 
@@ -169,6 +171,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
     view: opts.view,
     title: opts.title,
     guitarType: opts.guitarType,
+    showModeBoundaries: opts.showModeBoundaries,
     theme: th,
     style: EXPORT,
     variant: 'export',

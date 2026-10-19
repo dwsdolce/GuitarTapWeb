@@ -1,5 +1,6 @@
-// @parity none — browser-edition only: Swift's ImageRenderer and Python's QImage state a PNG's pixels per
-// inch themselves; the web adds it to the browser-encoded file (pngPixelsPerInch.ts).
+// @parity none — the web adds the pixels-per-inch chunk to the browser-encoded PNG itself (pngPixelsPerInch.ts);
+// Swift's ImageRenderer states it, and Python sets the image's dots per metre. The resulting 144 ppi is tested in
+// all three by test/spectrum-export.
 import { describe, it, expect } from 'vitest'
 import { crc32, inflateSync } from 'node:zlib'
 import { withPixelsPerInch } from '../src/presentation/pngPixelsPerInch'

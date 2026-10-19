@@ -32,6 +32,7 @@ const STEP = 0.5
 /** The engine's watchdog state the cases read and the runner sets, as the natives' tests reach theirs. */
 type Internals = {
   context: { state: string } | null
+  stream: { getTracks(): { stop(): void }[] } | null
   lastChunkTime: number
   lastSignalTime: number
   recoveryAttempts: number
@@ -72,6 +73,8 @@ describe('buffer-watchdog — the shared cases (buffer-watchdog.json)', () => {
             case 'inputDead': expect(engine.inputAppearsDead, msg).toBe(want); break
             case 'couldNotRestart': expect(engine.inputCouldNotRestart, msg).toBe(want); break
             case 'inputUnavailable': expect(engine.inputUnavailable, msg).toBe(want); break
+            case 'notRunningMessage': expect(engine.notRunningMessage, msg).toBe(want); break
+            case 'inputOpen': expect(internal.stream !== null, msg).toBe(want); break
             case 'permissionDenied': expect(engine.microphonePermissionDenied, msg).toBe(want); break
             case 'restarts': expect(restartTimes.length, msg).toBe(want); break
             case 'restartTimes': expect(restartTimes, msg).toEqual(want); break
@@ -83,6 +86,7 @@ describe('buffer-watchdog — the shared cases (buffer-watchdog.json)', () => {
       for (const step of c.steps) {
         if (step.start) {
           internal.context = { state: 'running' }
+          internal.stream = { getTracks: () => [] }   // the input open, as a start leaves it
           engine.startBufferWatchdog()
         } else if (step.run !== undefined) {
           for (let i = 0; i < Math.round(step.run / STEP); i++) {

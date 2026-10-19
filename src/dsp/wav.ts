@@ -3,7 +3,7 @@
 // (mono, channelData[0], the file's native rate). File-playback parity requires
 // decoding at the embedded rate with NO resampling.
 //
-// @parity dsp/wav
+// @parity dsp/wav tests=test/file-playback,test/wav-dump-folder
 // Web-primitive: the browser has no `AVAudioFile`, so this hand-written decoder
 // stands in for the native platform libraries — Swift `AVAudioFile` /
 // `AVAudioPCMBuffer`, Python `soundfile` / `wave`. There is no line-by-line

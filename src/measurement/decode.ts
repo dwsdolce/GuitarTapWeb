@@ -13,6 +13,7 @@ import { classifyAll, resolvedModePeaks, type ResolvedMode } from '../dsp/classi
 import { MODE_DISPLAY_NAME, effectiveMode } from '../presentation/modeColors'
 import type { AnnotationOffsets, ComparisonEntryModel, PeakModeOverrides, ResonantPeak, SpectrumSnapshotModel, TapEntryModel, TapToneMeasurementModel } from './types'
 import type { AnnotationMode } from '../settings'
+import type { ChartView } from '../presentation/chartTypes'
 
 // ── primitive coercions (return undefined when absent/wrong-typed) ───────────
 const numOpt = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined)
@@ -148,6 +149,15 @@ function decodeStrMap(raw: unknown): Record<string, string> | undefined {
   return Object.keys(out).length ? out : undefined
 }
 
+/** A saved comparison's range, or undefined when the file has none (comparisons saved before it existed)
+ *  or it is not four numbers. */
+function decodeComparisonRange(d: Obj | undefined): ChartView | undefined {
+  if (!d) return undefined
+  const [minHz, maxHz, minDb, maxDb] = [d.minFreq, d.maxFreq, d.minDB, d.maxDB]
+  if (![minHz, maxHz, minDb, maxDb].every((v) => typeof v === 'number')) return undefined
+  return { minHz: minHz as number, maxHz: maxHz as number, minDb: minDb as number, maxDb: maxDb as number }
+}
+
 function decodeComparisonEntry(d: Obj): ComparisonEntryModel {
   return {
     id: rawId(d.id),
@@ -253,6 +263,7 @@ export function decodeMeasurement(d: Obj): TapToneMeasurementModel {
     comparisonEntries: Array.isArray(d.comparisonEntries)
       ? d.comparisonEntries.map((e) => decodeComparisonEntry(obj(e) ?? {}))
       : undefined,
+    comparisonRange: decodeComparisonRange(obj(d.comparisonRange)),
     tapEntries: Array.isArray(d.tapEntries) ? d.tapEntries.map((e) => decodeTapEntry(obj(e) ?? {})) : undefined,
   }
 

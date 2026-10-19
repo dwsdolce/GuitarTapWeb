@@ -1,3 +1,4 @@
+// @parity none — a test helper of the web's: Swift's and Python's tests set the analyzer and call its save directly.
 // Saving a measurement the way the app does: set an analyzer's state, then build the record through its
 // save (`buildMeasurement` / `buildComparisonMeasurement`), as Swift's tests set the analyzer and save.
 // The recorded microphone and sample rate come from an attached engine, as live.
@@ -89,6 +90,7 @@ export function saveMaterial(s: MaterialState): TapToneMeasurementModel {
 /** The record a comparison save writes for `entries`. */
 export function saveComparison(s: { name: string; notes: string; entries: ComparisonEntryModel[] }): TapToneMeasurementModel {
   const a = new TapToneAnalyzer()
-  a.loadComparisonRecord(s.entries)
+  a.comparisonEntries = s.entries
+  a.displayMode = 'comparison'
   return a.buildComparisonMeasurement(s.name, s.notes)!
 }

@@ -15,10 +15,10 @@ import { makeStepsAnalyzer, runAnalyzerStep, PHASE_RAW, type AnalyzerStep } from
 type Fields = Record<string, unknown>
 type ComparisonStep = AnalyzerStep & {
   compare?: string[]
-  clearComparison?: boolean
   load?: string
   multiTap?: boolean
   saveComparison?: string
+  view?: number[]
   loadSaved?: boolean
   check?: Fields
 }
@@ -39,6 +39,9 @@ async function check(fields: Fields, a: TapToneAnalyzer): Promise<void> {
       case 'entries': expect(entries.length, field).toBe(want); break
       case 'labels': expect(entries.map((e) => e.label), field).toEqual(want); break
       case 'mode': expect(a.displayMode, field).toBe(want); break
+      case 'chartPeaks': expect(a.chartPeaks !== null, field).toBe(want); break
+      case 'chartLabels': expect(a.chartAnnotationPeaks !== null, field).toBe(want); break
+      case 'modeLines': expect(a.showsModeBoundaries, field).toBe(want); break
       case 'loadedRange': {
         const r = a.loadedAxisRange
         expect(r ? [r.minHz, r.maxHz, r.minDb, r.maxDb] : null, field).toEqual(want)
@@ -57,6 +60,11 @@ async function check(fields: Fields, a: TapToneAnalyzer): Promise<void> {
       case 'entryPeaks':
         expect((entries[0]?.peaks ?? []).map((p) => peakName(p.id)).sort(), field).toEqual([...(want as string[])].sort())
         break
+      case 'savedRange': {
+        const r = (await listMeasurements()).at(-1)!.comparisonRange!
+        expect([r.minHz, r.maxHz, r.minDb, r.maxDb], field).toEqual(want)
+        break
+      }
       case 'savedRecord': {
         const library = await listMeasurements()
         if (want === null) expect(library, `${field}: none added`).toHaveLength(0)
@@ -84,10 +92,12 @@ describe('comparison — the shared cases (comparison.json)', () => {
     const a = makeStepsAnalyzer()
     for (const step of c.steps) {
       if (step.compare) a.loadComparison(step.compare.map(measurement))
-      else if (step.clearComparison) a.clearComparison()
       else if (step.load !== undefined) a.loadMeasurement(measurement(step.load))
       else if (step.multiTap !== undefined) a.applyMultiTapComparisonOverlays(step.multiTap)
-      else if (step.saveComparison !== undefined) await a.saveComparison(step.saveComparison, '')
+      else if (step.saveComparison !== undefined) {
+        const v = step.view
+        await a.saveComparison(step.saveComparison, '', v ? { minHz: v[0]!, maxHz: v[1]!, minDb: v[2]!, maxDb: v[3]! } : undefined)
+      }
       else if (step.loadSaved) a.loadMeasurement((await listMeasurements()).at(-1)!)
       else if (step.check) await check(step.check, a)
       else expect(runAnalyzerStep(step, a), `unknown step ${JSON.stringify(step)}`).toBe(true)

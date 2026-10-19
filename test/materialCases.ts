@@ -1,3 +1,4 @@
+// @parity tooling/material-cases
 // Reading a material case file (plate.json, brace.json): samples, and the shared tolerance.
 import { readFileSync } from 'node:fs'
 import { MaterialDimensions, type Dimensions } from '../src/dsp/material'

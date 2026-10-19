@@ -1,5 +1,5 @@
-// @parity none
-// Dump Capture Audio on the web: a download, not a folder. Whether the recording is saved is read from the
+// @parity test/wav-dump-folder
+// Dump Capture Audio on the web: a download, not a folder (the folder's own tests are Swift's and Python's). Whether the recording is saved is read from the
 // setting when a sequence starts, and again when it changes before the first tap (the shared cases in
 // session-pre-roll.json); a loaded measurement or comparison ends the sequence and its recording (as Swift and
 // Python). The page is
@@ -19,6 +19,7 @@ vi.mock('../src/measurement/dumpWav', async (importOriginal) => ({
 }))
 import { TapToneAnalyzer } from '../src/state/tapToneAnalyzer'
 import { settingsStore } from '../src/settingsStore'
+import { testId } from './testIds'
 
 function recordingAnalyzer(dumpCaptureAudio: boolean): TapToneAnalyzer {
   dumped.length = 0
@@ -72,7 +73,15 @@ describe('Dump Capture Audio — recording is decided when the sequence starts',
   it('a loaded measurement ends the recording', () => {
     const analyzer = recordingAnalyzer(true)
     expect(held(analyzer)).toBe(1024)
-    analyzer.enterFrozen()
+    analyzer.loadMeasurement({
+      id: testId(1),
+      timestamp: '2026-01-01T00:00:00Z',
+      peaks: [],
+      spectrumSnapshot: {
+        frequencies: [100, 200], magnitudes: [-50, -40], minFreq: 75, maxFreq: 350, minDB: -100, maxDB: 0,
+        isLogarithmic: false, measurementType: 'Classical Guitar', guitarType: 'Classical',
+      },
+    })
     expect(held(analyzer)).toBe(0)
     // Audio after the load is not kept.
     analyzer['maintainSessionRecording'](new Float32Array(1024).fill(0.1))
@@ -93,6 +102,13 @@ describe('Dump Capture Audio — the page is told what was handed to the browser
     analyzer.finishSessionRecording('Guitar_1tap')
     expect(analyzer.getSnapshot().captureAudioSaved).not.toBeNull()
     analyzer.startTapSequence()
+    expect(analyzer.getSnapshot().captureAudioSaved).toBeNull()
+  })
+
+  it('with saving off, no file is named', () => {
+    const analyzer = recordingAnalyzer(false)
+    analyzer.finishSessionRecording('Guitar_1tap')
+    expect(dumped).toEqual([])
     expect(analyzer.getSnapshot().captureAudioSaved).toBeNull()
   })
 })

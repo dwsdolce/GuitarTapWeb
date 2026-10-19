@@ -1,11 +1,11 @@
 // @parity view/spectrum-chart
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Spectrum } from '../dsp/guitarFFT'
-import { renderSpectrum, chartGeometry, chartTheme } from '../presentation/spectrumRender'
+import { renderSpectrum, chartGeometry, chartTheme, overlayColor } from '../presentation/spectrumRender'
 import { useScheme } from '../hooks/useScheme'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { PeakMarker, AnnotationRect, DotHit, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
-import { zoomedRange } from '../presentation/displayRange'
+import { pannedRange, zoomedRange } from '../presentation/displayRange'
 import {
   MIN_FREQUENCY_HZ,
   MAX_FREQUENCY_HZ,
@@ -25,8 +25,10 @@ export interface SpectrumChartProps {
   markers?: PeakMarker[]
   /** Extra colored curves drawn over the plot, with a legend (material L/C/FLC). */
   overlays?: SpectrumOverlay[]
-  /** Guitar type → mode-boundary lines + top labels on the plot (omit for material/comparison). */
+  /** Guitar type → mode-boundary lines + top labels on the plot (omit for material). */
   guitarType?: GuitarTypeName
+  /** Whether a guitar's mode lines are drawn (default true). Swift's `showModeBoundaries`. */
+  showModeBoundaries?: boolean
   /** Peak Min threshold (dB) → a horizontal "Peak: N dB" reference line (guitar only, in-range only). */
   peakMin?: number
   minHz?: number
@@ -97,6 +99,7 @@ export function SpectrumChart({
   markers = [],
   overlays = [],
   guitarType,
+  showModeBoundaries = true,
   peakMin,
   minHz = 30,
   maxHz = 2000,
@@ -186,6 +189,7 @@ export function SpectrumChart({
       overlays,
       title,
       guitarType,
+      showModeBoundaries,
       peakMin,
       theme: chartTheme(scheme),
       view: { minHz, maxHz, minDb, maxDb },
@@ -195,7 +199,7 @@ export function SpectrumChart({
       crosshair: hover,
       frozen,
     })
-  }, [spectrum, markers, overlays, title, guitarType, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen, highlightedPeakId, scheme])
+  }, [spectrum, markers, overlays, title, guitarType, showModeBoundaries, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen, highlightedPeakId, scheme])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
   // @parity view/spectrum-gestures — the web co-locates gestures with the chart
@@ -232,30 +236,12 @@ export function SpectrumChart({
       return r ? { minDb: r[0], maxDb: r[1] } : {}
     }
     const panFreqBy = (v: ChartView, dHz: number): Partial<ChartView> => {
-      let lo = v.minHz - dHz
-      let hi = v.maxHz - dHz
-      if (lo < FREQ_MIN) {
-        hi += FREQ_MIN - lo
-        lo = FREQ_MIN
-      }
-      if (hi > FREQ_MAX) {
-        lo -= hi - FREQ_MAX
-        hi = FREQ_MAX
-      }
-      return { minHz: Math.max(FREQ_MIN, lo), maxHz: hi }
+      const [minHz, maxHz] = pannedRange(v.minHz, v.maxHz, -dHz, FREQ_MIN, FREQ_MAX)
+      return { minHz, maxHz }
     }
     const panDbBy = (v: ChartView, dDb: number): Partial<ChartView> => {
-      let lo = v.minDb + dDb
-      let hi = v.maxDb + dDb
-      if (lo < DB_FLOOR) {
-        hi -= lo - DB_FLOOR
-        lo = DB_FLOOR
-      }
-      if (hi > DB_CEIL) {
-        lo -= hi - DB_CEIL
-        hi = DB_CEIL
-      }
-      return { minDb: lo, maxDb: hi }
+      const [minDb, maxDb] = pannedRange(v.minDb, v.maxDb, dDb, DB_FLOOR, DB_CEIL)
+      return { minDb, maxDb }
     }
 
     const onWheel = (e: WheelEvent) => {
@@ -501,6 +487,7 @@ export function SpectrumChart({
     setMenu(null)
   }
 
+  // @parity view/spectrum-chart — the chart's elements: the canvas, its legend and its buttons
   return (
     <div className="chart-host">
       <canvas
@@ -534,12 +521,16 @@ export function SpectrumChart({
 
       {overlays.length > 0 && (
         <div className="chart-legend">
-          {overlays.map((ov) => (
-            <span key={ov.label} className="legend-item">
-              <span className="legend-swatch" style={{ background: ov.color }} />
-              {ov.label}
-            </span>
-          ))}
+          {overlays.map((ov) => {
+            // The curve's colour for its line and its label, as Swift's legend.
+            const color = overlayColor(ov, chartTheme(scheme))
+            return (
+              <span key={ov.label} className="legend-item" style={{ color }}>
+                <span className="legend-swatch" style={{ background: color }} />
+                {ov.label}
+              </span>
+            )
+          })}
         </div>
       )}
 

@@ -1,4 +1,4 @@
-// @parity view/pdf-report tests=test/pdf-report
+// @parity view/pdf-report tests=test/pdf-report,test/export-e2e
 
 import type { ResolvedMode } from '../dsp/classify'
 import { Pitch } from '../dsp/pitch'
@@ -7,7 +7,7 @@ import { color as roleColor, comparisonRole, modeRole, qualityRole, type Role } 
 import { FieldPrecision } from '../precision'
 import type { PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
-import { comparisonAxisRange, measurementAutoModes, measurementMultiTapComparisonEntries, measurementTypeName, comparisonEntryModeFreqs, measurementTapToneRatio, measurementDefinitiveModeInfo, MEASUREMENT_TYPE_FROM_RAW } from '../measurement/types'
+import { measurementAutoModes, measurementMultiTapComparisonEntries, measurementTypeName, comparisonEntryModeFreqs, measurementTapToneRatio, measurementDefinitiveModeInfo, MEASUREMENT_TYPE_FROM_RAW } from '../measurement/types'
 import { isGuitarType, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, DEFAULT_SETTINGS } from '../settings'
 import { settingsStore } from '../settingsStore'
 import { materialDimensions, materialInputsFromSnapshot, materialStiffness } from '../measurement/materialMeasurementInputs'
@@ -22,6 +22,7 @@ import { generateMultiTapPdfReport, generatePdfReport } from './pdfReport'
 import { exportStem } from '../measurement/exportFilename'
 import type { ResonantPeak } from '../measurement/types'
 import { idEntries, type Uuid } from '../measurement/newId'
+import { spanningRange } from './displayRange'
 
 // ── A saved measurement, read as its exports show it ────────────────────────────────────────────
 // Read from the measurement itself, as Swift's renderers (`renderSpectrumImageForMeasurement`,
@@ -154,9 +155,11 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
       role: comparisonRole(i, e.label),
       label: e.label,
     }))
-    const view = comparisonAxisRange(entries) ?? { minHz: 30, maxHz: 2000, minDb: -100, maxDb: 0 }
-    // Swift's saved-comparison export: the generic guitar bands.
-    return { title, spectrum: null, overlays, markers: [], view, measurementTypeName: 'Comparison', guitarType: 'generic', date }
+    // The range it was saved with, as a measurement's image; one saved before comparisons kept their range
+    // spans its entries'. Swift's renderSpectrumImageForComparison.
+    const view = m.comparisonRange ?? spanningRange(entries.map((e) => e.snapshot)) ?? { minHz: 30, maxHz: 2000, minDb: -100, maxDb: 0 }
+    // A comparison's entries need not be of one guitar type: no mode lines, as Swift's.
+    return { title, spectrum: null, overlays, markers: [], view, measurementTypeName: 'Comparison', guitarType: 'generic', showModeBoundaries: false, date }
   }
 
   // Material (plate / brace)

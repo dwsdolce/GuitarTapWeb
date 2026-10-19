@@ -106,8 +106,11 @@ export interface RenderOpts {
   view: ChartView
   /** Centered title above the plot. */
   title?: string
-  /** Guitar type → mode-boundary lines + top labels (omit for material/comparison). */
+  /** Guitar type → mode-boundary lines + top labels (omit for material). */
   guitarType?: GuitarTypeName
+  /** Whether a guitar's mode lines are drawn (default true): not for a comparison of saved
+   *  measurements. Swift's `showModeBoundaries`. */
+  showModeBoundaries?: boolean
   /** Peak Min threshold (dB) → a horizontal "Peak: N dB" reference line (guitar only, live chart only —
    *  omitted for exports, matching Swift). Drawn only when within the visible dB range. */
   peakMin?: number
@@ -152,7 +155,7 @@ function nearestIndex(sorted: ArrayLike<number>, target: number): number {
 
 /** Draw the spectrum chart into ctx over a W×H region (origin at 0,0). */
 export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: number, opts: RenderOpts): void {
-  const { spectrum, markers = [], overlays = [], title, guitarType } = opts
+  const { spectrum, markers = [], overlays = [], title, guitarType, showModeBoundaries = true } = opts
   const th = opts.theme ?? chartTheme('dark')
   const style = opts.style ?? SCREEN
   const { minHz, maxHz, minDb, maxDb } = opts.view
@@ -160,9 +163,9 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   const { l: plotL, t: plotT, r: plotR, b: plotB } = exporting ? exportGeometry(W, H) : chartGeometry(W, H)
   const plotW = plotR - plotL
   const plotH = plotB - plotT
-  // Bands for any guitar view — a comparison and a multi-tap overlay included, as Swift's and Python's;
-  // material views pass no guitar type.
-  const bands = guitarType ? modeBands(guitarType) : []
+  // Bands for a guitar view when the caller shows them — a multi-tap overlay included, a comparison of
+  // saved measurements not, as Swift's; material views pass no guitar type.
+  const bands = guitarType && showModeBoundaries ? modeBands(guitarType) : []
 
   ctx.fillStyle = th.bg
   ctx.fillRect(0, 0, W, H)
@@ -215,8 +218,8 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   }
   ctx.textAlign = 'left'
 
-  // Mode-boundary dashed lines + top labels (guitar). TWO lines per mode — the lower (lo) and upper
-  // (hi) bound of its frequency range — with the abbreviation label at the lower bound (range start).
+  // Mode-boundary dashed lines (guitar). TWO lines per mode — the lower (lo) and upper (hi) bound of
+  // its frequency range; the abbreviation label at the lower bound (range start) is drawn over the curves.
   for (const b of bands) {
     const color = roleColor(modeRole(b.name), undefined, th.scheme)
     for (const edge of [b.lo, b.hi]) {
@@ -233,24 +236,6 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
       ctx.stroke()
       ctx.restore()
     }
-    if (b.lo < minHz || b.lo > maxHz) continue
-    const bx = xFor(b.lo)
-    const label = MODE_LABEL[b.name]
-    // The screen's chip sits above the plot; the export's, as Swift's, just inside its top:
-    // .font(.system(size: 14, weight: .semibold)), padded 4 / 3, mode colour at 15 %, corner 6.
-    ctx.font = exporting ? '600 14px system-ui, sans-serif' : '600 12px system-ui, sans-serif'
-    const lw = ctx.measureText(label).width + (exporting ? 8 : 10)
-    const lh = exporting ? 20 : 16
-    const lx = Math.max(plotL, Math.min(bx - lw / 2, plotR - lw))
-    const lt = exporting ? plotT + 4 : plotT - 20
-    ctx.fillStyle = hexA(color, exporting ? 0.15 : 0.16)
-    ctx.beginPath()
-    ctx.roundRect(lx, lt, lw, lh, exporting ? 6 : 4)
-    ctx.fill()
-    ctx.fillStyle = color
-    ctx.textAlign = 'center'
-    ctx.fillText(label, lx + lw / 2, lt + (exporting ? 15 : 12))
-    ctx.textAlign = 'left'
   }
 
   // Plot border.
@@ -355,6 +340,31 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.fillStyle = roleColor('chart.peakMin', undefined, th.scheme)
     ctx.textAlign = 'center'
     ctx.fillText(label, lx + lw / 2, ly + 11)
+    ctx.textAlign = 'left'
+  }
+
+  // Mode labels — over the curves and dots, under the peak badges, as Swift's annotations.
+  for (const b of bands) {
+    const color = roleColor(modeRole(b.name), undefined, th.scheme)
+    if (b.lo < minHz || b.lo > maxHz) continue
+    const bx = xFor(b.lo)
+    const label = MODE_LABEL[b.name]
+    // As Swift's, a chip centred on the line and kept inside the plot. The screen's, just inside the
+    // plot's top (.annotation(position: .top, overflowResolution: .fit(to: .plot))): .caption2
+    // semibold, padded 4 / 2, mode colour at 15 %, corner 4. The export's, 4 below the top:
+    // .font(.system(size: 14, weight: .semibold)), padded 4 / 3, corner 6.
+    ctx.font = exporting ? '600 14px system-ui, sans-serif' : '600 10px system-ui, sans-serif'
+    const lw = ctx.measureText(label).width + 8
+    const lh = exporting ? 20 : 16
+    const lx = Math.max(plotL, Math.min(bx - lw / 2, plotR - lw))
+    const lt = exporting ? plotT + 4 : plotT
+    ctx.fillStyle = hexA(color, 0.15)
+    ctx.beginPath()
+    ctx.roundRect(lx, lt, lw, lh, exporting ? 6 : 4)
+    ctx.fill()
+    ctx.fillStyle = color
+    ctx.textAlign = 'center'
+    ctx.fillText(label, lx + lw / 2, lt + (exporting ? 15 : 11.5))
     ctx.textAlign = 'left'
   }
 

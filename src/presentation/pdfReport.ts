@@ -1,4 +1,4 @@
-// @parity view/pdf-report tests=test/pdf-report
+// @parity view/pdf-report tests=test/pdf-report,test/export-e2e
 // Single-page PDF tap-tone report — a web port of Swift's PDFReportGenerator /
 // PDFReportContentView (GuitarTap/Views/Utilities/PDFReportGenerator.swift). The page is
 // US Letter wide (612 pt, 36 pt margins), as tall as its content. Sections stack top-down as in Swift:

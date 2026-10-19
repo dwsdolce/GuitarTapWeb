@@ -8,6 +8,7 @@ import { TapToneAnalyzer, type MaterialTapPhase } from '../src/state/tapToneAnal
 import { readFileSync } from 'node:fs'
 import { MEASUREMENT_TYPE_FROM_RAW, parseGuitarTapFile } from '../src/measurement'
 import { settingsStore } from '../src/settingsStore'
+import { setMaxFrequency, setMinFrequency } from '../src/settings'
 import { GUITAR_FFT_SIZE } from '../src/dsp/guitarFFT'
 import { advanceAudio, AUDIO_FEED_CHUNK_SECONDS, ManualWallClock } from './audioClockFeed'
 import { syntheticTap } from './syntheticTap'
@@ -15,7 +16,7 @@ import { spectrum } from './spectrumSpec'
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
 
 export type AnalyzerStep = {
-  settings?: { type?: string; measureFlc?: boolean }
+  settings?: { type?: string; measureFlc?: boolean; range?: [number, number, number, number] }
   setTaps?: number
   setThreshold?: number
   setPeakMin?: number
@@ -45,6 +46,8 @@ export type AnalyzerStep = {
   routeChange?: boolean
   /** One FFT frame from the running engine, a spectrum as peaks.json describes one. */
   spectrumFrame?: Record<string, unknown>
+  /** That much real audio (a 200 Hz tone at `level`) through the microphone's path. */
+  liveAudio?: number
 }
 
 /** The analyzer's engine, running: a frame or a restart comes only from one. Attached on first use. */
@@ -69,6 +72,9 @@ export const PHASE_RAW: Record<MaterialTapPhase, string> = {
 
 /** A fresh analyzer as the shared scenario cases start one — threshold −40, Taps 1, and a wall clock that
  *  moves only when a step stalls it. The settings step writes the settings store, as Settings does. */
+/** The sample count liveAudio has fed, so its tone runs on across steps. */
+let liveAudioSample = 0
+
 export function makeStepsAnalyzer(): TapToneAnalyzer {
   const a = new TapToneAnalyzer(null, new ManualWallClock())
   a.setNumberOfTaps(1)
@@ -81,6 +87,14 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer): boolean
   if (step.settings) {
     if (step.settings.type !== undefined) settingsStore.update({ measurementType: MEASUREMENT_TYPE_FROM_RAW[step.settings.type]! })
     if (step.settings.measureFlc !== undefined) settingsStore.update({ measureFlc: step.settings.measureFlc })
+    if (step.settings.range !== undefined) {
+      // The measurement type's display range and the dB range, as Settings writes them.
+      const [minHz, maxHz, minDb, maxDb] = step.settings.range
+      const type = settingsStore.get().measurementType
+      settingsStore.update(setMinFrequency(settingsStore.get(), minHz, type))
+      settingsStore.update(setMaxFrequency(settingsStore.get(), maxHz, type))
+      settingsStore.update({ minDb, maxDb })
+    }
   } else if (step.setTaps !== undefined) a.setNumberOfTaps(step.setTaps)
   else if (step.setThreshold !== undefined) a.tapDetectionThreshold = step.setThreshold
   else if (step.setPeakMin !== undefined) a.peakMinThreshold = step.setPeakMin
@@ -115,6 +129,14 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer): boolean
   } else if (step.audioChunks !== undefined) {
     for (let i = 0; i < step.audioChunks; i++) {
       a.processAudioFrame(CHUNK_SAMPLES, step.level!, a.lastAudioTime + AUDIO_FEED_CHUNK_SECONDS)
+    }
+  } else if (step.liveAudio !== undefined) {
+    // Real audio through the microphone's path: each chunk's samples to the capture, then its level.
+    const amplitude = Math.SQRT2 * 10 ** (step.level! / 20)
+    for (let c = 0; c < Math.round(step.liveAudio / AUDIO_FEED_CHUNK_SECONDS); c++) {
+      const chunk = Float32Array.from({ length: 1024 }, (_, i) => amplitude * Math.sin((2 * Math.PI * 200 * (liveAudioSample + i)) / 48000))
+      liveAudioSample += 1024
+      a.processAudioFrame(chunk, step.level!, a.lastAudioTime + AUDIO_FEED_CHUNK_SECONDS)
     }
   }
   else return false

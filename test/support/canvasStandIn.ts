@@ -1,3 +1,4 @@
+// @parity none — stands in for the browser's canvas under Node; the natives draw with their own frameworks.
 // A stand-in for the browser's canvas, for tests that run the app's chart rendering under Node: a
 // `document` whose canvases accept every drawing call and give back a 1×1 PNG (as a data URL or a Blob). It stands in for the
 // browser, not for app code — the app's own drawing code still runs.

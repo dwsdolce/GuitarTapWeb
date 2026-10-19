@@ -35,7 +35,11 @@ export interface Calibration {
   points: CalibrationPoint[]
 }
 
-const SENS_RE = /Sens(?:itivity)?\s*Factor\s*=\s*(-?\d+(?:\.\d+)?)/i
+/** The error a calibration file with no valid data point gives — Swift's `ParseError.noDataPoints`. */
+export const NO_DATA_POINTS = 'No calibration data points found in file'
+
+// The header names as Swift reads them: spelled as written, in any case.
+const SENS_RE = /Sens Factor\s*=\s*([+-]?[\d.]+)\s*dB/i
 // Reference SPL: UMIK-1 "SESSION REF=94.0dBSPL" or REW "SPL 94.0 dB". Provenance only (mirrors Swift/Python).
 const REF_RE = /SESSION REF\s*=\s*([\d.]+)\s*dBSPL/i
 const SPL_RE = /SPL\s+([\d.]+)\s*dB/i
@@ -50,7 +54,9 @@ const SPL_RE = /SPL\s+([\d.]+)\s*dB/i
  *
  * @param content Full calibration-file text.
  * @param name Display name for the profile (defaults to `"calibration"`).
- * @returns The parsed calibration; `points` is empty if the file had none valid.
+ * @returns The parsed calibration.
+ * @throws Error ({@link NO_DATA_POINTS}) when the file holds no valid data point, as Swift's
+ *   `ParseError.noDataPoints`.
  */
 export function parseCalibration(content: string, name = 'calibration'): Calibration {
   let sensitivityFactor: number | null = null
@@ -72,8 +78,9 @@ export function parseCalibration(content: string, name = 'calibration'): Calibra
     }
     const parts = line.split(/[\t ,]+/)
     if (parts.length < 2) continue
-    const f = parseFloat(parts[0]!)
-    const c = parseFloat(parts[1]!)
+    // Each a number in full, as Swift's Float(_:): "100abc" is no number, not 100.
+    const f = Number(parts[0]!)
+    const c = Number(parts[1]!)
     // Only import points in the audible range 1–24000 Hz (matches Swift
     // MicrophoneCalibration / Python microphone_calibration), so a stray
     // out-of-range line can't shift the interpolation edges.
@@ -81,6 +88,7 @@ export function parseCalibration(content: string, name = 'calibration'): Calibra
       points.push({ frequency: f, correction: c })
     }
   }
+  if (points.length === 0) throw new Error(NO_DATA_POINTS)
   points.sort((a, b) => a.frequency - b.frequency)
   return { name, sensitivityFactor, referenceLevel, points }
 }
@@ -95,6 +103,18 @@ export function parseCalibration(content: string, name = 'calibration'): Calibra
  * @param binFreqs FFT bin centre frequencies, in Hz.
  * @returns Additive dB corrections, parallel to `binFreqs`.
  */
+/** The details Settings shows for a calibration: its sensitivity (when the file gives one), its number of
+ *  points, and the frequencies they span (when it has any). Mirrors Swift `MicrophoneCalibration.details`. */
+export function calibrationDetails(cal: Calibration): { sensitivity: string | null; dataPoints: string; range: string | null } {
+  const first = cal.points[0]
+  const last = cal.points[cal.points.length - 1]
+  return {
+    sensitivity: cal.sensitivityFactor != null ? `Sensitivity: ${cal.sensitivityFactor.toFixed(2)} dB` : null,
+    dataPoints: `Data points: ${cal.points.length}`,
+    range: first && last ? `${first.frequency.toFixed(0)}-${last.frequency.toFixed(0)} Hz` : null,
+  }
+}
+
 export function interpolateToBins(cal: Calibration, binFreqs: ArrayLike<number>): number[] {
   const pts = cal.points
   const out = new Array<number>(binFreqs.length)
