@@ -851,11 +851,12 @@ export class RealtimeFFTAnalyzer {
     this.source.connect(this.node)
     this.node.connect(ctx.destination) // processor emits no output → silent
 
-    // The input is selected (its calibration loads); list the inputs as the baseline for hot-plug
-    // changes, and watch for them (attach → select and save, unplug → fall back).
-    this.selectInput(await this.realDeviceId(track.getSettings().deviceId ?? null))
+    // List the inputs — the baseline for hot-plug changes, and what the selection is named from — then
+    // select the input (its calibration loads), and watch for changes (attach → select and save, unplug →
+    // fall back). As Swift, which loads the list before it selects.
     await this.refreshAvailableInputDevices()
     if (await this.withdrawn()) return
+    this.selectInput(await this.realDeviceId(track.getSettings().deviceId ?? null))
     navigator.mediaDevices.addEventListener('devicechange', this.handleDeviceChange)
 
     this.engineStartFailed = false
