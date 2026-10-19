@@ -23,7 +23,7 @@ type Step = {
   stop?: boolean
   check?: Fields
 }
-type Case = { id: string; note: string; steps: Step[]; expect: Fields }
+type Case = { id: string; only?: string; note: string; steps: Step[]; expect: Fields }
 const DATA = JSON.parse(readFileSync('test/fixtures/buffer-watchdog.json', 'utf8')) as { cases: Case[] }
 
 /** Exact in binary, so every time the cases reach is exact in every edition. */
@@ -48,7 +48,7 @@ describe('buffer-watchdog — the shared cases (buffer-watchdog.json)', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }))
   afterEach(() => vi.useRealTimers())
 
-  for (const c of DATA.cases) {
+  for (const c of DATA.cases.filter((c) => c.only !== 'natives')) {
     it(c.id, async () => {
       const clock = new ManualWallClock()
       const engine = new RealtimeFFTAnalyzer()
@@ -71,6 +71,7 @@ describe('buffer-watchdog — the shared cases (buffer-watchdog.json)', () => {
             case 'givenUp': expect(internal.watchdogRecoveryExhausted, msg).toBe(want); break
             case 'inputDead': expect(engine.inputAppearsDead, msg).toBe(want); break
             case 'couldNotRestart': expect(engine.inputCouldNotRestart, msg).toBe(want); break
+            case 'inputUnavailable': expect(engine.inputUnavailable, msg).toBe(want); break
             case 'permissionDenied': expect(engine.microphonePermissionDenied, msg).toBe(want); break
             case 'restarts': expect(restartTimes.length, msg).toBe(want); break
             case 'restartTimes': expect(restartTimes, msg).toEqual(want); break

@@ -3705,7 +3705,7 @@ export class TapToneAnalyzer {
         statusMessage: this.statusMessage,
         isClipping: this.isClipping,
         inputAppearsDead: this.inputAppearsDead,
-        inputUnavailable: this.microphonePermissionDenied || this.inputCouldNotStart,
+        inputUnavailable: this.attachedDevice?.inputUnavailable ?? false,
         captureAudioSaved: this.captureAudioSaved,
         materialPeaksFromLoad: this.materialPeaksFromLoad,
         sequenceStarts: this.sequenceStarts,
@@ -4260,8 +4260,9 @@ export interface TapToneSnapshot {
   isClipping: boolean
   /** Input delivering chunks with no signal — the dead-input watchdog's user-visible state. */
   inputAppearsDead: boolean
-  /** The engine is not running because its input is unavailable — the permission refused, or a start
-   *  failed — rather than because it is starting. Swift `fft.inputUnavailable`. */
+  /** The engine is not running because its input is unavailable — the permission refused, a start
+   *  failed, or the recovery's restarts failed — rather than because it is starting. Swift
+   *  `fft.inputUnavailable`. */
   inputUnavailable: boolean
   /** The file name of the last capture audio handed to the browser as a download (Dump Capture
    *  Audio), for the "saved" notice; null when none is shown. A new sequence clears it. */

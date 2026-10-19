@@ -83,7 +83,7 @@ export const FilePlayIcon = () => <Mdi d={MDI.waveform} />
 // What Guitar Tap Does (mdi.waveform)
 // A peak's pitch (music.note) — filled, as Swift's symbol is.
 export const MusicNoteIcon = () => <Mdi d={MDI.musicNote} size={10} />
-export const WaveformIcon = () => <Mdi d={MDI.waveform} />
+export const WaveformIcon = ({ size }: { size?: number } = {}) => <Mdi d={MDI.waveform} size={size} />
 // First-Time Setup (mdi.wrench)
 export const WrenchIcon = () => (
   <svg {...ICON_SVG}>

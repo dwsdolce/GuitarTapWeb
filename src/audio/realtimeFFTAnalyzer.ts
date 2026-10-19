@@ -417,6 +417,12 @@ export class RealtimeFFTAnalyzer {
   /** True once a start has failed for anything but the permission: the input is unavailable until a
    *  start succeeds. Mirrors Swift `inputCouldNotStart` and Python `input_could_not_start`. */
   inputCouldNotStart = false
+  /** The engine is not running because its input is unavailable — the permission refused, a start
+   *  failed, or the recovery's restarts failed — rather than because it is starting: what the
+   *  not-running placeholders say. Mirrors Swift `inputUnavailable` and Python `input_unavailable`. */
+  get inputUnavailable(): boolean {
+    return this.microphonePermissionDenied || this.inputCouldNotStart || this.inputCouldNotRestart
+  }
   /** Whether the last start or restart failed. Mirrors Swift `engineStartFailed`. */
   private engineStartFailed = false
 

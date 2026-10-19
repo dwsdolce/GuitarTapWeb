@@ -1083,6 +1083,13 @@ export default function App() {
                 isTouch || comparison || showMultiTap || material ? undefined : (id) => analyzer.toggleHighlightedPeak(id)
               }
             />
+            {/* Not running: why — the input unavailable, or still starting. Swift's chart overlay. */}
+            {!running && (
+              <div className="chart-placeholder">
+                <WaveformIcon size={48} />
+                <span>{snapshot.inputUnavailable ? 'Audio input unavailable' : 'Starting...'}</span>
+              </div>
+            )}
           </div>
           {material && !comparison && (
             <MaterialInstructionPanel phase={matPhase} brace={brace} measureFlc={settings.measureFlc} />
