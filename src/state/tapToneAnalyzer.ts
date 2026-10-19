@@ -928,7 +928,8 @@ export class TapToneAnalyzer {
       // skipWarmup mirrors Swift startTapSequence(skipWarmup:) — guitar file playback skips it,
       // because an externally recorded file may put the tap inside the first 0.5 s and guitar
       // detects against the absolute threshold, so it never reads the noise floor.
-      this.armGuitarDetection(skipWarmup)
+      this.armWarmup(skipWarmup)
+      this.detectionState = 'listening'
       this.startSessionRecording() // begin the continuous session WAV
       // Guitar resting prompt (canonical post-warm-up steady state).
       this.setStatusMessage(this.tapPrompt())
@@ -940,7 +941,8 @@ export class TapToneAnalyzer {
       // startSessionRecording seeds checkpoint [0] (the L-phase truncation anchor), so no explicit
       // checkpoint is needed here.
       this.startSessionRecording()
-      this.armMaterialDetection(this.matSearch('longitudinal'))
+      this.armWarmup(false)
+      this.detectionState = 'listening'
       // capturingL arm prompt = "Ready for L tap" (mirrors Swift startTapSequence; the silent
       // warm-up on Swift/Python now shows this too — was "Tap the guitar…", a divergence).
       this.setStatusMessage(this.materialArmPrompt())
@@ -2164,7 +2166,9 @@ export class TapToneAnalyzer {
       this.materialTapPhase = 'capturingC'
       this.materialBuffer = []
       this.checkpointSession() // C phase start (so a redo can drop it)
-      this.armMaterialPhase(this.matSearch('cross'), this.inputLevelDb, this.attachedDevice?.audioTime ?? 0)
+      this.isAboveThreshold = this.lastChunkLevelDb > this.tapDetectionThreshold - this.hysteresisMargin
+      this.warmupStartAudioTime = this.attachedDevice?.audioTime ?? 0
+      this.detectionState = 'listening'
       this.setStatusMessage(this.materialArmPrompt()) // phase is capturingC — one source
       this.notify()
     } else if (phase === 'reviewingC') {
@@ -2183,7 +2187,9 @@ export class TapToneAnalyzer {
           if (this.materialTapPhase !== 'waitingForFlcTap') return
           this.materialTapPhase = 'capturingFlc'
           // Anchored on the chunk that made the hold due — its level and its audio time.
-          this.armMaterialPhase(this.matSearch('flc'), this.lastChunkLevelDb, this.lastAudioTime)
+          this.isAboveThreshold = this.lastChunkLevelDb > this.tapDetectionThreshold - this.hysteresisMargin
+          this.warmupStartAudioTime = this.lastAudioTime
+          this.detectionState = 'listening'
           this.setStatusMessage(this.materialArmPrompt()) // phase is capturingFlc
           this.notify()
         })
@@ -2213,19 +2219,25 @@ export class TapToneAnalyzer {
       this.matSpectra = { ...this.matSpectra, longitudinal: null }
       this.selectedLongitudinalPeak = null
       this.materialTapPhase = 'capturingL'
-      this.armMaterialPhase(this.matSearch('longitudinal'), this.inputLevelDb, this.attachedDevice?.audioTime ?? 0)
+      this.isAboveThreshold = this.lastChunkLevelDb > this.tapDetectionThreshold - this.hysteresisMargin
+      this.warmupStartAudioTime = this.attachedDevice?.audioTime ?? 0
+      this.detectionState = 'listening'
       this.setStatusMessage('Ready for fL tap — tap again')
     } else if (phase === 'reviewingC') {
       this.matSpectra = { ...this.matSpectra, cross: null }
       this.selectedCrossPeak = null
       this.materialTapPhase = 'capturingC'
-      this.armMaterialPhase(this.matSearch('cross'), this.inputLevelDb, this.attachedDevice?.audioTime ?? 0)
+      this.isAboveThreshold = this.lastChunkLevelDb > this.tapDetectionThreshold - this.hysteresisMargin
+      this.warmupStartAudioTime = this.attachedDevice?.audioTime ?? 0
+      this.detectionState = 'listening'
       this.setStatusMessage('Ready for fC tap — tap again')
     } else if (phase === 'reviewingFlc') {
       this.matSpectra = { ...this.matSpectra, flc: null }
       this.selectedFlcPeak = null
       this.materialTapPhase = 'capturingFlc'
-      this.armMaterialPhase(this.matSearch('flc'), this.inputLevelDb, this.attachedDevice?.audioTime ?? 0)
+      this.isAboveThreshold = this.lastChunkLevelDb > this.tapDetectionThreshold - this.hysteresisMargin
+      this.warmupStartAudioTime = this.attachedDevice?.audioTime ?? 0
+      this.detectionState = 'listening'
       this.setStatusMessage('Ready for fLC tap — tap again')
     }
     // Rebase the cumulative count to the taps completed in the PRIOR phases — redoing C keeps L's taps
@@ -2306,7 +2318,9 @@ export class TapToneAnalyzer {
       } else if (playing) {
         this.materialTapPhase = 'capturingC'
         this.setStatusMessage('File: fL complete, capturing fC...')
-        this.autoAdvanceMaterialPhase(this.matSearch('cross'))
+        // The latch starts ABOVE, so the last tap's ring-out must fall before anything counts.
+        this.isAboveThreshold = true
+        this.detectionState = 'listening'
       } else {
         this.materialTapPhase = 'reviewingL'
         this.setStatusMessage(`fL: ${fHz(avgPeak)} Hz — Accept to continue or Redo to re-tap`)
@@ -2318,7 +2332,9 @@ export class TapToneAnalyzer {
         if (settingsStore.get().measureFlc) {
           this.materialTapPhase = 'capturingFlc'
           this.setStatusMessage('File: fC complete, capturing fLC...')
-          this.autoAdvanceMaterialPhase(this.matSearch('flc'))
+          // The latch starts ABOVE, so the last tap's ring-out must fall before anything counts.
+          this.isAboveThreshold = true
+          this.detectionState = 'listening'
         } else {
           this.materialTapPhase = 'complete'
           this.isMeasurementComplete = true
@@ -2461,17 +2477,18 @@ export class TapToneAnalyzer {
   private justExitedWarmup = false
   private warmupStartAudioTime: number | null = null
 
-  // Pre-roll ring + capture window (Swift preRollBuffer / gatedAccumBuffer).
-  private prerollSamples = 0
-  private preroll = new Float32Array(0)
-  private prerollIdx = 0
-  private prerollFilled = 0
-  private guitarCaptureBuf = new Float32Array(0)
-  private materialCapture = new Float32Array(0)
-  private capture = new Float32Array(0)
-  private captureIdx = 0
-  private captureKind: 'guitar' | 'material' = 'guitar'
-  private materialSearch: MaterialSearch | null = null
+  /** The most recent `preRollSamples` of audio, kept so a capture starts just before its trigger.
+   *  Swift `preRollBuffer`. */
+  private preRollBuffer: number[] = []
+  /** The capture under way: seeded with the pre-roll when it opens, then each chunk appended until it
+   *  holds `gatedCaptureSamples`. Swift `gatedAccumBuffer`. */
+  private gatedAccumBuffer: number[] = []
+  /** How many samples the capture under way takes: `gatedCaptureDuration` of audio for a plate or brace
+   *  phase, one FFT window for a guitar. Swift `gatedCaptureSamples`. */
+  private gatedCaptureSamples = 0
+  /** The plate/brace phase the capture under way is for; null for a guitar's. Swift
+   *  `gatedCapturePhase`. */
+  private gatedCapturePhase: MaterialTapPhase | null = null
   private guitarTapCount = 0
   /** The rate of the audio feeding the gated capture. Mirrors Swift `mpmSampleRate`. */
   private mpmSampleRate = 48000
@@ -2634,11 +2651,7 @@ export class TapToneAnalyzer {
    *  audio-queue level-crossing handler. */
   processAudioFrame(samples: Float32Array, levelDb: number, audioTime: number): void {
     this.inputLevelDb = levelDb
-    const rate = this.attachedDevice?.sampleRate ?? this.mpmSampleRate
-    if (rate !== this.mpmSampleRate || this.preroll.length === 0) this.resizeCaptureBuffers(rate)
-    this.maintainSessionRecording(samples)
-    this.feedPreroll(samples)
-    if (this.gatedCaptureActive) this.feedCapture(samples)
+    this.accumulateGatedSamples(samples, this.attachedDevice?.sampleRate ?? this.mpmSampleRate)
     // The chunk reaches detection AFTER its samples fed the capture — as in Swift, where a filled
     // capture's finish is queued on the main thread ahead of the same chunk's level. So a finish sees
     // the audio clock at the end of the previous chunk, in every edition.
@@ -2706,76 +2719,45 @@ export class TapToneAnalyzer {
     try {
       if (!this.gatedCaptureActive) return
       this.gatedCaptureActive = false
-      if (this.captureIdx === 0) return
-      this.capture.fill(0, this.captureIdx)
-      this.finishCapture()
+      const partial = this.gatedAccumBuffer
+      const phase = this.gatedCapturePhase
+      this.gatedAccumBuffer = []
+      if (partial.length === 0) return
+      const samples = new Float32Array(Math.max(this.gatedCaptureSamples, partial.length))
+      samples.set(partial)
+      if (phase !== null) this.finishGatedFFTCapture(samples, this.mpmSampleRate, phase)
+      else this.finishGuitarGatedCapture(samples, this.mpmSampleRate)
     } finally {
       this.releaseAudioActionsAtFileEnd()
     }
   }
 
-  /** Size the pre-roll ring and capture windows for the current rate. Swift derives both from
-   *  `fftAnalyzer.actualSampleRate` on demand, so a file at another rate re-sizes them. */
-  private resizeCaptureBuffers(rate: number): void {
-    this.mpmSampleRate = rate
-    this.prerollSamples = Math.round(rate * TapToneAnalyzer.preRollDuration)
-    this.preroll = new Float32Array(this.prerollSamples)
-    this.prerollIdx = 0
-    this.prerollFilled = 0
-    this.guitarCaptureBuf = new Float32Array(this.attachedDevice?.fftSize ?? GUITAR_FFT_SIZE)
-    this.materialCapture = new Float32Array(Math.round(rate * TapToneAnalyzer.gatedCaptureDuration))
-    this.capture = this.captureKind === 'material' ? this.materialCapture : this.guitarCaptureBuf
-    this.captureIdx = 0
+  // @parity dsp/gated-capture tests=test/file-playback,test/tap-decisions,test/guitar-capture-window,test/self-regression
+  /** The newest audio a capture's pre-roll keeps, in samples. Swift `preRollSamples`. */
+  private get preRollSamples(): number {
+    return Math.trunc(this.mpmSampleRate * TapToneAnalyzer.preRollDuration)
   }
 
-  /** Arm guitar tap detection — a fresh sequence. Swift startTapSequence's guitar arm. */
-  private armGuitarDetection(skipWarmup: boolean): void {
-    this.resizeCaptureBuffers(this.attachedDevice?.sampleRate ?? this.mpmSampleRate)
-    this.captureKind = 'guitar'
-    this.capture = this.guitarCaptureBuf
-    this.guitarTapCount = 0
-    this.armWarmup(skipWarmup)
+  /** Every chunk of audio: the pre-roll keeps its newest `preRollSamples`, the session recording takes
+   *  it, and a capture under way takes it — and, once it holds `gatedCaptureSamples`, is handed to the
+   *  finisher for its phase. Swift `accumulateGatedSamples(_:sampleRate:)` (its audio-thread fast start
+   *  and deferred pre-roll are the natives': their audio arrives on another thread than the capture
+   *  start, where the web's audio and analyzer share one). */
+  private accumulateGatedSamples(samples: Float32Array, sampleRate: number): void {
+    this.mpmSampleRate = sampleRate
+    for (let i = 0; i < samples.length; i++) this.preRollBuffer.push(samples[i]!)
+    const excess = this.preRollBuffer.length - this.preRollSamples
+    if (excess > 0) this.preRollBuffer.splice(0, excess)
+    this.maintainSessionRecording(samples)
+    if (!this.gatedCaptureActive) return
+    for (let i = 0; i < samples.length; i++) this.gatedAccumBuffer.push(samples[i]!)
+    if (this.gatedAccumBuffer.length < this.gatedCaptureSamples) return
     this.gatedCaptureActive = false
-    this.detectionState = 'listening'
-  }
-
-  /** Point the capture at a material phase's search range — the buffers only. How detection then
-   *  resumes is the caller's: the natives arm a material phase in three different shapes. */
-  private prepareMaterialCapture(search: MaterialSearch): void {
-    if (this.preroll.length === 0) this.resizeCaptureBuffers(this.attachedDevice?.sampleRate ?? this.mpmSampleRate)
-    this.captureKind = 'material'
-    this.materialSearch = search
-    this.capture = this.materialCapture
-    this.captureIdx = 0
-    this.gatedCaptureActive = false
-  }
-
-  /** Start a material sequence: the warm-up runs, as it does for Swift's startTapSequence — material
-   *  is the only mode using the relative noise-floor detector, and the warm-up establishes the floor. */
-  private armMaterialDetection(search: MaterialSearch): void {
-    this.prepareMaterialCapture(search)
-    this.armWarmup(false)
-    this.detectionState = 'listening'
-  }
-
-  /** Arm a phase at a user transition — Accept, Redo — or when the FLC hold ends: the latch from the
-   *  given level and the warm-up restarted at the given audio time; the noise floor is left alone.
-   *  Swift acceptCurrentPhase / redoCurrentPhase and the FLC hold's closure. */
-  private armMaterialPhase(search: MaterialSearch, levelDb: number, warmupAt: number): void {
-    this.prepareMaterialCapture(search)
-    this.isAboveThreshold = levelDb > this.tapDetectionThreshold - this.hysteresisMargin
-    this.warmupStartAudioTime = warmupAt
-    this.justExitedWarmup = false
-    this.detectionState = 'listening'
-  }
-
-  /** File playback's auto-advance to the next phase: listening at once, the latch ABOVE, so the last
-   *  tap's ring-out must fall before anything counts; no warm-up, the noise floor left alone. Swift's
-   *  file-playback L → C / C → FLC advance. */
-  private autoAdvanceMaterialPhase(search: MaterialSearch): void {
-    this.prepareMaterialCapture(search)
-    this.isAboveThreshold = true
-    this.detectionState = 'listening'
+    const captured = Float32Array.from(this.gatedAccumBuffer.slice(0, this.gatedCaptureSamples))
+    const phase = this.gatedCapturePhase
+    this.gatedAccumBuffer = []
+    if (phase !== null) this.finishGatedFFTCapture(captured, sampleRate, phase)
+    else this.finishGuitarGatedCapture(captured, sampleRate)
   }
 
   /** Between taps of one plate/brace phase, and after a rejected tap: rest `tapCooldown` of AUDIO,
@@ -2798,9 +2780,8 @@ export class TapToneAnalyzer {
   abandonCapture(): void {
     this.captureGeneration += 1
     this.gatedCaptureActive = false
-    this.captureIdx = 0
-    this.prerollIdx = 0
-    this.prerollFilled = 0
+    this.gatedAccumBuffer = []
+    this.preRollBuffer = []
     this.gatedCaptureId = 0
     this.capturedTaps = []
     this.materialBuffer = []
@@ -2837,14 +2818,6 @@ export class TapToneAnalyzer {
     const corr = this.attachedDevice?.calibrationCorrections ?? null
     if (!corr || corr.length !== spec.magnitudesDb.length) return spec
     return { ...spec, magnitudesDb: spec.magnitudesDb.map((m: number, i: number) => m + corr[i]!) }
-  }
-
-  private feedPreroll(s: Float32Array): void {
-    for (let i = 0; i < s.length; i++) {
-      this.preroll[this.prerollIdx] = s[i]!
-      this.prerollIdx = (this.prerollIdx + 1) % this.prerollSamples
-      if (this.prerollFilled < this.prerollSamples) this.prerollFilled++
-    }
   }
 
   private detectTap(levelDb: number, audioTime: number): void {
@@ -3027,38 +3000,26 @@ export class TapToneAnalyzer {
     }
   }
 
-  /** Seed the capture window with the pre-roll, in chronological order, and open it. Returns the new
-   *  capture's id. The part both capture starts share. */
-  private openCaptureWindow(): number {
-    const out = this.capture
-    out.fill(0)
-    const count = this.prerollFilled
-    const startRing = (this.prerollIdx - count + this.prerollSamples) % this.prerollSamples
-    for (let k = 0; k < count; k++) {
-      out[k] = this.preroll[(startRing + k) % this.prerollSamples]!
-    }
-    this.captureIdx = count
-    this.gatedCaptureActive = true // (the session WAV's pre-roll freezes on the next chunk — maintainSessionRecording)
-    this.gatedCaptureId += 1
-    return this.gatedCaptureId
-  }
-
-  /** Open a plate/brace gated capture — `gatedCaptureDuration` of audio, pre-roll first — for `phase`.
-   *  Swift `startGatedCapture(phase:)`, with its safety timeout: once NO audio has arrived for 2 s, finish
-   *  whatever arrived, or with nothing, say so and rest before re-arming (T6). On the WALL clock, since it
-   *  exists for when the audio STOPS, and measured from the LAST chunk, so it never fires while audio is
-   *  merely slow. */
+  // @parity dsp/gated-capture tests=test/file-playback,test/tap-decisions,test/guitar-capture-window,test/self-regression
+  /** Open a plate/brace gated capture — `gatedCaptureDuration` of audio, seeded with the pre-roll — for
+   *  `phase`. Swift `startGatedCapture(phase:)`, with its safety timeout: once NO audio has arrived for
+   *  2 s, finish whatever arrived, or with nothing, say so and rest before re-arming (T6). On the WALL
+   *  clock, since it exists for when the audio STOPS, and measured from the LAST chunk, so it never fires
+   *  while audio is merely slow. */
   private startGatedCapture(phase: MaterialTapPhase): void {
     // A capture already filling absorbs the tap — Swift guards the same re-entry, comparing capture ids
     // because its window can start on the audio queue and finish before the main thread runs.
     if (this.gatedCaptureActive) return
-    this.captureKind = 'material'
-    this.capture = this.materialCapture
-    const captureId = this.openCaptureWindow()
-    this.afterAudioStall(MATERIAL_CAPTURE_SAFETY_MS / 1000, () => captureId === this.gatedCaptureId && this.gatedCaptureActive, () => {
+    this.gatedCaptureId += 1
+    const myCaptureId = this.gatedCaptureId
+    this.gatedAccumBuffer = this.preRollBuffer.slice()
+    this.gatedCapturePhase = phase
+    this.gatedCaptureSamples = Math.trunc(this.mpmSampleRate * TapToneAnalyzer.gatedCaptureDuration)
+    this.gatedCaptureActive = true // (the session WAV's pre-roll freezes on the next chunk — maintainSessionRecording)
+    this.afterAudioStall(MATERIAL_CAPTURE_SAFETY_MS / 1000, () => myCaptureId === this.gatedCaptureId && this.gatedCaptureActive, () => {
       this.gatedCaptureActive = false
-      const partial = this.capture.slice(0, this.captureIdx)
-      this.captureIdx = 0
+      const partial = Float32Array.from(this.gatedAccumBuffer)
+      this.gatedAccumBuffer = []
       if (partial.length > 0) {
         this.finishGatedFFTCapture(partial, this.mpmSampleRate, phase)
       } else {
@@ -3069,19 +3030,23 @@ export class TapToneAnalyzer {
     })
   }
 
-  /** Open a guitar gated capture — one FFT window of audio, pre-roll first. Swift
+  /** Open a guitar gated capture — one FFT window of audio, seeded with the pre-roll. Swift
    *  `startGuitarGatedCapture()`, with its safety timeout: once NO audio has arrived for the window plus
    *  0.5 s, finish whatever arrived, or with nothing, say so and rest before re-arming (T6, as above). */
   private startGuitarGatedCapture(): void {
     if (this.gatedCaptureActive) return
-    this.captureKind = 'guitar'
-    this.capture = this.guitarCaptureBuf
-    const captureId = this.openCaptureWindow()
-    const timeoutMs = (this.capture.length / Math.max(this.mpmSampleRate, 1)) * 1000 + GUITAR_CAPTURE_SAFETY_EXTRA_MS
-    this.afterAudioStall(timeoutMs / 1000, () => captureId === this.gatedCaptureId && this.gatedCaptureActive, () => {
+    const fftSize = this.attachedDevice?.fftSize ?? GUITAR_FFT_SIZE
+    this.gatedCaptureId += 1
+    const myCaptureId = this.gatedCaptureId
+    this.gatedAccumBuffer = this.preRollBuffer.slice()
+    this.gatedCapturePhase = null // null = the guitar marker, as Swift's nil
+    this.gatedCaptureSamples = fftSize
+    this.gatedCaptureActive = true
+    const timeoutMs = (fftSize / Math.max(this.mpmSampleRate, 1)) * 1000 + GUITAR_CAPTURE_SAFETY_EXTRA_MS
+    this.afterAudioStall(timeoutMs / 1000, () => myCaptureId === this.gatedCaptureId && this.gatedCaptureActive && this.gatedCapturePhase === null, () => {
       this.gatedCaptureActive = false
-      const partial = this.capture.slice(0, this.captureIdx)
-      this.captureIdx = 0
+      const partial = Float32Array.from(this.gatedAccumBuffer)
+      this.gatedAccumBuffer = []
       if (partial.length > 0) {
         this.finishGuitarGatedCapture(partial, this.mpmSampleRate)
       } else {
@@ -3101,25 +3066,6 @@ export class TapToneAnalyzer {
       if (quiet >= interval) action()
       else this.afterAudioStall(interval - quiet, relevant, action)
     })
-  }
-
-  private feedCapture(s: Float32Array): void {
-    const n = Math.min(s.length, this.capture.length - this.captureIdx)
-    this.capture.set(s.subarray(0, n), this.captureIdx)
-    this.captureIdx += n
-    if (this.captureIdx >= this.capture.length) this.finishCapture()
-  }
-
-  /** The capture window filled: hand its samples to the finisher for its kind — Swift's device side
-   *  handing a full gated buffer to finishGuitarGatedCapture / finishGatedFFTCapture. */
-  private finishCapture(): void {
-    const samples = this.capture
-    this.captureIdx = 0
-    if (this.captureKind === 'material') {
-      this.finishGatedFFTCapture(samples, this.mpmSampleRate, this.materialTapPhase)
-    } else {
-      this.finishGuitarGatedCapture(samples, this.mpmSampleRate)
-    }
   }
 
   // ── The gated capture's alignment and peak selection ──────────────────────────────────────────
