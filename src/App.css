@@ -799,12 +799,15 @@
 .field label {
   white-space: nowrap;
 }
-/* A field whose control is unavailable dims as a UNIT — label and value with it — at control.dimmed,
-   the opacity `.btn:disabled` and Swift's `disabledDimmed` use. The buttons keep their own :disabled
-   rule rather than inheriting this one, so the opacities don't compound. */
-.field.is-disabled label,
-.field.is-disabled .step-val {
+/* @parity view/dimming tests=test/dimming — .field.is-disabled, .field.is-faded */
+/* A field that cannot act now dims as one group — label, control and value — at control.dimmed, as
+   Swift's `disabledDimmed`. Its disabled buttons take the field's dimming instead of their own, so the
+   opacities don't compound. */
+.field.is-disabled {
   opacity: var(--o-control-dimmed);
+}
+.field.is-disabled .btn:disabled {
+  opacity: 1;
 }
 /* A field disabled as a whole row — Peak Min for plate/brace and in a comparison: everything at
    control.notApplicable, as Swift's on that row. */
