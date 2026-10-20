@@ -281,8 +281,8 @@ export function decodeMeasurement(d: Obj): TapToneMeasurementModel {
  * What makes a measurement readable, checked on reading a file and on reading the library's stored records:
  * every id a UUID (put in the canonical case — {@link canonicalIds}), and a spectrum — a comparison of at
  * least two entries, or a guitar spectrum or a plate/brace's longitudinal one; a spectrum with no points, or
- * with frequencies and magnitudes that differ in number, is none, a comparison entry's included. No edition
- * saves a measurement without its spectrum, so one without is not a measurement the app made. Throws InvalidIdError or
+ * with frequencies and magnitudes that differ in number, is none, a comparison entry's included. A measurement
+ * without its spectrum has nothing to show or compare, so it is not read. Throws InvalidIdError or
  * NoSpectrumError. Mirrors Swift's decoder.
  */
 export function checkMeasurement(m: TapToneMeasurementModel): void {
@@ -390,12 +390,38 @@ export function healMeasurement(m: TapToneMeasurementModel): boolean {
   return healed
 }
 
-/** Parse a `.guitartap` document. The top-level value is an array of measurements
- *  (the array wrapping is part of the format); a bare object is also accepted. */
-export function parseGuitarTapFile(text: string): TapToneMeasurementModel[] {
+/** A library or `.guitartap` file as read: the measurements that could be read, in the file's order, and
+ *  why each of the others could not. Mirrors Swift `TapToneAnalyzer.DecodedLibrary`. */
+export interface DecodedLibrary {
+  measurements: TapToneMeasurementModel[]
+  /** The reason each entry that did not decode could not be read, in the file's order. */
+  unreadable: unknown[]
+}
+
+/** Parse a `.guitartap` document — THE reader of a file. The file must be a JSON list of measurements;
+ *  anything else throws. Each entry is decoded on its own, so one that cannot be read — an id that is not
+ *  a UUID, no spectrum — costs only itself: its reason is returned in `unreadable` and the rest are read.
+ *  Mirrors Swift `TapToneAnalyzer.decodeLibrary(_:)`. */
+export function decodeLibrary(text: string): DecodedLibrary {
   const root: unknown = JSON.parse(text)
-  const list = Array.isArray(root) ? root : [root]
-  return list.map((m) => decodeMeasurement(obj(m) ?? {}))
+  if (!Array.isArray(root)) throw new TypeError('A .guitartap file is a list of measurements.')
+  const library: DecodedLibrary = { measurements: [], unreadable: [] }
+  for (const entry of root) {
+    try {
+      library.measurements.push(decodeMeasurement(obj(entry) ?? {}))
+    } catch (e) {
+      library.unreadable.push(e)
+    }
+  }
+  return library
+}
+
+/** The file's measurements, every one of them: {@link decodeLibrary}, throwing the first unreadable
+ *  entry's reason if there is one. Mirrors Swift `TapToneAnalyzer.decodeMeasurements(_:)`. */
+export function parseGuitarTapFile(text: string): TapToneMeasurementModel[] {
+  const library = decodeLibrary(text)
+  if (library.unreadable.length > 0) throw library.unreadable[0]
+  return library.measurements
 }
 
 /** Heal a decoded GUITAR measurement's selection to a valid DEFINITIVE set, mirroring Swift's

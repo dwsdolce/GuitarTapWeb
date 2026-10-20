@@ -25,7 +25,7 @@ import { Pitch } from '../dsp/pitch'
 import { formatDisplayDateCompact } from '../format/date'
 import { seriesRole } from '../presentation/palette'
 import { GUITAR_TYPE_RAW } from '../dsp/guitarModes'
-import { clearMeasurements, deleteMeasurement as deleteStoredMeasurement, deleteUnreadable, readLibrary, saveMeasurement as storeMeasurement } from '../measurement/store'
+import { clearMeasurements, deleteMeasurement as deleteStoredMeasurement, readLibrary, saveMeasurement as storeMeasurement, setAsideUnreadable, type ImportedMeasurements } from '../measurement/store'
 import { amendMeasurement } from '../measurement/amend'
 import type { ChartView } from '../presentation/chartTypes'
 import { GUITAR_FFT_SIZE } from '../dsp/guitarFFT'
@@ -1114,7 +1114,7 @@ export class TapToneAnalyzer {
     await storeMeasurement(m)
     // The result on screen is now this saved measurement: its exports show its date and are named by it.
     this.sourceMeasurementTimestamp = m.timestamp
-    await this.loadPersistedMeasurements()
+    await this.refreshSavedMeasurements()
   }
 
   /** The current comparison as a saved record — its entries as they are, no peaks of its own — or null
@@ -1136,7 +1136,7 @@ export class TapToneAnalyzer {
     await storeMeasurement(m)
     // The comparison on screen is now this saved one: its exports show its date and are named by it.
     this.sourceMeasurementTimestamp = m.timestamp
-    await this.loadPersistedMeasurements()
+    await this.refreshSavedMeasurements()
   }
 
   /** Load a saved measurement — guitar, material or comparison record. THE load entry point.
@@ -1325,33 +1325,50 @@ export class TapToneAnalyzer {
    *  Swift `updateMeasurement(at:measurementName:notes:)`, which addresses the entry by position. */
   async updateMeasurement(m: TapToneMeasurementModel, measurementName: string | undefined, notes: string | undefined): Promise<void> {
     await storeMeasurement(amendMeasurement(m, measurementName, notes))
-    await this.loadPersistedMeasurements()
+    await this.refreshSavedMeasurements()
   }
 
   /** Remove a saved measurement from the library. Mirrors Swift `deleteMeasurement(at:)`, which
    *  addresses the entry by position; here its row key names it. */
   async deleteMeasurement(m: TapToneMeasurementModel): Promise<void> {
     await deleteStoredMeasurement(m.rowKey as string)
-    await this.loadPersistedMeasurements()
+    await this.refreshSavedMeasurements()
   }
 
   /** Remove every saved measurement. Mirrors Python `delete_all_measurements`. */
   async deleteAllMeasurements(): Promise<void> {
     await clearMeasurements()
-    await this.loadPersistedMeasurements()
+    await this.refreshSavedMeasurements()
   }
 
   /** The message an import that failed shows, the same in every edition: the file is not a valid
    *  measurement (naming the id when that is why), or what went wrong. Mirrors Swift
    *  `importErrorMessage(for:fileName:)` (a browser has no file-permission failure to report). */
   static importErrorMessage(err: unknown, fileName: string): string {
-    if (err instanceof InvalidIdError || err instanceof NoSpectrumError) {
-      return `Could not import "${fileName}": the file is not a valid GuitarTap measurement (${err.message}).`
+    const reason = TapToneAnalyzer.unreadableReason(err)
+    if (reason !== null) {
+      return `Could not import "${fileName}": the file is not a valid GuitarTap measurement (${reason}).`
     }
     if (err instanceof SyntaxError || err instanceof TypeError) {
       return `Could not import "${fileName}": the file is not a valid GuitarTap measurement.`
     }
     return `Could not import "${fileName}": ${err instanceof Error ? err.message : String(err)}`
+  }
+
+  /** Why one entry of a file could not be read, in the words an import's message uses: the id that is not a
+   *  UUID, or "no spectrum"; null for any other reason. Mirrors Swift `unreadableReason(_:)`. */
+  static unreadableReason(err: unknown): string | null {
+    if (err instanceof InvalidIdError || err instanceof NoSpectrumError) return err.message
+    return null
+  }
+
+  /** What an import's message says about the entries it skipped — null when none were: how many, and why
+   *  when there was one. Mirrors Swift `skippedEntriesMessage(_:)`. */
+  static skippedEntriesMessage(unreadable: unknown[]): string | null {
+    if (unreadable.length === 0) return null
+    if (unreadable.length > 1) return `${unreadable.length} measurements in the file could not be read and were not imported.`
+    const reason = TapToneAnalyzer.unreadableReason(unreadable[0])
+    return `1 measurement in the file could not be read and was not imported${reason !== null ? ` (${reason})` : ''}.`
   }
 
   /** Import a `.guitartap` file and return the one message the user sees for it.
@@ -1364,19 +1381,27 @@ export class TapToneAnalyzer {
    *
    *  The warning is cleared first, so the message can only ever describe THIS import.
    *
-   *  @param save Persists each decoded measurement and returns what was stored (the store's
-   *              `importMeasurements`), injected so the model does not reach into storage itself. */
+   *  Entries that could not be read and were skipped are named in the message.
+   *
+   *  @param save Persists each decoded measurement and returns what was stored and what was skipped (the
+   *              store's `importMeasurements`), injected so the model does not reach into storage itself. */
   async importAndLoadMeasurements(
     text: string,
-    save: (text: string) => Promise<TapToneMeasurementModel[]>,
+    save: (text: string) => Promise<ImportedMeasurements>,
   ): Promise<string> {
     this.microphoneWarning = null
-    const imported = await save(text)
-    await this.loadPersistedMeasurements()
-    if (imported.length !== 1) return `Successfully imported ${imported.length} measurements`
-    this.loadMeasurement(imported[0]!)
-    let message = 'Successfully imported and loaded 1 measurement'
-    if (this.microphoneWarning) {
+    const { imported, unreadable } = await save(text)
+    await this.refreshSavedMeasurements()
+    let message: string
+    if (imported.length === 1) {
+      this.loadMeasurement(imported[0]!)
+      message = 'Successfully imported and loaded 1 measurement'
+    } else {
+      message = `Successfully imported ${imported.length} measurements`
+    }
+    const skipped = TapToneAnalyzer.skippedEntriesMessage(unreadable)
+    if (skipped) message += '\n\n' + skipped
+    if (imported.length === 1 && this.microphoneWarning) {
       message += '\n\n⚠️ ' + this.microphoneWarning
       this.microphoneWarning = null
       this.notify()
@@ -1910,37 +1935,47 @@ export class TapToneAnalyzer {
     this.wallClock = wallClock
     if (device) this.setDevice(device)
     // The library, as Swift's init loads it — where there is storage to load it from.
-    if (typeof indexedDB !== 'undefined') void this.loadPersistedMeasurements()
+    this.libraryLoaded = typeof indexedDB !== 'undefined' ? this.loadPersistedMeasurements() : Promise.resolve()
   }
+
+  /** The launch's load of the library, done when it settles. Swift's init loads it before returning; here
+   *  storage is asynchronous, so whoever needs the loaded library waits on this. */
+  readonly libraryLoaded: Promise<void>
 
   /** The saved measurements, in the order they were saved. Swift `savedMeasurements`. */
   savedMeasurements: TapToneMeasurementModel[] = []
-  /** The row keys of the stored measurements that could not be read at the last load — kept in storage,
-   *  out of the list; the view says so once and offers to delete them. The web's form of Swift
-   *  `libraryLoadFailure`: its records are stored one by one, so one unreadable record does not cost the
-   *  rest. Empty once the user has answered. */
-  unreadableMeasurements: string[] = []
+  /** Set when saved measurements could not be read at launch and were kept aside. The view shows it once in
+   *  an alert and clears it. Mirrors Swift `libraryLoadFailure`. */
+  libraryLoadFailure: string | null = null
 
-  /** Read the library into `savedMeasurements`; records that cannot be read go to
-   *  `unreadableMeasurements`. Mirrors Swift `loadPersistedMeasurements()`; run again after every change
-   *  to the library, since each record is stored on its own. */
+  /** Read the library into `savedMeasurements`, as at launch. Records that cannot be read are left out: they
+   *  are kept aside ({@link setAsideUnreadable}) and the user is told once. Mirrors Swift
+   *  `loadPersistedMeasurements()`. */
   async loadPersistedMeasurements(): Promise<void> {
     const library = await readLibrary()
     this.savedMeasurements = library.measurements
-    this.unreadableMeasurements = library.unreadable
+    const n = library.unreadable.length
+    if (n > 0) {
+      const count = n === 1 ? '1 saved measurement' : `${n} saved measurements`
+      const was = n === 1 ? 'was' : 'were'
+      this.libraryLoadFailure = (await setAsideUnreadable(library.unreadable))
+        ? `${count} could not be read and ${was} removed from the list.`
+        : `${count} could not be read and ${was} left out of the list.`
+    }
     this.notify()
   }
 
-  /** The user keeps the unreadable records: they stay in storage, and the view stops saying so. */
-  keepUnreadableMeasurements(): void {
-    this.unreadableMeasurements = []
+  /** Read the library into `savedMeasurements` again after a change to it — each record is stored on its own,
+   *  so the list is read back rather than kept. Says nothing about records that cannot be read: the launch
+   *  load has. */
+  private async refreshSavedMeasurements(): Promise<void> {
+    this.savedMeasurements = (await readLibrary()).measurements
     this.notify()
   }
 
-  /** The user deletes the unreadable records. */
-  async deleteUnreadableMeasurements(): Promise<void> {
-    await deleteUnreadable(this.unreadableMeasurements)
-    this.unreadableMeasurements = []
+  /** The user has read the alert. */
+  clearLibraryLoadFailure(): void {
+    this.libraryLoadFailure = null
     this.notify()
   }
 
@@ -3644,7 +3679,7 @@ export class TapToneAnalyzer {
         microphoneWarningTitle: this.microphoneWarningTitle,
         currentDecayTime: this.currentDecayTime,
         savedMeasurements: this.savedMeasurements,
-        unreadableMeasurements: this.unreadableMeasurements,
+        libraryLoadFailure: this.libraryLoadFailure,
       })
     }
     return this.cachedSnapshot
@@ -4182,6 +4217,6 @@ export interface TapToneSnapshot {
   currentDecayTime: number | null
   /** The saved measurements, in the order they were saved. */
   savedMeasurements: TapToneMeasurementModel[]
-  /** Stored measurements that could not be read and are not yet answered (kept or deleted). */
-  unreadableMeasurements: string[]
+  /** Saved measurements could not be read at launch: what the alert says, until the user has read it. */
+  libraryLoadFailure: string | null
 }

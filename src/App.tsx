@@ -1410,23 +1410,16 @@ export default function App() {
             />
           )}
 
-      {/* Saved measurements the library could not read (an id that is not a UUID): kept in storage, out of
-          the list; the user is told once and may delete them (Swift/Python keep an unreadable library file
-          aside and say where). */}
-      {snapshot.unreadableMeasurements.length > 0 && (() => {
-        const n = snapshot.unreadableMeasurements.length
-        return (
-          <AlertModal
-            title="Saved Measurements Unreadable"
-            message={`${n === 1 ? '1 saved measurement' : `${n} saved measurements`} could not be read, so ${n === 1 ? 'it is' : 'they are'} not in the list. ${n === 1 ? 'It is' : 'They are'} kept as ${n === 1 ? 'it was' : 'they were'} unless you delete ${n === 1 ? 'it' : 'them'}.`}
-            buttons={[
-              { label: 'Keep', primary: true, onClick: () => analyzer.keepUnreadableMeasurements() },
-              { label: 'Delete', onClick: () => void analyzer.deleteUnreadableMeasurements() },
-            ]}
-            onDismiss={() => analyzer.keepUnreadableMeasurements()}
-          />
-        )
-      })()}
+      {/* Saved measurements the library could not read at launch: kept aside, out of the list; the user is
+          told once. */}
+      {snapshot.libraryLoadFailure && (
+        <AlertModal
+          title="Saved Measurements Unreadable"
+          message={snapshot.libraryLoadFailure}
+          buttons={[{ label: 'OK', primary: true, onClick: () => analyzer.clearLibraryLoadFailure() }]}
+          onDismiss={() => analyzer.clearLibraryLoadFailure()}
+        />
+      )}
 
       {showSettings && (
         <SettingsPanel

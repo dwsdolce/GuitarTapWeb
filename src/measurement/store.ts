@@ -6,7 +6,7 @@
 // (plain, structured-clonable).
 
 import type { TapToneMeasurementModel } from './types'
-import { checkMeasurement, healMeasurement, parseGuitarTapFile } from './decode'
+import { checkMeasurement, decodeLibrary, healMeasurement } from './decode'
 import { newId } from './newId'
 
 const DB_NAME = 'guitartap'
@@ -19,7 +19,7 @@ const VERSION = 2
 // ordered by it so the last saved/imported measurement is always last, matching Swift/Python
 // which simply `append` to `savedMeasurements`. (The measurement's own `timestamp` can't be
 // used: an imported file keeps its original creation date, so it wouldn't sort to the end.)
-type StoredMeasurement = TapToneMeasurementModel & { savedAt?: number }
+export type StoredMeasurement = TapToneMeasurementModel & { savedAt?: number }
 
 // Strictly-monotonic insertion stamp. Seeded from wall-clock so it keeps increasing across
 // reloads; the `+1` fallback breaks ties within a batch import (same-millisecond saves).
@@ -129,37 +129,47 @@ export function saveMeasurement(m: TapToneMeasurementModel): Promise<TapToneMeas
  * imports of one file therefore give two rows sharing an `id` — the same state the natives reach by
  * appending to their array.
  *
- * Returns the stored measurements, each carrying the `rowKey` it was given.
+ * An entry that cannot be read is skipped and the rest are imported; the file must hold at least one that
+ * can be read, or this throws the first entry's reason. Mirrors Swift `importMeasurements(from:)`.
+ *
+ * Returns the stored measurements, each carrying the `rowKey` it was given, and why each skipped entry
+ * could not be read.
  */
-export async function importMeasurements(text: string): Promise<TapToneMeasurementModel[]> {
+export async function importMeasurements(text: string): Promise<ImportedMeasurements> {
+  const library = decodeLibrary(text)
+  if (library.measurements.length === 0 && library.unreadable.length > 0) throw library.unreadable[0]
   const imported: TapToneMeasurementModel[] = []
-  for (const m of parseGuitarTapFile(text)) imported.push(await saveMeasurement(m))
-  return imported
+  for (const m of library.measurements) imported.push(await saveMeasurement(m))
+  return { imported, unreadable: library.unreadable }
+}
+
+/** What an import stored, and why each entry it skipped could not be read. */
+export interface ImportedMeasurements {
+  imported: TapToneMeasurementModel[]
+  unreadable: unknown[]
 }
 
 /** The library as read: the measurements that can be read, in insertion order (last saved/imported
- *  last, mirroring the Swift/Python `savedMeasurements` array), and the row keys of the records that
- *  cannot. */
+ *  last, mirroring the Swift/Python `savedMeasurements` array), and the records that cannot. */
 export interface Library {
   measurements: TapToneMeasurementModel[]
-  unreadable: string[]
+  unreadable: StoredMeasurement[]
 }
 
-/** Read the library. A record that cannot be read — an id that is not a UUID, or no spectrum — is skipped and left in
- *  storage untouched, and named in `unreadable`, so nothing writes over it and the user can be told
- *  (and offered {@link deleteUnreadable}). The web's form of the natives' rule for a library that
- *  cannot be read: its records are stored one by one, so one bad record does not cost the rest. */
+/** Read the library. A record that cannot be read — an id that is not a UUID, or no spectrum — is left
+ *  out and returned in `unreadable`, for {@link setAsideUnreadable}. Its records are stored one by one, so
+ *  one that cannot be read costs only itself, as an entry does in the natives' file. */
 export function readLibrary(): Promise<Library> {
   return tx<StoredMeasurement[]>('readonly', (s) => s.getAll()).then((all) => {
     const sorted = all.sort((a, b) => orderOf(a) - orderOf(b))
     const measurements: StoredMeasurement[] = []
-    const unreadable: string[] = []
+    const unreadable: StoredMeasurement[] = []
     for (const m of sorted) {
       try {
         checkMeasurement(m)
         measurements.push(m)
       } catch {
-        unreadable.push(m.rowKey!)
+        unreadable.push(m)
       }
     }
     // Unlike Swift/Python — whose library is a JSON file and therefore passes through the
@@ -180,10 +190,29 @@ export function listMeasurements(): Promise<TapToneMeasurementModel[]> {
   return readLibrary().then((library) => library.measurements)
 }
 
-/** Remove the records {@link readLibrary} could not read — the user's choice; nothing removes them
- *  otherwise. */
-export async function deleteUnreadable(rowKeys: string[]): Promise<void> {
-  for (const rowKey of rowKeys) await tx('readwrite', (s) => s.delete(rowKey))
+/** The key the records {@link readLibrary} could not read are kept under: `<key>-unreadable-<date and
+ *  time>`, as the stored calibrations are. */
+const K_UNREADABLE = 'gt.measurements'
+
+/** The library holds records that cannot be read. Before they leave it they are kept, as they were, under
+ *  a storage key of their own — `gt.measurements-unreadable-<date and time>` — and then removed from the
+ *  library. Returns whether they were kept; if they could not be (storage full or unavailable) they stay
+ *  where they are, out of the list. Mirrors Swift `keepCopyOfLibrary(at:unreadableCount:)`, whose library
+ *  is a file and is copied whole. */
+export async function setAsideUnreadable(records: StoredMeasurement[]): Promise<boolean> {
+  const d = new Date()
+  const two = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`
+  const keptKey = `${K_UNREADABLE}-unreadable-${stamp}`
+  try {
+    localStorage.setItem(keptKey, JSON.stringify(records))
+  } catch {
+    console.warn('Saved measurements that could not be read could not be kept aside — left as they are')
+    return false
+  }
+  for (const r of records) await tx('readwrite', (s) => s.delete(r.rowKey!))
+  console.warn(`Saved measurements that could not be read kept as ${keptKey}`)
+  return true
 }
 
 /** Fetch one stored row by its library-local `rowKey` (NOT the dataset `id`). */

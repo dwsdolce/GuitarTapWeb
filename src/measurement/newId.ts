@@ -41,8 +41,8 @@ function uuidV4(): string {
 const UUID_FORM = /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$/
 
 /** A measurement with no spectrum — no guitar spectrum, no plate/brace longitudinal one, or a comparison of
- *  fewer than two entries; a spectrum with no points is none: no edition makes one, so the file or record
- *  holding it cannot be read. Mirrors Swift `NoSpectrumError`. */
+ *  fewer than two entries; a spectrum with no points is none. The entry cannot be read; the rest of its
+ *  file can. Mirrors Swift `NoSpectrumError`. */
 export class NoSpectrumError extends Error {
   constructor() {
     super('no spectrum')
