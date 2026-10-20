@@ -222,7 +222,7 @@
   border-color: var(--c-accent-text);
 }
 .btn:disabled {
-  opacity: 0.45;
+  opacity: var(--o-control-dimmed);
   cursor: default;
 }
 /* Swift's .buttonStyle(.borderedProminent): the accent as the fill, text.onColor as the text. */
@@ -233,10 +233,10 @@
   font-weight: 600;
 }
 /* A bordered button tinted by a role — Swift's .buttonStyle(.bordered) with .tint(role): the role as
-   the text and 5 % of it as the fill (measured from Swift's), no outline; a tint-* class names the role. */
+   the text and the button.tintFill opacity of it as the fill, no outline; a tint-* class names the role. */
 .btn.tint {
   color: var(--tint);
-  background: color-mix(in srgb, var(--tint) 5%, transparent);
+  background: color-mix(in srgb, var(--tint) calc(var(--o-button-tint-fill) * 100%), transparent);
   border-color: transparent;
 }
 /* Hover only where there is a pointer — a touch screen has none (as iPad: pointer, not touch). */
@@ -244,15 +244,15 @@
   border-color: transparent; /* never the plain button's hover outline */
 }
 .btn.tint.on {
-  background: color-mix(in srgb, var(--tint) 28%, transparent);
+  background: color-mix(in srgb, var(--tint) calc(var(--o-button-tint-on) * 100%), transparent);
 }
-/* Hover lifts the fill by 10 points, on or off — as Swift's wash over its button: 5 → 15, 28 → 38. */
+/* Hover lifts the fill, on or off: button.tintHover, button.tintOnHover. */
 @media (hover: hover) {
   .btn.tint:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--tint) 15%, transparent);
+    background: color-mix(in srgb, var(--tint) calc(var(--o-button-tint-hover) * 100%), transparent);
   }
   .btn.tint.on:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--tint) 38%, transparent);
+    background: color-mix(in srgb, var(--tint) calc(var(--o-button-tint-on-hover) * 100%), transparent);
   }
 }
 .tint-accent {
@@ -728,7 +728,7 @@
   height: 18px;
 }
 .meas-row.disabled {
-  opacity: 0.4;
+  opacity: var(--o-control-not-applicable);
 }
 .meas-row.disabled .meas-info {
   cursor: default;
@@ -799,18 +799,17 @@
 .field label {
   white-space: nowrap;
 }
-/* A field whose control is unavailable dims as a UNIT — label and value with it. 0.45 is the same
-   figure `.btn:disabled` uses and the same one Swift's `disabledDimmed` applies, so a disabled
-   field looks identical across the three editions. The buttons keep their own :disabled rule
-   rather than inheriting this one, so the opacities don't compound. */
+/* A field whose control is unavailable dims as a UNIT — label and value with it — at control.dimmed,
+   the opacity `.btn:disabled` and Swift's `disabledDimmed` use. The buttons keep their own :disabled
+   rule rather than inheriting this one, so the opacities don't compound. */
 .field.is-disabled label,
 .field.is-disabled .step-val {
-  opacity: 0.45;
+  opacity: var(--o-control-dimmed);
 }
-/* A field disabled as a whole row — Peak Min for plate/brace and in a comparison: everything at 0.4,
-   Swift's `.opacity(... ? 1 : 0.4)` on that row. */
+/* A field disabled as a whole row — Peak Min for plate/brace and in a comparison: everything at
+   control.notApplicable, as Swift's on that row. */
 .field.is-faded {
-  opacity: 0.4;
+  opacity: var(--o-control-not-applicable);
 }
 .field.is-faded input {
   cursor: not-allowed;
@@ -966,7 +965,7 @@
   cursor: pointer;
 }
 .menu-picker select:disabled {
-  opacity: 0.5;
+  opacity: var(--o-control-dimmed);
   cursor: default;
 }
 .menu-picker select:focus-visible {
@@ -1081,7 +1080,7 @@
    block. This is the control's label, not the "Analysis Settings" section header (a sibling), which
    stays at full strength. */
 .set-range.disabled {
-  opacity: 0.4;
+  opacity: var(--o-control-not-applicable);
 }
 .set-range.disabled input {
   cursor: not-allowed;
@@ -1339,7 +1338,7 @@
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
   border: none;
-  background: color-mix(in srgb, var(--c-status-warning) 12%, transparent);
+  background: color-mix(in srgb, var(--c-status-warning) calc(var(--o-status-message-background) * 100%), transparent);
   color: var(--c-status-warning);
   border-radius: 8px;
   font-size: 0.88rem;
@@ -1354,7 +1353,7 @@
   padding: 0.4rem 0.85rem;
   margin-top: 0.4rem;
   border: none;
-  background: color-mix(in srgb, var(--c-status-warning) 12%, transparent);
+  background: color-mix(in srgb, var(--c-status-warning) calc(var(--o-status-message-background) * 100%), transparent);
   color: var(--c-status-warning);
   border-radius: 8px;
   font-size: 0.82rem;
@@ -1369,7 +1368,7 @@
   padding: 0.4rem 0.85rem;
   margin-top: 0.4rem;
   border: none;
-  background: color-mix(in srgb, var(--c-status-saved) 12%, transparent);
+  background: color-mix(in srgb, var(--c-status-saved) calc(var(--o-status-message-background) * 100%), transparent);
   color: var(--c-status-saved);
   border-radius: 8px;
   font-size: 0.82rem;
@@ -1671,7 +1670,7 @@
   color: var(--c-text-on-color);
 }
 .chart-ctx button:disabled {
-  opacity: 0.4;
+  opacity: var(--o-control-dimmed);
   cursor: default;
 }
 .chart-ctx button:disabled:hover {
@@ -1766,7 +1765,7 @@
 }
 @media (hover: hover) {
   .foot-export .btn.mini:hover:not(:disabled) {
-    background: linear-gradient(color-mix(in srgb, var(--c-accent) 10%, transparent), color-mix(in srgb, var(--c-accent) 10%, transparent)), var(--c-background-picker);
+    background: linear-gradient(color-mix(in srgb, var(--c-accent) calc(var(--o-button-plain-hover) * 100%), transparent), color-mix(in srgb, var(--c-accent) calc(var(--o-button-plain-hover) * 100%), transparent)), var(--c-background-picker);
     border-color: transparent;
   }
 }

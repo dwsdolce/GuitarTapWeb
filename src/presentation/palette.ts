@@ -145,6 +145,21 @@ export type Role = keyof typeof ROLES
 export const OPACITIES = {
   'peak.rowTint': { light: 0.1, dark: 0.2 },
   'status.messageBackground': { light: 0.12, dark: 0.12 },
+  'control.dimmed': { light: 0.45, dark: 0.45 },
+  'control.notApplicable': { light: 0.4, dark: 0.4 },
+  'button.tintFill': { light: 0.05, dark: 0.05 },
+  'button.tintHover': { light: 0.15, dark: 0.15 },
+  'button.tintPressed': { light: 0.22, dark: 0.22 },
+  'button.tintOn': { light: 0.28, dark: 0.28 },
+  'button.tintOnHover': { light: 0.38, dark: 0.38 },
+  'button.prominentHover': { light: 0.85, dark: 0.85 },
+  'button.plainHover': { light: 0.1, dark: 0.1 },
+  'peak.rowHighlight': { light: 0.12, dark: 0.12 },
+  'mode.chipFill': { light: 0.15, dark: 0.15 },
+  'peak.pitchCents': { light: 0.8, dark: 0.8 },
+  'export.summaryChipFill': { light: 0.1, dark: 0.1 },
+  'export.cardShadow': { light: 0.5, dark: 0.5 },
+  'status.warningPulseLow': { light: 0.2, dark: 0.2 },
 } as const satisfies Record<string, { light: number; dark: number }>
 
 export type Opacity = keyof typeof OPACITIES
@@ -206,6 +221,7 @@ function update(): void {
     const root = document.documentElement
     root.dataset.theme = resolved
     for (const role of Object.keys(ROLES) as Role[]) root.style?.setProperty(cssVariable(role), color(role))
+    for (const name of Object.keys(OPACITIES) as Opacity[]) root.style?.setProperty(cssOpacityVariable(name), String(opacity(name)))
   }
   if (changed) for (const listener of listeners) listener(resolved)
 }
@@ -214,6 +230,17 @@ function update(): void {
  *  `--c-chart-readout-background`. Set on the root by `apply`, so CSS follows the scheme. */
 export function cssVariable(role: Role): string {
   return `--c-${role.replace(/\./g, '-').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()}`
+}
+
+/** The CSS custom property that carries opacity `name` in the current scheme: `control.dimmed` →
+ *  `--o-control-dimmed`, a number. Set on the root by `apply`, as the colours are. */
+export function cssOpacityVariable(name: Opacity): string {
+  return `--o-${name.replace(/\./g, '-').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()}`
+}
+
+/** The value of opacity `name` in the current scheme (or `inScheme`). Mirrors Swift `Palette.opacity(_:)`. */
+export function opacity(name: Opacity, inScheme?: Scheme): number {
+  return OPACITIES[name][inScheme ?? current]
 }
 
 /** `"#RRGGBB"` or `"#RRGGBBAA"` as a CSS colour. */

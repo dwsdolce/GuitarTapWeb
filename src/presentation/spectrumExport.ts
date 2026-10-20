@@ -11,7 +11,7 @@ import { renderSpectrum, chartTheme, overlayColor, hexA, type ChartTheme } from 
 import { EXPORT } from './chartStyle'
 import { type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_DISPLAY_NAME } from './modeColors'
-import { color as roleColor, modeRole } from './palette'
+import { color as roleColor, modeRole, opacity } from './palette'
 import { withPixelsPerInch } from './pngPixelsPerInch'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
@@ -200,7 +200,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
       let cw = ctx.measureText(lines[0]!).width
       ctx.font = modeFont
       cw = Math.max(cw, ctx.measureText(lines[1]!).width, ctx.measureText(lines[2]!).width) + CARD_PAD * 2
-      ctx.fillStyle = hexA(color, 0.1)
+      ctx.fillStyle = hexA(color, opacity('export.summaryChipFill', 'light'))
       ctx.beginPath()
       ctx.roundRect(cx, cy, cw, CARD_H, 6)
       ctx.fill()

@@ -8,7 +8,7 @@ import { drawnIndices } from './displayRange'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_LABEL } from './modeColors'
-import { color as roleColor, modeRole, type Role } from './palette'
+import { color as roleColor, modeRole, opacity, type Role } from './palette'
 import type { Scheme } from './appearance'
 import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect, DotHit } from './chartTypes'
 import { formattedAsFrequency } from './frequencyFormat'
@@ -358,7 +358,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     const lh = exporting ? 20 : 16
     const lx = Math.max(plotL, Math.min(bx - lw / 2, plotR - lw))
     const lt = exporting ? plotT + 4 : plotT
-    ctx.fillStyle = hexA(color, 0.15)
+    ctx.fillStyle = hexA(color, opacity('mode.chipFill', th.scheme))
     ctx.beginPath()
     ctx.roundRect(lx, lt, lw, lh, exporting ? 6 : 4)
     ctx.fill()
@@ -510,9 +510,12 @@ function drawBadge(
       ? { runs: [
           { text: '♪', color: PITCH, font: `${pitchSize - 2}px system-ui, sans-serif` },
           { text: m.note, color: PITCH, font: `bold ${pitchSize}px system-ui, sans-serif` },
-          { text: cents, color: hexA(PITCH, 0.8), font: `${pitchSize - 2}px system-ui, sans-serif` },
+          { text: cents, color: hexA(PITCH, opacity('peak.pitchCents', th.scheme)), font: `${pitchSize - 2}px system-ui, sans-serif` },
         ], size: pitchSize }
-      : { runs: [{ text: `♪ ${m.note} ${cents}`, color: PITCH, font: `600 ${pitchSize}px system-ui, sans-serif` }], size: pitchSize })
+      : { runs: [
+          { text: `♪ ${m.note}`, color: PITCH, font: `600 ${pitchSize}px system-ui, sans-serif` },
+          { text: cents, color: hexA(PITCH, opacity('peak.pitchCents', th.scheme)), font: `600 ${pitchSize}px system-ui, sans-serif` },
+        ], size: pitchSize })
   }
   lines.push({ runs: [{ text: formattedAsFrequency(m.frequency), color: fg, font: `500 ${freqSize}px system-ui, sans-serif` }], size: freqSize })
   lines.push({ runs: [{ text: `${FieldPrecision.string(m.magnitude, FieldPrecision.peakMagnitudeDB)} dB`, color: sub, font: `${dbSize}px system-ui, sans-serif` }], size: dbSize })
@@ -548,7 +551,7 @@ function drawBadge(
   ctx.fillStyle = th.badgeBg
   if (metrics.frame === 'shadow') {
     ctx.save()
-    ctx.shadowColor = roleColor('scrim', undefined, th.scheme)
+    ctx.shadowColor = roleColor('scrim', 'export.cardShadow', th.scheme)
     ctx.shadowBlur = 4
     ctx.shadowOffsetY = 2
     ctx.fill()

@@ -2,7 +2,7 @@
 import { useRef, useEffect, useState, type JSX } from 'react'
 import type { ResolvedMode } from '../dsp/classify'
 import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS } from '../presentation/modeColors'
-import { color as roleColor, magnitudeRole, modeRole } from '../presentation/palette'
+import { color as roleColor, magnitudeRole, modeRole, opacity } from '../presentation/palette'
 import { hexA } from '../presentation/spectrumRender'
 import { useScheme } from '../hooks/useScheme'
 import { WindIcon, ArrowUpDownIcon, SquareFilledIcon, DipoleIcon, CircleDashedIcon, WaveformIcon, HelpIcon, TagIcon, MusicNoteIcon } from './icons'
@@ -11,9 +11,6 @@ import { MaterialPhaseBadge } from './MaterialPhaseBadge'
 import { CustomLabelDialog } from './CustomLabelDialog'
 import type { ResonantPeak } from '../measurement/types'
 import { FieldPrecision } from '../precision'
-
-/** A highlighted row's fill under its tint — mirrors Swift TapAnalysisResultsView. */
-const HIGHLIGHT_OPACITY = 0.12
 
 // One resonant-peak card, mirroring Swift CombinedPeakModeRowView:
 //   [star] [mode glyph + in-range check] [mode label · freq / pitch / Q · BW · mag]
@@ -129,7 +126,7 @@ export function PeakCard({
       className={`peak-card${highlighted ? ' highlighted' : ''}`}
       style={{
         // The row's tint, over the highlight's fill when highlighted; the highlight's border (Swift).
-        background: highlighted ? `linear-gradient(${tint}, ${tint}), ${hexA(color, HIGHLIGHT_OPACITY)}` : tint,
+        background: highlighted ? `linear-gradient(${tint}, ${tint}), ${hexA(color, opacity('peak.rowHighlight'))}` : tint,
         borderColor: highlighted ? color : 'transparent',
       }}
       onClick={onHighlight}
