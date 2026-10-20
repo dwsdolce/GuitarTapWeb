@@ -46,7 +46,7 @@ const TOLERANCE_KEYS: Record<string, string> = {
 
 // The FIRST-MINT bar, not the parity bar. A new configuration has no prior to check against,
 // so the only available question is whether its numbers are plausible at all. Parity is now
-// tight enough (0.02 Hz / 0.01 dB) that a port still being built could fail it — and failing
+// tight enough (2e-04 Hz / 1e-04 dB) that a port still being built could fail it — and failing
 // it here would leave that port with no zero-tolerance regression check at exactly the moment
 // it most needs one. Falls back to the parity numbers for an older oracle predating the split.
 const BOOTSTRAP: Record<string, number> = oracle.bootstrapTolerances ?? oracle.tolerances
