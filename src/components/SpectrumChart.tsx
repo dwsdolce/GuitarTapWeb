@@ -1,5 +1,5 @@
 // @parity view/spectrum-chart
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Spectrum } from '../dsp/guitarFFT'
 import { renderSpectrum, chartGeometry, chartTheme, overlayColor } from '../presentation/spectrumRender'
 import { useScheme } from '../hooks/useScheme'
@@ -14,8 +14,16 @@ import {
   MIN_FREQUENCY_SPAN_HZ,
   MIN_MAGNITUDE_SPAN_DB,
 } from '../presentation/chartLimits'
-import { RefreshIcon } from './icons'
+import { BackupRestoreIcon, InfoIcon, MoreCircleIcon, UndoArrowIcon, UndoIcon } from './icons'
 import type { Uuid } from '../measurement/newId'
+import { CHART_MENU_GROUPS, LABEL_MENU, axisReset } from '../presentation/chartMenu'
+
+/** A menu item's icon, by its Material Design name (chartMenu's `mdi`). */
+function MenuIcon({ mdi }: { mdi: string }) {
+  if (mdi === 'backup-restore') return <BackupRestoreIcon />
+  if (mdi === 'undo') return <UndoArrowIcon />
+  return <UndoIcon />
+}
 
 /** Props for {@link SpectrumChart} — spectrum data, axis range, overlays/markers, and interaction callbacks. */
 export interface SpectrumChartProps {
@@ -69,6 +77,8 @@ const DB_FLOOR = MIN_MAGNITUDE_DB
 const DB_CEIL = MAX_MAGNITUDE_DB
 
 type Region = 'plot' | 'xAxis' | 'yAxis' | 'outside'
+/** The cursor over each region of the chart — Swift's NSCursor for it. */
+const REGION_CURSOR: Record<Region, string> = { plot: 'crosshair', xAxis: 'ew-resize', yAxis: 'ns-resize', outside: '' }
 
 // Help popover text — mirrors SpectrumView's "Zoom & Pan Controls".
 const CONTROLS: [string, string][] = [
@@ -388,9 +398,11 @@ export function SpectrumChart({
       if (e.buttons === 0 && !annoDrag && !start && !pinch) {
         const rect = canvas.getBoundingClientRect()
         setHover({ x: e.clientX - rect.left, y: e.clientY - rect.top })
-        if (onAnnotationDragRef.current) {
-          canvas.style.cursor = hitBadge(e.clientX - rect.left, e.clientY - rect.top) ? 'grab' : ''
-        }
+        // Swift's cursors: the open hand over a peak label (the closed hand while dragging one), the crosshair
+        // over the plot, left-right over the frequency axis, up-down over the magnitude axis, the arrow elsewhere.
+        const px = e.clientX - rect.left
+        const py = e.clientY - rect.top
+        canvas.style.cursor = onAnnotationDragRef.current && hitBadge(px, py) ? 'grab' : REGION_CURSOR[regionAt(px, py, rect)]
       }
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       // Annotation badge drag takes priority over pan/pinch.
@@ -449,7 +461,7 @@ export function SpectrumChart({
       pointers.delete(e.pointerId)
       if (annoDrag) {
         annoDrag = null
-        canvas.style.cursor = ''
+        canvas.style.cursor = 'grab' // still over the label, as Swift's
       }
       if (pointers.size < 2) pinch = null
       if (pointers.size === 0) start = null
@@ -534,11 +546,10 @@ export function SpectrumChart({
         </div>
       )}
 
-      {/* Two upper-right icons: ⋯ Chart Options and ? help (right-click still opens the
-          same reset menu). Mirrors the iPad chart. */}
+      {/* Two upper-right icons: ⋯ the chart's menu (a right-click opens the same) and ⓘ the help, as Swift's. */}
       {onReset && (
         <button
-          className="chart-menu-btn"
+          className="chart-menu-btn btn-icon"
           title="Chart options"
           aria-haspopup="menu"
           onClick={(e) => {
@@ -547,12 +558,12 @@ export function SpectrumChart({
             setMenu((m) => (m ? null : { x: r.right, y: r.bottom + 4, alignRight: true }))
           }}
         >
-          ⋯
+          <MoreCircleIcon />
         </button>
       )}
 
-      <button className="chart-help" title="Zoom & Pan Controls" onClick={() => setShowHelp((s) => !s)}>
-        ?
+      <button className="chart-help btn-icon" title="Zoom & Pan Controls" onClick={() => setShowHelp((s) => !s)}>
+        <InfoIcon />
       </button>
 
       {showHelp && (
@@ -589,8 +600,9 @@ export function SpectrumChart({
               (() => {
                 const mk = markers.find((m) => m.annoKey === menu.annoKey)
                 const moved = mk?.annoOffset != null
-                return (
+                return LABEL_MENU.map((entry) => (
                   <button
+                    key={entry.action}
                     className="ctx-icon-item"
                     disabled={!moved}
                     onClick={() => {
@@ -598,37 +610,44 @@ export function SpectrumChart({
                       setMenu(null)
                     }}
                   >
-                    <span className="ctx-icon" aria-hidden><RefreshIcon /></span>
-                    Reset Position
+                    <span className="ctx-icon" aria-hidden><MenuIcon mdi={entry.mdi} /></span>
+                    {entry.title}
                   </button>
-                )
+                ))
               })()
             ) : (
+              // The chart's menu — CHART_MENU_GROUPS, the same items, words and icons as Swift's, from the ⋯ and from
+              // a right-click; no title or headers (style guide S1a).
               <>
-                <div className="ctx-title">Chart Options</div>
-                <div className="ctx-header">Reset to Saved</div>
-                <button onClick={() => doReset('saved', 'both')}>Both Axes</button>
-                <button onClick={() => doReset('saved', 'freq')}>Frequency Axis</button>
-                <button onClick={() => doReset('saved', 'mag')}>Magnitude Axis</button>
-                <div className="ctx-sep" />
-                <div className="ctx-header">Reset to Defaults</div>
-                <button onClick={() => doReset('defaults', 'both')}>Both Axes</button>
-                <button onClick={() => doReset('defaults', 'freq')}>Frequency Axis</button>
-                <button onClick={() => doReset('defaults', 'mag')}>Magnitude Axis</button>
-                {onResetLabels && (
-                  <>
-                    <div className="ctx-sep" />
-                    <button
-                      disabled={!hasMovedLabels}
-                      onClick={() => {
-                        onResetLabels()
-                        setMenu(null)
-                      }}
-                    >
-                      Reset Labels
-                    </button>
-                  </>
-                )}
+                {CHART_MENU_GROUPS.map((group, i) => {
+                  const items = group.filter((e) => e.action !== 'resetLabels' || onResetLabels)
+                  if (items.length === 0) return null
+                  return (
+                    <Fragment key={i}>
+                      {i > 0 && <div className="ctx-sep" />}
+                      {items.map((entry) => {
+                        const reset = axisReset(entry.action)
+                        return (
+                          <button
+                            key={entry.action}
+                            className="ctx-icon-item"
+                            disabled={entry.action === 'resetLabels' && !hasMovedLabels}
+                            onClick={() => {
+                              if (reset) doReset(reset.target, reset.axis)
+                              else {
+                                onResetLabels?.()
+                                setMenu(null)
+                              }
+                            }}
+                          >
+                            <span className="ctx-icon" aria-hidden><MenuIcon mdi={entry.mdi} /></span>
+                            {entry.title}
+                          </button>
+                        )
+                      })}
+                    </Fragment>
+                  )
+                })}
               </>
             )}
           </div>

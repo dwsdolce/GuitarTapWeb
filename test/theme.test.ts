@@ -13,7 +13,7 @@ import { DEFAULT_SETTINGS } from '../src/settings'
 const DATA = JSON.parse(readFileSync('test/fixtures/theme.json', 'utf8')) as {
   roles: [Role, string, string][]
   opacities: [Opacity, number, number][]
-  button: { cornerRadius: number; padding: number[]; prominentPadding: number[] }
+  button: { cornerRadius: number; padding: number[]; prominentPadding: number[]; iconPadding: number[] }
   appearance: { default: Appearance; values: [Appearance, string][] }
   resolve: [Appearance, Scheme | 'unknown', Scheme][]
   magnitudeRoles: [number, Role][]
@@ -132,5 +132,6 @@ describe('the button shape', () => {
     expect(BUTTON_SHAPE.cornerRadius).toBe(DATA.button.cornerRadius)
     expect([...BUTTON_SHAPE.padding]).toEqual(DATA.button.padding)
     expect([...BUTTON_SHAPE.prominentPadding]).toEqual(DATA.button.prominentPadding)
+    expect([...BUTTON_SHAPE.iconPadding]).toEqual(DATA.button.iconPadding)
   })
 })

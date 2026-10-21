@@ -549,7 +549,8 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
                 Export PDF Report
               </button>
               <div className="meas-menu-sep" />
-              <button role="menuitem" className="danger" onClick={() => remove(m)}>
+              {/* An ordinary item: a menu's items carry no colour of their own (style guide S1a). */}
+              <button role="menuitem" onClick={() => remove(m)}>
                 <Icon paths={ICON_DELETE} />
                 Delete
               </button>

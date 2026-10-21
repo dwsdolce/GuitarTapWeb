@@ -36,6 +36,11 @@ export const PlayIcon = () => <Mdi d={MDI.playCircle} />
 export const CancelIcon = () => <Mdi d={MDI.closeCircle} />
 export const CheckIcon = () => <Mdi d={MDI.checkCircle} />
 export const UndoIcon = () => <Mdi d={MDI.restore} />
+// The chart menu's resets: to Defaults (Swift arrow.counterclockwise.circle) and Reset Labels (arrow.uturn.backward).
+export const BackupRestoreIcon = () => <Mdi d={MDI.backupRestore} />
+export const UndoArrowIcon = () => <Mdi d={MDI.undo} />
+// The chart's ⋯ (Swift ellipsis.circle).
+export const MoreCircleIcon = () => <Mdi d={MDI.moreCircle} />
 
 // ── App control-bar glyphs ──────────────────────────────────────────────────
 export const AutoDbIcon = () => <Mdi d={MDI.autoDb} />

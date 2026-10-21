@@ -165,12 +165,14 @@ export const OPACITIES = {
 export type Opacity = keyof typeof OPACITIES
 
 /** The shape of a button the app draws: its corner radius, and its padding (vertical, horizontal) in points — a
- *  prominent button's a little larger. Published as `--btn-radius`, `--btn-pad-y` / `-x` and
- *  `--btn-prominent-pad-y` / `-x`. Mirrors Swift `Palette.ButtonShape`. */
+ *  prominent button's a little larger; an icon button's the patch its hover wash fills. Published as `--btn-radius`,
+ *  `--btn-pad-y` / `-x`, `--btn-prominent-pad-y` / `-x` and `--btn-icon-pad-y` / `-x`. Mirrors Swift
+ *  `Palette.ButtonShape`. */
 export const BUTTON_SHAPE = {
   cornerRadius: 6,
   padding: [3, 8],
   prominentPadding: [4, 10],
+  iconPadding: [3, 3],
 } as const
 
 /** The light and dark values of `role`. */
@@ -237,6 +239,8 @@ function update(): void {
     root.style?.setProperty('--btn-pad-x', px(BUTTON_SHAPE.padding[1]))
     root.style?.setProperty('--btn-prominent-pad-y', px(BUTTON_SHAPE.prominentPadding[0]))
     root.style?.setProperty('--btn-prominent-pad-x', px(BUTTON_SHAPE.prominentPadding[1]))
+    root.style?.setProperty('--btn-icon-pad-y', px(BUTTON_SHAPE.iconPadding[0]))
+    root.style?.setProperty('--btn-icon-pad-x', px(BUTTON_SHAPE.iconPadding[1]))
     // The browser's own bars (the tab strip, an installed app's title bar) in the window's background.
     document.querySelector?.('meta[name="theme-color"]')?.setAttribute('content', color('background.window'))
   }

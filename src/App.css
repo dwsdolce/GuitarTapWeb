@@ -87,7 +87,6 @@
   color: var(--c-text-primary);
   font-size: 0.9rem;
   text-align: left;
-  cursor: pointer;
 }
 .help-menu button:hover {
   background: var(--c-separator);
@@ -207,7 +206,7 @@
   gap: 0.5rem;
   margin: 0.5rem 0 0.75rem;
 }
-/* @parity view/button-style tests=test/button-style — .btn, .btn.tint, .btn-primary, .btn.mini.icon */
+/* @parity view/button-style tests=test/button-style — .btn, .btn.tint, .btn-primary, .btn-icon, .btn.mini.icon */
 /* The plain button — an action with no particular meaning: text.primary on background.control, a separator
    border, an accent wash at button.plainHover under the pointer. Shape: --btn-radius, --btn-pad-y / -x. */
 .btn {
@@ -218,7 +217,6 @@
   padding: var(--btn-pad-y) var(--btn-pad-x);
   border-radius: var(--btn-radius);
   font-size: 0.82rem;
-  cursor: pointer;
   white-space: nowrap;
 }
 @media (hover: hover) {
@@ -229,7 +227,27 @@
 }
 .btn:disabled {
   opacity: var(--o-control-dimmed);
-  cursor: default;
+}
+/* The icon button — an icon in its role (text.secondary unless it names another), no frame and no fill; under the
+   pointer the plain button's wash on a patch behind it. Shape: --btn-radius, --btn-icon-pad-y / -x. */
+.btn-icon {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--c-text-secondary);
+  padding: var(--btn-icon-pad-y) var(--btn-icon-pad-x);
+  border-radius: var(--btn-radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (hover: hover) {
+  .btn-icon:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--c-accent) calc(var(--o-button-plain-hover) * 100%), transparent);
+  }
+}
+.btn-icon:disabled {
+  opacity: var(--o-control-dimmed);
 }
 /* The prominent button — the main action of a sheet: filled with the accent, text.onColor as the text, the fill
    at button.prominentHover under the pointer. One that cannot act is drawn as a plain button, dimmed. */
@@ -981,11 +999,9 @@
   font-size: 13px;
   padding: 0 28px 0 10px;
   text-overflow: ellipsis;
-  cursor: pointer;
 }
 .menu-picker select:disabled {
   opacity: var(--o-control-dimmed);
-  cursor: default;
 }
 .menu-picker select:focus-visible {
   outline: 2px solid var(--c-accent);
@@ -1057,7 +1073,6 @@
   color: var(--c-text-primary);
   font-size: 0.95rem;
   font-weight: 600;
-  cursor: pointer;
   padding: 0;
   display: flex;
   align-items: center;
@@ -1205,7 +1220,6 @@
   font-size: 13px;
   font-weight: 700;
   color: var(--c-text-primary);
-  cursor: pointer;
 }
 .ts-disclosure .ts-chevron,
 .ts-trailing {
@@ -1259,7 +1273,6 @@
   font: inherit;
   font-size: 13px;
   color: var(--c-text-primary);
-  cursor: pointer;
   text-align: left;
 }
 .ts-link svg {
@@ -1280,7 +1293,6 @@
   min-height: 28px;
   padding: 4px 0;
   font-size: 13px;
-  cursor: pointer;
 }
 .ts-toggle-text {
   display: flex;
@@ -1401,7 +1413,6 @@
   border: none;
   color: inherit;
   font-size: 1rem;
-  cursor: pointer;
 }
 
 /* ── Main: spectrum + results pane ───────────────────────── */
@@ -1521,60 +1532,27 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  cursor: grab;
   touch-action: none;
 }
-.spectrum-canvas:active {
-  cursor: grabbing;
-}
 
-/* ── Chart help (?) + context menu overlays ──────────────── */
-.chart-help {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1px solid var(--c-separator);
-  background: var(--c-chart-readout-background);
-  color: var(--c-text-secondary);
-  font-size: 0.8rem;
-  line-height: 1;
-  cursor: pointer;
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-.chart-help:hover {
-  color: var(--c-text-primary);
-  border-color: var(--c-accent-text);
-}
-/* ⋯ Chart Options button — sits just left of the ? help (two icons, upper-right). */
+/* ── Chart ⋯ and ⓘ + their overlays ────────────────────────── */
+/* The chart's ⋯ (its menu) and ⓘ (the help), upper-right: icon buttons (.btn-icon), as Swift's. */
+.chart-help,
 .chart-menu-btn {
   position: absolute;
-  top: 6px;
-  right: 32px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 1px solid var(--c-separator);
-  background: var(--c-chart-readout-background);
-  color: var(--c-text-secondary);
-  font-size: 0.85rem;
-  line-height: 1;
-  cursor: pointer;
+  top: 3px;
   z-index: 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
 }
-.chart-menu-btn:hover {
-  color: var(--c-text-primary);
-  border-color: var(--c-accent-text);
+.chart-help {
+  right: 5px;
+}
+.chart-menu-btn {
+  right: 29px;
+}
+.chart-help svg,
+.chart-menu-btn svg {
+  width: 16px;
+  height: 16px;
 }
 .chart-overlay-backdrop {
   position: fixed;
@@ -1650,18 +1628,6 @@
   min-width: 168px;
   box-shadow: 0 6px 24px var(--c-scrim);
 }
-.chart-ctx .ctx-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  padding: 0.25rem 0.5rem 0.35rem;
-}
-.chart-ctx .ctx-header {
-  font-size: 0.72rem;
-  color: var(--c-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.3rem 0.5rem 0.15rem;
-}
 .chart-ctx button {
   display: block;
   width: 100%;
@@ -1672,7 +1638,6 @@
   font-size: 0.85rem;
   padding: 0.3rem 0.5rem;
   border-radius: 5px;
-  cursor: pointer;
 }
 .chart-ctx button:hover {
   background: var(--c-accent);
@@ -1680,13 +1645,12 @@
 }
 .chart-ctx button:disabled {
   opacity: var(--o-control-dimmed);
-  cursor: default;
 }
 .chart-ctx button:disabled:hover {
   background: none;
   color: var(--c-text-primary);
 }
-/* Per-label "Reset Position" — icon before the text (mirrors Swift's Label(systemImage:)). */
+/* An item's icon before its text (mirrors Swift's Label(systemImage:)). */
 .chart-ctx button.ctx-icon-item {
   display: flex;
   align-items: center;
@@ -1920,7 +1884,6 @@
 .star {
   background: none;
   border: none;
-  cursor: pointer;
   font-size: 14px;
   line-height: 1;
   width: 24px;
@@ -1981,15 +1944,10 @@
   font-size: 10px;
   font-weight: 700;
   padding: 0;
-  cursor: pointer;
   max-width: 60%;
 }
 .mode-select.override {
   font-style: italic;
-}
-/* The label as plain text (Measurement Details): not a control. */
-.mode-select.static {
-  cursor: default;
 }
 .mode-select:focus {
   outline: none;
@@ -2447,7 +2405,6 @@
   line-height: 1;
   padding: 0.25rem 0.5rem;
   border-radius: 8px;
-  cursor: pointer;
 }
 .meas-menu-btn:hover {
   border-color: var(--c-separator);
@@ -2474,7 +2431,6 @@
   font: inherit;
   padding: 0.45rem 0.6rem;
   border-radius: 6px;
-  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 0.55rem;
@@ -2491,13 +2447,6 @@
 }
 .meas-menu button:hover {
   background: var(--c-accent);
-  color: var(--c-text-on-color);
-}
-.meas-menu button.danger {
-  color: var(--c-status-error);
-}
-.meas-menu button.danger:hover {
-  background: var(--c-status-error);
   color: var(--c-text-on-color);
 }
 .meas-menu-sep {
