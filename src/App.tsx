@@ -1150,7 +1150,7 @@ export default function App() {
                 : snapshot.resultProvenance ? (snapshot.resultProvenance.microphoneName ?? 'unknown') : deviceLabel}
             </span>
             <button
-              className="btn mini icon"
+              className="btn mini icon tint tint-secondary"
               onClick={reanalyze}
               disabled={!snapshot.canReanalyze}
               title={
@@ -1177,7 +1177,7 @@ export default function App() {
             {!material && resultsListPeaks.length > 0 && !showMultiTap && (
               <div className="sel-buttons">
                 <button
-                  className="btn mini icon"
+                  className="btn mini icon tint tint-secondary"
                   onClick={selectNone}
                   disabled={material || displayPeaks.every((p) => !selectedIds.has(p.id))}
                   title={material ? 'Peak selection is fixed during plate/brace measurements' : 'Deselect all peaks'}
@@ -1187,7 +1187,7 @@ export default function App() {
                 </button>
                 {!material && (
                   <button
-                    className="btn mini icon"
+                    className="btn mini icon tint tint-secondary"
                     onClick={resetSelection}
                     disabled={!userModified}
                     title="Reset to automatic mode selection"

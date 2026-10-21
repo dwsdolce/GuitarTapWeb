@@ -207,41 +207,58 @@
   gap: 0.5rem;
   margin: 0.5rem 0 0.75rem;
 }
+/* @parity view/button-style tests=test/button-style — .btn, .btn.tint, .btn-primary, .btn.mini.icon */
+/* The plain button — an action with no particular meaning: text.primary on background.control, a separator
+   border, an accent wash at button.plainHover under the pointer. Shape: --btn-radius, --btn-pad-y / -x. */
 .btn {
   appearance: none;
   border: 1px solid var(--c-separator);
   background: var(--c-background-control);
   color: var(--c-text-primary);
-  padding: 0.32rem 0.7rem;
-  border-radius: 8px;
+  padding: var(--btn-pad-y) var(--btn-pad-x);
+  border-radius: var(--btn-radius);
   font-size: 0.82rem;
   cursor: pointer;
   white-space: nowrap;
 }
-.btn:hover:not(:disabled) {
-  border-color: var(--c-accent-text);
+@media (hover: hover) {
+  .btn:not(.tint):not(.btn-primary):hover:not(:disabled) {
+    background: linear-gradient(color-mix(in srgb, var(--c-accent) calc(var(--o-button-plain-hover) * 100%), transparent),
+      color-mix(in srgb, var(--c-accent) calc(var(--o-button-plain-hover) * 100%), transparent)), var(--c-background-control);
+  }
 }
 .btn:disabled {
   opacity: var(--o-control-dimmed);
   cursor: default;
 }
-/* Swift's .buttonStyle(.borderedProminent): the accent as the fill, text.onColor as the text. */
+/* The prominent button — the main action of a sheet: filled with the accent, text.onColor as the text, the fill
+   at button.prominentHover under the pointer. One that cannot act is drawn as a plain button, dimmed. */
 .btn-primary {
   background: var(--c-accent);
   border-color: var(--c-accent);
   color: var(--c-text-on-color);
   font-weight: 600;
+  padding: var(--btn-prominent-pad-y) var(--btn-prominent-pad-x);
 }
-/* A bordered button tinted by a role — Swift's .buttonStyle(.bordered) with .tint(role): the role as
-   the text and the button.tintFill opacity of it as the fill, no outline; a tint-* class names the role. */
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--c-accent) calc(var(--o-button-prominent-hover) * 100%), transparent);
+  }
+}
+.btn-primary:disabled {
+  background: var(--c-background-control);
+  border-color: var(--c-separator);
+  color: var(--c-text-primary);
+}
+/* The tinted button — a role names its colour: the role as the text, the role at button.tintFill as the fill,
+   no outline; a tint-* class names the role. Pressed, hover and on lift the fill. */
 .btn.tint {
   color: var(--tint);
   background: color-mix(in srgb, var(--tint) calc(var(--o-button-tint-fill) * 100%), transparent);
   border-color: transparent;
 }
-/* Hover only where there is a pointer — a touch screen has none (as iPad: pointer, not touch). */
-.btn.tint:hover:not(:disabled) {
-  border-color: transparent; /* never the plain button's hover outline */
+.btn.tint:active:not(:disabled) {
+  background: color-mix(in srgb, var(--tint) calc(var(--o-button-tint-pressed) * 100%), transparent);
 }
 .btn.tint.on {
   background: color-mix(in srgb, var(--tint) calc(var(--o-button-tint-on) * 100%), transparent);
@@ -257,6 +274,9 @@
 }
 .tint-accent {
   --tint: var(--c-accent);
+}
+.tint-secondary {
+  --tint: var(--c-text-secondary);
 }
 .tint-complete {
   --tint: var(--c-status-complete);
@@ -1757,20 +1777,9 @@
   display: flex;
   gap: 0.4rem;
 }
-/* Swift's export buttons: .tintedBordered with no tint at .controlSize(.small) — the plain bordered button,
-   macOS's control fill (background.picker, black / white at 8 %) with no outline, the text colour, 11 pt text;
-   a pointer adds the style's 10 % accent wash. */
+/* The export buttons: plain buttons, 11 pt text. */
 .foot-export .btn.mini {
   font-size: 11px;
-  background: var(--c-background-picker);
-  border-color: transparent;
-  color: var(--c-text-primary);
-}
-@media (hover: hover) {
-  .foot-export .btn.mini:hover:not(:disabled) {
-    background: linear-gradient(color-mix(in srgb, var(--c-accent) calc(var(--o-button-plain-hover) * 100%), transparent), color-mix(in srgb, var(--c-accent) calc(var(--o-button-plain-hover) * 100%), transparent)), var(--c-background-picker);
-    border-color: transparent;
-  }
 }
 /* Running/stopped indicator — green ● "Analyzing" while the mic is live, else gray ● "Stopped".
    Mirrors the Swift/Python results-footer status. */
@@ -1893,20 +1902,12 @@
   padding: 0.12rem 0.45rem;
   font-size: 0.75rem;
 }
-/* Icon-only mini buttons (Analysis Results selection controls: All / None / Reset-to-auto).
-   Mirrors Swift's icon-only .controlSize(.mini) buttons, their icons text.secondary. */
-/* Swift's small bordered button: a grey rounded square. */
+/* Icon-only mini buttons (Analysis Results selection controls: All / None / Reset-to-auto): tinted buttons in
+   text.secondary, as Swift's. */
 .btn.mini.icon {
-  color: var(--c-text-secondary);
-  background: var(--c-background-subtle);
-  border-color: transparent;
-  border-radius: 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
 }
 .btn.mini.icon svg {
   width: 14px;

@@ -164,6 +164,15 @@ export const OPACITIES = {
 
 export type Opacity = keyof typeof OPACITIES
 
+/** The shape of a button the app draws: its corner radius, and its padding (vertical, horizontal) in points — a
+ *  prominent button's a little larger. Published as `--btn-radius`, `--btn-pad-y` / `-x` and
+ *  `--btn-prominent-pad-y` / `-x`. Mirrors Swift `Palette.ButtonShape`. */
+export const BUTTON_SHAPE = {
+  cornerRadius: 6,
+  padding: [3, 8],
+  prominentPadding: [4, 10],
+} as const
+
 /** The light and dark values of `role`. */
 export function pair(role: Role): ColorPair {
   return ROLES[role]
@@ -222,6 +231,12 @@ function update(): void {
     root.dataset.theme = resolved
     for (const role of Object.keys(ROLES) as Role[]) root.style?.setProperty(cssVariable(role), color(role))
     for (const name of Object.keys(OPACITIES) as Opacity[]) root.style?.setProperty(cssOpacityVariable(name), String(opacity(name)))
+    const px = (n: number) => `${n}px`
+    root.style?.setProperty('--btn-radius', px(BUTTON_SHAPE.cornerRadius))
+    root.style?.setProperty('--btn-pad-y', px(BUTTON_SHAPE.padding[0]))
+    root.style?.setProperty('--btn-pad-x', px(BUTTON_SHAPE.padding[1]))
+    root.style?.setProperty('--btn-prominent-pad-y', px(BUTTON_SHAPE.prominentPadding[0]))
+    root.style?.setProperty('--btn-prominent-pad-x', px(BUTTON_SHAPE.prominentPadding[1]))
   }
   if (changed) for (const listener of listeners) listener(resolved)
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // check-colours.mjs
 //
-// Refuses to run or build when a colour is written outside the palette. Mirrors the Swift
+// Refuses to run or build when a colour or an opacity is written outside the palette. Mirrors the Swift
 // edition's Tooling/check-colours.sh and the Python edition's src/guitar_tap/_colour_guard.py —
 // same rule.
 //
@@ -9,7 +9,11 @@
 // light and dark value; CSS uses only the --c-… custom properties the palette sets. A hex or
 // numeric rgb() literal, or a named colour, anywhere else in the .ts / .tsx sources or the
 // stylesheets does not follow the Appearance setting and differs from the Swift and Python
-// editions. Comment lines are skipped.
+// editions. The same for an opacity: every opacity the app applies is a named one in the palette (shared in
+// theme.json), which CSS reads as its --o-… custom properties; a number in `opacity:`, a percentage in a
+// color-mix(), or a number given to hexA() or globalAlpha anywhere else is refused — 0 and 1 excepted. The chart
+// style's shared opacities (chart-style.json) in src/presentation/chartStyle.ts are allowed. Comment lines are
+// skipped.
 //
 // Called by the predev / prebuild / prepreview npm scripts, beside check-release-ready.sh.
 
@@ -19,10 +23,12 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const PALETTE = join('src', 'presentation', 'palette.ts')
+const CHART_STYLE = join('src', 'presentation', 'chartStyle.ts')
 const NAMED = 'red|green|blue|gray|grey|orange|yellow|purple|white|black|cyan|magenta|pink|brown'
 const PATTERNS = {
   hex: /#[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{3}(?:[0-9A-Fa-f]{2})?)?\b/,
   rgb: /rgba?\(\s*\d/,
+  opacity: /opacity\s*:\s*0?\.\d*[1-9]|\s\d+(?:\.\d+)?%\s*,\s*transparent|hexA\([^,]+,\s*0?\.\d*[1-9]|globalAlpha\s*=\s*0?\.\d*[1-9]/,
   named: new RegExp(`(?:\\bcolor|background(?:-color)?|border(?:-[a-z]+)?-color|fill|stroke|fillStyle|strokeStyle)\\s*[:=]\\s*['"]?(?:${NAMED})\\b`, 'i'),
 }
 
@@ -42,13 +48,14 @@ for (const path of sourceFiles(join(ROOT, 'src'))) {
     const text = line.trim()
     if (text.startsWith('//') || text.startsWith('*') || text.startsWith('/*')) return
     for (const [kind, pattern] of Object.entries(PATTERNS)) {
+      if (kind === 'opacity' && rel === CHART_STYLE) continue
       if (pattern.test(line)) found.push(`${rel}:${i + 1} [${kind}] ${text}`)
     }
   })
 }
 
 if (found.length) {
-  console.error('BLOCKED — a colour is written outside the palette (src/presentation/palette.ts):')
+  console.error('BLOCKED — a colour or an opacity is written outside the palette (src/presentation/palette.ts):')
   for (const line of found) console.error(`  ${line}`)
   process.exit(1)
 }
