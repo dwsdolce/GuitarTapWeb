@@ -1586,6 +1586,8 @@
   width: 16px;
   height: 2px;
 }
+/* The chart's help, below its ⓘ: "gesture: effect", the effect in text.secondary, groups divided by a line; it
+   scrolls when the chart is too short to show it whole. */
 .chart-help-pop {
   position: absolute;
   top: 30px;
@@ -1595,26 +1597,26 @@
   border: 1px solid var(--c-separator);
   border-radius: 8px;
   padding: 0.6rem 0.75rem;
-  max-width: 320px;
+  max-width: 340px;
+  max-height: calc(100% - 40px);
+  overflow-y: auto;
   box-shadow: 0 6px 24px var(--c-scrim);
 }
 .chart-help-pop h4 {
   margin: 0 0 0.4rem;
   font-size: 0.85rem;
 }
-.ctrl-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  font-size: 0.78rem;
-  padding: 0.12rem 0;
+.help-line {
+  font-size: 0.8rem;
+  padding: 0.1rem 0;
 }
-.ctrl-row b {
-  white-space: nowrap;
-}
-.ctrl-row span {
+.help-line span {
   color: var(--c-text-secondary);
-  text-align: right;
+}
+.help-sep {
+  height: 1px;
+  background: var(--c-separator);
+  margin: 0.3rem 0;
 }
 .chart-ctx {
   /* fixed (not absolute) so it escapes .chart-wrap's overflow:hidden; positioned in viewport
@@ -2282,6 +2284,12 @@
 .meas-row:last-child {
   border-bottom: none;
 }
+/* The row under the pointer on background.subtle, in every edition. */
+@media (hover: hover) {
+  .meas-row:hover {
+    background: var(--c-background-subtle);
+  }
+}
 .meas-total {
   margin: 0;
   padding: 4px 4px 8px;
@@ -2389,26 +2397,16 @@
   position: relative;
   flex-shrink: 0;
 }
-/* The ⋯ shows on hover where there is a pointer, as Swift's and Python's; a touch screen has no hover, so
-   there it stays. */
+/* The row's ⋯, an icon button (.btn-icon): it shows on hover where there is a pointer, as Swift's and Python's,
+   and while its menu is open; a touch screen has no hover, so there it stays. */
 @media (hover: hover) {
   .meas-row:not(:hover) .meas-menu-btn:not([aria-expanded='true']) {
-    color: transparent;
+    visibility: hidden;
   }
 }
-.meas-menu-btn {
-  appearance: none;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--c-text-secondary);
-  font-size: 1.1rem;
-  line-height: 1;
-  padding: 0.25rem 0.5rem;
-  border-radius: 8px;
-}
-.meas-menu-btn:hover {
-  border-color: var(--c-separator);
-  background: var(--c-background-subtle);
+.meas-menu-btn svg {
+  width: 15px;
+  height: 15px;
 }
 .meas-menu {
   /* Positioned via inline `position: fixed` (portaled to <body>); see MeasurementsPanel. */

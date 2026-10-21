@@ -181,14 +181,6 @@ export const PlusViewfinderIcon = () => (
 )
 // Peak Labels (a tag)
 export const TagIcon = () => <Mdi d={MDI.tag} />
-// Chart Options (⋯)
-export const EllipsisIcon = () => (
-  <svg {...ICON_SVG}>
-    <circle cx="5" cy="12" r="1.3" />
-    <circle cx="12" cy="12" r="1.3" />
-    <circle cx="19" cy="12" r="1.3" />
-  </svg>
-)
 // Zoom & Pan (magnifier)
 export const SearchIcon = () => (
   <svg {...ICON_SVG}>

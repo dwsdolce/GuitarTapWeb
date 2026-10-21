@@ -34,7 +34,7 @@ import {
   BookOpenIcon,
   CrosshairIcon,
   TagIcon,
-  EllipsisIcon,
+  MoreCircleIcon,
   SearchIcon,
   GaugeIcon,
   RefreshIcon,
@@ -76,7 +76,7 @@ const ICONS = {
   bookOpen: BookOpenIcon,
   crosshair: CrosshairIcon,
   tag: TagIcon,
-  ellipsis: EllipsisIcon,
+  ellipsis: MoreCircleIcon,
   search: SearchIcon,
   gauge: GaugeIcon,
   refresh: RefreshIcon,
@@ -306,7 +306,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Peak Labels',
-        body: 'Drag any peak label to reposition it and avoid overlaps. To reset an individual label: right-click it and choose "Reset Position". To reset all labels at once: right-click the chart area (not a label) and choose "Reset Labels".',
+        body: 'Drag any peak label to reposition it and avoid overlaps. To reset an individual label: right-click it and choose "Reset Position". To reset all labels at once: choose "Reset Labels" from the chart menu.',
       },
       {
         title: 'Play Audio File',
@@ -350,14 +350,14 @@ export const QUICK_START_SECTIONS: QSSection[] = [
         body: 'Move the pointer over the chart and a crosshair follows it, reading out the frequency and magnitude under the cursor. On a frozen spectrum it snaps to the nearest FFT bin; when comparing measurements or viewing material overlays it locks onto the nearest curve and takes that curve’s colour. With a mouse, trackpad, or pen the crosshair is always live and pressing-and-dragging pans. On a touchscreen, a Crosshair button appears on the toolbar (between Auto dB and Annotations) that switches a one-finger drag between moving the crosshair and panning.',
       },
       {
-        title: 'Chart Options',
+        title: 'Chart Menu',
         icon: 'ellipsis',
-        body: 'The ellipsis (⋯) button in the top-right corner of the spectrum opens the Chart Options menu. From here you can reset either or both axes to the values you last saved in Settings ("Reset to Saved"), or restore the factory defaults ("Reset to Defaults"). If peak labels have been dragged from their auto-positions, "Reset Labels" moves them back. Right-clicking the chart opens the same menu.',
+        body: 'The ⋯ button in the top-right corner of the spectrum opens the chart menu; right-clicking the chart opens the same menu. It resets either or both axes to the values you last saved in Settings ("Reset … to Saved") or to the factory defaults ("Reset … to Defaults"). If peak labels have been dragged from their auto-positions, "Reset Labels" moves them back.',
       },
       {
         title: 'Zoom & Pan Help',
         icon: 'info',
-        body: "The info (ⓘ) button in the top-right corner of the spectrum shows a full reference card for navigating the chart. Scroll wheel and drag gestures are context-sensitive: position the pointer over the plot to operate on both axes, over the frequency axis (bottom) to operate on frequency only, or over the magnitude axis (left) to operate on magnitude only. Modifier-key shortcuts are also available: Shift+Scroll — pan frequency; Alt+Scroll — pan magnitude; Cmd/Ctrl+Scroll — zoom both axes. Right-click the chart area to reset axes and labels; right-click a label to reset just that label's position.",
+        body: "The info (ⓘ) button in the top-right corner of the spectrum lists the ways to zoom and pan that work on the device in use. Scroll and drag act by where the pointer is: over the plot on both axes, over the frequency axis (bottom) on frequency only, or over the magnitude axis (left) on magnitude only; a pinch — on a touch screen, or a trackpad — acts the same way by where it starts. Modifier keys: Shift+Scroll — pan frequency; Alt+Scroll — pan magnitude; Cmd/Ctrl+Scroll — zoom both axes. Right-click the chart for the chart menu; right-click a label to reset just that label's position.",
       },
     ],
   },
@@ -452,7 +452,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Zooming the Spectrum',
         icon: 'info',
-        body: 'Scroll over the chart to zoom — the axis depends on where the pointer is: over the plot area it zooms both axes; over the frequency axis (bottom) it zooms frequency only; over the magnitude axis (left) it zooms magnitude only. Drag to pan the same way. Modifier keys: Shift+Scroll — pan frequency; Alt+Scroll — pan magnitude; Cmd/Ctrl+Scroll — zoom both axes. To reset the axes, click the ⋯ Chart Options button (top-right) or right-click anywhere inside the chart.',
+        body: 'Scroll over the chart to zoom — the axis depends on where the pointer is: over the plot area it zooms both axes; over the frequency axis (bottom) it zooms frequency only; over the magnitude axis (left) it zooms magnitude only. Drag to pan, and pinch to zoom, the same way. Modifier keys: Shift+Scroll — pan frequency; Alt+Scroll — pan magnitude; Cmd/Ctrl+Scroll — zoom both axes. To reset the axes, click the ⋯ button in the top-right corner of the spectrum, or right-click inside the chart, and choose a reset.',
       },
     ],
   },

@@ -13,7 +13,7 @@ import { exportFailureMessage, exportSpectrumPng } from '../presentation/spectru
 import { measurementToImageOpts, reportForMeasurement } from '../presentation/measurementImage'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
-import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon } from './icons'
+import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon, MoreCircleIcon } from './icons'
 import { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 
 export interface MeasurementsPanelProps {
@@ -476,10 +476,11 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
                       {!comparing && (
                         <div className="meas-menu-wrap">
                           <button
-                            className="meas-menu-btn"
+                            className="meas-menu-btn btn-icon"
                             aria-label="Actions"
                             title="Actions"
                             aria-haspopup="menu"
+                            aria-expanded={menuId === keyOf(m)}
                             onClick={(e) => {
                               if (menuId === keyOf(m)) {
                                 setMenuId(null)
@@ -489,7 +490,7 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
                               }
                             }}
                           >
-                            ⋯
+                            <MoreCircleIcon />
                           </button>
                         </div>
                       )}

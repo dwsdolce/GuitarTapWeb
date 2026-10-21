@@ -17,6 +17,7 @@ import {
 import { BackupRestoreIcon, InfoIcon, MoreCircleIcon, UndoArrowIcon, UndoIcon } from './icons'
 import type { Uuid } from '../measurement/newId'
 import { CHART_MENU_GROUPS, LABEL_MENU, axisReset } from '../presentation/chartMenu'
+import { CHART_HELP_TITLE, currentHelpDevice, shownHelp } from '../presentation/chartHelp'
 
 /** A menu item's icon, by its Material Design name (chartMenu's `mdi`). */
 function MenuIcon({ mdi }: { mdi: string }) {
@@ -80,21 +81,6 @@ type Region = 'plot' | 'xAxis' | 'yAxis' | 'outside'
 /** The cursor over each region of the chart — Swift's NSCursor for it. */
 const REGION_CURSOR: Record<Region, string> = { plot: 'crosshair', xAxis: 'ew-resize', yAxis: 'ns-resize', outside: '' }
 
-// Help popover text — mirrors SpectrumView's "Zoom & Pan Controls".
-const CONTROLS: [string, string][] = [
-  ['Scroll over plot', 'Zoom both axes around cursor'],
-  ['Scroll over frequency axis', 'Zoom frequency only'],
-  ['Scroll over magnitude axis', 'Zoom magnitude only'],
-  ['Shift + Scroll', 'Pan frequency axis'],
-  ['Alt / Option + Scroll', 'Pan magnitude axis'],
-  ['Cmd / Ctrl + Scroll', 'Zoom both axes (trackpad pinch)'],
-  ['Drag over plot', 'Pan both axes'],
-  ['Drag over frequency axis', 'Pan frequency only'],
-  ['Drag over magnitude axis', 'Pan magnitude only'],
-  ['Pinch (touch)', 'Zoom — both axes, or by region'],
-  ['Drag (touch)', 'Pan — both axes, or by region'],
-  ['⋯ menu / right-click', 'Reset axes (Chart Options)'],
-]
 
 /**
  * The interactive FFT spectrum chart — mirrors Swift `SpectrumView` / Python `FftCanvas`.
@@ -254,6 +240,27 @@ export function SpectrumChart({
       return { minDb, maxDb }
     }
 
+    // A zoom step by region, as Swift's pinch: over the plot both axes, over an axis that axis alone, about the point
+    // under (px, py); nothing outside the axes.
+    const zoomByRegion = (px: number, py: number, rect: DOMRect, scale: number) => {
+      const v = viewRef.current
+      const { aHz, aDb } = dataAt(px, py, rect, v)
+      const region = regionAt(px, py, rect)
+      if (region === 'plot') emit({ ...v, ...zoomFreq(v, aHz, scale), ...zoomDb(v, aDb, scale) })
+      else if (region === 'xAxis') emit({ ...v, ...zoomFreq(v, aHz, scale) })
+      else if (region === 'yAxis') emit({ ...v, ...zoomDb(v, aDb, scale) })
+    }
+
+    // Whether the Control key is held. Chrome and Firefox send a trackpad's pinch as a wheel event with ctrlKey set
+    // and no Control key down: that is a pinch, zoomed by region; a real Ctrl + Scroll zooms both axes.
+    let ctrlHeld = false
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Control') ctrlHeld = e.type === 'keydown'
+    }
+    const onBlur = () => {
+      ctrlHeld = false
+    }
+
     const onWheel = (e: WheelEvent) => {
       if (!onViewChangeRef.current) return
       e.preventDefault()
@@ -265,6 +272,12 @@ export function SpectrumChart({
       const ctrl = e.ctrlKey
       const shift = e.shiftKey
       const opt = e.altKey
+
+      if (ctrl && !ctrlHeld && !cmd && !shift && !opt) {
+        // A trackpad pinch (Chrome, Firefox): by region, where it is.
+        zoomByRegion(px, py, rect, Math.min(1.5, Math.max(0.67, Math.exp(-e.deltaY * 0.01))))
+        return
+      }
 
       if (shift && !cmd && !ctrl && !opt) {
         const scroll = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
@@ -472,7 +485,28 @@ export function SpectrumChart({
       }
     }
 
+    // Safari's trackpad pinch: its own gesture events, the scale cumulative from the gesture's start. A two-finger
+    // pinch on a touch screen also sends them; that one is the pointers' (above), so it is left alone here.
+    let gestureScale = 1
+    const onGestureStart = (e: Event) => {
+      e.preventDefault()
+      gestureScale = 1
+    }
+    const onGestureChange = (e: Event) => {
+      e.preventDefault()
+      const g = e as Event & { scale: number; clientX: number; clientY: number }
+      if (pointers.size >= 2 || !onViewChangeRef.current) return
+      const rect = canvas.getBoundingClientRect()
+      zoomByRegion(g.clientX - rect.left, g.clientY - rect.top, rect, g.scale / gestureScale)
+      gestureScale = g.scale
+    }
+
     const onLeave = () => setHover(null) // pointer left the chart — hide the crosshair
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKey)
+    window.addEventListener('blur', onBlur)
+    canvas.addEventListener('gesturestart', onGestureStart)
+    canvas.addEventListener('gesturechange', onGestureChange)
     canvas.addEventListener('wheel', onWheel, { passive: false })
     canvas.addEventListener('pointerdown', onDown)
     canvas.addEventListener('pointermove', onMove)
@@ -480,6 +514,11 @@ export function SpectrumChart({
     canvas.addEventListener('pointercancel', onUp)
     canvas.addEventListener('pointerleave', onLeave)
     return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onKey)
+      window.removeEventListener('blur', onBlur)
+      canvas.removeEventListener('gesturestart', onGestureStart)
+      canvas.removeEventListener('gesturechange', onGestureChange)
       canvas.removeEventListener('wheel', onWheel)
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
@@ -569,13 +608,20 @@ export function SpectrumChart({
       {showHelp && (
         <>
           <div className="chart-overlay-backdrop" onClick={closeOverlays} />
+          {/* The lines that work on the device in use (chartHelp), below the ⓘ; it scrolls when the chart is too
+              short to show it whole. Mirrors Swift's ChartHelpView. */}
           <div className="chart-help-pop">
-            <h4>Zoom &amp; Pan Controls</h4>
-            {CONTROLS.map(([k, d]) => (
-              <div key={k} className="ctrl-row">
-                <b>{k}</b>
-                <span>{d}</span>
-              </div>
+            <h4>{CHART_HELP_TITLE}</h4>
+            {shownHelp(currentHelpDevice()).map((group, i) => (
+              <Fragment key={i}>
+                {i > 0 && <div className="help-sep" />}
+                {group.map(([gesture, effect]) => (
+                  <div key={gesture} className="help-line">
+                    {gesture}
+                    <span>: {effect}</span>
+                  </div>
+                ))}
+              </Fragment>
             ))}
           </div>
         </>
