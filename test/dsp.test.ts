@@ -119,8 +119,8 @@ describe('dsp — shared cases', () => {
         case 'performFFT':
           engine.sampleRate = 48000
           engine.performFFT(samples)
-          expect(close(engine.peakFrequency, e.peakFrequency), `peakFrequency ${engine.peakFrequency}`).toBe(true)
-          expect(close(engine.peakMagnitude, e.peakMagnitude), `peakMagnitude ${engine.peakMagnitude}`).toBe(true)
+          expect(close(engine.frame.peakFrequency, e.peakFrequency), `peakFrequency ${engine.frame.peakFrequency}`).toBe(true)
+          expect(close(engine.frame.peakMagnitude, e.peakMagnitude), `peakMagnitude ${engine.frame.peakMagnitude}`).toBe(true)
           break
         case 'processRawSamples':
           engine.processRawSamples(samples)

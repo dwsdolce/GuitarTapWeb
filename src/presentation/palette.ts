@@ -237,6 +237,8 @@ function update(): void {
     root.style?.setProperty('--btn-pad-x', px(BUTTON_SHAPE.padding[1]))
     root.style?.setProperty('--btn-prominent-pad-y', px(BUTTON_SHAPE.prominentPadding[0]))
     root.style?.setProperty('--btn-prominent-pad-x', px(BUTTON_SHAPE.prominentPadding[1]))
+    // The browser's own bars (the tab strip, an installed app's title bar) in the window's background.
+    document.querySelector?.('meta[name="theme-color"]')?.setAttribute('content', color('background.window'))
   }
   if (changed) for (const listener of listeners) listener(resolved)
 }

@@ -2003,8 +2003,12 @@ export class TapToneAnalyzer {
         // analyzer does the rest: pre-roll, detection, gated capture, the tap count, the status
         // strings and the L→C→FLC phase machine. That is Swift's split.
         device.onAudioFrame((samples, levelDb, audioTime) => this.processAudioFrame(samples, levelDb, audioTime)),
-        // Each live spectrum: the live peaks while a sequence runs (Swift onFftFrame → analyzeMagnitudes).
-        device.onSpectrum((spectrum) => this.onFftFrame(spectrum.magnitudesDb, spectrum.frequencies)),
+        // Each live frame: the live peaks while a sequence runs (Swift's sink on fftAnalyzer.frame →
+        // onFftFrame → analyzeMagnitudes).
+        device.frame.onFrame(() => {
+          const spectrum = device.frame.spectrum
+          if (spectrum) this.onFftFrame(spectrum.magnitudesDb, spectrum.frequencies)
+        }),
         // Input clipping → the status override (Swift `fftAnalyzer.level.$isClipping` sink /
         // Python `level.clippingChanged` → `_set_clipping`).
         device.level.onClipping((c) => this.setClipping(c)),

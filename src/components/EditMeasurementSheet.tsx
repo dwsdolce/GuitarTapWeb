@@ -50,8 +50,9 @@ export function EditMeasurementSheet({ measurement, onSave, onClose }: EditMeasu
           <h2>Edit Measurement</h2>
         </div>
         <div className="settings-body">
-          <label className="set-field">
-            <span>Measurement Name</span>
+          {/* Swift's EditMeasurementView, as the Save sheet: a bold title above each field, the notes hint under its box. */}
+          <label className="form-field">
+            <span className="form-label">Measurement Name</span>
             <input
               type="text"
               value={name}
@@ -61,14 +62,10 @@ export function EditMeasurementSheet({ measurement, onSave, onClose }: EditMeasu
               onKeyDown={(e) => e.key === 'Enter' && save()}
             />
           </label>
-          <label className="set-field col">
-            <span>Notes (Optional)</span>
-            <textarea
-              rows={4}
-              value={notes}
-              placeholder="Add any observations about this measurement"
-              onChange={(e) => setNotes(e.target.value)}
-            />
+          <label className="form-field">
+            <span className="form-label">Notes (Optional)</span>
+            <textarea rows={5} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <span className="form-caption">Add any observations about this measurement</span>
           </label>
         </div>
         <div className="settings-modal-foot">

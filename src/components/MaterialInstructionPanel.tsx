@@ -58,9 +58,9 @@ const PHASE_GLYPH: Record<IconKind, string> = {
   rotate: MDI.rotate3d,
 }
 
-function PhaseIcon({ kind, color }: { kind: IconKind; color: string }) {
+function PhaseIcon({ kind }: { kind: IconKind }) {
   return (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill={color} aria-hidden="true">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d={PHASE_GLYPH[kind]} />
     </svg>
   )
@@ -163,7 +163,7 @@ export function MaterialInstructionPanel({
       <div className="mat-instr-divider" />
       <div className="mat-instr-body">
         <span className="mat-instr-icon" style={{ color }}>
-          <PhaseIcon kind={PHASE_ICON[phase]} color={color} />
+          <PhaseIcon kind={PHASE_ICON[phase]} />
         </span>
         <div className="mat-instr-text">
           <div className="mat-instr-title">{phaseTitle(phase)}</div>

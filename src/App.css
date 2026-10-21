@@ -440,13 +440,9 @@
   font-size: 10px;
   margin: 0;
 }
-.material-results .set-input input,
-.material-results .set-input select {
+.material-results .set-input input {
   font-size: 10px;
   width: 70px;
-}
-.material-results .set-input select {
-  width: auto;
 }
 .material-results .set-input em {
   font-size: 10px;
@@ -839,7 +835,7 @@
 }
 .field input[type='range'] {
   width: 130px;
-  accent-color: var(--c-accent-text);
+  accent-color: var(--c-accent);
 }
 .field .val {
   font-variant-numeric: tabular-nums;
@@ -1456,18 +1452,18 @@
 
 /* Material (plate/brace) instruction panel below the chart — mirrors Swift
    materialInstructionsView / Python material instruction panel. */
+/* Swift's GroupBox in palette roles: background.subtle, corner radius 8, the title in text.primary. */
 .mat-instr {
   color: var(--c-text-primary);
   flex: 0 0 auto;
-  border: 1px solid var(--c-separator);
-  border-radius: 10px;
-  background: var(--c-background-panel);
+  border-radius: 8px;
+  background: var(--c-background-subtle);
   padding: 10px 12px;
 }
 .mat-instr-head {
   font-size: 12px;
   font-weight: 600;
-  color: var(--c-text-secondary);
+  color: var(--c-text-primary);
   margin-bottom: 6px;
 }
 .mat-instr-phase {
@@ -1519,16 +1515,6 @@
   font-size: 12px;
   color: var(--c-text-secondary);
   line-height: 1.4;
-}
-.chart-title {
-  position: absolute;
-  top: 6px;
-  left: 10px;
-  z-index: 2;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--c-text-secondary);
-  pointer-events: none;
 }
 .spectrum-canvas {
   position: absolute;
@@ -2246,21 +2232,6 @@
 .save-modal {
   max-width: 460px;
 }
-.set-field.col {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.35rem;
-}
-.set-field textarea {
-  width: 100%;
-  resize: vertical;
-  font: inherit;
-  background: var(--c-background-control);
-  color: var(--c-text-primary);
-  border: 1px solid var(--c-separator);
-  border-radius: 8px;
-  padding: 0.4rem 0.55rem;
-}
 /* A sheet's fields, as Swift's Save and Play sheets: a bold title (.headline) above each, full width, and a
    caption hint under it. */
 .form-field {
@@ -2306,6 +2277,14 @@
 }
 .form-file-name.none {
   color: var(--c-text-secondary);
+}
+/* Measurement Details: the window in background.window, its title bar and footer in background.panel, as Swift's. */
+.detail-modal {
+  background: var(--c-background-window);
+}
+.detail-modal .settings-modal-head,
+.detail-modal .settings-modal-foot {
+  background: var(--c-background-panel);
 }
 .measurements-modal {
   max-width: 560px;

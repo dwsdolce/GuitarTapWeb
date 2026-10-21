@@ -35,8 +35,7 @@ describe('input level — a buffer is announced on the input level alone', () =>
     const engine = new RealtimeFFTAnalyzer()
     analyzer.setDevice(engine) // the analyzer takes each chunk
     // Every other event the engine announces, recorded by name.
-    engine.onSpectrum(() => engineCalls.push('spectrum'))
-    engine.onMetrics(() => engineCalls.push('metrics'))
+    engine.frame.onFrame(() => engineCalls.push('frame'))
     engine.onDeviceStateChanged(() => engineCalls.push('deviceState'))
     engine.onInputChanged(() => engineCalls.push('inputChanged'))
     engine.onInputOpenFailed(() => engineCalls.push('inputOpenFailed'))

@@ -8,6 +8,7 @@ import { DEFAULT_SETTINGS, defaultMinFrequency, defaultMaxFrequency, setMagnitud
 import { widenedOnto, onSettingsDone, onNewMeasurement, loadedAfterWidening } from '../presentation/displayRange'
 import type { ResonantPeak } from '../measurement/types'
 import type { Spectrum } from '../dsp/guitarFFT'
+import type { LiveFrame } from '../audio/liveFrame'
 
 interface UseChartViewArgs {
   /** Configured (saved) display range — chart-type aware (material clamps differently). */
@@ -21,8 +22,12 @@ interface UseChartViewArgs {
    *  default (mirrors Swift `loadedAxisRange`). Set on load, cleared on a new measurement;
    *  never persisted, and never the target of reset-to-saved. */
   loadedView: ChartView | null
-  /** The spectrum Auto-dB fits to (live/captured/material). */
-  displaySpectrum: Spectrum | null
+  /** The spectrum Auto-dB fits to when it is not the live one: the captured or the material spectrum. */
+  heldSpectrum: Spectrum | null
+  /** Whether Auto-dB follows the live frame while nothing is held (guitar; a plate or brace never does). */
+  followsLive: boolean
+  /** The engine's live frame. Auto-dB observes it itself, as Swift's `onReceive(fft.frame.$magnitudes)`. */
+  frame: LiveFrame
   updateSettings: (patch: Partial<Settings>) => void
   /** Persist the display freq range for a measurement type (each bound per type). */
   updateDisplayRange: (type: MeasurementType, range: { minHz?: number; maxHz?: number }) => void
@@ -54,7 +59,9 @@ export function useChartView({
   maxDb,
   measurementType,
   loadedView,
-  displaySpectrum,
+  heldSpectrum,
+  followsLive,
+  frame,
   updateSettings,
   updateDisplayRange,
   longitudinalPeak,
@@ -167,8 +174,9 @@ export function useChartView({
   // ── Auto-dB (autoScaleDB): fit the dB axis to the displayed spectrum ───────
   // Mirrors Swift toggleAutoScale: enabling fits now and on every update; disabling
   // resets the dB axis to the configured (saved) range. Session-only (not persisted).
+  // The view changes only when the fit does, so a frame with the same fit re-renders nothing.
   const autoScaleDb = useCallback(() => {
-    const sp = displaySpectrum
+    const sp = heldSpectrum ?? (followsLive ? frame.spectrum : null)
     if (!sp) return
     let lo = Infinity
     let hi = -Infinity
@@ -187,8 +195,8 @@ export function useChartView({
       newMin = center - 10
       newMax = center + 10
     }
-    setView((v) => ({ ...v, minDb: newMin, maxDb: newMax }))
-  }, [displaySpectrum])
+    setView((v) => (v.minDb === newMin && v.maxDb === newMax ? v : { ...v, minDb: newMin, maxDb: newMax }))
+  }, [heldSpectrum, followsLive, frame])
 
   const toggleAutoDb = useCallback(() => {
     setAutoDb((on) => {
@@ -199,10 +207,15 @@ export function useChartView({
     })
   }, [autoScaleDb, minDb, maxDb])
 
-  // Re-fit on every new spectrum while enabled (Swift "scale on each update").
+  // Re-fit on every new spectrum while enabled (Swift "scale on each update"): the held one when it
+  // changes, and each live frame while none is held.
   useEffect(() => {
     if (autoDb) autoScaleDb()
-  }, [autoDb, displaySpectrum, autoScaleDb])
+  }, [autoDb, heldSpectrum, autoScaleDb])
+  useEffect(() => {
+    if (!autoDb || heldSpectrum || !followsLive) return
+    return frame.onFrame(autoScaleDb)
+  }, [autoDb, heldSpectrum, followsLive, frame, autoScaleDb])
 
   return { view, setView, saveCurrentView, resetView, autoDb, toggleAutoDb }
 }

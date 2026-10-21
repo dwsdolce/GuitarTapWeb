@@ -63,9 +63,8 @@ export function SaveSheet({ defaultName = '', defaultNotes = '', onSave, onClose
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          {/* Save commits — the accent while it can save, a plain button while it cannot (Swift's
-              disabled .confirmationAction), not a faded accent. */}
-          <button className={`btn${canSave ? ' btn-primary' : ''}`} onClick={save} disabled={!canSave}>
+          {/* Save commits: prominent; while it cannot save it is drawn as a plain button, dimmed. */}
+          <button className="btn btn-primary" onClick={save} disabled={!canSave}>
             Save
           </button>
         </div>

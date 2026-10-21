@@ -12,6 +12,8 @@ import { ThresholdMeter } from './components/ThresholdMeter'
 import { PeakCard } from './components/PeakCard'
 import { SettingsPanel } from './components/SettingsPanel'
 import { MetricsPanel, type Metrics } from './components/MetricsPanel'
+import { FrameReader } from './components/FrameReader'
+import type { LiveFrame } from './audio/liveFrame'
 import { SaveSheet } from './components/SaveSheet'
 import { PlayFileSheet } from './components/PlayFileSheet'
 import { QuickStartGuide } from './components/QuickStartGuide'
@@ -276,7 +278,7 @@ export default function App() {
   const {
     running,
     inputLevel,
-    liveSpectrum,
+    frame,
     sampleRate,
     deviceLabel,
     error,
@@ -287,7 +289,6 @@ export default function App() {
     currentDeviceId,
     calibrations,
     activeCalId,
-    engineMetrics,
     pauseTap,
     resumeTap,
     onSelectDevice,
@@ -473,11 +474,11 @@ export default function App() {
   const avgModes = useMemo<DefinitiveModeInfo>(() => analyzer.definitiveModeInfo(), [analyzer, snapshot])
 
   const binHz = sampleRate ? sampleRate / GUITAR_FFT_SIZE : null
-  // For auto-dB / metrics, use the primary material spectrum; the chart itself draws all
-  // per-phase curves via `matOverlays`.
-  const displaySpectrum = material
-    ? (matSpectra.longitudinal ?? matSpectra.cross ?? matSpectra.flc)
-    : (captured ?? liveSpectrum)
+  // The spectrum Auto-dB fits to when it is not the live frame: the primary material spectrum (the chart
+  // itself draws all per-phase curves via `matOverlays`), or the captured one.
+  const heldSpectrum = material
+    ? (matSpectra.longitudinal ?? matSpectra.cross ?? matSpectra.flc ?? null)
+    : captured
   const matOverlays = useMemo<SpectrumOverlay[]>(() => {
     if (!material) return []
     const out: SpectrumOverlay[] = []
@@ -502,7 +503,9 @@ export default function App() {
     maxDb,
     measurementType: settings.measurementType,
     loadedView,
-    displaySpectrum,
+    heldSpectrum,
+    followsLive: !material,
+    frame,
     updateSettings,
     updateDisplayRange,
     longitudinalPeak: snapshot.selectedLongitudinalPeak,
@@ -560,14 +563,15 @@ export default function App() {
   }, [analyzer])
 
   // ── Metrics panel inputs (FFTAnalysisMetricsView) ─────────────────────────
-  const metrics = useMemo<Metrics>(() => {
-    // The Peak readout (status bar + Metrics panel) is LIVE telemetry — the current frame's loudest
-    // bin, owned by the FFT engine and published with the frame's metrics, as Swift's
-    // `fft.peakFrequency`/`peakMagnitude` and Python's `mic.peak_frequency`/`peak_magnitude` are
-    // (independent of what's displayed/frozen). A silent input reads -∞ dB @ 0.0 Hz.
-    const sp = liveSpectrum
-    const peakFrequency: number | null = engineMetrics?.peakFrequency ?? null
-    const peakMagnitude: number | null = engineMetrics?.peakMagnitude ?? null
+  // Built from the live frame, inside the FrameReader that draws the panel. The Peak readout (status bar +
+  // Metrics panel) is LIVE telemetry — the current frame's loudest bin, as Swift's
+  // `frame.peakFrequency`/`peakMagnitude` and Python's `frame.peak_frequency`/`peak_magnitude` are
+  // (independent of what's displayed/frozen). A silent input reads -∞ dB @ 0.0 Hz; before the first frame
+  // the frame values are null.
+  const metricsFor = useCallback((f: LiveFrame): Metrics => {
+    const sp = f.spectrum
+    const peakFrequency: number | null = sp ? f.peakFrequency : null
+    const peakMagnitude: number | null = sp ? f.peakMagnitude : null
     return {
       frequencyResolution: binHz,
       // Bin Count is Analysis *Configuration*, not a property of a capture: it is the live/continuous
@@ -577,14 +581,14 @@ export default function App() {
       sampleRate,
       bandwidth: sampleRate ? sampleRate / 2 : null,
       sampleLengthSeconds: sampleRate ? GUITAR_FFT_SIZE / sampleRate : null,
-      frameRate: engineMetrics?.frameRate ?? (sampleRate ? sampleRate / GUITAR_FFT_SIZE : null),
-      processingTimeMs: engineMetrics?.processingMs ?? null,
-      avgProcessingTimeMs: engineMetrics?.avgProcessingMs ?? null,
+      frameRate: sampleRate ? sampleRate / GUITAR_FFT_SIZE : null,
+      processingTimeMs: sp ? f.processingMs : null,
+      avgProcessingTimeMs: sp ? f.avgProcessingMs : null,
       peakFrequency,
       peakMagnitude,
       isRunning: running,
     }
-  }, [liveSpectrum, binHz, sampleRate, engineMetrics, running])
+  }, [binHz, sampleRate, running])
 
   // Status-bar progress + frozen indicators (mirror Swift "Phase X/Y · Tap N/M" / "⏸ Complete").
   // Mirrors Swift Controls:404-423: the label and the progress BAR share ONE gate — detecting AND
@@ -753,7 +757,7 @@ export default function App() {
     const stamp = sourceTimestamp ?? new Date().toISOString()
     const opts: SpectrumImageOpts = {
       title: `FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`,
-      spectrum: inComparison || material ? null : displaySpectrum,
+      spectrum: inComparison || material ? null : (captured ?? frame.spectrum),
       overlays: inComparison ? comparisonOverlays : material ? matOverlays : undefined,
       markers: inComparison ? [] : exportMarkers,
       view,
@@ -773,7 +777,7 @@ export default function App() {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [comparison, material, inComparison, displaySpectrum, comparisonOverlays, matOverlays, exportMarkers, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, snapshot.showsModeBoundaries, setError, setErrorKind])
+  }, [comparison, material, inComparison, captured, frame, comparisonOverlays, matOverlays, exportMarkers, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, snapshot.showsModeBoundaries, setError, setErrorKind])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
@@ -1052,49 +1056,53 @@ export default function App() {
       <div className="main">
         <div className="chart-pane">
           <div className="chart-wrap">
-            <SpectrumChart
-              // The primary line = isMeasurementComplete ? frozen : live, matching Swift's displaySpectrum
-              // (SpectrumViews.swift) for guitar AND material. Material's frozen base is intentionally empty
-              // (the per-phase spectra are matOverlays), so material paints the LIVE spectrum while capturing
-              // and no base once complete. Comparison/multi-tap suppress the base.
-              spectrum={
-                // A device change is settling: show nothing rather than the new device's
-                // not-yet-valid audio, matching Swift/Python.
-                snapshot.isSettling
-                  ? null
-                  : inComparison
-                  ? null
-                  : material
-                    ? snapshot.isMeasurementComplete
-                      ? null
-                      : liveSpectrum
-                    : displaySpectrum
-              }
-              title={`FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`}
-              overlays={inComparison ? comparisonOverlays : material ? matOverlays : undefined}
-              guitarType={material ? undefined : guitarType}
-              showModeBoundaries={snapshot.showsModeBoundaries}
-              peakMin={peakMin}
-              markers={chartMarkers}
-              minHz={view.minHz}
-              maxHz={view.maxHz}
-              minDb={view.minDb}
-              maxDb={view.maxDb}
-              onViewChange={setView}
-              onReset={resetView}
-              onAnnotationDrag={inComparison ? undefined : onAnnotationDrag}
-              onResetLabels={inComparison ? undefined : resetLabels}
-              onResetAnnotation={inComparison ? undefined : (k) => analyzer.resetAnnotationOffset(k)}
-              hasMovedLabels={annotationOffsets.size > 0}
-              frozen={captured != null || (material && matPhase === 'complete')}
-              crosshairMode={crosshairMode}
-              highlightedPeakId={comparison || showMultiTap ? null : snapshot.highlightedPeakId}
-              // Dot ↔ results-row highlight is a guitar, desktop-only feature (mirrors Swift's macOS-only
-              // behaviour — on touch the results panel is a modal overlay, so cross-highlight is moot).
-              onToggleHighlight={
-                isTouch || comparison || showMultiTap || material ? undefined : (id) => analyzer.toggleHighlightedPeak(id)
-              }
-            />
+            <FrameReader frame={frame}>
+              {(f) => (
+              <SpectrumChart
+                // The primary line = isMeasurementComplete ? frozen : live, matching Swift's displaySpectrum
+                // (SpectrumViews.swift) for guitar AND material. Material's frozen base is intentionally empty
+                // (the per-phase spectra are matOverlays), so material paints the LIVE spectrum while capturing
+                // and no base once complete. Comparison/multi-tap suppress the base.
+                spectrum={
+                  // A device change is settling: show nothing rather than the new device's
+                  // not-yet-valid audio, matching Swift/Python.
+                  snapshot.isSettling
+                    ? null
+                    : inComparison
+                    ? null
+                    : material
+                      ? snapshot.isMeasurementComplete
+                        ? null
+                        : f.spectrum
+                      : (captured ?? f.spectrum)
+                }
+                title={`FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`}
+                overlays={inComparison ? comparisonOverlays : material ? matOverlays : undefined}
+                guitarType={material ? undefined : guitarType}
+                showModeBoundaries={snapshot.showsModeBoundaries}
+                peakMin={peakMin}
+                markers={chartMarkers}
+                minHz={view.minHz}
+                maxHz={view.maxHz}
+                minDb={view.minDb}
+                maxDb={view.maxDb}
+                onViewChange={setView}
+                onReset={resetView}
+                onAnnotationDrag={inComparison ? undefined : onAnnotationDrag}
+                onResetLabels={inComparison ? undefined : resetLabels}
+                onResetAnnotation={inComparison ? undefined : (k) => analyzer.resetAnnotationOffset(k)}
+                hasMovedLabels={annotationOffsets.size > 0}
+                frozen={captured != null || (material && matPhase === 'complete')}
+                crosshairMode={crosshairMode}
+                highlightedPeakId={comparison || showMultiTap ? null : snapshot.highlightedPeakId}
+                // Dot ↔ results-row highlight is a guitar, desktop-only feature (mirrors Swift's macOS-only
+                // behaviour — on touch the results panel is a modal overlay, so cross-highlight is moot).
+                onToggleHighlight={
+                  isTouch || comparison || showMultiTap || material ? undefined : (id) => analyzer.toggleHighlightedPeak(id)
+                }
+              />
+              )}
+            </FrameReader>
             {/* Not running: why — the input unavailable, or still starting. Swift's chart overlay. */}
             {!running && (
               <div className="chart-placeholder">
@@ -1339,13 +1347,16 @@ export default function App() {
         <span className={`sb-detect${sbComplete ? ' complete' : ''}`}>{sbComplete ? 'Tap Detected!' : 'Waiting for tap...'}</span>
         <span className="sb-sep">•</span>
         {/* Swift: guitar shows peak magnitude here, material shows the input level. */}
-        {/* Swift Controls: guitar shows fft.peakMagnitude, material shows fft.displayLevelDB — both at the
-            FFT-frame rate (engineMetrics), NOT the fast per-chunk level (which drives the threshold meter).
-            Before the first complete frame both default to -100 in Swift (fft.peakMagnitude / displayLevelDB),
-            so fall back to -100 here too — not the fast `level` — to hold -100 dB until the first frame. */}
-        <span className="level">
-          {FieldPrecision.string(material ? (engineMetrics?.displayLevelDB ?? -100) : (metrics.peakMagnitude ?? -100), FieldPrecision.peakMagnitudeDB)} dB
-        </span>
+        {/* Swift Controls: guitar shows frame.peakMagnitude, material shows frame.displayLevelDB — both at the
+            FFT-frame rate (the live frame), NOT the fast per-chunk level (which drives the threshold meter).
+            Before the first frame both are -100, as Swift's. */}
+        <FrameReader frame={frame}>
+          {(f) => (
+            <span className="level">
+              {FieldPrecision.string(material ? f.displayLevelDB : f.peakMagnitude, FieldPrecision.peakMagnitudeDB)} dB
+            </span>
+          )}
+        </FrameReader>
         <span className="spacer" />
         {/* RIGHT — complete badge + peak + active dot + statusMessage + progress. */}
         {sbComplete && (
@@ -1357,13 +1368,17 @@ export default function App() {
             <span className="sb-sep sb-right">•</span>
           </>
         )}
-        <span className="sb-peak">
-          {!running
-            ? snapshot.notRunningMessage
-            : metrics.peakFrequency != null && metrics.peakMagnitude != null
-              ? `Peak: ${FieldPrecision.string(metrics.peakMagnitude, FieldPrecision.peakMagnitudeDB)} dB @ ${FieldPrecision.string(metrics.peakFrequency, FieldPrecision.peakFrequencyHz)} Hz`
-              : 'Starting...'}
-        </span>
+        <FrameReader frame={frame}>
+          {(f) => (
+            <span className="sb-peak">
+              {!running
+                ? snapshot.notRunningMessage
+                : f.spectrum
+                  ? `Peak: ${FieldPrecision.string(f.peakMagnitude, FieldPrecision.peakMagnitudeDB)} dB @ ${FieldPrecision.string(f.peakFrequency, FieldPrecision.peakFrequencyHz)} Hz`
+                  : 'Starting...'}
+            </span>
+          )}
+        </FrameReader>
         <span className={`sb-active-dot${sbDetecting ? ' on' : ''}`} />
         <span className={`sb-msg${sbDetecting ? '' : ' idle'}`}>{snapshot.statusMessage}</span>
         {sbProgress && <span className="sb-progress">{sbProgress}</span>}
@@ -1446,7 +1461,11 @@ export default function App() {
         />
       )}
 
-      {showMetrics && <MetricsPanel metrics={metrics} onClose={() => setShowMetrics(false)} />}
+      {showMetrics && (
+        <FrameReader frame={frame}>
+          {(f) => <MetricsPanel metrics={metricsFor(f)} onClose={() => setShowMetrics(false)} />}
+        </FrameReader>
+      )}
 
       {showSave && (
         <SaveSheet

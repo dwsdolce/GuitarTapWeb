@@ -6,6 +6,7 @@ import { color as roleColor, qualityRole } from '../presentation/palette'
 import { STIFFNESS_LABEL, type StiffnessPreset } from '../settings'
 import { materialDimensions, materialStiffness, type MaterialMeasurementInputs } from '../measurement/materialMeasurementInputs'
 import { NumberField } from './NumberField'
+import { MenuPicker } from './MenuPicker'
 import { FieldPrecision } from '../precision'
 import type { ResonantPeak } from '../measurement/types'
 
@@ -64,13 +65,11 @@ function BodyDimensionsEditor({ inputs, onChange }: { inputs: MaterialMeasuremen
         <NumberField label="Lower Bout Width (b):" unit="mm" value={inputs.bodyWidthMm} decimals={P.bodyDimensionMM} onChange={(v) => set({ bodyWidthMm: v })} />
         <label className="set-field">
           <span>Panel Stiffness (f_vs):</span>
-          <span className="set-input">
-            <select value={inputs.stiffnessPreset} onChange={(e) => set({ stiffnessPreset: e.target.value as StiffnessPreset })}>
-              {STIFFNESS_PRESETS.map((p) => (
-                <option key={p} value={p}>{STIFFNESS_LABEL[p]}</option>
-              ))}
-            </select>
-          </span>
+          <MenuPicker value={inputs.stiffnessPreset} onChange={(e) => set({ stiffnessPreset: e.target.value as StiffnessPreset })}>
+            {STIFFNESS_PRESETS.map((p) => (
+              <option key={p} value={p}>{STIFFNESS_LABEL[p]}</option>
+            ))}
+          </MenuPicker>
         </label>
         {inputs.stiffnessPreset === 'custom' && (
           <NumberField label="Custom f_vs:" unit="" value={inputs.customStiffness} decimals={P.stiffness} onChange={(v) => set({ customStiffness: v })} />

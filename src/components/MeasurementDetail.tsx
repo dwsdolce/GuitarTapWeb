@@ -78,7 +78,7 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
 
   return (
     <div className="settings-overlay" role="dialog" aria-label="Measurement Details" onClick={onClose}>
-      <div className="settings-modal measurements-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="settings-modal measurements-modal detail-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-modal-head">
           <h2>Measurement Details</h2>
           <div className="set-head-buttons phone-only">

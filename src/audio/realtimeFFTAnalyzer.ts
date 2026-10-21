@@ -1,6 +1,7 @@
 // @parity audio/realtime-analyzer
 import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, watchdogDecision } from './deadInput'
 import { InputLevel } from './inputLevel'
+import { LiveFrame } from './liveFrame'
 import { SystemWallClock, type WallClock } from '../state/wallClock'
 import { GUITAR_FFT_SIZE, type Spectrum } from '../dsp/guitarFFT'
 import { applyCalibration, interpolateToBins, type Calibration } from '../dsp/calibration'
@@ -58,25 +59,6 @@ export function failedOpenMessage(name: string): string {
   return `Could not open the microphone '${name}'. The previous input is still in use — please check the microphone.`
 }
 
-/** Live-FFT performance counters (mirrors FFTAnalysisMetricsView's Performance section). */
-export interface EngineMetrics {
-  /** Wall-clock of the last continuous FFT (ms). */
-  processingMs: number
-  /** 30-frame moving average of the FFT wall-clock (ms). */
-  avgProcessingMs: number
-  /** Continuous FFT calculations per second (sampleRate / FFT size; 0% overlap). */
-  frameRate: number
-  /** Input level (dBFS) sampled at the FFT-frame rate — the status-bar / Metrics readout updates at the
-   *  same cadence as the spectrum + Peak, mirroring Swift `displayLevelDB` (readoutLevelDB gated by the
-   *  graph publish rate), NOT the fast per-chunk `level` (which drives the responsive threshold meter).
-   *  True digital silence is -Infinity here; every other consumer of the level gets Swift's -100. */
-  displayLevelDB: number
-  /** The live spectrum's loudest bin — Swift `peakFrequency` / `peakMagnitude`, owned by the FFT
-   *  analyzer and computed on the same frame. A silent input is -Infinity dB @ 0 Hz. */
-  peakFrequency: number
-  peakMagnitude: number
-}
-
 /** Tunable engine settings the caller can change while running (threshold, tap count, diagnostics). */
 const CLIP_HOLD_SECONDS = 1.5
 // Decay-seed peak hold (Swift `peakHoldDuration`): how long level.recentPeakLevelDB latches its max before
@@ -117,8 +99,6 @@ export class RealtimeFFTAnalyzer {
   private source: MediaStreamAudioSourceNode | null = null
   private stream: MediaStream | null = null
   private readonly audioFrameEvent = new EngineEvent<[Float32Array, number, number]>()
-  private readonly spectrumEvent = new EngineEvent<[Spectrum]>()
-  private readonly metricsEvent = new EngineEvent<[EngineMetrics]>()
   private readonly deviceStateEvent = new EngineEvent<[]>()
   private readonly inputChangedEvent = new EngineEvent<[string | null]>()
   private readonly inputOpenFailedEvent = new EngineEvent<[string]>()
@@ -132,14 +112,6 @@ export class RealtimeFFTAnalyzer {
    *  and the model. */
   onAudioFrame(listener: (samples: Float32Array, levelDb: number, audioTime: number) => void): () => void {
     return this.audioFrameEvent.on(listener)
-  }
-  /** Each continuous spectrum. */
-  onSpectrum(listener: (spectrum: Spectrum) => void): () => void {
-    return this.spectrumEvent.on(listener)
-  }
-  /** Live-FFT performance, once per continuous spectrum (FFTAnalysisMetricsView). */
-  onMetrics(listener: (metrics: EngineMetrics) => void): () => void {
-    return this.metricsEvent.on(listener)
   }
   /** The input device list, the selected input or its calibration changed. Swift: the views observing
    *  @Published availableInputDevices / selectedInputDevice / activeCalibration. */
@@ -249,10 +221,14 @@ export class RealtimeFFTAnalyzer {
     return GUITAR_FFT_SIZE
   }
 
-  /** The live spectrum's loudest bin — Swift `peakFrequency` / `peakMagnitude`, set by `performFFT`.
-   *  Starts at Swift's silent state: 0 Hz, −100 dB. */
-  peakFrequency = 0
-  peakMagnitude = -100
+  /** The latest frame — its spectrum, peak, readout level and processing times — announced once per frame.
+   *  An object of its own so that only what draws a frame, and the analyzer, hear of it. */
+  readonly frame = new LiveFrame()
+
+  /** FFT frames per second: one per FFT size of samples (no overlap). Swift `frameRate`. */
+  get frameRate(): number {
+    return this.sampleRate / GUITAR_FFT_SIZE
+  }
 
   private binFrequencies: { sampleRate: number; values: number[] } | null = null
 
@@ -306,7 +282,7 @@ export class RealtimeFFTAnalyzer {
 
   /**
    * Run the live FFT on `samples`: `computeFFT`, then the input's calibration, then the spectrum's peak —
-   * `peakFrequency` / `peakMagnitude`, the first maximum on ties (as Swift's `max(by:)`), so a silent input
+   * the frame's `peakFrequency` / `peakMagnitude`, the first maximum on ties (as Swift's `max(by:)`), so a silent input
    * is −∞ dB at bin 0. Swift `performFFT(on:)`.
    * @param samples `fftSize` time-domain samples.
    * @returns The calibrated spectrum.
@@ -317,8 +293,8 @@ export class RealtimeFFTAnalyzer {
     if (mags.length > 0) {
       let best = 0
       for (let i = 1; i < mags.length; i++) if (mags[i]! > mags[best]!) best = i
-      this.peakFrequency = spectrum.frequencies[best]!
-      this.peakMagnitude = mags[best]!
+      this.frame.peakFrequency = spectrum.frequencies[best]!
+      this.frame.peakMagnitude = mags[best]!
     }
     return spectrum
   }
@@ -431,10 +407,8 @@ export class RealtimeFFTAnalyzer {
   /** Whether the last start or restart failed. Mirrors Swift `engineStartFailed`. */
   private engineStartFailed = false
 
-  // Live-FFT performance (30-frame moving average), for the Metrics panel.
+  // The last frames' processing times (ms), for the frame's 30-frame average. Swift processingTimeHistory.
   private readonly procTimes: number[] = []
-  processingMs = 0
-  avgProcessingMs = 0
 
   get running(): boolean {
     return this.context !== null || this.headless
@@ -1289,11 +1263,17 @@ export class RealtimeFFTAnalyzer {
     this.level.isClipping = next
   }
 
-  private recordProcessing(ms: number): void {
-    this.processingMs = ms
-    this.procTimes.push(ms)
+  /** Announce a frame on `frame`: its spectrum, readout level and processing times (`performFFT` set its
+   *  peak). Mirrors Swift performFFT(on:) publishing the frame. */
+  private publishFrame(spectrum: Spectrum, processingMs: number): void {
+    this.procTimes.push(processingMs)
     if (this.procTimes.length > 30) this.procTimes.shift()
-    this.avgProcessingMs = this.procTimes.reduce((a, b) => a + b, 0) / this.procTimes.length
+    const frame = this.frame
+    frame.spectrum = spectrum
+    frame.displayLevelDB = this.readoutLevelDb
+    frame.processingMs = processingMs
+    frame.avgProcessingMs = this.procTimes.reduce((a, b) => a + b, 0) / this.procTimes.length
+    frame.publish()
   }
 
   // ── Continuous live spectrum (0% overlap) ────────────────────────────────
@@ -1307,16 +1287,7 @@ export class RealtimeFFTAnalyzer {
       if (this.accumIdx >= this.accum.length) {
         const t0 = performance.now()
         const spectrum = this.performFFT(this.accum)
-        this.recordProcessing(performance.now() - t0)
-        this.spectrumEvent.emit(spectrum)
-        this.metricsEvent.emit({
-          processingMs: this.processingMs,
-          avgProcessingMs: this.avgProcessingMs,
-          frameRate: this.sampleRate / GUITAR_FFT_SIZE,
-          displayLevelDB: this.readoutLevelDb,
-          peakFrequency: this.peakFrequency,
-          peakMagnitude: this.peakMagnitude,
-        })
+        this.publishFrame(spectrum, performance.now() - t0)
         this.accumIdx = 0
       }
     }
@@ -1331,6 +1302,9 @@ export class RealtimeFFTAnalyzer {
   /** Stop the input. During a start, the start ends itself at its next step. */
   async stop(): Promise<void> {
     this.wantRunning = false
+    // The frame's peak back to the silent state, as Swift's stop(): −100 dB @ 0 Hz.
+    this.frame.peakMagnitude = -100
+    this.frame.peakFrequency = 0
     if (this.starting) return
     await this.teardown()
   }

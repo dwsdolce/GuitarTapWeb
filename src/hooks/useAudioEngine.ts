@@ -1,15 +1,16 @@
 // The view's side of the audio engine, as Swift's view is of `tapToneAnalyzer.fftAnalyzer`: it starts
 // the analyzer when the app comes up and stops it when the app goes away, reports a start that fails
-// (the alerts, and Retry), and shows what the engine reports — the input level, the live spectrum, the
-// FFT metrics, the sample rate, the input devices and their calibrations — subscribing only to those.
+// (the alerts, and Retry), and shows what the engine reports — the sample rate, the input devices and
+// their calibrations — subscribing only to those. The input level and the live frame are objects of their
+// own, handed to the views that draw them, which alone observe them.
 // The engine belongs to the analyzer, which subscribes to what it acts on (chunks, frames, a dead input,
 // an input change). The calibration store's picker actions (import/select/delete) are here.
 
 import { useCallback, useEffect, useState } from 'react'
-import { failedOpenMessage, isPermissionError, type EngineMetrics } from '../audio/realtimeFFTAnalyzer'
+import { failedOpenMessage, isPermissionError } from '../audio/realtimeFFTAnalyzer'
 import type { InputLevel } from '../audio/inputLevel'
+import type { LiveFrame } from '../audio/liveFrame'
 import type { TapToneAnalyzer } from '../state/tapToneAnalyzer'
-import type { Spectrum } from '../dsp/guitarFFT'
 import {
   listCalibrations,
   saveCalibration,
@@ -28,7 +29,8 @@ export interface AudioEngineModel {
   running: boolean
   /** The engine's input level, for the threshold meter to observe; null until the engine exists. */
   inputLevel: InputLevel | null
-  liveSpectrum: Spectrum | null
+  /** The engine's live frame, for the views that draw it (through `FrameReader`) to observe. */
+  frame: LiveFrame
   sampleRate: number | null
   audioSettings: MediaTrackSettings | null
   deviceLabel: string
@@ -44,7 +46,6 @@ export interface AudioEngineModel {
   currentDeviceId: string | null
   calibrations: StoredCalibration[]
   activeCalId: Uuid | null
-  engineMetrics: EngineMetrics | null
   /** Live ring-out (decay) time in seconds, or null — for the Analysis Results panel. */
   /** Re-attempt engine start after a mic error ("Retry microphone"). */
   retry: () => void
@@ -60,7 +61,6 @@ export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineMod
   const engine = analyzer.device!
   const [running, setRunning] = useState(false)
   const [inputLevel, setInputLevel] = useState<InputLevel | null>(null)
-  const [liveSpectrum, setLiveSpectrum] = useState<Spectrum | null>(null)
   const [sampleRate, setSampleRate] = useState<number | null>(null)
   const [audioSettings, setAudioSettings] = useState<MediaTrackSettings | null>(null)
   const [deviceLabel, setDeviceLabel] = useState('')
@@ -70,7 +70,6 @@ export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineMod
   const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(null)
   const [calibrations, setCalibrations] = useState<StoredCalibration[]>(listCalibrations)
   const [activeCalId, setActiveCalId] = useState<Uuid | null>(null)
-  const [engineMetrics, setEngineMetrics] = useState<EngineMetrics | null>(null)
 
   // Mirror the engine's input state — the device list, the selected input and its calibration.
   const syncDeviceState = useCallback(() => {
@@ -149,8 +148,6 @@ export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineMod
   useEffect(() => {
     setInputLevel(engine.level)
     const unsubscribe = [
-      engine.onSpectrum(setLiveSpectrum),
-      engine.onMetrics(setEngineMetrics),
       engine.onDeviceStateChanged(syncDeviceState),
       // A device plugged in while running could not be opened; the previous input is kept.
       engine.onInputOpenFailed((message) => {
@@ -172,7 +169,7 @@ export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineMod
   return {
     running,
     inputLevel,
-    liveSpectrum,
+    frame: engine.frame,
     sampleRate,
     audioSettings,
     deviceLabel,
@@ -184,7 +181,6 @@ export function useAudioEngine({ analyzer }: UseAudioEngineArgs): AudioEngineMod
     currentDeviceId,
     calibrations,
     activeCalId,
-    engineMetrics,
     retry: start,
     pauseTap,
     resumeTap,

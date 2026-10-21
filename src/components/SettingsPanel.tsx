@@ -1,5 +1,5 @@
 // @parity view/settings
-import { useRef, useState, type ChangeEvent, type ReactNode, type SelectHTMLAttributes } from 'react'
+import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { NumberField } from './NumberField'
 import { FieldPrecision } from '../precision'
 import { formattedAsWholeHertz } from '../presentation/frequencyFormat'
@@ -34,7 +34,8 @@ import type { ChartView } from '../presentation/chartTypes'
 import { enteredValue } from '../presentation/displayRange'
 import { APPEARANCES, APPEARANCE_LABEL, type Appearance } from '../presentation/appearance'
 import { AlertModal } from './AlertModal'
-import { MicrophoneIcon, GuitarsIcon, MaterialLayersIcon, CogsIcon, ChartLineIcon, PulseIcon, InfoIcon, FilePlusIcon, TrashIcon, SaveIcon, UndoIcon, HelpIcon, BookIcon, ChevronUpIcon, ChevronDownIcon, ChevronRightIcon, OpenInNewIcon, UnfoldMoreIcon } from './icons'
+import { MicrophoneIcon, GuitarsIcon, MaterialLayersIcon, CogsIcon, ChartLineIcon, PulseIcon, InfoIcon, FilePlusIcon, TrashIcon, SaveIcon, UndoIcon, HelpIcon, BookIcon, ChevronUpIcon, ChevronDownIcon, ChevronRightIcon, OpenInNewIcon } from './icons'
+import { MenuPicker } from './MenuPicker'
 import type { Uuid } from '../measurement/newId'
 
 /**
@@ -188,17 +189,6 @@ function SetToggle({ label, description, checked, onChange, disabled = false }: 
 }
 
 /** A label on the left, its value or control on the right. */
-/** A menu picker drawn as Swift's: a filled rounded box with the value and a ⌃⌄ at its right. The menu is the
- *  browser's own. */
-function MenuPicker(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <span className="menu-picker">
-      <select {...props} />
-      <UnfoldMoreIcon />
-    </span>
-  )
-}
-
 function SetRow({ label, children, secondary = false }: { label: string; children: ReactNode; secondary?: boolean }) {
   return (
     <div className="ts-row">
