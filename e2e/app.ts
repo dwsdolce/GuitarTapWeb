@@ -45,6 +45,8 @@ export async function catchDownload(page: Page, outputPath: (name: string) => st
 export async function openRowMenu(page: Page): Promise<void> {
   const panel = page.getByRole('dialog', { name: 'Saved Measurements' })
   if (!(await panel.isVisible())) await page.getByRole('button', { name: 'Measurements' }).click()
+  // The row's ⋯ shows while the pointer is over the row, as a user reaches it.
+  await panel.locator('.meas-row').first().hover()
   await panel.getByRole('button', { name: 'Actions' }).click()
 }
 
