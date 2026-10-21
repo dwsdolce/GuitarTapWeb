@@ -39,14 +39,17 @@
   gap: 0.5rem 0.7rem;
   flex-wrap: nowrap;
   padding: 0.5rem 0.7rem;
-  background: var(--c-background-panel);
-  border: 1px solid var(--c-separator);
-  border-radius: 10px;
 }
-/* Bar 2 — app control bar: buttons packed to the right (macOS unified-titlebar convention). */
+/* Bar 2 — app control bar: buttons packed to the right (macOS unified-titlebar convention); no surface of
+   its own, as Swift's. */
 .toolbar-app {
   justify-content: flex-end;
   gap: 0.4rem;
+}
+/* The tap controls: a rounded box on background.subtle, no border, as Swift's. */
+.toolbar-taps {
+  background: var(--c-background-subtle);
+  border-radius: 8px;
 }
 .toolbar-app .btn {
   display: inline-flex;
@@ -823,11 +826,12 @@
   gap: 0.25rem;
 }
 
+/* Swift's caption: 10 pt on macOS (12 pt on iOS — the phone layout below). */
 .field {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  font-size: 0.82rem;
+  font-size: 10px;
   color: var(--c-text-secondary);
 }
 .field label {
@@ -852,14 +856,14 @@
   cursor: not-allowed;
 }
 .field input[type='range'] {
-  width: 130px;
+  width: 80px;
   accent-color: var(--c-accent);
 }
 .field .val {
   font-variant-numeric: tabular-nums;
   font-weight: 500;
   color: var(--c-accent-text);
-  min-width: 3.5rem;
+  min-width: 40px;
 }
 .field .val.peak-min {
   color: var(--c-chart-peak-min);
@@ -1326,16 +1330,31 @@
   align-items: center;
   gap: 0.35rem;
 }
-.btn.step {
-  padding: 0.2rem 0.55rem;
-  font-size: 1rem;
-  line-height: 1;
-}
+/* The count before its stepper, as Swift's: caption, medium, text.primary. */
 .step-val {
-  min-width: 1.4rem;
-  text-align: center;
+  min-width: 1rem;
+  text-align: right;
   color: var(--c-text-primary);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+/* Swift's macOS stepper: two arrows stacked, up over down, in a rounded outline 22 tall. */
+.stepper-arrows {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 22px;
+  border: 1px solid var(--c-separator);
+  border-radius: 5px;
+}
+.stepper-arrows .step-arrow {
+  color: var(--c-text-primary);
+  padding: 0 1px;
+  line-height: 0;
+}
+.stepper-arrows .step-arrow svg {
+  width: 10px;
+  height: 10px;
 }
 
 /* ── Threshold meter (level fill + draggable threshold handle) ─ */
@@ -1345,7 +1364,7 @@
   gap: 0.5rem;
 }
 .thmeter-canvas {
-  width: 220px;
+  width: 160px;
   height: 24px;
   flex: 0 0 auto;
   cursor: ew-resize;
@@ -1355,7 +1374,7 @@
   font-variant-numeric: tabular-nums;
   font-weight: 500;
   color: var(--c-accent-text);
-  min-width: 3.5rem;
+  min-width: 40px;
 }
 
 .error {
@@ -1381,6 +1400,9 @@
 /* Loaded-measurement settings banner — sits in the status-bar region, above the bar
    (mirrors Swift's "Settings from loaded measurement — …" row). */
 .loaded-settings-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   padding: 0.4rem 0.85rem;
   margin-top: 0.4rem;
   border: none;
@@ -1389,6 +1411,25 @@
   border-radius: 8px;
   font-size: 0.82rem;
   font-weight: 500;
+}
+/* A warning icon that pulses — Swift's warningIconOpacity: between full and status.warningPulseLow, 0.6 s each way,
+   ease in and out. */
+.warning-pulse {
+  display: inline-flex;
+  flex-shrink: 0;
+  animation: warning-pulse 0.6s ease-in-out infinite alternate;
+}
+.warning-pulse svg {
+  width: 1em;
+  height: 1em;
+}
+@keyframes warning-pulse {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: var(--o-status-warning-pulse-low);
+  }
 }
 
 /* "Capture audio saved" notice — Dump Capture Audio handed a WAV to the browser's downloads. */
@@ -1809,6 +1850,37 @@
   color: var(--c-text-secondary);
   font-size: 0.85rem;
   margin: 0;
+}
+/* Swift's EmptyStateView: icon, title and message, spaced 20, centred in the space given. */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 2rem 40px;
+  text-align: center;
+}
+.empty-state-icon {
+  display: flex;
+  color: var(--c-text-secondary);
+}
+/* Scoped under .empty-state so it wins over a panel's own h3 (Saved Measurements sits in .settings-body). */
+.empty-state .empty-state-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--c-text-primary);
+}
+.empty-state-message {
+  margin: 0;
+  color: var(--c-text-secondary);
+}
+/* The results list's own: centred in the panel, as Swift's. */
+.results-empty {
+  text-align: center;
+  padding: 1rem;
 }
 
 /* Active input device + Re-analyze — results header row 2 (mirrors Swift/Python: device name left,
@@ -2533,6 +2605,22 @@
   }
   .not-phone {
     display: none;
+  }
+  /* Swift's iOS caption. */
+  .toolbar-taps .field {
+    font-size: 12px;
+  }
+  /* Swift's iPhone stepper: − and + side by side. */
+  .stepper-arrows {
+    flex-direction: row-reverse;
+    gap: 0.3rem;
+    height: auto;
+    border: none;
+  }
+  .stepper-arrows .step-arrow {
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0.2rem 0.55rem;
   }
   /* Re-show the toolbar Results button at the phone breakpoint (matches the hide rule's specificity). */
   .toolbar-app .btn.phone-only {

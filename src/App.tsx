@@ -20,7 +20,7 @@ import { QuickStartGuide } from './components/QuickStartGuide'
 import { ReleaseNotes } from './components/ReleaseNotes'
 // Toolbar + tap-control icons live in a shared module so the Quick Start Guide can render the
 // exact same glyphs next to each control (Swift SF Symbols / Python qtawesome equivalents).
-import { TapIcon, PauseIcon, PlayIcon, CancelIcon, CheckIcon, UndoIcon, AutoDbIcon, EyeIcon, StarIcon, EyeOffIcon, SaveIcon, ClipboardIcon, BarChartIcon, GearIcon, HelpIcon, BookIcon, NotesIcon, FilePlayIcon, DotViewfinderIcon, PlusViewfinderIcon, WandIcon, ResultsIcon, RefreshIcon, AutoDbOnIcon, WaveformIcon, ChartLineIcon, DocumentIcon, PauseCircleFillIcon } from './components/icons'
+import { TapIcon, PauseIcon, PlayIcon, CancelIcon, CheckIcon, UndoIcon, AutoDbIcon, EyeIcon, StarIcon, EyeOffIcon, SaveIcon, ClipboardIcon, BarChartIcon, GearIcon, HelpIcon, BookIcon, NotesIcon, FilePlayIcon, DotViewfinderIcon, PlusViewfinderIcon, WandIcon, ResultsIcon, RefreshIcon, AutoDbOnIcon, WaveformIcon, ChartLineIcon, DocumentIcon, PauseCircleFillIcon, AlertIcon, ChevronUpIcon, ChevronDownIcon } from './components/icons'
 import { buttonRule } from './state/buttonEnablement'
 import { useTapToneAnalyzer } from './hooks/useTapToneAnalyzer'
 import { MeasurementsPanel } from './components/MeasurementsPanel'
@@ -44,7 +44,7 @@ import { Pitch } from './dsp/pitch'
 import { FieldPrecision } from './precision'
 import { formatDisplayDate } from './format/date'
 import { settingsStore } from './settingsStore'
-import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, guitarTypeSetting, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_LABEL, type Settings, type MeasurementType } from './settings'
+import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, guitarTypeSetting, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_LABEL, DEFAULT_SETTINGS, type Settings, type MeasurementType } from './settings'
 import type { ResonantPeak } from './measurement/types'
 import { displayRangeLabel } from './presentation/frequencyFormat'
 import './App.css'
@@ -938,31 +938,41 @@ export default function App() {
                 label, the value and the stepper in one `.disabledDimmed(tapCountLocked)`, and a
                 bright label beside a greyed value reads as though the label were still live. */}
             <div className={`field${tapsLocked ? ' is-disabled' : ''}`} title={HINTS.taps}>
-              <label>Taps</label>
+              <label>Taps:</label>
+              {/* The count, then its stepper: stacked arrows as Swift's macOS stepper; on a phone − and +
+                  side by side, as Swift's iPhone stepper. */}
               <div className="stepper">
-                <button
-                  className="btn step"
-                  onClick={() => changeTaps(numberOfTaps - 1)}
-                  disabled={tapsLocked || numberOfTaps <= 1}
-                  aria-label="Fewer taps"
-                >
-                  −
-                </button>
                 <span className="step-val">{numberOfTaps}</span>
-                <button
-                  className="btn step"
-                  onClick={() => changeTaps(numberOfTaps + 1)}
-                  disabled={tapsLocked || numberOfTaps >= 10}
-                  aria-label="More taps"
-                >
-                  +
-                </button>
+                <div className="stepper-arrows">
+                  <button
+                    className="btn-icon step-arrow"
+                    onClick={() => changeTaps(numberOfTaps + 1)}
+                    disabled={tapsLocked || numberOfTaps >= 10}
+                    aria-label="More taps"
+                  >
+                    <span className="not-phone">
+                      <ChevronUpIcon />
+                    </span>
+                    <span className="phone-only">+</span>
+                  </button>
+                  <button
+                    className="btn-icon step-arrow"
+                    onClick={() => changeTaps(numberOfTaps - 1)}
+                    disabled={tapsLocked || numberOfTaps <= 1}
+                    aria-label="Fewer taps"
+                  >
+                    <span className="not-phone">
+                      <ChevronDownIcon />
+                    </span>
+                    <span className="phone-only">−</span>
+                  </button>
+                </div>
               </div>
             </div>
             <span className="divider" />
 
             <div className="field" title={HINTS.threshold}>
-              <label>Threshold</label>
+              <label>Threshold:</label>
               <ThresholdMeter
                 inputLevel={inputLevel}
                 value={tapThreshold}
@@ -970,13 +980,21 @@ export default function App() {
                   analyzer.setTapDetectionThreshold(v)
                 }}
               />
+              <button
+                className="btn-icon slider-reset"
+                title="Reset to default"
+                aria-label="Reset Threshold to default"
+                onClick={() => analyzer.setTapDetectionThreshold(DEFAULT_SETTINGS.tapDetectionThreshold)}
+              >
+                <UndoIcon />
+              </button>
             </div>
 
             {/* Always shown; disabled and faded for plate/brace and in a comparison, as Swift's
                 .disabled / .opacity pair on its Peak Min row. */}
             <span className="divider" />
             <div className={`field${material || inComparison ? ' is-faded' : ''}`} title={HINTS.peakMin}>
-              <label>Peak Min</label>
+              <label>Peak Min:</label>
               <input
                 type="range"
                 min={-100}
@@ -987,6 +1005,15 @@ export default function App() {
                 onChange={(e) => analyzer.setPeakMinThreshold(Number(e.target.value))}
               />
               <span className="val peak-min">{peakMin} dB</span>
+              <button
+                className="btn-icon slider-reset"
+                title="Reset to default"
+                aria-label="Reset Peak Min to default"
+                disabled={material || inComparison}
+                onClick={() => analyzer.setPeakMinThreshold(DEFAULT_SETTINGS.peakMinThreshold)}
+              >
+                <UndoIcon />
+              </button>
             </div>
           </>
         )}
@@ -1243,9 +1270,10 @@ export default function App() {
                     )
                   })}
                 </div>
-              ) : captured ? (
-                <p className="empty">No peaks above Peak Min.</p>
-              ) : null}
+              ) : (
+                // Swift's words, and whenever the list is empty — live or frozen, as Swift's.
+                <p className="empty results-empty">No peaks detected in visible range</p>
+              )}
             </>
           )}
           </div>
@@ -1295,8 +1323,14 @@ export default function App() {
 
       {snapshot.showLoadedSettingsWarning && !snapshot.isSavedMeasurementComparison && (
         <div className="loaded-settings-banner" role="status">
-          ⚠ Settings from loaded measurement — Threshold: {Math.round(settings.tapDetectionThreshold)} dB · Taps:{' '}
-          {numberOfTaps}
+          {/* The warning icon, pulsing, as Swift's and Python's. */}
+          <span className="warning-pulse" aria-hidden>
+            <AlertIcon />
+          </span>
+          <span>
+            Settings from loaded measurement — Threshold: {Math.round(settings.tapDetectionThreshold)} dB · Taps:{' '}
+            {numberOfTaps}
+          </span>
         </div>
       )}
       {snapshot.captureAudioSaved && (

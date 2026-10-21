@@ -41,6 +41,9 @@ export const BackupRestoreIcon = () => <Mdi d={MDI.backupRestore} />
 export const UndoArrowIcon = () => <Mdi d={MDI.undo} />
 // The chart's ⋯ (Swift ellipsis.circle).
 export const MoreCircleIcon = () => <Mdi d={MDI.moreCircle} />
+// A warning (Swift exclamationmark.triangle.fill).
+export const AlertIcon = () => <Mdi d={MDI.alert} />
+export const TrayIcon = ({ size }: { size?: number }) => <Mdi d={MDI.tray} size={size} />
 
 // ── App control-bar glyphs ──────────────────────────────────────────────────
 export const AutoDbIcon = () => <Mdi d={MDI.autoDb} />

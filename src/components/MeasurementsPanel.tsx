@@ -13,7 +13,8 @@ import { exportFailureMessage, exportSpectrumPng } from '../presentation/spectru
 import { measurementToImageOpts, reportForMeasurement } from '../presentation/measurementImage'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
-import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon, MoreCircleIcon } from './icons'
+import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon, MoreCircleIcon, TrayIcon } from './icons'
+import { EmptyStateView } from './EmptyStateView'
 import { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 
 export interface MeasurementsPanelProps {
@@ -412,7 +413,11 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
             </p>
           )}
           {items.length === 0 ? (
-            <p className="empty">No Saved Measurements. Tap the guitar and click Save to store measurements for comparison.</p>
+            <EmptyStateView
+              icon={<TrayIcon size={60} />}
+              title="No Saved Measurements"
+              message="Tap the guitar and click Save to store measurements for comparison."
+            />
           ) : (
             <>
               <p className="meas-total">
