@@ -3,11 +3,12 @@
  * FFT analysis metrics panel — mirrors the native `FFTAnalysisMetricsView`.
  * Three groups (Analysis Configuration / Performance / Peak Detection) plus a
  * running/stopped status indicator. Values are computed in `App` from the live
- * engine + spectrum; this component only formats them.
+ * frame; this component formats them and colours the Performance values by load.
  */
 
 import { FieldPrecision } from '../precision'
 import { formattedAsFrequency, formattedAsWholeHertz } from '../presentation/frequencyFormat'
+import { cssVariable, type Role } from '../presentation/palette'
 
 /** The metric values displayed by {@link MetricsPanel} (nullable outside guitar/live mode). */
 export interface Metrics {
@@ -47,16 +48,31 @@ function freq(hz: number | null): string {
   return hz == null ? DASH : formattedAsFrequency(hz)
 }
 
-function MetricRow({ label, value, subtitle }: { label: string; value: string; subtitle: string }) {
+function MetricRow({ label, value, subtitle, role }: { label: string; value: string; subtitle: string; role?: Role }) {
   return (
     <div className="metric-row">
       <div className="metric-label">
         <span className="metric-name">{label}</span>
         <span className="metric-subtitle">{subtitle}</span>
       </div>
-      <span className="metric-value">{value}</span>
+      <span className="metric-value" style={role ? { color: `var(${cssVariable(role)})` } : undefined}>
+        {value}
+      </span>
     </div>
   )
+}
+
+/** A processing time's colour by its share of the frame time: good below 50 %, fair below 80 %, high below
+ *  95 %, overload above. Mirrors Swift `processingTimeColor(_:)`. */
+function processingTimeRole(timeMs: number, frameTimeMs: number): Role {
+  const ratio = frameTimeMs > 0 ? timeMs / frameTimeMs : 0
+  return ratio < 0.5 ? 'metric.good' : ratio < 0.8 ? 'metric.fair' : ratio < 0.95 ? 'metric.high' : 'metric.overload'
+}
+
+/** CPU usage's colour: good below 50 %, fair below 80 %, high below 95 %, overload above. Mirrors Swift
+ *  `cpuUsageColor(_:)`. */
+function cpuUsageRole(usage: number): Role {
+  return usage < 50 ? 'metric.good' : usage < 80 ? 'metric.fair' : usage < 95 ? 'metric.high' : 'metric.overload'
 }
 
 /** Renders the analysis-metrics modal dialog. */
@@ -111,16 +127,19 @@ export function MetricsPanel({ metrics: m, onClose }: MetricsPanelProps) {
               label="Processing Time"
               value={m.processingTimeMs != null ? `${m.processingTimeMs.toFixed(3)} ms` : DASH}
               subtitle="Last frame"
+              role={m.processingTimeMs != null && frameTimeMs ? processingTimeRole(m.processingTimeMs, frameTimeMs) : undefined}
             />
             <MetricRow
               label="Average Processing"
               value={m.avgProcessingTimeMs != null ? `${m.avgProcessingTimeMs.toFixed(3)} ms` : DASH}
               subtitle="30-frame average"
+              role={m.avgProcessingTimeMs != null && frameTimeMs ? processingTimeRole(m.avgProcessingTimeMs, frameTimeMs) : undefined}
             />
             <MetricRow
               label="CPU Usage"
               value={cpuUsage != null ? `${cpuUsage.toFixed(1)}%` : DASH}
               subtitle="Of available frame time"
+              role={cpuUsage != null ? cpuUsageRole(cpuUsage) : undefined}
             />
           </section>
 

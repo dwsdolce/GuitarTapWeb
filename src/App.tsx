@@ -1370,7 +1370,9 @@ export default function App() {
         )}
         <FrameReader frame={frame}>
           {(f) => (
-            <span className="sb-peak">
+            // The peak in status.peakReadout; "Starting..." or why the input is not running in text.secondary,
+            // as Swift's.
+            <span className={`sb-peak${running && f.spectrum ? '' : ' idle'}`}>
               {!running
                 ? snapshot.notRunningMessage
                 : f.spectrum

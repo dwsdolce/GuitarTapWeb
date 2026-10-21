@@ -2173,6 +2173,9 @@
   color: var(--c-status-peak-readout);
   white-space: nowrap;
 }
+.sb-peak.idle {
+  color: var(--c-text-secondary);
+}
 
 /* ── Metrics panel (FFTAnalysisMetricsView) ───────────────── */
 .metrics-modal {
