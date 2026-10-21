@@ -36,8 +36,9 @@ export interface PeakCardProps {
   effectiveLabel: string
   /** Whether {@link effectiveLabel} is a manual override (shows italic + trailing " *"). */
   isManualOverride: boolean
-  /** true = in mode's ideal range, false = out, null = no indicator (unknown/upper). */
-  inRange: boolean | null
+  /** A peak the analyzer classified (neither unknown nor upper): shows the check. A classified peak is
+   *  always inside its mode's range — classification assigns a mode only to a peak within it. */
+  classified: boolean
   /** Pitch note name (e.g. "A2"), or null to hide the pitch row (non-guitar). */
   note: string | null
   /** Cents deviation from the note, or null. */
@@ -74,7 +75,7 @@ export function PeakCard({
   mode,
   effectiveLabel,
   isManualOverride,
-  inRange,
+  classified,
   note,
   cents,
   selected,
@@ -154,9 +155,9 @@ export function PeakCard({
             <ModeIcon />
           </span>
         )}
-        {inRange !== null && (
-          <span className={`range-flag ${inRange ? 'ok' : 'warn'}`} title={inRange ? 'In ideal range' : 'Outside ideal range'}>
-            {inRange ? '✓' : '⚠'}
+        {classified && (
+          <span className="range-flag" title="In ideal range">
+            ✓
           </span>
         )}
       </div>

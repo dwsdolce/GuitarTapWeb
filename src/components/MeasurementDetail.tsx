@@ -3,12 +3,11 @@ import { isComparison, isMaterialMeasurement, effectiveSelectedPeakIDs, type Tap
 import { MODE_DISPLAY_NAME } from '../presentation/modeColors'
 import { comparisonRole, cssVariable } from '../presentation/palette'
 import type { ResolvedMode } from '../dsp/classify'
-import { modeBands } from '../dsp/guitarModes'
 import type { MaterialPeakRole } from '../presentation/materialPeakRole'
 import { PeakCard } from './PeakCard'
 import { ComparisonResultsView, type ComparisonRow } from './ComparisonResultsView'
 import { formatDisplayDate } from '../format/date'
-import { classificationGuitarType, comparisonEntryModeFreqs, measurementAutoModes, measurementPeakModeLabels, measurementTypeName, type ResonantPeak } from '../measurement/types'
+import { comparisonEntryModeFreqs, measurementAutoModes, measurementPeakModeLabels, measurementTypeName, type ResonantPeak } from '../measurement/types'
 import { useScheme } from '../hooks/useScheme'
 
 // Read-only measurement inspector — mirrors Swift MeasurementDetailView / Python
@@ -50,15 +49,9 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
   const isMaterial = isMaterialMeasurement(m)
   // The measurement's own modes and labels — classified among all its peaks, as the file is written
   // and the live view showed them, not among the shown ones.
-  const guitarType = classificationGuitarType(m)
   const autoModes = measurementAutoModes(m)
   const labels = measurementPeakModeLabels(m)
-  const bands = new Map(modeBands(guitarType).map((b) => [b.name, b]))
-  const inRangeFor = (p: ResonantPeak, mode: ResolvedMode): boolean | null => {
-    if (mode === 'unknown' || mode === 'upper') return null
-    const band = bands.get(mode)
-    return band ? p.frequency >= band.lo && p.frequency <= band.hi : null
-  }
+  const isClassified = (mode: ResolvedMode): boolean => mode !== 'unknown' && mode !== 'upper'
   const materialRoleOf = (p: ResonantPeak): MaterialPeakRole | undefined => {
     if (!isMaterial) return undefined
     if (p.id === m.selectedLongitudinalPeakID) return 'longitudinal'
@@ -137,7 +130,7 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
                         mode={mode}
                         effectiveLabel={peakLabel(p)}
                         isManualOverride={!isMaterial && m.peakModeOverrides?.[p.id] != null}
-                        inRange={isMaterial ? null : inRangeFor(p, mode)}
+                        classified={!isMaterial && isClassified(mode)}
                         note={p.pitchNote ?? null}
                         cents={p.pitchNote ? p.pitchCents ?? null : null}
                         selected

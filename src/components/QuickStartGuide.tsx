@@ -26,17 +26,11 @@ import {
   FilePlayIcon,
   WaveformIcon,
   WrenchIcon,
-  MusicIcon,
-  LayersIcon,
   BraceIcon,
   SlidersIcon,
   LightbulbIcon,
-  BookOpenIcon,
-  CrosshairIcon,
   TagIcon,
   MoreCircleIcon,
-  SearchIcon,
-  GaugeIcon,
   RefreshIcon,
   GuitarsIcon,
   MaterialLayersIcon,
@@ -68,17 +62,11 @@ const ICONS = {
   filePlay: FilePlayIcon,
   waveform: WaveformIcon,
   wrench: WrenchIcon,
-  music: MusicIcon,
-  layers: LayersIcon,
   brace: BraceIcon,
   sliders: SlidersIcon,
   lightbulb: LightbulbIcon,
-  bookOpen: BookOpenIcon,
-  crosshair: CrosshairIcon,
   tag: TagIcon,
   ellipsis: MoreCircleIcon,
-  search: SearchIcon,
-  gauge: GaugeIcon,
   refresh: RefreshIcon,
   guitars: GuitarsIcon,
   materialLayers: MaterialLayersIcon,
@@ -231,7 +219,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Reading the Results',
-        body: "The Results panel is where you turn the captured frequencies into properties. Enter this sample's Sample Dimensions (Length, Width, Thickness, Mass) and Body Dimensions (Body Length, Lower Bout Width, Panel Stiffness); every number recomputes live. The panel shows: E_L / E_C — Young’s modulus along and across grain (GPa), with GLC (Shear) shown here when the Diagonal tap was measured; c_L / c_C — speed of sound in each direction (m/s); Specific modulus E/ρ — the primary quality metric (GPa per g/cm³); Radiation ratio — sound radiation efficiency; Cross/Long ratio — anisotropy (spruce: typically 0.04–0.08); Quality rating — Excellent / Very Good / Good / Fair / Poor (spruce scale); and Gore target thickness — the recommended finished plate thickness for a guitar of your specified body dimensions (requires the Diagonal (fLC) tap or uses an approximation).",
+        body: "The Results panel is where you turn the captured frequencies into properties. Enter this sample's Sample Dimensions (Length, Width, Thickness, Mass) and Body Dimensions (Body Length, Lower Bout Width, Panel Stiffness); every number recomputes live. The panel shows:\n• E_L / E_C — Young’s modulus along and across grain (GPa); GLC (Shear) appears here when the Diagonal tap was measured\n• c_L / c_C — Speed of sound in each direction (m/s)\n• Specific modulus E/ρ — The primary quality metric (GPa per g/cm³)\n• Radiation ratio — Sound radiation efficiency\n• Cross/Long ratio — Anisotropy (spruce: typically 0.04–0.08)\n• Quality rating — Excellent / Very Good / Good / Fair / Poor (spruce scale)\n• Gore target thickness — Recommended finished plate thickness for a guitar of your specified body dimensions (requires the Diagonal (fLC) tap or uses an approximation)",
       },
       {
         title: 'Spruce Quality Scale',
@@ -277,12 +265,12 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Pause / Resume • Accept (plate/brace review)',
         icon: ['pause', 'play', 'check'],
-        body: 'Pause temporarily suspends tap detection while keeping the spectrum live — use it to let the ring-out decay between taps in a multi-tap sequence, or to reposition a plate or brace before continuing. Resume re-arms the detector. In plate and brace mode, after each phase is captured the spectrum freezes for review; while in a review state the button changes to Accept. Click Accept to confirm the captured spectrum and advance to the next phase (or complete the measurement if it was the last phase).',
+        body: 'Pause temporarily suspends tap detection while keeping the spectrum live — use it to let the ring-out decay between taps in a multi-tap sequence, or to reposition a plate or brace before continuing. Resume re-arms the detector.\n\nIn plate and brace mode, after each phase is captured the spectrum freezes for review; while in a review state the button changes to Accept. Click Accept to confirm the captured spectrum and advance to the next phase (or complete the measurement if it was the last phase).',
       },
       {
         title: 'Cancel • Redo (plate/brace review)',
         icon: ['cancel', 'undo'],
-        body: "Cancel restarts the measurement — it discards all partial data and immediately re-arms a fresh sequence, so you can tap again without clicking New Tap. Cancel is available while a measurement is in progress. In plate and brace mode, while reviewing a captured phase the button changes to Redo — click Redo to discard only the current phase's data and re-capture it, preserving earlier phases. Either way the detector re-arms immediately.",
+        body: "Cancel restarts the measurement — it discards all partial data and immediately re-arms a fresh sequence, so you can tap again without clicking New Tap. Cancel is available while a measurement is in progress.\n\nIn plate and brace mode, while reviewing a captured phase the button changes to Redo — click Redo to discard only the current phase's data and re-capture it, preserving earlier phases. Either way the detector re-arms immediately.",
       },
       {
         title: 'Analysis Results',
@@ -313,7 +301,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
         icon: 'play',
         body:
           "Click the Play File button in the toolbar to feed a WAV or audio file through the FFT pipeline instead of the microphone. The file's tap is analysed exactly as a live microphone tap — tap detection fires automatically, peaks are found, and results appear in the panel. The chart title shows the filename while the file plays. After playback the microphone restarts automatically.\n\n" +
-          '⚠️ Plate and brace files need half a second of room tone before the first tap. Those modes measure the room’s noise floor from the audio ahead of the tap and detect relative to it, so the file must actually contain that lead-in. Recordings made by Guitar Tap always do. A file recorded elsewhere may not: if its first tap falls inside that opening half-second the tap is treated as part of the settling period, is not detected, and nothing is captured — re-record with a moment of silence in front of the first tap. Guitar files are unaffected.',
+          '⚠\uFE0E Plate and brace files need half a second of room tone before the first tap. Those modes measure the room’s noise floor from the audio ahead of the tap and detect relative to it, so the file must actually contain that lead-in. Recordings made by Guitar Tap always do. A file recorded elsewhere may not: if its first tap falls inside that opening half-second the tap is treated as part of the settling period, is not detected, and nothing is captured — re-record with a moment of silence in front of the first tap. Guitar files are unaffected.',
       },
       {
         title: 'Save',
@@ -328,7 +316,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Compare Measurements',
         icon: 'waveform',
-        body: 'In the Measurements list, click Compare to enter selection mode. Select 2–5 saved guitar measurements (plate and brace measurements cannot be compared). Click Compare Selected to overlay all selected spectra on the main chart as colour-coded curves with a legend. The chart, cursor, zoom, and pan all work normally. Press New Tap to exit comparison and return to single-measurement mode. While comparing: Annotations is disabled; Threshold and Peak Min sliders are disabled. Export Spectrum produces an overlay image with all curves, their colours, and a legend. Export PDF Report generates a comparison report showing the spectrum image and an Air / Top / Back peak frequency table for each spectrum. Save stores the entire comparison as a single record in the Measurements list — it can be reloaded later to restore the overlay view exactly as it was, and can itself be exported as a PDF or spectrum image from the list.',
+        body: 'In the Measurements list, click Compare to enter selection mode. Select 2–5 saved guitar measurements (plate and brace measurements cannot be compared). Click Compare Selected to overlay all selected spectra on the main chart as colour-coded curves with a legend. The chart, cursor, zoom, and pan all work normally. Press New Tap to exit comparison and return to single-measurement mode.\n\nWhile comparing: Annotations is disabled; Threshold and Peak Min sliders are disabled. Export Spectrum produces an overlay image with all curves, their colours, and a legend. Export PDF Report generates a comparison report showing the spectrum image and an Air / Top / Back peak frequency table for each spectrum. Save stores the entire comparison as a single record in the Measurements list — it can be reloaded later to restore the overlay view exactly as it was, and can itself be exported as a PDF or spectrum image from the list.',
       },
       {
         title: 'Metrics',

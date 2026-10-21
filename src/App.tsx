@@ -39,7 +39,7 @@ import type { TapToneMeasurementModel, ComparisonEntryModel } from './measuremen
 import { GUITAR_FFT_SIZE } from './dsp/guitarFFT'
 import { MultiTapComparisonResultsView, type MultiTapRow } from './components/MultiTapComparisonResultsView'
 import { resolvedModePeaks, type ResolvedMode } from './dsp/classify'
-import { modeBands, peaksInDisplayRange, type GuitarTypeName } from './dsp/guitarModes'
+import { peaksInDisplayRange, type GuitarTypeName } from './dsp/guitarModes'
 import { Pitch } from './dsp/pitch'
 import { FieldPrecision } from './precision'
 import { formatDisplayDate } from './format/date'
@@ -400,12 +400,6 @@ export default function App() {
   const tapRatio = useMemo(() => (material ? null : analyzer.tapToneRatio()), [material, analyzer, snapshot])
   // displayPeaks / displayPeaksInRange are defined below useAnnotations — they now depend on the
   // override state (a user-named peak is "known"), which the hook provides.
-  const bandByMode = useMemo(() => {
-    const m = new Map<string, { lo: number; hi: number }>()
-    for (const b of modeBands(guitarType)) m.set(b.name, { lo: b.lo, hi: b.hi })
-    return m
-  }, [guitarType])
-
   // Per-peak SELECTION, overrides, and dragged offsets all live on the analyzer, keyed by peak id —
   // read them from the snapshot, write via analyzer methods.
   const selectedIds = snapshot.selectedPeakIds
@@ -439,11 +433,7 @@ export default function App() {
         : sortedPeaks.filter((p) => (modeByPeak.get(p.id) ?? 'unknown') !== 'unknown' || overriddenPeakIds.has(p.id)),
     [sortedPeaks, modeByPeak, showUnknownModes, overriddenPeakIds],
   )
-  const inRangeFor = (p: ResonantPeak, mode: ResolvedMode): boolean | null => {
-    if (mode === 'unknown' || mode === 'upper') return null
-    const band = bandByMode.get(mode)
-    return band ? p.frequency >= band.lo && p.frequency <= band.hi : null
-  }
+  const isClassified = (mode: ResolvedMode): boolean => mode !== 'unknown' && mode !== 'upper'
 
 
   // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors). Reuses the shared
@@ -1256,7 +1246,7 @@ export default function App() {
                         mode={mode}
                         effectiveLabel={analyzer.effectiveModeLabel(p.id)}
                         isManualOverride={analyzer.hasManualOverride(p.id)}
-                        inRange={inRangeFor(p, mode)}
+                        classified={isClassified(mode)}
                         note={note}
                         cents={note ? pitch.cents(p.frequency) : null}
                         selected={selectedIds.has(p.id)}

@@ -78,19 +78,19 @@ export const EMPTY_MAT_SPECTRA: MatSpectra = { longitudinal: null, cross: null, 
 
 /** The clipping-override warning (Swift `TapToneAnalyzer.clippingWarningStatus` / Python
  *  `_set_clipping`). Displayed while the input clips, then the real status is restored. */
-const CLIPPING_WARNING = '⚠ Input clipping — reduce mic gain'
+const CLIPPING_WARNING = '⚠\uFE0E Input clipping — reduce mic gain'
 /** Shown while the input delivers buffers that carry no signal. Outranks the clipping warning.
  *  Mirrors Swift `TapToneAnalyzer.deadInputStatus` / Python `DEAD_INPUT_STATUS`. */
-const DEAD_INPUT_WARNING = '⚠ No audio input — check the microphone connection'
+const DEAD_INPUT_WARNING = '⚠\uFE0E No audio input — check the microphone connection'
 /** Shown once the recovery has given up after restarts that failed. Outranks every other input warning.
  *  Mirrors Swift `TapToneAnalyzer.couldNotRestartStatus` / Python `COULD_NOT_RESTART_STATUS`. */
-const COULD_NOT_RESTART_WARNING = '⚠ The microphone could not be restarted — check its connection, or choose it again in Settings'
+const COULD_NOT_RESTART_WARNING = '⚠\uFE0E The microphone could not be restarted — check its connection, or choose it again in Settings'
 /** Shown while the microphone permission is refused. Outranks every other input warning. Mirrors Swift
  *  `TapToneAnalyzer.microphoneAccessStatus` / Python `MICROPHONE_ACCESS_STATUS`. */
-export const MICROPHONE_ACCESS_WARNING = '⚠ Microphone access required — enable it in Settings, then reload the page'
+export const MICROPHONE_ACCESS_WARNING = '⚠\uFE0E Microphone access required — enable it in Settings, then reload the page'
 /** Shown while the input could not be started. Ranks just below the permission warning. Mirrors Swift
  *  `TapToneAnalyzer.couldNotStartStatus` / Python `COULD_NOT_START_STATUS`. */
-const COULD_NOT_START_WARNING = '⚠ The audio input could not be started — check it, or choose another input in Settings'
+const COULD_NOT_START_WARNING = '⚠\uFE0E The audio input could not be started — check it, or choose another input in Settings'
 
 /** A material phase peak's frequency, 1 dp, or '?' when none — for the status-bar review/complete strings. */
 const fHz = (p: { frequency: number } | null): string => (p ? FieldPrecision.string(p.frequency, FieldPrecision.peakFrequencyHz) : '?')
@@ -1402,7 +1402,7 @@ export class TapToneAnalyzer {
     const skipped = TapToneAnalyzer.skippedEntriesMessage(unreadable)
     if (skipped) message += '\n\n' + skipped
     if (imported.length === 1 && this.microphoneWarning) {
-      message += '\n\n⚠️ ' + this.microphoneWarning
+      message += '\n\n⚠\uFE0E ' + this.microphoneWarning
       this.microphoneWarning = null
       this.notify()
     }

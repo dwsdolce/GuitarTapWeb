@@ -332,13 +332,13 @@ export function MaterialResults({ type, matInputs, onInputsChange, measureFlc, p
 
         <div className="mat-row">
           <span className="mat-label">Cross/Long Ratio:</span>
-          <span className="mat-value">
+          <span className="mat-value mat-ratio">
             {FieldPrecision.string(crossLong, FieldPrecision.crossLongRatio)} <em className="mat-hint">(typical: 0.04–0.08)</em>
           </span>
         </div>
         <div className="mat-row">
           <span className="mat-label">Long/Cross Ratio:</span>
-          <span className="mat-value">
+          <span className="mat-value mat-ratio">
             {FieldPrecision.string(longCross, FieldPrecision.longCrossRatio)} <em className="mat-hint">(typical: 12–25)</em>
           </span>
         </div>

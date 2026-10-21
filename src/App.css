@@ -197,8 +197,8 @@
   color: var(--c-text-secondary);
   line-height: 1.35;
   font-size: 10px;
-  /* Preserve paragraph breaks (\n\n) inside a help body — used where an entry carries a note or
-     warning after its main text. Collapses ordinary whitespace, so entries without newlines are
+  /* Preserve line breaks inside a help body — a note after its main text (\n\n), a list of
+     bullets (\n•), as Swift's. Collapses ordinary whitespace, so entries without newlines are
      unaffected. */
   white-space: pre-line;
 }
@@ -362,6 +362,13 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* The plate's Cross/Long and Long/Cross values bold, their hints regular, as Swift's. */
+.mat-value.mat-ratio {
+  font-weight: 700;
+}
+.mat-value.mat-ratio em {
+  font-weight: 400;
 }
 .mat-value em {
   color: var(--c-text-secondary);
@@ -1990,11 +1997,8 @@
   font-weight: 600;
   line-height: 1.2;
 }
-.range-flag.ok {
+.range-flag {
   color: var(--c-peak-in-range);
-}
-.range-flag.warn {
-  color: var(--c-peak-out-of-range);
 }
 
 .peak-info {

@@ -70,7 +70,6 @@ export const ROLES = {
   'peak.selectedStar': { light: '#007AFF', dark: '#0A84FF' },
   'peak.unselectedStar': { light: '#6B7785', dark: '#8A96A5' },
   'peak.inRange': { light: '#34C759', dark: '#30D158' },
-  'peak.outOfRange': { light: '#FF9500', dark: '#FF9F0A' },
   'quality.gray': { light: '#8E8E93', dark: '#8E8E93' },
   'quality.orange': { light: '#FF9500', dark: '#FF9F0A' },
   'quality.yellow': { light: '#FFCC00', dark: '#FFD60A' },
