@@ -3,13 +3,13 @@
  * One contract, three mechanisms: an audio buffer's level is announced on the input level alone.
  *
  * The level changes on every buffer, many times a second. Whatever announces it is redrawn that often,
- * so only the threshold meter may hear it: announced by the engine or the analyzer — held as React state
- * in the app, as it once was — every buffer re-renders everything that listens to them. The values were
- * right all along; only who was told was wrong, so the value tests could not see it.
+ * so only the threshold meter may hear it: announced by the engine or the analyzer — or held as React
+ * state in the app — every buffer re-renders everything that listens to them. The values can be right
+ * while the wrong listeners are told, which tests of the values cannot see.
  *
  * Swift checks `objectWillChange` on each object, Python which signals fire, the web which listeners and
- * callbacks are called. `onAudioFrame` is the engine's per-chunk delivery to the analyzer's detection —
- * Swift's `rmsLevelHandler`, Python's private per-chunk signal — not an announcement; it is wired as the
+ * callbacks are called. `onAudioFrame` is the engine's per-chunk delivery to the analyzer — Swift's
+ * `audioFrameHandler`, Python's `audio_frame_handler` — not an announcement; it is wired as the
  * app wires it, and every other engine callback is counted.
  *
  * Mirrors: GuitarTapTests/InputLevelTests.swift · tests/test_input_level.py

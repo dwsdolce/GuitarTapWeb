@@ -2784,9 +2784,7 @@ export class TapToneAnalyzer {
 
   /** Every chunk of audio: the pre-roll keeps its newest `preRollSamples`, the session recording takes
    *  it, and a capture under way takes it — and, once it holds `gatedCaptureSamples`, is handed to the
-   *  finisher for its phase. Swift `accumulateGatedSamples(_:sampleRate:)` (its audio-thread fast start
-   *  and deferred pre-roll are the natives': their audio arrives on another thread than the capture
-   *  start, where the web's audio and analyzer share one). */
+   *  finisher for its phase. Swift `accumulateGatedSamples(_:sampleRate:)`. */
   private accumulateGatedSamples(samples: Float32Array, sampleRate: number): void {
     this.mpmSampleRate = sampleRate
     for (let i = 0; i < samples.length; i++) this.preRollBuffer.push(samples[i]!)
