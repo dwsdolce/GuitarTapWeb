@@ -4,7 +4,7 @@
 // hysteresis latch and the re-arm rule, the warm-up and its sync chunk, relative detection and its noise
 // floor, the confirmation a resume or a new sequence restarts — and the gated capture's onset alignment.
 // Every chunk goes through `processAudioFrame`, the per-chunk entry audio takes, after arming the way the
-// app does; no case sets the detector's state by hand. The shared cases in tap-decisions.json (T1–T14,
+// app does; no case sets the detector's state by hand. The shared cases in tap-decisions.json (T1–T17,
 // O1–O3), the same as Swift and Python.
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -38,6 +38,7 @@ function check(fields: Fields, a: TapToneAnalyzer): void {
         break
       case 'phase': expect(PHASE_RAW[a.materialTapPhase], field).toBe(want); break
       case 'detecting': expect(a.isDetecting, field).toBe(want); break
+      case 'complete': expect(a.isMeasurementComplete, field).toBe(want); break
       case 'statusMessage': expect(a.statusMessage, field).toBe(want); break
       default: throw new Error(`unknown field ${field}`)
     }
