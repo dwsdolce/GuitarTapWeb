@@ -44,6 +44,8 @@ export type AnalyzerStep = {
   stall?: number
   /** The engine restarted on a device change. */
   routeChange?: boolean
+  /** The engine stopped or started again, as a retry after a failed start does. */
+  engineRunning?: boolean
   /** One FFT frame from the running engine, a spectrum as peaks.json describes one. */
   spectrumFrame?: Record<string, unknown>
   /** That much real audio (a 200 Hz tone at `level`) through the microphone's path. */
@@ -117,6 +119,9 @@ export function runAnalyzerStep(step: AnalyzerStep, a: TapToneAnalyzer): boolean
           : step.advance === 'warmupPeriod' ? a.warmupPeriod
             : step.advance
     advanceAudio(a, seconds * (step.fraction ?? 1) + (step.extra ?? 0), step.level ?? -90)
+  } else if (step.engineRunning !== undefined) {
+    runningEngine(a)
+    ;(a.device as unknown as { headless: boolean }).headless = step.engineRunning
   } else if (step.routeChange) {
     runningEngine(a)
     a.handleRouteChangeRestart()

@@ -4084,8 +4084,15 @@ export class TapToneAnalyzer {
 
     this.routeChangeGeneration += 1
     const generation = this.routeChangeGeneration
-    this.afterAudio(3.0, () => {
-      if (generation !== this.routeChangeGeneration || !this.attachedDevice?.running) return
+    // Swift `scheduleRouteChangeSettleEnd`: a later change supersedes this one; and if the engine is
+    // restarting again when the settle is due — a retry after a start that failed — the settle waits that
+    // much audio from the restarted engine instead of ending without it, so it cannot be left waiting for good.
+    const settled = (): void => {
+      if (generation !== this.routeChangeGeneration) return
+      if (!this.attachedDevice?.running) {
+        this.afterAudio(3.0, settled)
+        return
+      }
       // Wait for the next FFT frame, so the re-anchor and the unblanking happen on the first frame
       // the user sees.
       this.afterNextFrame((peakMagnitude) => {
@@ -4101,7 +4108,8 @@ export class TapToneAnalyzer {
         this.statusBeforeSettle = null
         this.notify()
       })
-    })
+    }
+    this.afterAudio(3.0, settled)
     this.notify()
   }
 }

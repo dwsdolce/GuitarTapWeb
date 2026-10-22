@@ -93,16 +93,6 @@ export function parseCalibration(content: string, name = 'calibration'): Calibra
   return { name, sensitivityFactor, referenceLevel, points }
 }
 
-/**
- * Interpolate corrections onto `binFreqs` — linear between calibration points,
- * with flat extrapolation at the edges (equivalent to
- * `numpy.interp(binFreqs, xs, ys, left=ys[0], right=ys[-1])`). An empty
- * calibration yields all-zero corrections.
- *
- * @param cal Parsed calibration; its `points` must be sorted ascending by frequency.
- * @param binFreqs FFT bin centre frequencies, in Hz.
- * @returns Additive dB corrections, parallel to `binFreqs`.
- */
 /** The details Settings shows for a calibration: its sensitivity (when the file gives one), its number of
  *  points, and the frequencies they span (when it has any). Mirrors Swift `MicrophoneCalibration.details`. */
 export function calibrationDetails(cal: Calibration): { sensitivity: string | null; dataPoints: string; range: string | null } {
@@ -115,35 +105,59 @@ export function calibrationDetails(cal: Calibration): { sensitivity: string | nu
   }
 }
 
+/** The correction at one frequency: the bracketing points' corrections interpolated linearly, flat past
+ *  either end. Mirrors Swift `MicrophoneCalibration.correction(at:)`. */
+export function correctionAt(pts: CalibrationPoint[], x: number): number {
+  if (pts.length === 0) return 0
+  if (pts.length === 1) return pts[0]!.correction
+  const first = pts[0]!
+  const last = pts[pts.length - 1]!
+  if (x <= first.frequency) return first.correction
+  if (x >= last.frequency) return last.correction
+  for (let i = 0; i < pts.length - 1; i++) {
+    const low = pts[i]!
+    const high = pts[i + 1]!
+    if (x >= low.frequency && x <= high.frequency) {
+      const t = (x - low.frequency) / (high.frequency - low.frequency)
+      return low.correction + t * (high.correction - low.correction)
+    }
+  }
+  return 0
+}
+
+/**
+ * Interpolate corrections onto `binFreqs` — linear between calibration points,
+ * with flat extrapolation at the edges. An empty calibration yields all-zero
+ * corrections. Mirrors Swift `MicrophoneCalibration.corrections(for:)`.
+ *
+ * @param cal Parsed calibration; its `points` must be sorted ascending by frequency.
+ * @param binFreqs FFT bin centre frequencies, in Hz (ascending, as the FFT's are; any order is accepted).
+ * @returns Additive dB corrections, parallel to `binFreqs`.
+ */
 export function interpolateToBins(cal: Calibration, binFreqs: ArrayLike<number>): number[] {
   const pts = cal.points
-  const out = new Array<number>(binFreqs.length)
-  if (pts.length === 0) {
-    out.fill(0)
-    return out
-  }
-  const first = pts[0]!.correction
-  const last = pts[pts.length - 1]!.correction
-  for (let i = 0; i < binFreqs.length; i++) {
-    const x = binFreqs[i]!
-    if (x <= pts[0]!.frequency) {
-      out[i] = first
-    } else if (x >= pts[pts.length - 1]!.frequency) {
-      out[i] = last
+  const n = binFreqs.length
+  let ascending = true
+  for (let k = 1; k < n && ascending; k++) ascending = binFreqs[k - 1]! <= binFreqs[k]!
+  // The FFT's bins ascend, as the points do: one pass over both — each bin's bracketing pair is the
+  // previous bin's or one after it — with the same values as correctionAt for every bin.
+  if (pts.length <= 1 || !ascending) return Array.from(binFreqs, (x) => correctionAt(pts, x))
+  const first = pts[0]!
+  const last = pts[pts.length - 1]!
+  const out = new Array<number>(n)
+  let i = 0
+  for (let k = 0; k < n; k++) {
+    const x = binFreqs[k]!
+    if (x <= first.frequency) {
+      out[k] = first.correction
+    } else if (x >= last.frequency) {
+      out[k] = last.correction
     } else {
-      // Binary search for the interval [lo, hi] with xs[lo] <= x < xs[hi].
-      let lo = 0
-      let hi = pts.length - 1
-      while (hi - lo > 1) {
-        const mid = (lo + hi) >> 1
-        if (pts[mid]!.frequency <= x) lo = mid
-        else hi = mid
-      }
-      const x0 = pts[lo]!.frequency
-      const x1 = pts[hi]!.frequency
-      const y0 = pts[lo]!.correction
-      const y1 = pts[hi]!.correction
-      out[i] = y0 + ((x - x0) / (x1 - x0)) * (y1 - y0)
+      while (x > pts[i + 1]!.frequency) i++
+      const low = pts[i]!
+      const high = pts[i + 1]!
+      const t = (x - low.frequency) / (high.frequency - low.frequency)
+      out[k] = low.correction + t * (high.correction - low.correction)
     }
   }
   return out

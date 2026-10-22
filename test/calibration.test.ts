@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { RealtimeFFTAnalyzer } from '../src/audio/realtimeFFTAnalyzer'
-import { calibrationDetails, parseCalibration } from '../src/dsp/calibration'
+import { calibrationDetails, correctionAt, interpolateToBins, parseCalibration } from '../src/dsp/calibration'
 
 const DATA = JSON.parse(readFileSync('test/fixtures/calibration.json', 'utf8')) as {
   calibrationFile: string
@@ -37,6 +37,21 @@ describe('calibration — the engine’s corrections (calibration.json)', () => 
       })
     })
   }
+})
+
+describe('calibration — the corrections for all bins at once', () => {
+  // Every bin's correction, computed for all the FFT's bins at once, is the one correctionAt gives that bin
+  // alone — exactly, for the bins of 48 kHz and of 44.1 kHz and for unsorted frequencies. As Swift
+  // correctionsForAllBins_areEachBinsCorrection.
+  it('each bin’s correction, for all bins and for unsorted frequencies', () => {
+    const cal = parseCalibration(readFileSync(`test/fixtures/${DATA.calibrationFile}`, 'utf8'))
+    for (const rate of [48000, 44100]) {
+      const bins = Array.from({ length: DATA.fftSize / 2 }, (_, i) => (i * rate) / DATA.fftSize)
+      expect(interpolateToBins(cal, bins), `${rate} Hz`).toEqual(bins.map((f) => correctionAt(cal.points, f)))
+    }
+    const unsorted = [1000, 20, 5000, 20, 19000, 3]
+    expect(interpolateToBins(cal, unsorted)).toEqual(unsorted.map((f) => correctionAt(cal.points, f)))
+  })
 })
 
 describe('calibration — reading a calibration file (calibration.json)', () => {
