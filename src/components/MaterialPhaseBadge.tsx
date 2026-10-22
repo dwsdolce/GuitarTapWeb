@@ -1,3 +1,4 @@
+// @parity view/material-peak-role
 import { MATERIAL_PEAK_ROLE_BADGE, MATERIAL_PEAK_ROLE_COLOR, type MaterialPeakRole } from '../presentation/materialPeakRole'
 import { cssVariable } from '../presentation/palette'
 

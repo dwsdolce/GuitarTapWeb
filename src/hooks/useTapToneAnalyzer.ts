@@ -1,3 +1,4 @@
+// @parity view/main
 // Constructs the single TapToneAnalyzer (the web's lifecycle-state owner, mirroring Swift/Python
 // TapToneAnalyzer), with the engine it owns for its life, and exposes its immutable snapshot to React via
 // useSyncExternalStore; the snapshot re-renders on each notify().

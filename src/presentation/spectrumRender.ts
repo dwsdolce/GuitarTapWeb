@@ -1,3 +1,5 @@
+// @parity view/spectrum-chart
+// @parity view/peak-annotations
 // Canvas renderer for the spectrum chart — the single source of truth shared by the on-screen
 // SpectrumChart (dark theme) and the PNG/PDF export (light theme), so the two CANNOT drift. Draws a
 // centered title, gridlines + tick labels OUTSIDE a bordered plot, axis titles, mode-boundary dashed
@@ -12,6 +14,7 @@ import { color as roleColor, modeRole, opacity, type Role } from './palette'
 import type { Scheme } from './appearance'
 import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect, DotHit } from './chartTypes'
 import { formattedAsFrequency } from './frequencyFormat'
+import { nearestSeriesIndex, snapToWaveform } from './snapInterpolation'
 import { FieldPrecision } from '../precision'
 import { SCREEN, diameter, type ChartLines } from './chartStyle'
 import { formatTickLabels, generateTicks, magnitudeStride } from './axisTicks'
@@ -132,25 +135,12 @@ export interface RenderOpts {
   /** Live pointer crosshair (CSS px). Always-on hover readout; mirrors Python fft_canvas
    *  `_on_mouse_moved` / Swift desktop crosshair. Omitted for exports (no crosshair in PNG/PDF). */
   crosshair?: { x: number; y: number } | null
-  /** When true (a frozen/captured result is shown), the crosshair snaps to the nearest
-   *  spectrum bin so the readout reflects actual data; otherwise it tracks freely. */
+  /** When true (a frozen/captured result is shown), the crosshair reads the spectrum at the pointer's frequency,
+   *  interpolated between the bins either side; otherwise it tracks freely. */
   frozen?: boolean
-}
-
-/** Nearest index in a sorted ascending array to `target` (for crosshair bin snap). */
-function nearestIndex(sorted: ArrayLike<number>, target: number): number {
-  const n = sorted.length
-  if (n === 0) return -1
-  let lo = 0
-  let hi = n - 1
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (sorted[mid]! < target) lo = mid + 1
-    else hi = mid
-  }
-  // lo is the first >= target; check the neighbor for the truly nearest.
-  if (lo > 0 && Math.abs(sorted[lo - 1]! - target) <= Math.abs(sorted[lo]! - target)) return lo - 1
-  return lo
+  /** The overlay curve the crosshair follows (-1: none), kept by the caller between draws and updated here —
+   *  Swift's lockedSeriesIndex. */
+  crosshairLock?: { index: number }
 }
 
 /** Draw the spectrum chart into ctx over a W×H region (origin at 0,0). */
@@ -383,7 +373,10 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
 
   // ── Crosshair (always-live pointer readout; mirrors Python fft_canvas._on_mouse_moved) ──
   const ch = opts.crosshair
-  if (ch && ch.x >= plotL && ch.x <= plotR && ch.y >= plotT && ch.y <= plotB) {
+  const inPlot = !!ch && ch.x >= plotL && ch.x <= plotR && ch.y >= plotT && ch.y <= plotB
+  // The pointer off the plot drops the curve it followed, as Swift's.
+  if (!inPlot && opts.crosshairLock) opts.crosshairLock.index = -1
+  if (ch && inPlot) {
     // Inverse of xFor/yFor.
     const hzAt = minHz + ((ch.x - plotL) / plotW) * (maxHz - minHz)
     let dispHz = hzAt
@@ -391,28 +384,25 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     let freqColor = th.crosshairFreq
 
     if (overlays.length > 0) {
-      // Always lock to the nearest overlay curve (vertically follows it), colored to it.
-      // Mirrors Python: when comparing, the crosshair snaps to a curve at all times; the
-      // 12 px "gravity" is only hysteresis for switching which curve (added later).
-      let bestDy = Infinity
-      for (const ov of overlays) {
-        const fs = ov.frequencies
-        const ms = ov.magnitudesDb
-        if (!fs.length) continue
-        const i = nearestIndex(fs, hzAt)
-        const dy = Math.abs(ch.y - yFor(ms[i]!))
-        if (dy < bestDy) {
-          bestDy = dy
-          dispHz = fs[i]!
-          dispDb = ms[i]!
-          freqColor = overlayColor(ov, th)
-        }
+      // Follow the nearest overlay curve on screen, kept until another is CURVE_GRAVITY_PX nearer, and read it at
+      // the pointer's frequency, in its colour — Swift's resolveSnapState → nearestSeriesIndex, snapToWaveform.
+      const lock = opts.crosshairLock ?? { index: -1 }
+      const series = overlays.map((ov) => ({ magnitudes: ov.magnitudesDb, frequencies: ov.frequencies }))
+      lock.index = nearestSeriesIndex(hzAt, ch.y, yFor, series, lock.index)
+      const ov = overlays[lock.index]
+      const snapped = ov ? snapToWaveform(hzAt, ov.magnitudesDb, ov.frequencies) : null
+      if (ov && snapped) {
+        dispHz = snapped.frequency
+        dispDb = snapped.magnitude
+        freqColor = overlayColor(ov, th)
       }
     } else if (opts.frozen && spectrum && spectrum.frequencies.length) {
-      // Snap to the nearest FFT bin of the frozen curve so the readout is an actual data value.
-      const i = nearestIndex(spectrum.frequencies, hzAt)
-      dispHz = spectrum.frequencies[i]!
-      dispDb = spectrum.magnitudesDb[i]!
+      // The frozen curve read at the pointer's frequency — Swift's snapToWaveform.
+      const snapped = snapToWaveform(hzAt, spectrum.magnitudesDb, spectrum.frequencies)
+      if (snapped) {
+        dispHz = snapped.frequency
+        dispDb = snapped.magnitude
+      }
     }
     // else: live — free cursor tracking.
 

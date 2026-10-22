@@ -1,3 +1,4 @@
+// @parity view/spectrum-chart
 // ViewModel for the spectrum chart's live view (zoom/pan range) + Auto-dB scaling. Owns the
 // `view` and `autoDb` state and the logic that mutates them (reset-to-saved/defaults, fit-dB-to-
 // spectrum), keeping App.tsx as wiring.

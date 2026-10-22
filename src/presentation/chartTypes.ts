@@ -1,3 +1,4 @@
+// @parity view/spectrum-chart
 // Shared chart data types — the contract between the SpectrumChart view, the canvas renderer
 // (spectrumRender), and the export/transform layer (spectrumExport / measurementImage / pdfReport).
 // Kept in the presentation layer (not in the SpectrumChart component) so renderer/export modules

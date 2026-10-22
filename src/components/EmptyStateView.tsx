@@ -1,3 +1,4 @@
+// @parity view/empty-state
 import type { ReactNode } from 'react'
 
 /** Swift's EmptyStateView: a large icon, a title and a message, centred in the space it is given. */

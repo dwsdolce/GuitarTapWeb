@@ -1,3 +1,4 @@
+// @parity view/file-exporter
 // Save a Blob/string to a user-chosen location via the File System Access API (Chromium: a real
 // "Save As…" dialog, so it can target iCloud Drive / Dropbox / any folder), falling back to a plain
 // download on Safari/Firefox (where the share sheet still offers "Save to Files"). Shared by every

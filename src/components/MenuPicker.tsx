@@ -1,3 +1,4 @@
+// @parity view/menu-picker
 import type { SelectHTMLAttributes } from 'react'
 import { UnfoldMoreIcon } from './icons'
 

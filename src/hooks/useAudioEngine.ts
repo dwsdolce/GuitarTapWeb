@@ -1,3 +1,4 @@
+// @parity view/main
 // The view's side of the audio engine, as Swift's view is of `tapToneAnalyzer.fftAnalyzer`: it starts
 // the analyzer when the app comes up and stops it when the app goes away, reports a start that fails
 // (the alerts, and Retry), and shows what the engine reports — the sample rate, the input devices and

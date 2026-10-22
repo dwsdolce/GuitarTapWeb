@@ -1,3 +1,4 @@
+// @parity view/measurements-list
 import type { CSSProperties } from 'react'
 
 // Placement math for the Saved Measurements row "⋯" menu. It lives in its own module so both

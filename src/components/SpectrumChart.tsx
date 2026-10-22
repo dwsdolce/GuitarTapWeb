@@ -117,6 +117,8 @@ export function SpectrumChart({
   // Live crosshair cursor position (CSS px), set on hover (buttons===0), cleared on
   // drag/leave. Drives the always-on readout in renderSpectrum.
   const [hover, setHover] = useState<{ x: number; y: number } | null>(null)
+  // The overlay curve the crosshair follows (-1: none), kept between draws — Swift's lockedSeriesIndex.
+  const crosshairLockRef = useRef({ index: -1 })
   // Touch crosshair mode is OWNED by the parent — the toggle lives on the control bar (between
   // Auto dB and Annotations), mirroring iOS, not on the chart surface. The chart only consumes
   // the flag for its pointer logic, and clears the crosshair when the mode is switched off.
@@ -194,6 +196,7 @@ export function SpectrumChart({
       highlightedPeakId,
       crosshair: hover,
       frozen,
+      crosshairLock: crosshairLockRef.current,
     })
   }, [spectrum, markers, overlays, title, guitarType, showModeBoundaries, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen, highlightedPeakId, scheme])
 

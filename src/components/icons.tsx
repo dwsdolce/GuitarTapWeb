@@ -1,3 +1,4 @@
+// @parity view/icons
 import { MDI } from './mdiPaths'
 import { CUSTOM } from './customIcons'
 // Shared monochrome line icons (Lucide-style, `currentColor` so they inherit text colour and

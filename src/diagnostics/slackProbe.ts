@@ -1,3 +1,4 @@
+// @parity diagnostics/slack-probe
 /**
  * A diagnostic: how much time the main thread has to spare while audio runs. Off unless the page's URL has
  * `?slackprobe`. Every 5 s it logs one line to the console, in the same form in every edition:

@@ -1,3 +1,4 @@
+// @parity view/peak-card
 // The custom mode-label editor, an in-page dialog mirroring Swift's CustomModeLabelPopover: a text field,
 // Cancel and Assign (Escape and Enter). In-page rather than the browser's own prompt, which makes Safari
 // suspend the page's audio.

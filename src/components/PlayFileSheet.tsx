@@ -1,3 +1,4 @@
+// @parity view/play-file-sheet
 import { useRef, useState } from 'react'
 
 export interface PlayFileSheetProps {

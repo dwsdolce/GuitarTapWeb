@@ -1,3 +1,4 @@
+// @parity none — the web's dialog for what Swift's .alert and Python's QMessageBox show with the platform's own.
 // A simple modal alert dialog, mirroring the native apps' .alert(...) popups
 // (Swift "Microphone Not Connected" / "Microphone Access Required" / "Audio Engine
 // Error"). Reuses the Settings/Metrics overlay styling.
