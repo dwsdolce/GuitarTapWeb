@@ -24,7 +24,9 @@ class SpectrumProcessor extends AudioWorkletProcessor {
           const rms = Math.sqrt(sumSq / this.CHUNK)
           // Transfer a copy so the main thread owns the buffer.
           const out = this.buf.slice()
-          this.port.postMessage({ samples: out, rms }, [out.buffer])
+          // `time`: the audio clock at the post, for the main thread's latency diagnostic.
+          const time = typeof currentTime === 'number' ? currentTime : undefined
+          this.port.postMessage({ samples: out, rms, time }, [out.buffer])
           this.idx = 0
         }
       }

@@ -40,6 +40,7 @@ import { FieldPrecision } from '../precision'
 import { captureProbe } from './captureProbe'
 import { SystemWallClock, type WallClock } from './wallClock'
 import { spanningRange } from '../presentation/displayRange'
+import { slackSetChunkPeriod, slackStart, slackTime } from '../diagnostics/slackProbe'
 
 /** The tap detector's state. Mirrors Swift `DetectionState` (DetectionState.swift) and Python
  *  `DetectionState` (models/detection_state.py).
@@ -2002,12 +2003,16 @@ export class TapToneAnalyzer {
         // The device is the microphone, the FFT and the watchdogs — it hands every chunk up and the
         // analyzer does the rest: pre-roll, detection, gated capture, the tap count, the status
         // strings and the L→C→FLC phase machine. That is Swift's split.
-        device.onAudioFrame((samples, levelDb, audioTime) => this.processAudioFrame(samples, levelDb, audioTime)),
+        device.onAudioFrame((samples, levelDb, audioTime) => {
+          slackStart()
+          slackSetChunkPeriod(samples.length, this.mpmSampleRate)
+          slackTime('main/chunk', () => this.processAudioFrame(samples, levelDb, audioTime))
+        }),
         // Each live frame: the live peaks while a sequence runs (Swift's sink on fftAnalyzer.frame →
         // onFftFrame → analyzeMagnitudes).
         device.frame.onFrame(() => {
           const spectrum = device.frame.spectrum
-          if (spectrum) this.onFftFrame(spectrum.magnitudesDb, spectrum.frequencies)
+          if (spectrum) slackTime('frame', () => this.onFftFrame(spectrum.magnitudesDb, spectrum.frequencies))
         }),
         // Input clipping → the status override (Swift `fftAnalyzer.level.$isClipping` sink /
         // Python `level.clippingChanged` → `_set_clipping`).
@@ -2690,7 +2695,7 @@ export class TapToneAnalyzer {
    *  audio-queue level-crossing handler. */
   processAudioFrame(samples: Float32Array, levelDb: number, audioTime: number): void {
     this.inputLevelDb = levelDb
-    this.accumulateGatedSamples(samples, this.attachedDevice?.sampleRate ?? this.mpmSampleRate)
+    slackTime('accumulate', () => this.accumulateGatedSamples(samples, this.attachedDevice?.sampleRate ?? this.mpmSampleRate))
     // The chunk reaches detection AFTER its samples fed the capture — as in Swift, where a filled
     // capture's finish is queued on the main thread ahead of the same chunk's level. So a finish sees
     // the audio clock at the end of the previous chunk, in every edition.

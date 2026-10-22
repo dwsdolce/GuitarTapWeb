@@ -1,4 +1,5 @@
 // @parity audio/realtime-analyzer
+import { slackProbeEnabled, slackRecord } from '../diagnostics/slackProbe'
 import { BUFFER_DELIVERY_TIMEOUT_MS, DEAD_INPUT_DWELL_MS, chunkCarriesSignal, watchdogDecision } from './deadInput'
 import { InputLevel } from './inputLevel'
 import { LiveFrame } from './liveFrame'
@@ -69,6 +70,8 @@ const PEAK_HOLD_SECONDS = 2.0
 interface ChunkMessage {
   samples: Float32Array
   rms: number
+  /** The audio clock when the worklet posted the chunk (seconds). */
+  time?: number
 }
 
 /**
@@ -1066,6 +1069,9 @@ export class RealtimeFFTAnalyzer {
   }
 
   private onChunk(data: ChunkMessage): void {
+    if (slackProbeEnabled && data.time !== undefined && this.context) {
+      slackRecord('latency', (this.context.currentTime - data.time) * 1000)
+    }
     const now = this.nowMs()
     this.lastChunkTime = now // watchdog liveness stamp (the mic worklet is alive)
     // Dead-input stamp: reuses the rms the worklet already computed, so this costs
@@ -1287,6 +1293,7 @@ export class RealtimeFFTAnalyzer {
       if (this.accumIdx >= this.accum.length) {
         const t0 = performance.now()
         const spectrum = this.performFFT(this.accum)
+        slackRecord('fft', performance.now() - t0)
         this.publishFrame(spectrum, performance.now() - t0)
         this.accumIdx = 0
       }
