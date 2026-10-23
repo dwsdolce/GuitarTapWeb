@@ -89,9 +89,9 @@ const HINTS = {
  * Top-level app: the live-analysis orchestrator. Mirrors Swift `TapToneAnalysisView` /
  * Python `TapToneAnalysisView` (MainWindow) — shows the analyzer and its engine, wires the
  * spectrum chart, controls, threshold meter, results / peak cards, and the Settings /
- * Metrics / Help / Save / Measurements modals, delegating chart, annotation, material,
- * and engine concerns to the `useChartView` / `useAnnotations` / `useMaterialSession` /
- * `useAudioEngine` hooks.
+ * Metrics / Help / Save / Measurements modals. Measurement state — peaks, selection, annotations,
+ * the material session — is the analyzer's (read from its snapshot); the chart's view and the
+ * engine are the `useChartView` and `useAudioEngine` hooks.
  */
 export default function App() {
   // A loaded measurement's saved axis range — transient override of the persisted display
@@ -398,8 +398,8 @@ export default function App() {
   // so exhaustive-deps flags it; removing it would stop the ratio updating on selection/override changes.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const tapRatio = useMemo(() => (material ? null : analyzer.tapToneRatio()), [material, analyzer, snapshot])
-  // displayPeaks / displayPeaksInRange are defined below useAnnotations — they now depend on the
-  // override state (a user-named peak is "known"), which the hook provides.
+  // displayPeaks / displayPeaksInRange (below) depend on the override state — a user-named peak is
+  // "known" — which the analyzer holds.
   // Per-peak SELECTION, overrides, and dragged offsets all live on the analyzer, keyed by peak id —
   // read them from the snapshot, write via analyzer methods.
   const selectedIds = snapshot.selectedPeakIds

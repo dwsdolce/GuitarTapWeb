@@ -2586,8 +2586,8 @@ export class TapToneAnalyzer {
   /** Begin accumulating every pipeline chunk for the session WAV. Whether it is saved (`sessionActive`)
    *  is read from Dump Capture Audio here and again when the setting changes before the first tap; with
    *  it off only the bounded pre-roll is kept, and it is dropped at the first tap unless the setting has
-   *  been turned on by then (Swift/Python). Guitar calls this from `arm()`; live material drives it from
-   *  useMaterialSession. */
+   *  been turned on by then (Swift/Python). Called from `startTapSequence`, for guitar and material
+   *  alike. */
   startSessionRecording(): void {
     this.sessionSamples = new SampleBuffer()
     this.sessionCheckpoints = [0] // first-phase truncation anchor (Swift/Python seed [0] at start)
