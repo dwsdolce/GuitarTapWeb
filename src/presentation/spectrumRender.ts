@@ -333,20 +333,25 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.textAlign = 'left'
   }
 
-  // Mode labels — over the curves and dots, under the peak badges, as Swift's annotations.
+  // Mode labels and peak badges are cut at the plot's edges and never moved to stay inside — Swift's
+  // ModeChipsLayer and PeakAnnotationsOverlay, clipped to the plot.
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(plotL, plotT, plotW, plotH)
+  ctx.clip()
+
+  // Mode labels — over the curves and dots, under the peak badges: a chip centred on the start of each
+  // range, whether or not the start is on the chart (one just off it shows the part inside). The
+  // screen's, at the plot's top: .caption2 semibold, padded 4 / 2, mode colour at 15 %, corner 4. The
+  // export's, 4 below the top: .font(.system(size: 14, weight: .semibold)), padded 4 / 3, corner 6.
   for (const b of bands) {
     const color = roleColor(modeRole(b.name), undefined, th.scheme)
-    if (b.lo < minHz || b.lo > maxHz) continue
     const bx = xFor(b.lo)
     const label = MODE_LABEL[b.name]
-    // As Swift's, a chip centred on the line and kept inside the plot. The screen's, just inside the
-    // plot's top (.annotation(position: .top, overflowResolution: .fit(to: .plot))): .caption2
-    // semibold, padded 4 / 2, mode colour at 15 %, corner 4. The export's, 4 below the top:
-    // .font(.system(size: 14, weight: .semibold)), padded 4 / 3, corner 6.
     ctx.font = exporting ? '600 14px system-ui, sans-serif' : '600 10px system-ui, sans-serif'
     const lw = ctx.measureText(label).width + 8
     const lh = exporting ? 20 : 16
-    const lx = Math.max(plotL, Math.min(bx - lw / 2, plotR - lw))
+    const lx = bx - lw / 2
     const lt = exporting ? plotT + 4 : plotT
     ctx.fillStyle = hexA(color, opacity('mode.chipFill', th.scheme))
     ctx.beginPath()
@@ -358,18 +363,22 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.textAlign = 'left'
   }
 
-  // Annotation badges — Layer 2: only annotation-visible peaks, mirroring Swift's `visiblePeaks`
-  // (annotationVisibilityMode + selectedPeakIDs). Drawn after restore so they may overflow the plot
-  // slightly. Same visible-dB-floor omission as the dot layer.
+  // Annotation badges — Layer 2: the annotation-visible peaks (Swift's `visiblePeaks`:
+  // annotationVisibilityMode + selectedPeakIDs), whatever the chart's range. Each is centred on its label
+  // centre in chart units (`annoCentre`); its line runs from the peak's dot to that centre, under the badge.
   for (const m of markers) {
-    if (!m.annotated || m.frequency < minHz || m.frequency > maxHz || m.magnitude < minDb) continue
-    // Anchor = badge bottom-center. Default: just above the peak dot. Dragged: the stored
-    // data-space position (so the label stays put under the peak through zoom/pan).
-    const anchorX = m.annoOffset ? xFor(m.annoOffset[0]) : xFor(m.frequency)
-    const anchorBottom = m.annoOffset ? yFor(m.annoOffset[1]) : yFor(m.magnitude) - 10
-    const rect = drawBadge(ctx, m, xFor(m.frequency), yFor(m.magnitude), anchorX, anchorBottom, plotL, plotR, plotT, th, style, !!m.annoOffset, BADGES[opts.variant ?? 'screen'])
-    if (opts.badgeRectsOut && m.annoKey) opts.badgeRectsOut.push({ key: m.annoKey, ...rect })
+    if (!m.annotated || !m.annoCentre) continue
+    const rect = drawBadge(ctx, m, xFor(m.frequency), yFor(m.magnitude), xFor(m.annoCentre[0]), yFor(m.annoCentre[1]),
+      th, style, BADGES[opts.variant ?? 'screen'])
+    // For a pointer over the badge: the part inside the plot.
+    const x0 = Math.max(rect.x, plotL), y0 = Math.max(rect.y, plotT)
+    const x1 = Math.min(rect.x + rect.w, plotR), y1 = Math.min(rect.y + rect.h, plotB)
+    if (opts.badgeRectsOut && m.annoKey && x1 > x0 && y1 > y0) {
+      opts.badgeRectsOut.push({ key: m.annoKey, x: x0, y: y0, w: x1 - x0, h: y1 - y0,
+        cx: xFor(m.annoCentre[0]), cy: yFor(m.annoCentre[1]) })
+    }
   }
+  ctx.restore()
 
   // ── Crosshair (always-live pointer readout; mirrors Python fft_canvas._on_mouse_moved) ──
   const ch = opts.crosshair
@@ -457,16 +466,13 @@ interface BadgeMetrics {
   radius: number
   /** A border in the peak's colour (the screen badge) or a shadow (Swift's export card). */
   frame: 'border' | 'shadow'
-  /** Where an undragged card sits: its bottom just above the peak (the screen), or its centre 70 pt
-   *  above it with the leader from 50 pt below the centre (Swift's export). */
-  place: 'above' | 'centred70'
   /** The pitch line in one style (the screen), or Swift's runs: ♪ 14, the note 16 bold, the cents 14
    *  at 80 %. */
   pitchRuns: boolean
 }
 const BADGES: Record<'screen' | 'export', BadgeMetrics> = {
-  screen: { sizes: [11, 11, 11, 11], gap: 3, padX: 7, padY: 5, padBottom: 8, radius: 6, frame: 'border', place: 'above', pitchRuns: false },
-  export: { sizes: [16, 16, 14, 13], gap: 6, padX: 10, padY: 10, padBottom: 10, radius: 10, frame: 'shadow', place: 'centred70', pitchRuns: true },
+  screen: { sizes: [11, 11, 11, 11], gap: 3, padX: 7, padY: 5, padBottom: 8, radius: 6, frame: 'border', pitchRuns: false },
+  export: { sizes: [16, 16, 14, 13], gap: 6, padX: 10, padY: 10, padBottom: 10, radius: 10, frame: 'shadow', pitchRuns: true },
 }
 
 function drawBadge(
@@ -474,14 +480,10 @@ function drawBadge(
   m: PeakMarker,
   peakX: number,
   peakY: number,
-  anchorX: number,
-  anchorBottom: number,
-  plotL: number,
-  plotR: number,
-  plotT: number,
+  centreX: number,
+  centreY: number,
   th: ChartTheme,
   style: ChartLines,
-  dragged: boolean,
   metrics: BadgeMetrics,
 ): { x: number; y: number; w: number; h: number } {
   const color = markerColor(m, th)
@@ -516,24 +518,17 @@ function drawBadge(
   const lineW = lines.map(widthOf)
   const boxW = Math.max(...lineW) + padX * 2
   const boxH = padY + lines.reduce((h, ln) => h + ln.size, 0) + gap * (lines.length - 1) + padBottom
-  const centred = metrics.place === 'centred70' && !dragged
-  const boxX = Math.max(plotL + 2, Math.min(anchorX - boxW / 2, plotR - boxW - 2))
-  let boxBottom = centred ? peakY - 70 + boxH / 2 : anchorBottom
-  let boxTop = boxBottom - boxH
-  // Auto-placed badges nudge down if they'd clip the plot top; dragged badges keep the
-  // user's exact position (the drag already constrains the anchor to the plot).
-  if (!dragged && boxTop < plotT + 2) {
-    boxTop = plotT + 2
-    boxBottom = boxTop + boxH
-  }
+  // Centred on the label's centre, wherever it falls; the plot's clip cuts what lies outside.
+  const boxX = centreX - boxW / 2
+  const boxTop = centreY - boxH / 2
+  // The line from the peak's dot to the label's centre, drawn first so the badge covers its end.
   ctx.save()
   ctx.strokeStyle = hexA(color, style.leaderOpacity)
   ctx.lineWidth = style.leaderWidth
   ctx.setLineDash(style.leaderDash)
   ctx.beginPath()
   ctx.moveTo(peakX, peakY)
-  if (centred) ctx.lineTo(boxX + boxW / 2, boxTop + boxH / 2 + 50)
-  else ctx.lineTo(Math.max(boxX, Math.min(peakX, boxX + boxW)), boxBottom)
+  ctx.lineTo(centreX, centreY)
   ctx.stroke()
   ctx.restore()
   ctx.beginPath()

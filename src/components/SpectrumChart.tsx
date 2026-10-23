@@ -372,7 +372,8 @@ export function SpectrumChart({
       if (pointers.size === 1 && onAnnotationDragRef.current) {
         const hit = hitBadge(e.clientX - rect.left, e.clientY - rect.top)
         if (hit) {
-          annoDrag = { key: hit.key, pStartX: e.clientX, pStartY: e.clientY, anchorSX: hit.x + hit.w / 2, anchorSY: hit.y + hit.h }
+          // From the label's centre, which a drag stores (as Swift's and Python's).
+          annoDrag = { key: hit.key, pStartX: e.clientX, pStartY: e.clientY, anchorSX: hit.cx, anchorSY: hit.cy }
           start = null
           canvas.style.cursor = 'grabbing'
           return

@@ -2,7 +2,7 @@
 //
 // The per-peak state the user edits and the views read: dragged label positions, selection, which peaks
 // are annotated, mode labels (the user's own and the auto-detected), the one definitive Air/Top/Back and
-// the tap-tone ratio, and what clears it all. The shared cases in annotation-state.json (AS1–AS41), the
+// the tap-tone ratio, and what clears it all. The shared cases in annotation-state.json (AS1–AS44), the
 // same as Swift and Python: each loads its peaks as the app loads a file and edits them as the views do.
 //
 // Below them, the web's own: the chart markers and the report are built by the web's presentation
@@ -46,7 +46,10 @@ type AnnotationCase = {
   steps: AnnotationStep[]
   expect: Fields
 }
-const DATA = JSON.parse(readFileSync('test/fixtures/annotation-state.json', 'utf8')) as { cases: AnnotationCase[] }
+const DATA = JSON.parse(readFileSync('test/fixtures/annotation-state.json', 'utf8')) as {
+  labelOffset: [number, number]
+  cases: AnnotationCase[]
+}
 
 /** The modes by Swift's case names, as the case file names them. */
 const MODES_BY_NAME: Record<string, ResolvedMode> = {
@@ -134,6 +137,13 @@ class Case {
           expect(Object.fromEntries([...a.annotationOffsets].map(([i, xy]) => [this.nameOf(i), [...xy]])), field).toEqual(want)
           break
         case 'offsetCount': expect(a.annotationOffsets.size, field).toBe(want); break
+        case 'centre':
+          for (const [name, xy] of Object.entries(want as Record<string, [number, number]>)) {
+            const id = this.id(name)
+            const peak = a.peaks.find((p) => p.id === id)!
+            expect(a.annotationCentre(peak), `${field} ${name}`).toEqual(xy)
+          }
+          break
         case 'getPeak':
           for (const [mode, name] of Object.entries(want as Record<string, string | null>)) {
             const peak = a.getPeak(MODES_BY_NAME[mode]!)
@@ -204,6 +214,12 @@ const visibleAnalyzer = (mode: AnnotationMode, selected: Uuid[], peaks = PEAKS, 
   a.selectedPeakIds = new Set(selected)
   return a
 }
+
+describe('annotation-state — the label offset (annotation-state.json)', () => {
+  it('an undragged label sits at the shared labelOffset from its peak', () => {
+    expect([...TapToneAnalyzer.DEFAULT_ANNOTATION_OFFSET]).toEqual(DATA.labelOffset)
+  })
+})
 
 describe('annotation-state — the report is about the visible peaks (regression)', () => {
   it('reports the selected count, not the detected count', () => {

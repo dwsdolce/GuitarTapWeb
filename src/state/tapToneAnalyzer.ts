@@ -1597,6 +1597,29 @@ export class TapToneAnalyzer {
     this.notify()
   }
 
+  /** Where an undragged peak label's centre sits from its peak, in chart units: [Hz, dB]. Mirrors Swift
+   *  `TapToneAnalyzer.defaultAnnotationOffset`. */
+  static readonly DEFAULT_ANNOTATION_OFFSET: readonly [number, number] = [0, 14]
+
+  /** A peak label's centre in chart units ([Hz, dB]): where the label was dragged, else the peak plus
+   *  `DEFAULT_ANNOTATION_OFFSET`. It depends on the peak alone — the chart's range, zoom and the annotation
+   *  visibility do not move it. Mirrors Swift `annotationCentre(for:)`. */
+  annotationCentre(peak: Pick<ResonantPeak, 'id' | 'frequency' | 'magnitude'>): [number, number] {
+    return TapToneAnalyzer.annotationCentre(peak, this.annotationOffsets)
+  }
+
+  /** `annotationCentre` from a given map of dragged positions — for the chart markers, built from the
+   *  positions rather than the analyzer. Mirrors Swift `annotationCentre(for:offsets:)`. */
+  static annotationCentre(
+    peak: Pick<ResonantPeak, 'id' | 'frequency' | 'magnitude'>,
+    offsets: ReadonlyMap<Uuid, readonly [number, number]> | undefined,
+  ): [number, number] {
+    const stored = offsets?.get(peak.id)
+    if (stored) return [stored[0], stored[1]]
+    const [dx, dy] = TapToneAnalyzer.DEFAULT_ANNOTATION_OFFSET
+    return [peak.frequency + dx, peak.magnitude + dy]
+  }
+
   /** Clear one peak's dragged offset (Swift `resetAnnotationOffset`). */
   resetAnnotationOffset(id: Uuid): void {
     if (!this.annotationOffsets.has(id)) return

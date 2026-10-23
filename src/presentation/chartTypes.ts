@@ -31,17 +31,23 @@ export interface PeakMarker {
   /** Stable key (peak frequency, `toFixed(1)`) identifying this badge for drag/offset edits.
    *  Present → the badge is draggable; the leader line tracks the peak. */
   annoKey?: Uuid
-  /** User-dragged badge position in data-space [absFreqHz, absDB]; omit → default placement. */
+  /** User-dragged badge position in data-space [absFreqHz, absDB]; present → the label has been moved. */
   annoOffset?: [number, number]
+  /** The label's centre in chart units [Hz, dB] — the dragged position, else the peak plus the default offset
+   *  (`TapToneAnalyzer.annotationCentre`). Present on every marker the chart labels. */
+  annoCentre?: [number, number]
 }
 
-/** A drawn annotation badge's screen rectangle (CSS px), emitted by the renderer for hit-testing. */
+/** A drawn annotation badge's screen rectangle (CSS px) — the part inside the plot — emitted by the renderer
+ *  for hit-testing, with the label's centre (CSS px), where a drag starts from. */
 export interface AnnotationRect {
   key: Uuid
   x: number
   y: number
   w: number
   h: number
+  cx: number
+  cy: number
 }
 
 /** A drawn peak dot's screen centre (CSS px) + radius + its peak id — pushed by the renderer so the

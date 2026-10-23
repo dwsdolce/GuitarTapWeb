@@ -517,23 +517,24 @@ export default function App() {
   const resultsListPeaks = comparison ? [] : material ? peaksAbovePeakMin : displayPeaksInRange
 
   // Chart peak layers, mirroring Swift SpectrumView+ChartContent:
-  //   • dots   — EVERY peak in the visible range gets one (allPeaksInRange), mode-colored;
-  //   • badges — gated by AnnotationVisibilityMode (visiblePeaks):
-  //     all = every peak in range, selected = only chosen results, none = no badges.
-  // The candidate set is the SHARED dot-list rule (peaksInDisplayRange, `@parity view/dot-layer`):
-  // the CURRENT view range — so dots follow zoom/pan exactly like Swift's minFreq/maxFreq — then
-  // the `isKnown` frequency-band filter. Deliberately NOT the assigned-mode filter the Results
-  // panel uses (displayPeaksInRange): a peak carrying a freeform mode override still sits in a
-  // band, so Swift/Python keep its dot — the web used to drop it.
+  //   • dots   — every peak in the visible range gets one (allPeaksInRange), mode-colored — the renderer
+  //     draws a dot only for a marker inside the range;
+  //   • badges — gated by AnnotationVisibilityMode (visiblePeaks), whatever the range: a label whose
+  //     peak is off the chart is drawn too, cut at the plot's edges.
+  // The candidate set is the SHARED dot-list rule (peaksInDisplayRange, `@parity view/dot-layer`) over
+  // every frequency — the `isKnown` frequency-band filter. Deliberately NOT the assigned-mode filter the
+  // Results panel uses (displayPeaksInRange): a peak carrying a freeform mode override still sits in a
+  // band, so Swift/Python keep its dot. In the analyzer's order, as Swift's and Python's labels: a later
+  // label covers an earlier one where they overlap.
   // Styled markers via the SHARED builder (measurementImage.ts) so the live view and the exported
   // image (incl. saved-measurement export) use identical peak styling.
   const chartPeaks = useMemo(
     () =>
       peaksInDisplayRange(
-        [...(snapshot.chartPeaks ?? [])].sort((a, b) => a.frequency - b.frequency),
-        view.minHz, view.maxHz, !material, showUnknownModes, overriddenPeakIds, guitarType,
+        snapshot.chartPeaks ?? [],
+        -Infinity, Infinity, !material, showUnknownModes, overriddenPeakIds, guitarType,
       ),
-    [snapshot.chartPeaks, view.minHz, view.maxHz, material, showUnknownModes, overriddenPeakIds, guitarType],
+    [snapshot.chartPeaks, material, showUnknownModes, overriddenPeakIds, guitarType],
   )
   const markers = useMemo<PeakMarker[]>(
     () => buildGuitarMarkers(chartPeaks, modeByPeak, isVisible, overrides, annotationOffsets),

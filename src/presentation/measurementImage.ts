@@ -23,6 +23,7 @@ import { exportStem } from '../measurement/exportFilename'
 import type { ResonantPeak } from '../measurement/types'
 import { idEntries, type Uuid } from '../measurement/newId'
 import { spanningRange } from './displayRange'
+import { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 
 // ── A saved measurement, read as its exports show it ────────────────────────────────────────────
 // Read from the measurement itself, as Swift's renderers (`renderSpectrumImageForMeasurement`,
@@ -114,6 +115,7 @@ export function buildGuitarMarkers(
       annotated,
       annoKey: key,
       annoOffset: offsetsById?.get(p.id),
+      annoCentre: TapToneAnalyzer.annotationCentre(p, offsetsById),
     }
   })
 }
@@ -133,7 +135,8 @@ export function buildMaterialMarkers(
   const out: PeakMarker[] = []
   const push = (mp: ResonantPeak, role: Role, label: string) => {
     const key = mp.id // material offsets are id-keyed in the shared analyzer store
-    out.push({ ...mp, role, label, annotated: isAnnotated(mp.id), annoKey: key, annoOffset: offsetsById?.get(mp.id) })
+    out.push({ ...mp, role, label, annotated: isAnnotated(mp.id), annoKey: key, annoOffset: offsetsById?.get(mp.id),
+      annoCentre: TapToneAnalyzer.annotationCentre(mp, offsetsById) })
   }
   if (matPeaks.longitudinal) push(matPeaks.longitudinal, 'material.longitudinal', 'Longitudinal')
   if (matPeaks.cross) push(matPeaks.cross, 'material.cross', 'Cross-grain')
