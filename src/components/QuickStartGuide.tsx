@@ -9,6 +9,7 @@
 
 import {
   TapIcon,
+  ChevronDownIcon,
   PauseIcon,
   PlayIcon,
   CheckIcon,
@@ -45,6 +46,7 @@ import {
 // the toolbars, so the guide's icons match what the user sees on each control.
 const ICONS = {
   tap: TapIcon,
+  chevronDown: ChevronDownIcon,
   pause: PauseIcon,
   play: PlayIcon,
   check: CheckIcon,
@@ -126,7 +128,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Choose a Measurement Type',
-        body: 'In Settings, the Measurement Type section is directly below Audio Input. Pick Generic Guitar (the default, with broad ranges that work for any guitar), Acoustic / Steel String, Classical, Flamenco, Material (Plate), or Material (Brace). The right choice determines which mode-frequency ranges are used and which measurements are calculated.',
+        body: 'Use the type button beside New Tap — it shows the current type, and choosing another starts a new tap of it — or the Measurement Type section in Settings, directly below Audio Input. Pick Generic Guitar (the default, with broad ranges that work for any guitar), Acoustic / Steel String, Classical, Flamenco, Material (Plate), or Material (Brace). The right choice determines which mode-frequency ranges are used and which measurements are calculated.',
       },
       {
         title: 'Advanced Settings',
@@ -261,6 +263,11 @@ export const QUICK_START_SECTIONS: QSSection[] = [
         title: 'New Tap',
         icon: 'tap',
         body: 'Starts a fresh measurement — arms the detector (or begins a plate/brace sequence). Disabled only while a measurement is being captured; enabled at all other times, including after a measurement completes (use Cancel to abandon one in progress). A green indicator shows when a tap has been registered.',
+      },
+      {
+        title: 'Measurement Type (beside New Tap)',
+        icon: 'chevronDown',
+        body: 'Shows the current measurement type. Its menu lists the six types; choosing one makes it the measurement type and starts a new tap of it, as choosing it in Settings does. Disabled only while a file plays.',
       },
       {
         title: 'Pause / Resume • Accept (plate/brace review)',

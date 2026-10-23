@@ -33,13 +33,17 @@ export interface ButtonOutput {
   pauseEnabled: boolean
   newTapDisabled: boolean
   cancelEnabled: boolean
+  /** The measurement-type button beside New Tap. Choosing a type restarts with it, as the Settings picker
+   *  does, so it is enabled whenever that is — during a sequence too — except during a file playback,
+   *  which Cancel stops first. */
+  typeMenuEnabled: boolean
 }
 
 export function buttonRule(s: ButtonState): ButtonOutput {
   // During a file playback Cancel stops the file; Pause and New Tap are disabled. A recording
   // delivers taps back to back, so pausing detection while the file plays on would only let taps
   // go by, and a new sequence would be fed the rest of the file.
-  if (s.isPlayingFile) return { pauseEnabled: false, newTapDisabled: true, cancelEnabled: true }
+  if (s.isPlayingFile) return { pauseEnabled: false, newTapDisabled: true, cancelEnabled: true, typeMenuEnabled: false }
 
   const type = s.measurementType ?? 'generic'
   const isGuitar = isGuitarType(type)
@@ -77,5 +81,5 @@ export function buttonRule(s: ButtonState): ButtonOutput {
 
   const cancelEnabled = isInReviewPhase || inActiveMultiStep
 
-  return { pauseEnabled, newTapDisabled, cancelEnabled }
+  return { pauseEnabled, newTapDisabled, cancelEnabled, typeMenuEnabled: true }
 }

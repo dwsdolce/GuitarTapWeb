@@ -44,7 +44,7 @@ import { Pitch } from './dsp/pitch'
 import { FieldPrecision } from './precision'
 import { formatDisplayDate } from './format/date'
 import { settingsStore } from './settingsStore'
-import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, guitarTypeSetting, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, ANNOTATION_LABEL, DEFAULT_SETTINGS, type Settings, type MeasurementType } from './settings'
+import { ANALYSIS_MIN_HZ, ANALYSIS_MAX_HZ, guitarTypeSetting, isGuitarType, isMaterialType, minFrequency, maxFrequency, setFrequencyRange, MEASUREMENT_SHORT_NAME, MEASUREMENT_FULL_NAME, MEASUREMENT_TYPES, ANNOTATION_LABEL, DEFAULT_SETTINGS, type Settings, type MeasurementType } from './settings'
 import type { ResonantPeak } from './measurement/types'
 import { displayRangeLabel } from './presentation/frequencyFormat'
 import './App.css'
@@ -75,6 +75,7 @@ const HINTS = {
   peakMin:
     'Minimum peak magnitude shown on the spectrum chart. In guitar mode this also gates which peaks are reported. In brace/plate mode the tap capture uses its own adaptive noise floor, so this only affects chart display.',
   newTap: 'Start a new tap sequence to detect and analyze resonance peaks',
+  measurementType: 'Measurement type: choose one to start a new tap of it',
   pauseDetection: 'Pause tap detection to experiment with taps without advancing the sequence; spectrum stays live',
   resumeDetection: 'Resume tap detection to continue the in-progress sequence',
   acceptTap: 'Accept this tap and continue',
@@ -345,6 +346,20 @@ export default function App() {
     clearLoadedMeasurement()
     analyzer.requestStartTapSequence() // clears, returns to live, and arms — guitar or material
   }, [analyzer, clearLoadedMeasurement])
+
+  // The type button beside New Tap: make `type` the measurement type and start a new tap of it — the same
+  // change as Settings' type picker (the chart moves to the type's saved range as it follows the type).
+  // Mirrors Swift `startNewTap(of:)`.
+  const startNewTapOf = useCallback(
+    (type: MeasurementType) => {
+      if (type !== settingsStore.get().measurementType) {
+        settingsStore.update({ measurementType: type })
+        setLoadedView(null)
+      }
+      newTap()
+    },
+    [newTap, setLoadedView],
+  )
 
   const changeTaps = useCallback((n: number) => {
     const v = Math.max(1, Math.min(10, n))
@@ -1023,7 +1038,7 @@ export default function App() {
           // `button_rule`; pinned by test/button-enablement). The measurement is "complete"
           // when a guitar tap was captured, or the material phase machine reached `complete`.
           // (Cancel now re-arms rather than completing, so there's no cancelled→complete term.)
-          const { newTapDisabled, pauseEnabled, cancelEnabled } = buttonRule({
+          const { newTapDisabled, pauseEnabled, cancelEnabled, typeMenuEnabled } = buttonRule({
             detectionState: snapshot.detectionState,
             isMeasurementComplete: material ? matPhase === 'complete' : snapshot.isMeasurementComplete,
             fftIsRunning: running,
@@ -1048,6 +1063,33 @@ export default function App() {
                 <TapIcon />
                 <span>New Tap</span>
               </button>
+              {/* The measurement type beside New Tap: its short name and an arrow; the browser's own list of
+                  the six types opens over it. Choosing one starts a new tap of it. Comparisons are made in
+                  Saved Measurements, so they are not offered. Mirrors Swift `newTapButton`. */}
+              <span
+                className={`btn tint tint-accent tap-type${typeMenuEnabled ? '' : ' disabled'}`}
+                title={HINTS.measurementType}
+              >
+                <span>{MEASUREMENT_SHORT_NAME[settings.measurementType]}</span>
+                <ChevronDownIcon />
+                <select
+                  aria-label="Measurement type"
+                  value={settings.measurementType}
+                  disabled={!typeMenuEnabled}
+                  onChange={(e) => startNewTapOf(e.target.value as MeasurementType)}
+                >
+                  <optgroup label="Guitar">
+                    {MEASUREMENT_TYPES.filter(isGuitarType).map((t) => (
+                      <option key={t} value={t}>{MEASUREMENT_FULL_NAME[t]}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Material">
+                    {MEASUREMENT_TYPES.filter(isMaterialType).map((t) => (
+                      <option key={t} value={t}>{MEASUREMENT_FULL_NAME[t]}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </span>
               <button
                 className={`btn tint tap-action ${reviewing ? 'tint-complete' : 'tint-accent'}`}
                 onClick={reviewing ? () => analyzer.acceptCurrentPhase() : paused ? resumeTap : pauseTap}

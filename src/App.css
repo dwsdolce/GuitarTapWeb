@@ -336,6 +336,34 @@
 .tap-action svg {
   flex-shrink: 0;
 }
+/* The measurement type beside New Tap: a tinted button showing the short name and an arrow, with the native
+   <select> laid invisibly over it, so a click opens the browser's own list of the full names. */
+.tap-type {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+.tap-type svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.tap-type select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 16px;
+}
+.tap-type.disabled {
+  opacity: var(--o-control-dimmed);
+}
+.tap-type.disabled select {
+  cursor: default;
+}
 
 /* ── Material results ─────────────────────────────────────── */
 .material-results h3 {
