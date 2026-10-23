@@ -9,8 +9,7 @@
  * - **busy time** per kind of work: the main thread's per-chunk work (`main/chunk`), the capture filling within it
  *   (`accumulate`), the FFT (`fft`), the work on each FFT frame (`frame`).
  *
- * The web runs all of these on its main thread already, so it has no simulated-FFT switch. Mirrors Swift
- * `SlackProbe` and Python `slack_probe`.
+ * Mirrors Swift `SlackProbe` and Python `slack_probe`.
  */
 
 type Kind = 'lag' | 'latency' | 'main/chunk' | 'accumulate' | 'fft' | 'frame'
@@ -74,7 +73,7 @@ function report(seconds: number): void {
   for (const kind of ['main/chunk', 'accumulate', 'fft', 'frame'] as Kind[]) {
     const v = w.get(kind) ?? []
     const total = v.reduce((a, b) => a + b, 0)
-    if (kind === 'main/chunk' || kind === 'frame') busy += total
+    if (kind !== 'accumulate') busy += total // accumulate is within main/chunk
     parts.push(`${kind} avg ${f(v.length ? total / v.length : 0)} max ${f(Math.max(0, ...v))} n ${v.length}`)
   }
   parts.push(`main busy ${((busy / (seconds * 1000)) * 100).toFixed(1)}%`)
