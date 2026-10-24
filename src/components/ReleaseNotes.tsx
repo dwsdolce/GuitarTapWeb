@@ -54,7 +54,7 @@ export const RELEASES: RNRelease[] = [
     // an un-rolled top entry silently re-renders shipped notes under a new build number.
     build: __APP_BUILD__,
     since: '1.0.2',
-    // Notes reviewed through commit 72fa4e1 (2026-10-23). The next update reads only `git log 72fa4e1..HEAD`, then
+    // Notes reviewed through commit 0426a39 (2026-10-24). The next update reads only `git log 0426a39..HEAD`, then
     // moves this line to the newest commit it covered.
     groups: [
       {
@@ -63,6 +63,10 @@ export const RELEASES: RNRelease[] = [
           {
             title: 'Measurement Type Beside New Tap',
             body: 'A new button beside New Tap shows the current measurement type (Generic, Acoustic, Classical, Flamenco, Plate or Brace). Choose another from its list and Guitar Tap switches to it and starts a new tap of it, just as choosing it in Settings does — without opening Settings. It always shows the same type as Settings, and is disabled only while a file plays.',
+          },
+          {
+            title: 'Sort, Filter and Delete in Saved Measurements',
+            body: 'A new Sort & Filter menu sorts the list as added, by date, name or type (choose the same again to reverse it), or shows one type only — comparisons included. Your choice is remembered. Delete All is now a Delete menu: All, Duplicates (every later copy of a measurement, keeping the first) or Selected (tick the measurements to delete). The list itself always keeps the order the measurements were added.',
           },
           {
             title: 'Appearance: Light, Dark or System',
