@@ -152,6 +152,8 @@ export function SpectrumChart({
   onViewChangeRef.current = onViewChange
   const onAnnotationDragRef = useRef(onAnnotationDrag)
   onAnnotationDragRef.current = onAnnotationDrag
+  const onResetAnnotationRef = useRef(onResetAnnotation)
+  onResetAnnotationRef.current = onResetAnnotation
   const onToggleHighlightRef = useRef(onToggleHighlight)
   onToggleHighlightRef.current = onToggleHighlight
   // Badge screen rects from the most recent render — refreshed every draw, read by the
@@ -342,6 +344,15 @@ export function SpectrumChart({
     const pointers = new Map<number, { x: number; y: number }>()
     let pinch: { startDist: number; aHz: number; aDb: number; region: Region; view: ChartView } | null = null
     let crosshairTouch: number | null = null // pointerId of a touch positioning the crosshair (crosshair mode)
+    // A finger held still on a peak label opens its menu (Reset Position), as a long press does on iPhone and iPad
+    // in Swift; touch has no right-click. Moving first makes it a drag instead.
+    let longPress: { timer: ReturnType<typeof setTimeout>; x: number; y: number } | null = null
+    const LONG_PRESS_MS = 500
+    const LONG_PRESS_SLOP_PX = 8
+    const cancelLongPress = () => {
+      if (longPress) clearTimeout(longPress.timer)
+      longPress = null
+    }
     // A plain mouse press in the plot (not a badge grab / pan / pinch), tracked so pointer-up can tell a
     // click (toggle the peak-dot highlight) from a drag. Mouse only — the parent gates onToggleHighlight
     // off on touch, so this stays inert there anyway.
@@ -376,6 +387,20 @@ export function SpectrumChart({
           annoDrag = { key: hit.key, pStartX: e.clientX, pStartY: e.clientY, anchorSX: hit.cx, anchorSY: hit.cy }
           start = null
           canvas.style.cursor = 'grabbing'
+          if (e.pointerType !== 'mouse' && onResetAnnotationRef.current) {
+            const at = { x: e.clientX, y: e.clientY, key: hit.key, pointerId: e.pointerId }
+            longPress = {
+              x: at.x,
+              y: at.y,
+              timer: setTimeout(() => {
+                longPress = null
+                annoDrag = null
+                pointers.delete(at.pointerId)
+                setMenu({ x: at.x, y: at.y, annoKey: at.key })
+                setShowHelp(false)
+              }, LONG_PRESS_MS),
+            }
+          }
           return
         }
       }
@@ -424,6 +449,11 @@ export function SpectrumChart({
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       // Annotation badge drag takes priority over pan/pinch.
       if (annoDrag && onAnnotationDragRef.current) {
+        // While a long press may still open the label's menu, small movements are the finger's wobble.
+        if (longPress) {
+          if (Math.hypot(e.clientX - longPress.x, e.clientY - longPress.y) <= LONG_PRESS_SLOP_PX) return
+          cancelLongPress()
+        }
         const rect = canvas.getBoundingClientRect()
         const newSX = annoDrag.anchorSX + (e.clientX - annoDrag.pStartX)
         const newSY = annoDrag.anchorSY + (e.clientY - annoDrag.pStartY)
@@ -475,6 +505,7 @@ export function SpectrumChart({
         }
       }
       pressStart = null
+      cancelLongPress()
       pointers.delete(e.pointerId)
       if (annoDrag) {
         annoDrag = null
@@ -529,6 +560,7 @@ export function SpectrumChart({
       canvas.removeEventListener('pointerup', onUp)
       canvas.removeEventListener('pointercancel', onUp)
       canvas.removeEventListener('pointerleave', onLeave)
+      cancelLongPress()
     }
     // Listeners read live state via refs, so bind once on mount.
   }, [])

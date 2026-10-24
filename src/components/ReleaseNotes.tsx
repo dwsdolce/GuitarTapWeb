@@ -54,12 +54,16 @@ export const RELEASES: RNRelease[] = [
     // an un-rolled top entry silently re-renders shipped notes under a new build number.
     build: __APP_BUILD__,
     since: '1.0.2',
-    // Notes reviewed through commit 2da0e06 (2026-10-07). The next update reads only `git log 2da0e06..HEAD`, then
+    // Notes reviewed through commit 72fa4e1 (2026-10-23). The next update reads only `git log 72fa4e1..HEAD`, then
     // moves this line to the newest commit it covered.
     groups: [
       {
         heading: 'New Features',
         items: [
+          {
+            title: 'Measurement Type Beside New Tap',
+            body: 'A new button beside New Tap shows the current measurement type (Generic, Acoustic, Classical, Flamenco, Plate or Brace). Choose another from its list and Guitar Tap switches to it and starts a new tap of it, just as choosing it in Settings does — without opening Settings. It always shows the same type as Settings, and is disabled only while a file plays.',
+          },
           {
             title: 'Appearance: Light, Dark or System',
             body: 'A new Appearance setting (Settings → Advanced → Display Settings, the first row) chooses System (the default — it follows your device and changes when it does), Light or Dark. The browser edition was dark-only before; with System it now follows your device and may open light. The whole app follows the setting: the chart, peak cards, Analysis Results, toolbars, status bar, Settings, the measurement list and every dialog. Exported images and PDF reports are always drawn light, so they print the same whichever you work in.',
@@ -80,6 +84,10 @@ export const RELEASES: RNRelease[] = [
             title: 'Delete All Calibrations',
             body: 'Settings can now remove every imported calibration at once, after a confirmation.',
           },
+          {
+            title: 'Chart Help',
+            body: 'The ⓘ button on the chart lists its gestures for the device you are using (mouse, trackpad or touch), in the same words as the other editions. On a trackpad, pinching zooms around the spot under your fingers.',
+          },
         ],
       },
       {
@@ -87,7 +95,7 @@ export const RELEASES: RNRelease[] = [
         items: [
           {
             title: 'A Cleaner, Consistent Look',
-            body: 'Settings is redesigned — each section a titled box with one row per setting and its control at the right, with Cancel and Done at the bottom. The Analysis Results panel has one layout for peak cards, plate and brace sections, the Ring-Out / Tap Ratio box and the export footer, and is wide enough for both export buttons. Measurement Details uses the same peak cards (read-only), with a plate or brace peak’s fL / fC / fLC badge. Saved Measurements has plain rows with a line between them, marks beside the date for a spectrum or a comparison, ⋯ on hover (always shown on touch screens) and its buttons at the bottom. Save, Play Audio File and Edit Name & Notes put a bold title above each field, and Edit Name & Notes opens in its own window. The status bar runs along the bottom of the window. Done buttons follow one rule: a Done that applies changes is highlighted; one that only closes a window is plain.',
+            body: 'Settings is redesigned — each section a titled box with one row per setting and its control at the right, with Cancel and Done at the bottom. The Analysis Results panel has one layout for peak cards, plate and brace sections, the Ring-Out / Tap Ratio box and the export footer, and is wide enough for both export buttons. Measurement Details uses the same peak cards (read-only), with a plate or brace peak’s fL / fC / fLC badge. Saved Measurements has plain rows with a line between them, marks beside the date for a spectrum or a comparison, ⋯ on hover (always shown on touch screens) and its buttons at the bottom. Save, Play Audio File and Edit Name & Notes put a bold title above each field, and Edit Name & Notes opens in its own window. The status bar runs along the bottom of the window. Done buttons follow one rule: a Done that applies changes is highlighted; one that only closes a window is plain. Empty lists show an icon and a short explanation, Edit Name & Notes is laid out like Save, Metrics colours each timing by how heavily the computer is loaded, and the “⚠” in warnings is drawn as plain text.',
           },
           {
             title: 'Quick Start Guide',
@@ -95,15 +103,15 @@ export const RELEASES: RNRelease[] = [
           },
           {
             title: 'The Chart',
-            body: 'The chart’s range now changes only when you move it, when you load a measurement (its saved range), when a newly found plate or brace peak would fall off the chart (it widens to show it), or when you change the measurement type. New Tap or Play File after a load returns to your saved view unless you had moved the chart. The “Showing …” line is always shown, the guitar peak list follows what is on screen, and a frequency label that would run past the edge of the plot is left out. A comparison shows the guitar mode bands.',
+            body: 'The chart’s range now changes only when you move it, when you load a measurement (its saved range), when a newly found plate or brace peak would fall off the chart (it widens to show it), or when you change the measurement type. New Tap or Play File after a load returns to your saved view unless you had moved the chart. The “Showing …” line is always shown, the guitar peak list follows what is on screen, and a frequency label that would run past the edge of the plot is left out. A peak’s label sits 14 dB above its peak unless you drag it, and stays where you put it as you zoom or pan; a label whose peak is off the chart is still drawn, cut off at the edge of the plot. The chart’s menu (⋯ or right-click) and a peak label’s menu use the same wording and icons as the other editions, the pointer shows what a drag will do, and the crosshair reads the curve between data points and stays on the curve it follows. “No peaks detected in visible range” shows when the chart’s range holds none.',
           },
           {
             title: 'Exports',
-            body: 'Exported images and PDF reports use the same layout as the other editions, with the date in the app’s format; the report’s footer reads “Generated by GuitarTap Web …” with the export time, and long comparison names wrap instead of being cut off. A saved comparison’s image is labelled Comparison and shows the guitar mode bands. Every plate or brace row in a report prints its note, and an exported image’s “Detected Peaks” count includes every visible peak.',
+            body: 'Exported images and PDF reports use the same layout as the other editions, with the date in the app’s format; the report’s footer reads “Generated by GuitarTap Web …” with the export time, and long comparison names wrap instead of being cut off. A saved comparison’s image is labelled Comparison. An export from the main window includes the loaded measurement’s notes and date, and its file name includes the measurement’s time. The multi-tap report’s second page is titled “Tap Comparison”, and an Averaged value you overrode is shown in italics with “ *”. If the chart cannot be drawn, the export stops with “Export Failed” instead of saving without it. Every plate or brace row in a report prints its note, and an exported image’s “Detected Peaks” count includes every visible peak.',
           },
           {
             title: 'Microphones',
-            body: 'On start-up, the microphone you chose is used if it is connected; otherwise the system default, then the first device. Loading a measurement now switches to the microphone it was recorded with, as the other editions do, and its warnings say what they mean: Microphone Not Found names both microphones; Recording Setup Differs lists each calibration or sample-rate difference. Importing measurements no longer raises microphone warnings, and an Import Successful message confirms the result. Guitar Tap now asks the browser to turn off voice isolation, which treats taps as noise.',
+            body: 'On start-up, the microphone you chose is used if it is connected; otherwise the system default, then the first device. Loading a measurement now switches to the microphone it was recorded with, as the other editions do, and its warnings say what they mean: Microphone Not Found names both microphones; Recording Setup Differs lists each calibration or sample-rate difference. Importing measurements no longer raises microphone warnings, and an Import Successful message confirms the result. Guitar Tap now asks the browser to turn off voice isolation, which treats taps as noise. While the input is starting or cannot be used, the chart and status bar say “Starting...” or “Audio input unavailable”; if the microphone stops and cannot be restarted, the status bar says so, and Guitar Tap opens it again as soon as it is back. If microphone access is refused, the message says to allow it and reload the page. Choosing the browser’s “Default” microphone remembers the actual device.',
           },
           {
             title: 'Play Audio File',
@@ -111,11 +119,23 @@ export const RELEASES: RNRelease[] = [
           },
           {
             title: 'Saved Measurements and Files',
-            body: 'A saved measurement that cannot be read is left out of the list and kept as it is; Guitar Tap tells you when it starts and offers to delete it. A measurement file is read the same way by every edition: its ids may be in upper or lower case, and a file with an id that is missing or malformed is refused with a message rather than opened in part.',
+            body: 'A saved measurement that cannot be read is set aside and left out of the list, and Guitar Tap tells you once when it starts. Importing a file skips only the entries it cannot read and tells you which. A measurement file is read the same way by every edition: its ids may be in upper or lower case, and a measurement with a missing or malformed id, or with no spectrum, is not opened.',
           },
           {
             title: 'Measurements',
-            body: 'Guitar taps are analysed from the tap’s onset, as in the other editions, so the same recording gives the same peaks everywhere. Each guitar tap in a sequence is followed by a short rest before listening again, and “All taps captured. Processing...” shows briefly before averaging; during a microphone change, New Tap waits the same three seconds as the other editions. Generic Guitar is the default type. The Ring-Out / Tap Ratio box shows a placeholder until there is a value, and “Unknown” for an invalid one. Values are shown at the same precision as the other editions (sample rate and bandwidth in whole hertz, digital silence as “−∞”), and the number fields fill at that precision. Mode colours match the other editions, and a note exactly halfway between two pitches is named the same way everywhere. Edit Name & Notes enables Save only when the name or notes actually change.',
+            body: 'Guitar taps are analysed from the tap’s onset, as in the other editions, so the same recording gives the same peaks everywhere. Each guitar tap in a sequence is followed by a short rest before listening again, and “All taps captured. Processing...” shows briefly before averaging; during a microphone change, New Tap waits the same three seconds as the other editions. Generic Guitar is the default type. The Ring-Out / Tap Ratio box shows a placeholder until there is a value, and “Unknown” for an invalid one. Values are shown at the same precision as the other editions (sample rate and bandwidth in whole hertz, digital silence as “−∞”), and the number fields fill at that precision. Mode colours match the other editions, and a note exactly halfway between two pitches is named the same way everywhere. Edit Name & Notes enables Save only when the name or notes actually change. Ring-out is measured from the tap itself, finer than before, so the same tap reads the same ring-out in every edition; expect values to differ slightly from earlier versions.',
+          },
+          {
+            title: 'Comparisons',
+            body: 'A comparison of saved measurements opens across all its measurements’ ranges and no longer draws the guitar mode lines, on screen or in exports; a saved comparison reopens at the range it was saved with. The legend shows each curve’s colour, and Play File, Auto dB and Metrics are available while comparing.',
+          },
+          {
+            title: 'Controls and Settings',
+            body: 'Threshold and Peak Min each have a button that resets them to the default. Peak Min is always shown, greyed out where it does not apply (plate, brace and comparisons). The tap count has up and down arrows. The “Settings from loaded measurement” notice stays until you change Threshold or Taps. Re-analyze keeps the names and label positions of the peaks it finds again. In Settings, Done after changing the measurement type or Measure FLC starts a new tap of the new kind.',
+          },
+          {
+            title: 'Faster Display',
+            body: 'The input meter and the live chart now redraw on their own, without redrawing the rest of the window, so the app stays responsive while it listens.',
           },
         ],
       },
@@ -145,6 +165,18 @@ export const RELEASES: RNRelease[] = [
           {
             title: 'Measurements and Files',
             body: 'Import kept a measurement’s contents but replaced its identity; it now keeps it, and a second open tab no longer stalls the measurement list. A capture-audio download could be cancelled by the browser. Loading a plate measurement showed the Settings default dimensions instead of the measurement’s own.',
+          },
+          {
+            title: 'Import and Export',
+            body: 'After importing a plate or brace measurement, the measurement type now follows it, so Export PDF works. An export clicked in the first moment after the page opened was ignored, and the browser could cancel an export’s download.',
+          },
+          {
+            title: 'Modes and Selections',
+            body: 'After the guitar type changed, a loaded measurement could show its Air mode as Unknown. A selection cleared with Select None came back with peaks selected after a reload. A calibration is now applied correctly after the sample rate changes.',
+          },
+          {
+            title: 'Peak Labels on a Phone or Tablet',
+            body: 'A long press on a peak label now opens its menu, with Reset Position; it used to start text selection instead.',
           },
           {
             title: 'Tap Sequences',

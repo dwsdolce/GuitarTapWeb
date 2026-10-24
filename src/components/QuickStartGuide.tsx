@@ -301,7 +301,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'Peak Labels',
-        body: 'Drag any peak label to reposition it and avoid overlaps. To reset an individual label: right-click it and choose "Reset Position". To reset all labels at once: choose "Reset Labels" from the chart menu.',
+        body: 'Drag any peak label to reposition it and avoid overlaps. To reset an individual label: right-click it and choose "Reset Position"; on a phone or tablet, long-press it. To reset all labels at once: choose "Reset Labels" from the chart menu.',
       },
       {
         title: 'Play Audio File',

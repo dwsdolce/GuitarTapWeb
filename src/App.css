@@ -1609,6 +1609,10 @@
   width: 100%;
   height: 100%;
   touch-action: none;
+  /* A long press is the chart's (a peak label's menu), not Safari's text selection and copy callout. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* ── Chart ⋯ and ⓘ + their overlays ────────────────────────── */
