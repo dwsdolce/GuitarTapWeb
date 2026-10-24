@@ -4,6 +4,7 @@
 
 import type { GuitarTypeName } from './dsp/guitarModes'
 import type { Appearance } from './presentation/appearance'
+import type { SavedMeasurementsSort } from './measurement/savedMeasurementsOrder'
 import {
   MIN_FREQUENCY_HZ,
   MAX_FREQUENCY_HZ,
@@ -147,6 +148,14 @@ export interface Settings {
   maxDb: number
   // Analysis Settings
   showUnknownModes: boolean
+  /** How Saved Measurements is sorted; As Added (the library's own order) until one is chosen.
+   *  Swift `TapDisplaySettings.savedMeasurementsSort`. */
+  savedMeasurementsSort: SavedMeasurementsSort
+  /** The sort's direction. Swift `TapDisplaySettings.savedMeasurementsAscending`. */
+  savedMeasurementsAscending: boolean
+  /** The one type Saved Measurements shows (a short name, or Comparison); null shows all.
+   *  Swift `TapDisplaySettings.savedMeasurementsFilter`. */
+  savedMeasurementsFilter: string | null
   peakMinThreshold: number
   dumpCaptureAudio: boolean
   // Tap-control bar value persisted immediately on change (like Swift's didSet →
@@ -181,6 +190,9 @@ export const DEFAULT_SETTINGS: Settings = {
   minDb: -100,
   maxDb: 0,
   showUnknownModes: true,
+  savedMeasurementsSort: 'asAdded',
+  savedMeasurementsAscending: true,
+  savedMeasurementsFilter: null,
   peakMinThreshold: -60,
   dumpCaptureAudio: false,
   tapDetectionThreshold: -40,

@@ -1,6 +1,6 @@
 // @parity view/measurements-list
 import { AlertModal } from './AlertModal'
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { measurementTapToneRatio, guitarTapFilename } from '../measurement/types'
 import { EditMeasurementSheet } from './EditMeasurementSheet'
@@ -13,7 +13,17 @@ import { exportFailureMessage, exportSpectrumPng } from '../presentation/spectru
 import { measurementToImageOpts, reportForMeasurement } from '../presentation/measurementImage'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
-import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon, MoreCircleIcon, TrayIcon } from './icons'
+import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon, MoreCircleIcon, TrayIcon, FilterIcon, CancelIcon, ChevronDownIcon } from './icons'
+import { settingsStore } from '../settingsStore'
+import {
+  FILTER_TYPES,
+  SAVED_MEASUREMENTS_SORTS,
+  SAVED_MEASUREMENTS_SORT_TITLE,
+  duplicates,
+  orderKeys,
+  shownOrder,
+  type SavedMeasurementsSort,
+} from '../measurement/savedMeasurementsOrder'
 import { EmptyStateView } from './EmptyStateView'
 import { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 
@@ -32,6 +42,8 @@ export interface MeasurementsPanelProps {
   onDelete: (m: TapToneMeasurementModel) => Promise<void>
   /** Remove every saved measurement (the model's `deleteAllMeasurements`). */
   onDeleteAll: () => Promise<void>
+  /** Remove several saved measurements at once (the model's `deleteMeasurements`). */
+  onDeleteMany: (ms: TapToneMeasurementModel[]) => Promise<void>
 }
 
 // "Saved Measurements" library: double-press a row = Load,
@@ -90,9 +102,70 @@ const isInstalled = (): boolean =>
  */
 const keyOf = (m: TapToneMeasurementModel): string => m.rowKey as string
 
-export function MeasurementsPanel({ measurements: items, onClose, onLoad, onCompare, onImport, onUpdate, onDelete, onDeleteAll }: MeasurementsPanelProps) {
+export function MeasurementsPanel({ measurements: items, onClose, onLoad, onCompare, onImport, onUpdate, onDelete, onDeleteAll, onDeleteMany }: MeasurementsPanelProps) {
   const [comparing, setComparing] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Sort & Filter: what the list shows and in what order; the library keeps its own order (As Added).
+  const settings = useSyncExternalStore(settingsStore.subscribe, settingsStore.get)
+  const sort = settings.savedMeasurementsSort
+  const ascending = settings.savedMeasurementsAscending
+  const filter = settings.savedMeasurementsFilter
+  // The toolbar's two menus — Sort & Filter and Delete — float above the page like the row ⋯ menu, placed against
+  // the button that opened them and opening up or down to fit the window (menuPlacement).
+  const [toolMenu, setToolMenu] = useState<{ which: 'sort' | 'delete'; rect: DOMRect } | null>(null)
+  const [toolMenuHeight, setToolMenuHeight] = useState<number | null>(null)
+  const toolMenuElRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    setToolMenuHeight(toolMenu != null ? (toolMenuElRef.current?.offsetHeight ?? null) : null)
+  }, [toolMenu])
+  const openToolMenu = (which: 'sort' | 'delete', button: HTMLElement) =>
+    setToolMenu((t) => (t?.which === which ? null : { which, rect: button.getBoundingClientRect() }))
+  // Delete › Selected…: ticking rows to delete, as compare mode ticks rows to compare.
+  const [deleting, setDeleting] = useState(false)
+  const [delSelected, setDelSelected] = useState<Set<string>>(new Set())
+  const [confirmingDuplicates, setConfirmingDuplicates] = useState(false)
+  const [confirmingSelected, setConfirmingSelected] = useState(false)
+  const selecting = comparing || deleting
+  // The duplicates: every later copy of a measurement already in the library (same id ⟺ same content).
+  const duplicateItems = items ? duplicates(items.map((m) => m.id)).map((i) => items[i]!) : []
+  const isTicked = (m: TapToneMeasurementModel) => (deleting ? delSelected : selected).has(keyOf(m))
+  const toggleDelete = (m: TapToneMeasurementModel) =>
+    setDelSelected((s) => {
+      const n = new Set(s)
+      if (n.has(keyOf(m))) n.delete(keyOf(m))
+      else n.add(keyOf(m))
+      return n
+    })
+  const exitDelete = () => {
+    setDeleting(false)
+    setDelSelected(new Set())
+  }
+  const confirmDeleteSelected = async () => {
+    setConfirmingSelected(false)
+    const doomed = (items ?? []).filter((m) => delSelected.has(keyOf(m)))
+    exitDelete()
+    await onDeleteMany(doomed)
+  }
+  const confirmDeleteDuplicates = async () => {
+    setConfirmingDuplicates(false)
+    await onDeleteMany(duplicateItems)
+  }
+  const shown = items ? shownOrder(orderKeys(items), sort, ascending, filter).map((i) => items[i]!) : []
+  /** Choose a sort; choosing the ticked one again reverses it. */
+  const chooseSort = (key: SavedMeasurementsSort) => {
+    settingsStore.update(key === sort ? { savedMeasurementsAscending: !ascending } : { savedMeasurementsSort: key, savedMeasurementsAscending: true })
+    setToolMenu(null)
+  }
+  /** Show one type, or all (null). A measurement the filter hides cannot stay ticked for a comparison. */
+  const setFilter = (value: string | null) => {
+    settingsStore.update({ savedMeasurementsFilter: value })
+    setToolMenu(null)
+    if (items && value != null) {
+      const keep = new Set(items.filter((m) => orderKeys([m])[0]!.type === value).map(keyOf))
+      setSelected((s) => new Set([...s].filter((k) => keep.has(k))))
+      setDelSelected((s) => new Set([...s].filter((k) => keep.has(k))))
+    }
+  }
   const [menuId, setMenuId] = useState<string | null>(null)
   const [menuRect, setMenuRect] = useState<DOMRect | null>(null)
   // The row menu's own rendered height, measured after it mounts. Its open-up/open-down choice
@@ -283,7 +356,17 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
   // top on a phone, as Settings.
   const buttons = (
     <>
-      {comparing ? (
+      {deleting ? (
+        <button
+          className="btn"
+          onClick={() => setConfirmingSelected(true)}
+          disabled={delSelected.size === 0}
+          title="Delete the selected measurements"
+        >
+          <TrashIcon />
+          Delete ({delSelected.size})
+        </button>
+      ) : comparing ? (
         <button
           className="btn"
           onClick={openComparison}
@@ -304,11 +387,23 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
           Compare…
         </button>
       )}
+      {/* Sort & Filter — the sort (choosing the ticked one again reverses it, the arrow showing which way) and the
+          one type shown. Mirrors Swift SavedMeasurementsSortMenu. */}
+      <button
+        className="btn"
+        onClick={(e) => openToolMenu('sort', e.currentTarget)}
+        aria-expanded={toolMenu?.which === 'sort'}
+        title="Sort the list, or show one type of measurement"
+      >
+        <FilterIcon />
+        Sort &amp; Filter
+        <ChevronDownIcon />
+      </button>
       {/* While comparing the other actions stay in place, disabled — as Swift's toolbar. */}
       <button
         className="btn"
         onClick={() => fileInput.current?.click()}
-        disabled={comparing}
+        disabled={selecting}
         title="Import measurements from a .guitartap file (one or many)"
       >
         <SaveIcon />
@@ -318,23 +413,32 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
         <button
           className="btn"
           onClick={() => void exportAll()}
-          disabled={comparing}
+          disabled={selecting}
           title="Export the whole library as one .guitartap file (backup / move to another browser or device)"
         >
           <UploadIcon />
           Export All
         </button>
       )}
+      {/* Delete — a menu: All…, Duplicates… (disabled when there are none) and Selected… (tick the rows to delete,
+          as compare mode does). Mirrors Swift SavedMeasurementsDeleteMenu. */}
       {items && items.length > 0 && (
-        <button className="btn" onClick={removeAll} disabled={comparing} title="Delete all saved measurements">
+        <button
+          className="btn"
+          onClick={(e) => openToolMenu('delete', e.currentTarget)}
+          disabled={selecting}
+          aria-expanded={toolMenu?.which === 'delete'}
+          title="Delete all measurements, the duplicates, or the ones you select"
+        >
           <TrashIcon />
-          Delete All
+          Delete
+          <ChevronDownIcon />
         </button>
       )}
       <span className="meas-buttons-gap" />
       {/* Done only closes the list (Cancel leaves compare mode): Swift's .cancellationAction — a plain button. */}
-      <button className="btn" onClick={comparing ? exitCompare : onClose}>
-        {comparing ? 'Cancel' : 'Done'}
+      <button className="btn" onClick={deleting ? exitDelete : comparing ? exitCompare : onClose}>
+        {selecting ? 'Cancel' : 'Done'}
       </button>
     </>
   )
@@ -354,6 +458,31 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
           onChange={(e) => void onImportFile(e)}
         />
 
+        {/* Above the list and fixed: the library warning, and the total (or the filter's count) — only the rows
+            scroll, as Swift's and Python's lists. */}
+        {items != null && items.length > 0 && (
+          <div className="meas-fixed">
+            {!isInstalled() && items != null && items.length > 0 && (
+              <p className="meas-hint">
+                ⓘ Your library is stored in this browser and can be cleared by the browser — Safari
+                deletes a site's data after about 7 days without a visit (on macOS and iOS alike). <b>Install the app</b> (Add to Home Screen / Add to Dock) for
+                durable storage, and use <b>Export All</b> to keep a backup.
+              </p>
+            )}
+            {filter != null ? (
+              <p className="meas-total meas-filtered">
+                Showing {shown.length} of {items.length} · {filter}
+                <button className="btn-icon" onClick={() => setFilter(null)} aria-label="Show all measurements" title="Show all measurements">
+                  <CancelIcon />
+                </button>
+              </p>
+            ) : (
+              <p className="meas-total">
+                Total: {items.length} measurement{items.length === 1 ? '' : 's'}
+              </p>
+            )}
+          </div>
+        )}
         <div className="settings-body">
           {exportFailure && (
             <AlertModal
@@ -394,23 +523,38 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
               onDismiss={() => setPendingDelete(null)}
             />
           )}
+          {confirmingDuplicates && (
+            <AlertModal
+              title="Delete Duplicates?"
+              message={`This will delete ${duplicateItems.length} duplicate measurement${duplicateItems.length === 1 ? '' : 's'}; the first copy of each is kept.`}
+              buttons={[
+                { label: 'Cancel', onClick: () => setConfirmingDuplicates(false) },
+                { label: 'Delete', primary: true, onClick: () => void confirmDeleteDuplicates() },
+              ]}
+              onDismiss={() => setConfirmingDuplicates(false)}
+            />
+          )}
+          {confirmingSelected && (
+            <AlertModal
+              title="Delete Selected Measurements?"
+              message={`This will permanently delete ${delSelected.size} measurement${delSelected.size === 1 ? '' : 's'}. This cannot be undone.`}
+              buttons={[
+                { label: 'Cancel', onClick: () => setConfirmingSelected(false) },
+                { label: 'Delete', primary: true, onClick: () => void confirmDeleteSelected() },
+              ]}
+              onDismiss={() => setConfirmingSelected(false)}
+            />
+          )}
           {confirmingDeleteAll && (
             <AlertModal
               title="Delete All Measurements?"
-              message={`This will permanently delete all ${items?.length ?? 0} saved measurements. This cannot be undone.`}
+              message={`This will permanently delete all ${items?.length ?? 0} saved measurement${items?.length === 1 ? '' : 's'}. This cannot be undone.`}
               buttons={[
                 { label: 'Cancel', onClick: () => setConfirmingDeleteAll(false) },
                 { label: 'Delete All', primary: true, onClick: () => void confirmRemoveAll() },
               ]}
               onDismiss={() => setConfirmingDeleteAll(false)}
             />
-          )}
-          {!isInstalled() && items != null && items.length > 0 && (
-            <p className="meas-hint">
-              ⓘ Your library is stored in this browser and can be cleared by the browser — Safari
-              deletes a site's data after about 7 days without a visit (on macOS and iOS alike). <b>Install the app</b> (Add to Home Screen / Add to Dock) for
-              durable storage, and use <b>Export All</b> to keep a backup.
-            </p>
           )}
           {items.length === 0 ? (
             <EmptyStateView
@@ -420,35 +564,38 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
             />
           ) : (
             <>
-              <p className="meas-total">
-                Total: {items.length} measurement{items.length === 1 ? '' : 's'}
-              </p>
               <ul className="meas-list">
-                {items.map((m) => (
+                {shown.map((m) => (
                   <li
                       key={keyOf(m)}
-                      className={`meas-row${comparing && selected.has(keyOf(m)) ? ' selected' : ''}${
+                      className={`meas-row${selecting && isTicked(m) ? ' selected' : ''}${
                         comparing && !isComparable(m) ? ' disabled' : ''
                       }`}
                       style={{ touchAction: 'manipulation' }}
                       onContextMenu={(e) => {
-                        if (comparing) return
+                        if (selecting) return
                         e.preventDefault()
                         setMenuId(keyOf(m))
                       }}
                     >
-                      {comparing && (
+                      {selecting && (
                         // Swift's circle / checkmark.circle.fill — shown on every row; a row that can't be
-                        // compared is dimmed with it.
-                        <span className={`meas-check${selected.has(keyOf(m)) ? ' on' : ''}`} aria-hidden="true">
-                          {selected.has(keyOf(m)) ? <CheckCircleFillIcon /> : <CircleOutlineIcon />}
+                        // compared is dimmed with it (any row can be deleted).
+                        <span className={`meas-check${isTicked(m) ? ' on' : ''}`} aria-hidden="true">
+                          {isTicked(m) ? <CheckCircleFillIcon /> : <CircleOutlineIcon />}
                         </span>
                       )}
                       <div
                         className="meas-info"
-                        onPointerUp={comparing ? undefined : rowPointerUp(m)}
-                        onClick={comparing ? () => toggleSelect(m) : undefined}
-                        title={comparing ? 'Toggle selection for comparison' : 'Double-click to load measurement'}
+                        onPointerUp={selecting ? undefined : rowPointerUp(m)}
+                        onClick={deleting ? () => toggleDelete(m) : comparing ? () => toggleSelect(m) : undefined}
+                        title={
+                          deleting
+                            ? 'Toggle selection for deletion'
+                            : comparing
+                              ? 'Toggle selection for comparison'
+                              : 'Double-click to load measurement'
+                        }
                       >
                         <div className="meas-line1">
                           <span className="meas-name">
@@ -478,7 +625,7 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
                         {m.notes && <div className="meas-notes">{m.notes}</div>}
                       </div>
 
-                      {!comparing && (
+                      {!selecting && (
                         <div className="meas-menu-wrap">
                           <button
                             className="meas-menu-btn btn-icon"
@@ -508,6 +655,71 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
         </div>
         <div className="settings-modal-foot meas-buttons not-phone">{buttons}</div>
       </div>
+
+      {toolMenu &&
+        createPortal(
+          <>
+            {/* Portaled, but React still passes its clicks up to the panel's overlay, which closes the panel on a
+                click — so both stop them, as the row ⋯ menu does: a click closes only the menu. */}
+            <div
+              className="meas-sort-backdrop"
+              onClick={(e) => {
+                e.stopPropagation()
+                setToolMenu(null)
+              }}
+            />
+            <div
+              className="meas-menu"
+              role="menu"
+              ref={toolMenuElRef}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'fixed',
+                left: Math.max(8, Math.min(toolMenu.rect.left, window.innerWidth - 220)),
+                ...menuPlacement(toolMenu.rect, toolMenuHeight),
+              }}
+            >
+              {toolMenu.which === 'sort' ? (
+                <>
+                  <span className="meas-menu-head">Sort by</span>
+                  {SAVED_MEASUREMENTS_SORTS.map((key) => (
+                    <button key={key} role="menuitemradio" aria-checked={key === sort} onClick={() => chooseSort(key)}>
+                      <span className="meas-tick">{key === sort ? '✓' : ''}</span>
+                      {SAVED_MEASUREMENTS_SORT_TITLE[key]}
+                      {key === sort && <span className="meas-dir">{ascending ? '↑' : '↓'}</span>}
+                    </button>
+                  ))}
+                  <span className="meas-menu-sep" />
+                  <span className="meas-menu-head">Show</span>
+                  {[null, ...FILTER_TYPES].map((t) => (
+                    <button key={t ?? 'all'} role="menuitemradio" aria-checked={t === filter} onClick={() => setFilter(t)}>
+                      <span className="meas-tick">{t === filter ? '✓' : ''}</span>
+                      {t ?? 'All'}
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <button role="menuitem" onClick={() => { setToolMenu(null); removeAll() }}>All…</button>
+                  <button
+                    role="menuitem"
+                    disabled={duplicateItems.length === 0}
+                    onClick={() => { setToolMenu(null); setConfirmingDuplicates(true) }}
+                  >
+                    Duplicates…
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setToolMenu(null); setMenuId(null); setDelSelected(new Set()); setDeleting(true) }}
+                  >
+                    Selected…
+                  </button>
+                </>
+              )}
+            </div>
+          </>,
+          document.body,
+        )}
 
       {/* Row actions menu — portaled to <body> with fixed positioning so it floats above
           the (scrollable, short) modal instead of being clipped by it. */}

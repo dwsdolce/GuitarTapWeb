@@ -1555,6 +1555,7 @@ export default function App() {
           onUpdate={(m, name, notes) => analyzer.updateMeasurement(m, name, notes)}
           onDelete={(m) => analyzer.deleteMeasurement(m)}
           onDeleteAll={() => analyzer.deleteAllMeasurements()}
+          onDeleteMany={(ms) => analyzer.deleteMeasurements(ms)}
         />
       )}
 

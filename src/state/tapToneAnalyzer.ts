@@ -25,6 +25,7 @@ import { Pitch } from '../dsp/pitch'
 import { formatDisplayDateCompact } from '../format/date'
 import { seriesRole } from '../presentation/palette'
 import { GUITAR_TYPE_RAW } from '../dsp/guitarModes'
+import { duplicates } from '../measurement/savedMeasurementsOrder'
 import { clearMeasurements, deleteMeasurement as deleteStoredMeasurement, readLibrary, saveMeasurement as storeMeasurement, setAsideUnreadable, type ImportedMeasurements } from '../measurement/store'
 import { amendMeasurement } from '../measurement/amend'
 import type { ChartView } from '../presentation/chartTypes'
@@ -1334,6 +1335,25 @@ export class TapToneAnalyzer {
   async deleteMeasurement(m: TapToneMeasurementModel): Promise<void> {
     await deleteStoredMeasurement(m.rowKey as string)
     await this.refreshSavedMeasurements()
+  }
+
+  /** Remove several saved measurements, refreshing the library once. Mirrors Swift `deleteMeasurements(at:)`. */
+  async deleteMeasurements(ms: TapToneMeasurementModel[]): Promise<void> {
+    for (const m of ms) await deleteStoredMeasurement(m.rowKey as string)
+    await this.refreshSavedMeasurements()
+  }
+
+  /** The duplicates — every later copy of a measurement already in the library. Mirrors Swift
+   *  `duplicateMeasurementIndices`. */
+  duplicateMeasurements(): TapToneMeasurementModel[] {
+    const all = this.savedMeasurements
+    return duplicates(all.map((m) => m.id)).map((i) => all[i]!)
+  }
+
+  /** Remove the duplicates, keeping the first copy of each measurement. Mirrors Swift
+   *  `deleteDuplicateMeasurements()`. */
+  async deleteDuplicateMeasurements(): Promise<void> {
+    await this.deleteMeasurements(this.duplicateMeasurements())
   }
 
   /** Remove every saved measurement. Mirrors Python `delete_all_measurements`. */

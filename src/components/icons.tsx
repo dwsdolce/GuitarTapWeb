@@ -68,6 +68,7 @@ export const InfoIcon = () => <Mdi d={MDI.information} /> // info.circle
 export const FilePlusIcon = () => <Mdi d={MDI.filePlus} /> // doc.badge.plus
 export const TrashIcon = () => <Mdi d={MDI.trashCan} /> // trash
 export const ChevronDownIcon = () => <Mdi d={MDI.chevronDown} />
+export const FilterIcon = () => <Mdi d={MDI.filterVariant} />
 export const ChevronUpIcon = () => <Mdi d={MDI.chevronUp} />
 export const ChevronRightIcon = () => <Mdi d={MDI.chevronRight} />
 export const OpenInNewIcon = () => <Mdi d={MDI.openInNew} />
