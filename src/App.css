@@ -2054,18 +2054,23 @@
   justify-content: space-between;
   gap: 0.5rem;
 }
-/* Mode label — plain text (not a dropdown widget), click to reassign. Mirrors Swift's Menu /
-   Python's QToolButton: colored text, italic when manually overridden. `appearance: none` strips
-   the native select chrome so it reads as text; the click still opens the (native) reassign list. */
+/* Mode label — plain coloured text, italic when manually overridden; a click opens the mode menu. Mirrors
+   Swift's Menu / Python's QToolButton. */
 .mode-select {
   appearance: none;
   -webkit-appearance: none;
   background: none;
   border: none;
+  font-family: inherit;
   font-size: 10px;
   font-weight: 700;
   padding: 0;
   max-width: 60%;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .mode-select.override {
   font-style: italic;
@@ -2575,15 +2580,16 @@
   align-items: center;
   gap: 0.45rem;
 }
+/* A saved measurement's menu: each item's Material Design icon, in the item's colour. */
 .meas-ico {
+  display: inline-flex;
   width: 15px;
   height: 15px;
   flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+}
+.meas-ico svg {
+  width: 15px;
+  height: 15px;
 }
 .meas-menu button:disabled {
   opacity: var(--o-control-dimmed);

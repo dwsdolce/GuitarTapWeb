@@ -1,5 +1,7 @@
 // @parity view/peak-card
-import { useRef, useEffect, useState, type JSX } from 'react'
+import { Fragment, useRef, useEffect, useLayoutEffect, useState, type JSX } from 'react'
+import { createPortal } from 'react-dom'
+import { menuPlacement } from './menuPlacement'
 import type { ResolvedMode } from '../dsp/classify'
 import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME, QUICK_PICK_MODES, ADDITIONAL_MODE_LABELS } from '../presentation/modeColors'
 import { color as roleColor, magnitudeRole, modeRole, opacity } from '../presentation/palette'
@@ -64,6 +66,18 @@ export interface PeakCardProps {
 const RESET = '__reset__'
 const CUSTOM = '__custom__'
 
+/** The mode menu's items, in the groups a separator divides — as Swift's CombinedPeakModeRowView menu and Python's
+ *  peak_card_widget: Reset to Auto-Detected while the mode is overridden, the standard tap-tone modes, the
+ *  extended T(m,n) labels, then Custom…. */
+function modeMenuGroups(isManualOverride: boolean, autoName: string): { value: string; title: string }[][] {
+  return [
+    ...(isManualOverride ? [[{ value: RESET, title: `Reset to Auto-Detected (${autoName})` }]] : []),
+    QUICK_PICK_MODES.map((l) => ({ value: l, title: l })),
+    ADDITIONAL_MODE_LABELS.map((l) => ({ value: l, title: l })),
+    [{ value: CUSTOM, title: 'Custom…' }],
+  ]
+}
+
 /**
  * One resonant-peak card, mirroring Swift `CombinedPeakModeRowView`:
  * `[star] [mode glyph + in-range badge] [mode label · freq / pitch / Q · BW · mag]`.
@@ -102,16 +116,16 @@ export function PeakCard({
   const tint = roleColor(role, 'peak.rowTint')
   const ModeIcon = effMode ? MODE_ICON[effMode] : TagIcon
 
-  // Build the option list, ensuring the current value is present. Two groups, as in Swift's
-  // CombinedPeakModeRowView menu and Python's peak_card_widget: the standard tap-tone modes,
-  // then the extended T(m,n) labels for users who prefer the academic designations.
-  const options = [...QUICK_PICK_MODES]
-  const extended = [...ADDITIONAL_MODE_LABELS]
-  const isKnownOption = options.includes(effectiveLabel) || extended.includes(effectiveLabel)
-  if (!isKnownOption) options.unshift(effectiveLabel)
-
   const [editingLabel, setEditingLabel] = useState(false)
+  // The mode menu, opened under the label; portaled so the results list cannot clip it.
+  const [menuRect, setMenuRect] = useState<DOMRect | null>(null)
+  const [menuHeight, setMenuHeight] = useState<number | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    setMenuHeight(menuRect ? (menuRef.current?.offsetHeight ?? null) : null)
+  }, [menuRect])
   const onPick = (val: string) => {
+    setMenuRect(null)
     if (val === RESET) return onResetLabel?.()
     if (val === CUSTOM) {
       setEditingLabel(true)
@@ -165,32 +179,19 @@ export function PeakCard({
       <div className="peak-info">
         <div className="row">
           {onSetLabel ? (
-          <select
+          <button
             className={`mode-select${isManualOverride ? ' override' : ''}`}
             style={{ color }}
-            value={effectiveLabel}
-            onClick={(e) => e.stopPropagation()} // opening the mode dropdown must not toggle the highlight
-            onChange={(e) => onPick(e.target.value)}
+            onClick={(e) => {
+              e.stopPropagation() // opening the mode menu must not toggle the highlight
+              const rect = e.currentTarget.getBoundingClientRect()
+              setMenuRect((r) => (r ? null : rect))
+            }}
             title={isManualOverride ? 'Manually assigned — click to change or reset' : 'Click to assign a mode label'}
           >
-            {/* Reset to Auto is the FIRST item (like Swift/Python's menu), not the last. */}
-            {isManualOverride && <option value={RESET}>Reset to Auto ({autoName})</option>}
-            {options.map((l) => (
-              <option key={l} value={l}>
-                {l}
-                {isManualOverride && l === effectiveLabel ? ' *' : ''}
-              </option>
-            ))}
-            <optgroup label="Extended modes">
-              {extended.map((l) => (
-                <option key={l} value={l}>
-                  {l}
-                  {isManualOverride && l === effectiveLabel ? ' *' : ''}
-                </option>
-              ))}
-            </optgroup>
-            <option value={CUSTOM}>Custom…</option>
-          </select>
+            {effectiveLabel}
+            {isManualOverride ? ' *' : ''}
+          </button>
           ) : (
             <span className={`mode-select static${isManualOverride ? ' override' : ''}`} style={{ color }}>
               {effectiveLabel}
@@ -222,6 +223,43 @@ export function PeakCard({
           </span>
         </div>
       </div>
+      {menuRect &&
+        createPortal(
+          <>
+            {/* Portaled, but React still passes its clicks up to the card, which highlights the peak on a click —
+                so both stop them: a click closes only the menu. */}
+            <div
+              className="meas-sort-backdrop"
+              onClick={(e) => {
+                e.stopPropagation()
+                setMenuRect(null)
+              }}
+            />
+            <div
+              className="meas-menu"
+              role="menu"
+              ref={menuRef}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'fixed',
+                left: Math.max(8, Math.min(menuRect.left, window.innerWidth - 240)),
+                ...menuPlacement(menuRect, menuHeight),
+              }}
+            >
+              {modeMenuGroups(isManualOverride, autoName).map((group, gi) => (
+                <Fragment key={gi}>
+                  {gi > 0 && <div className="meas-menu-sep" />}
+                  {group.map((item) => (
+                    <button key={item.value} role="menuitem" onClick={() => onPick(item.value)}>
+                      {item.title}
+                    </button>
+                  ))}
+                </Fragment>
+              ))}
+            </div>
+          </>,
+          document.body,
+        )}
       {editingLabel && (
         <CustomLabelDialog
           initial={isManualOverride ? effectiveLabel : ''}

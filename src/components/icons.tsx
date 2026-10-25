@@ -28,6 +28,18 @@ function Mdi({ d, size = 14 }: { d: string; size?: number }) {
   )
 }
 export const ChartLineIcon = () => <Mdi d={MDI.chartLine} />
+
+// A menu item's icon by its Material Design name, as the shared menu lists give it (savedMeasurementMenu).
+const MDI_BY_NAME: Record<string, string> = {
+  'file-download-outline': MDI.fileDownload,
+  'eye-outline': MDI.eye,
+  'pencil-outline': MDI.pencil,
+  'file-export-outline': MDI.fileExport,
+  'chart-line': MDI.chartLine,
+  'file-pdf-box': MDI.filePdf,
+  'trash-can-outline': MDI.trashCan,
+}
+export const MenuItemIcon = ({ mdi }: { mdi: string }) => (MDI_BY_NAME[mdi] ? <Mdi d={MDI_BY_NAME[mdi]} /> : null)
 export const DocumentIcon = () => <Mdi d={MDI.document} />
 export const AutoDbOnIcon = () => <Mdi d={MDI.autoDbOn} />
 

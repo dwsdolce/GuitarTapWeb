@@ -1,6 +1,6 @@
 // @parity view/measurements-list
 import { AlertModal } from './AlertModal'
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { measurementTapToneRatio, guitarTapFilename } from '../measurement/types'
 import { EditMeasurementSheet } from './EditMeasurementSheet'
@@ -13,7 +13,8 @@ import { exportFailureMessage, exportSpectrumPng } from '../presentation/spectru
 import { measurementToImageOpts, reportForMeasurement } from '../presentation/measurementImage'
 import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
-import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon, MoreCircleIcon, TrayIcon, FilterIcon, CancelIcon, ChevronDownIcon } from './icons'
+import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon, MoreCircleIcon, TrayIcon, FilterIcon, CancelIcon, ChevronDownIcon, MenuItemIcon } from './icons'
+import { SAVED_MEASUREMENT_MENU_GROUPS } from '../presentation/savedMeasurementMenu'
 import { settingsStore } from '../settingsStore'
 import {
   FILTER_TYPES,
@@ -64,22 +65,6 @@ function metaLine(m: TapToneMeasurementModel): string {
 
 const isComparison = (m: TapToneMeasurementModel): boolean => m.comparisonEntries != null
 
-// Monochrome line icons (Lucide-style) for the ⋯ menu — `currentColor` so they follow
-// the menu text colour (and the hover state). Mirrors the Swift SF Symbols.
-const Icon = ({ paths }: { paths: string[] }) => (
-  <svg className="meas-ico" viewBox="0 0 24 24" aria-hidden="true">
-    {paths.map((d) => (
-      <path key={d} d={d} />
-    ))}
-  </svg>
-)
-const ICON_LOAD = ['M12 3v12', 'm7 10 5 5 5-5', 'M5 21h14'] // arrow-down-to-line (≈ arrow.down.doc)
-const ICON_EDIT = ['M12 20h9', 'M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'] // pencil
-const ICON_DELETE = ['M3 6h18', 'M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2', 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6', 'M10 11v6', 'M14 11v6'] // trash
-const ICON_EXPORT = ['M12 15V3', 'm7 8 5-5 5 5', 'M5 21h14'] // arrow-up-out (≈ export)
-const ICON_DETAILS = ['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20', 'M12 16v-4', 'M12 8h.01'] // info-circle (≈ info.circle)
-const ICON_SPECTRUM = ['M3 3v18h18', 'm7 14 4-4 3 3 5-6'] // axes + line (≈ chart.line.uptrend)
-const ICON_PDF = ['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z', 'M14 2v6h6', 'M9 13h6', 'M9 17h6'] // doc.text
 
 // A measurement is comparable when it has a single-spectrum snapshot and isn't itself a
 // comparison — mirrors Swift's `comparableMeasurements` filter.
@@ -741,37 +726,33 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
               style={style}
               onClick={(e) => e.stopPropagation()}
             >
-              <button role="menuitem" onClick={() => onLoad(m)}>
-                <Icon paths={ICON_LOAD} />
-                Load into View
-              </button>
-              <button role="menuitem" onClick={() => { setMenuId(null); setDetailId(keyOf(m)) }}>
-                <Icon paths={ICON_DETAILS} />
-                View Details
-              </button>
-              <div className="meas-menu-sep" />
-              <button role="menuitem" onClick={() => beginEdit(m)}>
-                <Icon paths={ICON_EDIT} />
-                Edit Name &amp; Notes
-              </button>
-              <button role="menuitem" onClick={() => void exportOne(m)}>
-                <Icon paths={ICON_EXPORT} />
-                Export Measurement
-              </button>
-              <button role="menuitem" onClick={() => void exportSpectrum(m)}>
-                <Icon paths={ICON_SPECTRUM} />
-                Export Spectrum
-              </button>
-              <button role="menuitem" onClick={() => void exportPdf(m)}>
-                <Icon paths={ICON_PDF} />
-                Export PDF Report
-              </button>
-              <div className="meas-menu-sep" />
-              {/* An ordinary item: a menu's items carry no colour of their own (style guide S1a). */}
-              <button role="menuitem" onClick={() => remove(m)}>
-                <Icon paths={ICON_DELETE} />
-                Delete
-              </button>
+              {/* From its groups (SAVED_MEASUREMENT_MENU_GROUPS), a separator between them; an ordinary item
+                  carries no colour of its own, Delete included (style guide S1a). */}
+              {SAVED_MEASUREMENT_MENU_GROUPS.map((group, gi) => (
+                <Fragment key={gi}>
+                  {gi > 0 && <div className="meas-menu-sep" />}
+                  {group.map((entry) => (
+                    <button
+                      key={entry.action}
+                      role="menuitem"
+                      onClick={() => {
+                        switch (entry.action) {
+                          case 'load': onLoad(m); break
+                          case 'details': setMenuId(null); setDetailId(keyOf(m)); break
+                          case 'edit': beginEdit(m); break
+                          case 'exportMeasurement': void exportOne(m); break
+                          case 'exportSpectrum': void exportSpectrum(m); break
+                          case 'exportPDF': void exportPdf(m); break
+                          case 'delete': remove(m); break
+                        }
+                      }}
+                    >
+                      <span className="meas-ico"><MenuItemIcon mdi={entry.mdi} /></span>
+                      {entry.title}
+                    </button>
+                  ))}
+                </Fragment>
+              ))}
             </div>,
             document.body,
           )
