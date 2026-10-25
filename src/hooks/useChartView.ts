@@ -42,6 +42,9 @@ interface UseChartViewArgs {
   sequenceStarts: number
   /** The three peaks were restored by a load, not identified by a capture — they do not widen. */
   materialPeaksFromLoad: boolean
+  /** The comparison range while a comparison measurement is shown, else null — the target of the comparison
+   *  menu's resets. */
+  comparisonRange: ChartView | null
 }
 
 export interface ChartViewModel {
@@ -70,6 +73,7 @@ export function useChartView({
   flcPeak,
   sequenceStarts,
   materialPeaksFromLoad,
+  comparisonRange,
 }: UseChartViewArgs): ChartViewModel {
   const [autoDb, setAutoDb] = useState(false)
 
@@ -153,15 +157,18 @@ export function useChartView({
   const resetView = useCallback(
     (target: ResetTarget, axis: ResetAxis) => {
       const factory = { minHz: defaultMinFrequency(measurementType), maxHz: defaultMaxFrequency(measurementType) }
+      if (target === 'comparison' && !comparisonRange) return
       const tgt: ChartView =
-        target === 'saved'
-          ? defaultView // configured (saved) display range
-          : {
-              minHz: factory.minHz,
-              maxHz: factory.maxHz,
-              minDb: DEFAULT_SETTINGS.minDb,
-              maxDb: DEFAULT_SETTINGS.maxDb,
-            }
+        target === 'comparison'
+          ? comparisonRange! // the span of the compared measurements
+          : target === 'saved'
+            ? defaultView // configured (saved) display range
+            : {
+                minHz: factory.minHz,
+                maxHz: factory.maxHz,
+                minDb: DEFAULT_SETTINGS.minDb,
+                maxDb: DEFAULT_SETTINGS.maxDb,
+              }
       setView((v) => ({
         minHz: axis === 'mag' ? v.minHz : tgt.minHz,
         maxHz: axis === 'mag' ? v.maxHz : tgt.maxHz,
@@ -169,7 +176,7 @@ export function useChartView({
         maxDb: axis === 'freq' ? v.maxDb : tgt.maxDb,
       }))
     },
-    [defaultView, measurementType],
+    [defaultView, measurementType, comparisonRange],
   )
 
   // ── Auto-dB (autoScaleDB): fit the dB axis to the displayed spectrum ───────

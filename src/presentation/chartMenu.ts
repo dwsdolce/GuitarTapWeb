@@ -14,6 +14,9 @@ export type ChartMenuAction =
   | 'resetBothToDefaults'
   | 'resetFrequencyToDefaults'
   | 'resetMagnitudeToDefaults'
+  | 'resetBothToComparison'
+  | 'resetFrequencyToComparison'
+  | 'resetMagnitudeToComparison'
   | 'resetLabels'
   | 'resetPosition'
 
@@ -40,6 +43,18 @@ export const CHART_MENU_GROUPS: ChartMenuEntry[][] = [
   [{ action: 'resetLabels', title: 'Reset Labels', mdi: 'undo' }],
 ]
 
+/** The chart's menu while a comparison measurement is shown, in place of {@link CHART_MENU_GROUPS}: Settings' range
+ *  and the app's defaults mean nothing for measurements of many guitars, so it resets to the comparison range — the
+ *  span of the compared measurements' saved views, the range a comparison opens at. Mirrors Swift
+ *  `comparisonGroups`. */
+export const COMPARISON_MENU_GROUPS: ChartMenuEntry[][] = [
+  [
+    { action: 'resetBothToComparison', title: 'Reset Both Axes to Comparison Range', mdi: 'restore' },
+    { action: 'resetFrequencyToComparison', title: 'Reset Frequency Axis to Comparison Range', mdi: 'restore' },
+    { action: 'resetMagnitudeToComparison', title: 'Reset Magnitude Axis to Comparison Range', mdi: 'restore' },
+  ],
+]
+
 /** A peak label's menu: it can act only while the label has been moved. */
 export const LABEL_MENU: ChartMenuEntry[] = [{ action: 'resetPosition', title: 'Reset Position', mdi: 'restore' }]
 
@@ -52,6 +67,9 @@ export function axisReset(action: ChartMenuAction): { target: ResetTarget; axis:
     resetBothToDefaults: { target: 'defaults', axis: 'both' },
     resetFrequencyToDefaults: { target: 'defaults', axis: 'freq' },
     resetMagnitudeToDefaults: { target: 'defaults', axis: 'mag' },
+    resetBothToComparison: { target: 'comparison', axis: 'both' },
+    resetFrequencyToComparison: { target: 'comparison', axis: 'freq' },
+    resetMagnitudeToComparison: { target: 'comparison', axis: 'mag' },
   }
   return map[action] ?? null
 }

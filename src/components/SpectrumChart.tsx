@@ -16,7 +16,7 @@ import {
 } from '../presentation/chartLimits'
 import { BackupRestoreIcon, InfoIcon, MoreCircleIcon, UndoArrowIcon, UndoIcon } from './icons'
 import type { Uuid } from '../measurement/newId'
-import { CHART_MENU_GROUPS, LABEL_MENU, axisReset } from '../presentation/chartMenu'
+import { CHART_MENU_GROUPS, COMPARISON_MENU_GROUPS, LABEL_MENU, axisReset } from '../presentation/chartMenu'
 import { CHART_HELP_TITLE, currentHelpDevice, shownHelp } from '../presentation/chartHelp'
 
 /** A menu item's icon, by its Material Design name (chartMenu's `mdi`). */
@@ -53,6 +53,8 @@ export interface SpectrumChartProps {
   onAnnotationDrag?: (key: Uuid, pos: [number, number]) => void
   /** "Reset Labels" menu action → clear all dragged label positions. */
   onResetLabels?: () => void
+  /** A comparison measurement is shown: the chart's menu is the comparison's (COMPARISON_MENU_GROUPS). */
+  comparisonMenu?: boolean
   /** Right-clicking a SINGLE badge → reset just that label to its auto-position (Swift/Python
    *  `resetAnnotationOffset`). `key` is the badge's `annoKey`. Omit to disable the per-label menu. */
   onResetAnnotation?: (key: Uuid) => void
@@ -105,6 +107,7 @@ export function SpectrumChart({
   onReset,
   onAnnotationDrag,
   onResetLabels,
+  comparisonMenu = false,
   onResetAnnotation,
   hasMovedLabels = false,
   frozen = false,
@@ -701,7 +704,7 @@ export function SpectrumChart({
               // The chart's menu — CHART_MENU_GROUPS, the same items, words and icons as Swift's, from the ⋯ and from
               // a right-click; no title or headers (style guide S1a).
               <>
-                {CHART_MENU_GROUPS.map((group, i) => {
+                {(comparisonMenu ? COMPARISON_MENU_GROUPS : CHART_MENU_GROUPS).map((group, i) => {
                   const items = group.filter((e) => e.action !== 'resetLabels' || onResetLabels)
                   if (items.length === 0) return null
                   return (

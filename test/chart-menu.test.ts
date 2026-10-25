@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { CHART_MENU_GROUPS, LABEL_MENU, type ChartMenuEntry } from '../src/presentation/chartMenu'
+import { CHART_MENU_GROUPS, COMPARISON_MENU_GROUPS, LABEL_MENU, type ChartMenuEntry } from '../src/presentation/chartMenu'
 
 interface Case {
   action: string
@@ -16,6 +16,7 @@ interface Case {
 }
 const DATA = JSON.parse(readFileSync(new URL('./fixtures/chart-menu.json', import.meta.url), 'utf8')) as {
   groups: Case[][]
+  comparisonGroups: Case[][]
   labelMenu: Case[]
 }
 const entries = (cases: Case[]) => cases.map((c) => ({ action: c.action, title: c.title, mdi: c.mdi }) as ChartMenuEntry)
@@ -23,6 +24,9 @@ const entries = (cases: Case[]) => cases.map((c) => ({ action: c.action, title: 
 describe('chart menu — the shared cases (chart-menu.json)', () => {
   it('the chart menu: its groups, items, words and icons', () => {
     expect(CHART_MENU_GROUPS).toEqual(DATA.groups.map(entries))
+  })
+  it("a comparison measurement's chart menu", () => {
+    expect(COMPARISON_MENU_GROUPS).toEqual(DATA.comparisonGroups.map(entries))
   })
   it("a peak label's menu", () => {
     expect(LABEL_MENU).toEqual(entries(DATA.labelMenu))

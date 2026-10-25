@@ -66,7 +66,7 @@ export interface ChartView {
   maxDb: number
 }
 
-export type ResetTarget = 'saved' | 'defaults'
+export type ResetTarget = 'saved' | 'defaults' | 'comparison'
 export type ResetAxis = 'both' | 'freq' | 'mag'
 
 /** A colored overlay curve (plate/brace per-phase spectra, later comparison curves). */
