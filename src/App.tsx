@@ -1227,16 +1227,32 @@ export default function App() {
             </PeaksReader>
           </div>
 
+          {/* What is not an item stays fixed above the list: a comparison table's heading, or the empty list's
+              message (style guide S8). The same cases as the list below. */}
+          <PeaksReader peaks={analyzer.detectedPeaks}>
+            {() => {
+              const peaks = peakDisplay()
+              return comparison ? (
+                <ComparisonResultsView rows={comparisonRows} part="heading" />
+              ) : material ? null : showMultiTap && multiTapAvailable ? (
+                <MultiTapComparisonResultsView taps={tapRows} avg={peaks.avgModes} part="heading" />
+              ) : peaks.displayPeaksInRange.length === 0 ? (
+                // Swift's words, and whenever the list is empty — live or frozen, as Swift's.
+                <p className="empty results-empty">No peaks detected in visible range</p>
+              ) : null
+            }}
+          </PeaksReader>
+
           <div className="results-scroll">
           <PeaksReader peaks={analyzer.detectedPeaks}>
             {() => {
               const peaks = peakDisplay()
               return comparison ? (
-              <ComparisonResultsView rows={comparisonRows} />
+              <ComparisonResultsView rows={comparisonRows} part="rows" />
             ) : material ? (
               <MaterialResults type={brace ? 'brace' : 'plate'} matInputs={matInputs} onInputsChange={(next) => analyzer.setMaterialInputs(next)} measureFlc={settings.measureFlc} peaks={matPeaks} complete={matPhase === 'complete'} />
             ) : showMultiTap && multiTapAvailable ? (
-              <MultiTapComparisonResultsView taps={tapRows} avg={peaks.avgModes} />
+              <MultiTapComparisonResultsView taps={tapRows} avg={peaks.avgModes} part="rows" />
             ) : (
               <>
                 {peaks.displayPeaksInRange.length > 0 ? (
@@ -1265,10 +1281,7 @@ export default function App() {
                       )
                     })}
                   </div>
-                ) : (
-                  // Swift's words, and whenever the list is empty — live or frozen, as Swift's.
-                  <p className="empty results-empty">No peaks detected in visible range</p>
-                )}
+                ) : null}
               </>
             )
             }}

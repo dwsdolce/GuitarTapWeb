@@ -19,6 +19,7 @@
 import type { DefinitiveMode, DefinitiveModeInfo } from '../state/tapToneAnalyzer'
 import { FieldPrecision } from '../precision'
 import { color as roleColor, seriesRole } from '../presentation/palette'
+import type { ComparisonTablePart } from './ComparisonResultsView'
 
 /** Resolved Air / Top / Back peak frequencies (Hz) for one row; `null` when no peak was found. */
 export interface TapModeFreqs {
@@ -70,15 +71,37 @@ function AvgFreqCells({ m }: { m: DefinitiveModeInfo }) {
  * palette color is chosen by array index) plus a final bold "Averaged" row (`avg`, the
  * averaged mode frequencies).
  */
-export function MultiTapComparisonResultsView({ taps, avg }: { taps: MultiTapRow[]; avg: DefinitiveModeInfo }) {
-  return (
-    <div className="multitap-table">
-      <div className="mt-row mt-head">
-        <span className="mt-label">Tap</span>
-        <span className="mt-cell">Air</span>
-        <span className="mt-cell">Top</span>
-        <span className="mt-cell">Back</span>
+export function MultiTapComparisonResultsView({
+  taps,
+  avg,
+  part = 'whole',
+}: {
+  taps: MultiTapRow[]
+  avg: DefinitiveModeInfo
+  /** Only the heading, or only the rows — for a list that keeps its heading fixed above the rows it scrolls. */
+  part?: ComparisonTablePart
+}) {
+  if (part === 'heading')
+    return (
+      <div className="multitap-table mt-part-heading">
+        <div className="mt-row mt-head">
+          <span className="mt-label">Tap</span>
+          <span className="mt-cell">Air</span>
+          <span className="mt-cell">Top</span>
+          <span className="mt-cell">Back</span>
+        </div>
       </div>
+    )
+  return (
+    <div className={`multitap-table${part === 'rows' ? ' mt-part-rows' : ''}`}>
+      {part !== 'rows' && (
+        <div className="mt-row mt-head">
+          <span className="mt-label">Tap</span>
+          <span className="mt-cell">Air</span>
+          <span className="mt-cell">Top</span>
+          <span className="mt-cell">Back</span>
+        </div>
+      )}
       {taps.map((t, i) => (
         <div className="mt-row" key={t.tapIndex}>
           <span className="mt-label">

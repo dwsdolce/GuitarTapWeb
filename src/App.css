@@ -731,6 +731,17 @@
 .mt-row:last-child {
   border-bottom: none;
 }
+/* A table drawn in two parts — its heading fixed above the list, its rows in the list's scroll: the heading
+   keeps its line, and the 4 px around the table go to its top and its bottom. */
+.multitap-table.mt-part-heading {
+  padding-bottom: 0;
+}
+.multitap-table.mt-part-heading .mt-row:last-child {
+  border-bottom: 1px solid var(--c-separator);
+}
+.multitap-table.mt-part-rows {
+  padding-top: 0;
+}
 .mt-head {
   color: var(--c-text-secondary);
   font-weight: 600;

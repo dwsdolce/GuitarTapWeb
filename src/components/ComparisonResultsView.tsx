@@ -17,17 +17,24 @@ export interface ComparisonRow {
 
 const hz = (n: number | null) => (n != null ? `${FieldPrecision.string(n, FieldPrecision.peakFrequencyHz)} Hz` : '—')
 
-/** Renders the Air/Top/Back comparison grid, one row per {@link ComparisonRow}. */
-export function ComparisonResultsView({ rows }: { rows: ComparisonRow[] }) {
+/** Which part of a comparison table to draw: the whole table, or its heading and its rows apart — for a list
+ *  that keeps its heading fixed above the rows it scrolls. Mirrors Swift `ComparisonTablePart`. */
+export type ComparisonTablePart = 'whole' | 'heading' | 'rows'
+
+/** Renders the Air/Top/Back comparison grid, one row per {@link ComparisonRow}; `part` draws only its heading or
+ *  only its rows. */
+export function ComparisonResultsView({ rows, part = 'whole' }: { rows: ComparisonRow[]; part?: ComparisonTablePart }) {
   return (
-    <div className="multitap-table comparison-table">
-      <div className="mt-row mt-head">
-        <span className="mt-label">Spectrum</span>
-        <span className="mt-cell">Air</span>
-        <span className="mt-cell">Top</span>
-        <span className="mt-cell">Back</span>
-      </div>
-      {rows.map((r, i) => (
+    <div className={`multitap-table comparison-table${part === 'whole' ? '' : ` mt-part-${part}`}`}>
+      {part !== 'rows' && (
+        <div className="mt-row mt-head">
+          <span className="mt-label">Spectrum</span>
+          <span className="mt-cell">Air</span>
+          <span className="mt-cell">Top</span>
+          <span className="mt-cell">Back</span>
+        </div>
+      )}
+      {part !== 'heading' && rows.map((r, i) => (
         <div className="mt-row" key={i}>
           <span className="mt-label">
             <span className="mt-dot" style={{ background: r.color }} />
