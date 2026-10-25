@@ -1,7 +1,7 @@
 // @parity view/spectrum-chart
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Spectrum } from '../dsp/guitarFFT'
-import { renderSpectrum, chartGeometry, chartTheme, overlayColor } from '../presentation/spectrumRender'
+import { renderSpectrum, chartGeometry, chartTheme } from '../presentation/spectrumRender'
 import { useScheme } from '../hooks/useScheme'
 import type { GuitarTypeName } from '../dsp/guitarModes'
 import type { PeakMarker, AnnotationRect, DotHit, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
@@ -577,7 +577,7 @@ export function SpectrumChart({
     setMenu(null)
   }
 
-  // @parity view/spectrum-chart — the chart's elements: the canvas, its legend and its buttons
+  // @parity view/spectrum-chart — the chart's elements: the canvas and its buttons
   return (
     <div className="chart-host">
       <canvas
@@ -608,21 +608,6 @@ export function SpectrumChart({
           setShowHelp(false)
         }}
       />
-
-      {overlays.length > 0 && (
-        <div className="chart-legend">
-          {overlays.map((ov) => {
-            // The curve's colour for its line and its label, as Swift's legend.
-            const color = overlayColor(ov, chartTheme(scheme))
-            return (
-              <span key={ov.label} className="legend-item" style={{ color }}>
-                <span className="legend-swatch" style={{ background: color }} />
-                {ov.label}
-              </span>
-            )
-          })}
-        </div>
-      )}
 
       {/* Two upper-right icons: ⋯ the chart's menu (a right-click opens the same) and ⓘ the help, as Swift's. */}
       {onReset && (

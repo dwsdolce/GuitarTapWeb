@@ -7,7 +7,7 @@
 
 import type { Spectrum } from '../dsp/guitarFFT'
 import type { PeakMarker, SpectrumOverlay, ChartView } from './chartTypes'
-import { renderSpectrum, chartTheme, overlayColor, hexA, type ChartTheme } from './spectrumRender'
+import { renderSpectrum, chartTheme, hexA, type ChartTheme } from './spectrumRender'
 import { EXPORT } from './chartStyle'
 import { type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_DISPLAY_NAME } from './modeColors'
@@ -56,9 +56,10 @@ export function reportPeaks(markers: PeakMarker[]): PeakMarker[] {
 
 /** Render the full white report image to an off-screen canvas (PNG export + PDF embed). */
 export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasElement {
-  // A fixed size, whatever the on-screen chart's: Swift renders its export at 1464 × 1069 pt (a
-  // 1400 × 800 chart frame with its header and legend), 119 pt taller with the peak summary. The
-  // bands below add up to the same, so the PNG and the PDF's embedded image have Swift's proportions.
+  // A fixed size, whatever the on-screen chart's: Swift renders its export 1464 pt wide around a 1400 × 800 chart
+  // frame — 1188 pt high for a guitar measurement (the peak summary and the mode key under the chart), 1127 for a
+  // plate (the summary; its legend on the chart), 1008 for a comparison. The bands below add up to the same, so
+  // the PNG and the PDF's embedded image have Swift's proportions.
   const W = 1464
   const PAD = 28
   // Swift's content edge: the clear 16 pt margin (.padding() outside .background) plus its 16 pt
@@ -86,13 +87,15 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   const CARD_PAD = 8
   const CARD_H = CARD_PAD * 2 + CAPTION_LINE * 3 + 4 * 2
   const summaryH = visible.length ? 8 + HEADLINE_LINE + 8 + CARD_H + 8 : 0
-  // The legend: one caption line padded 16 all round.
-  const legendH = 16 + CAPTION_LINE + 16
+  // The mode key: one caption line padded 16 all round. Overlaid curves have their legend on the chart, so no key.
+  // With no block below the chart, its 16 pt spacing goes too.
+  const legendH = overlays.length ? 0 : 16 + CAPTION_LINE + 16
+  const blocks = [summaryH, legendH].filter((h) => h > 0)
   const BOTTOM = 16
-  const H = PAD + headerH + chartH + BELOW_CHART + (summaryH ? summaryH + BLOCK_GAP : 0) + legendH + BOTTOM
+  const H = PAD + headerH + chartH + BELOW_CHART - BLOCK_GAP + blocks.reduce((sum, h) => sum + BLOCK_GAP + h, 0) + BOTTOM
 
-  // Drawn at 2x, as Swift's ImageRenderer(scale: 2.0): the canvas holds 2928 × 2376 pixels (2138 without
-  // the summary) for the layout below in points.
+  // Drawn at 2x, as Swift's ImageRenderer(scale: 2.0): the canvas holds 2928 pixels wide (2376, 2254 or 2016
+  // high) for the layout below in points.
   const canvas = document.createElement('canvas')
   canvas.width = W * PIXEL_SCALE
   canvas.height = H * PIXEL_SCALE
@@ -220,36 +223,28 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
     y += summaryH + BLOCK_GAP
   }
 
-  // ── Legend ────────────────────────────────────────────────────────────────
-  // Swift: HStack(spacing: 20) { title .caption semibold; each item HStack(spacing: 4) { mark, .caption
-  // label } } — a measurement's mark a 24 × 4 rounded line in its colour, a guitar mode's a 12 pt circle.
-  // The legend's line, at the centre of its 13 pt line inside the block's 16 pt padding.
+  // ── The guitar mode key ───────────────────────────────────────────────────
+  // Overlaid curves have their legend on the chart, as on screen. Swift: HStack(spacing: 20) { title .caption
+  // semibold; each item HStack(spacing: 4) { a 12 pt circle in the mode's colour, .caption label } }.
+  if (overlays.length) return canvas
+  // The key's line, at the centre of its 13 pt line inside the block's 16 pt padding.
   const ly = y + 16 + CAPTION_LINE / 2
-  const legendTitle = overlays.length ? 'Measurements:' : 'Guitar Modes:'
+  const legendTitle = 'Guitar Modes:'
   ctx.fillStyle = th.title
   ctx.font = FONT(10, '600')
   ctx.fillText(legendTitle, EDGE, baseline(y + 16, CAPTION_LINE, 10))
   let lx = EDGE + ctx.measureText(legendTitle).width + 20
   ctx.font = FONT(10)
-  const legendItems = overlays.length
-    ? overlays.map((o) => ({ color: overlayColor(o, th), label: o.label }))
-    : (['air', 'top', 'back', 'dipole', 'ring'] as const).map((k) => ({
-        color: roleColor(modeRole(k), undefined, 'light'),
-        label: MODE_DISPLAY_NAME[k],
-      }))
+  const legendItems = (['air', 'top', 'back', 'dipole', 'ring'] as const).map((k) => ({
+    color: roleColor(modeRole(k), undefined, 'light'),
+    label: MODE_DISPLAY_NAME[k],
+  }))
   for (const it of legendItems) {
     ctx.fillStyle = it.color
     ctx.beginPath()
-    let markW: number
-    if (overlays.length) {
-      markW = 24
-      ctx.roundRect(lx, ly - 2, markW, 4, 2)
-    } else {
-      markW = 12
-      ctx.arc(lx + 6, ly, 6, 0, Math.PI * 2)
-    }
+    ctx.arc(lx + 6, ly, 6, 0, Math.PI * 2)
     ctx.fill()
-    lx += markW + 4
+    lx += 12 + 4
     ctx.fillStyle = th.title
     ctx.fillText(it.label, lx, baseline(y + 16, CAPTION_LINE, 10))
     lx += ctx.measureText(it.label).width + 20

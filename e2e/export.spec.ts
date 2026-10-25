@@ -11,6 +11,7 @@ const cases = [
   { name: 'plate', fixture: 'plate-umik-1-swift-mac-1785359486.guitartap' },
   { name: 'brace', fixture: 'brace-umik-1-swift-mac-1785359411.guitartap' },
   { name: 'comparison', fixture: '5-guitar-comparison-1776708138.guitartap' },
+  { name: 'large-comparison', fixture: '18-compare-1792944381.guitartap' },
 ]
 
 for (const c of cases) {

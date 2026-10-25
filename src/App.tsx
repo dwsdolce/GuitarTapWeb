@@ -452,7 +452,7 @@ export default function App() {
     flcPeak: snapshot.selectedFlcPeak,
     sequenceStarts: snapshot.sequenceStarts,
     materialPeaksFromLoad: snapshot.materialPeaksFromLoad,
-    comparisonRange: snapshot.comparisonRange,
+    comparedSpan: snapshot.comparedSpan,
   })
 
   // What the peaks show — worked out from the detected peaks (`analyzer.detectedPeaks`) inside the
@@ -1100,7 +1100,7 @@ export default function App() {
                     onReset={resetView}
                     onAnnotationDrag={inComparison ? undefined : onAnnotationDrag}
                     onResetLabels={inComparison ? undefined : resetLabels}
-                    comparisonMenu={snapshot.comparisonRange !== null}
+                    comparisonMenu={snapshot.comparedSpan !== null}
                     onResetAnnotation={inComparison ? undefined : (k) => analyzer.resetAnnotationOffset(k)}
                     hasMovedLabels={annotationOffsets.size > 0}
                     frozen={captured != null || (material && matPhase === 'complete')}

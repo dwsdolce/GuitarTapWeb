@@ -1650,33 +1650,6 @@
   inset: 0;
   z-index: 4;
 }
-/* Material/comparison overlay legend — upper-right INSIDE the plot (matches Swift/Python), below
-   the ⋯/? buttons. Swift's: each curve's 16 × 2 line and its label in the curve's colour (caption2),
-   12 apart, on the readout background with corner 6 and padding 8 / 4, no border. */
-.chart-legend {
-  position: absolute;
-  top: 52px;
-  right: 22px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px 12px;
-  padding: 4px 8px;
-  background: var(--c-chart-readout-background);
-  border-radius: 6px;
-  z-index: 2;
-  pointer-events: none;
-}
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-}
-.legend-swatch {
-  width: 16px;
-  height: 2px;
-}
 /* The chart's help, below its ⓘ: "gesture: effect", the effect in text.secondary, groups divided by a line; it
    scrolls when the chart is too short to show it whole. */
 .chart-help-pop {

@@ -3731,7 +3731,7 @@ export class TapToneAnalyzer {
         comparisonEntries: this.comparisonEntries,
         showingMultiTapComparison: this.showingMultiTapComparison,
         isSavedMeasurementComparison: this.isSavedMeasurementComparison,
-        comparisonRange: this.comparisonRange,
+        comparedSpan: this.comparedSpan,
         statusMessage: this.statusMessage,
         isClipping: this.isClipping,
         inputAppearsDead: this.inputAppearsDead,
@@ -3867,10 +3867,11 @@ export class TapToneAnalyzer {
     return this.displayMode === 'comparison' && !this.showingMultiTapComparison
   }
 
-  /** The comparison range while a comparison measurement is shown — the span of the compared measurements' saved
-   *  views, the range a comparison opens at — else null. The chart's menu resets to it. Mirrors Swift
-   *  `comparisonRange` / Python `comparison_range`. */
-  get comparisonRange(): ChartView | null {
+  /** The compared span while a comparison measurement is shown — the span of the compared measurements' saved
+   *  views, the range a new comparison opens at — else null. The chart's menu resets to it ("Comparison Range").
+   *  Not a saved comparison's own range (`TapToneMeasurementModel.comparisonRange`), the view it was saved with.
+   *  Mirrors Swift `comparedSpan` / Python `compared_span`. */
+  get comparedSpan(): ChartView | null {
     return this.isSavedMeasurementComparison ? spanningRange(this.comparisonEntries.map((e) => e.snapshot)) : null
   }
 
@@ -4255,8 +4256,8 @@ export interface TapToneSnapshot {
   showingMultiTapComparison: boolean
   /** 'comparison' via SAVED measurements rather than the per-tap overlay. */
   isSavedMeasurementComparison: boolean
-  /** The comparison range while a comparison measurement is shown, else null. */
-  comparisonRange: ChartView | null
+  /** The compared span while a comparison measurement is shown, else null. */
+  comparedSpan: ChartView | null
   /** The imperative status-bar message (set at every transition; clipping override applied). */
   statusMessage: string
   /** Input clipping (drives the threshold-slider red zone; the status override reads the private field). */

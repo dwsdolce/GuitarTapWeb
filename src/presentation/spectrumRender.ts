@@ -18,6 +18,7 @@ import { nearestSeriesIndex, snapToWaveform } from './snapInterpolation'
 import { FieldPrecision } from '../precision'
 import { SCREEN, diameter, type ChartLines } from './chartStyle'
 import { formatTickLabels, generateTicks, magnitudeStride } from './axisTicks'
+import { drawChartLegend, EXPORT_LEGEND, SCREEN_LEGEND } from './chartLegend'
 
 /** Fill a `points`-pointed star centred at (cx, cy) between `outerR` and `innerR`. Used for the
  *  highlighted peak dot (mirrors Swift's `star.fill`). */
@@ -454,6 +455,18 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     ctx.fillText(dbStr, bx + padX, by + 26)
     ctx.restore()
   }
+
+  // The legend for overlaid curves, drawn last, over the labels and the crosshair readout, laid out in the plot area
+  // so it wraps within the plot and never crosses its axes — Swift's ChartLegend placed in the chart's overlay, 8 in
+  // on screen and 10 in the export, in the export's sizes.
+  drawChartLegend(
+    ctx,
+    overlays.map((ov) => ({ color: overlayColor(ov, th), label: ov.label })),
+    { l: plotL, t: plotT, r: plotR },
+    exporting ? 10 : 8,
+    exporting ? EXPORT_LEGEND : SCREEN_LEGEND,
+    roleColor('chart.readout.background', undefined, th.scheme),
+  )
 }
 
 /** A peak card's text sizes (px: mode, pitch, frequency, dB), line gap, padding, corner and frame. */

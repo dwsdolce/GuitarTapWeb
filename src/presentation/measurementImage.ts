@@ -5,7 +5,7 @@ import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME } from './modeColors'
 import { color as roleColor, comparisonRole, modeRole, qualityRole, type Role } from './palette'
 import { FieldPrecision } from '../precision'
-import type { PeakMarker, SpectrumOverlay } from './chartTypes'
+import type { ChartView, PeakMarker, SpectrumOverlay } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
 import { measurementAutoModes, measurementMultiTapComparisonEntries, measurementTypeName, comparisonEntryModeFreqs, measurementTapToneRatio, measurementDefinitiveModeInfo, MEASUREMENT_TYPE_FROM_RAW } from '../measurement/types'
 import { isGuitarType, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, DEFAULT_SETTINGS } from '../settings'
@@ -32,6 +32,22 @@ import { TapToneAnalyzer } from '../state/tapToneAnalyzer'
 // Details pane and the live screen have them.
 
 /** A saved guitar measurement as its image and report show it. */
+/** A saved comparison's chart range: the range it was saved with, as a measurement's; one saved before comparisons
+ *  kept their range spans its entries', as loading it does. Its image and its PDF's Frequency Range both use it.
+ *  Mirrors Swift `comparisonChartRange`. */
+export function comparisonChartRange(m: TapToneMeasurementModel): ChartView {
+  return m.comparisonRange ?? spanningRange((m.comparisonEntries ?? []).map((e) => e.snapshot))
+    ?? { minHz: 50, maxHz: 1000, minDb: -100, maxDb: 0 }
+}
+
+/** A multi-tap measurement's tap comparison chart range: the measurement's own, as on screen, where the taps overlay
+ *  the measurement's chart. Its image and its PDF page's Frequency Range both use it. Mirrors Swift
+ *  `multiTapChartRange`. */
+export function multiTapChartRange(m: TapToneMeasurementModel): ChartView {
+  const s = m.spectrumSnapshot
+  return s ? { minHz: s.minFreq, maxHz: s.maxFreq, minDb: s.minDB, maxDb: s.maxDB } : { minHz: 50, maxHz: 1000, minDb: -100, maxDb: 0 }
+}
+
 function savedGuitar(m: TapToneMeasurementModel) {
   const snap = m.spectrumSnapshot!
   return {
@@ -147,7 +163,8 @@ export function buildMaterialMarkers(
 /** Build the spectrum-image opts for a saved measurement (guitar / material / comparison). */
 export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImageOpts {
   const date = formatDisplayDate(m.timestamp)
-  const title = `FFT Peaks — ${m.measurementName?.trim() || measurementTypeName(m)}`
+  // The live chart's title, as Swift's and Python's exports: an unnamed measurement reads "New".
+  const title = `FFT Peaks — ${m.measurementName?.trim() || 'New'}`
 
   // Comparison
   if (m.comparisonEntries && m.comparisonEntries.length) {
@@ -158,9 +175,7 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
       role: comparisonRole(i, e.label),
       label: e.label,
     }))
-    // The range it was saved with, as a measurement's image; one saved before comparisons kept their range
-    // spans its entries'. Swift's renderSpectrumImageForComparison.
-    const view = m.comparisonRange ?? spanningRange(entries.map((e) => e.snapshot)) ?? { minHz: 30, maxHz: 2000, minDb: -100, maxDb: 0 }
+    const view = comparisonChartRange(m)
     // A comparison's entries need not be of one guitar type: no mode lines, as Swift's.
     return { title, spectrum: null, overlays, markers: [], view, measurementTypeName: 'Comparison', guitarType: 'generic', showModeBoundaries: false, date }
   }
@@ -273,7 +288,11 @@ export function measurementToPdfData(m: TapToneMeasurementModel): PdfReportData 
  *  PDF path by synthesizing comparison entries from the measurement's `tapEntries` + an "Averaged"
  *  entry — so it stays identical to a saved-comparison report. Callers use it for a measurement with tap entries. */
 export function multiTapPdfData(m: TapToneMeasurementModel): { averaged: PdfReportData; comparison: PdfReportData } {
-  const comparison = measurementToPdfData({ ...m, comparisonEntries: measurementMultiTapComparisonEntries(m) })
+  const comparison = measurementToPdfData({
+    ...m,
+    comparisonEntries: measurementMultiTapComparisonEntries(m),
+    comparisonRange: multiTapChartRange(m),
+  })
   // Page 2's chart is of one guitar's taps: titled as a tap comparison, typed and banded by the measurement's own
   // guitar type (Swift renderMultiTapComparisonImage).
   const type = savedGuitar(m).measurementType

@@ -42,9 +42,9 @@ interface UseChartViewArgs {
   sequenceStarts: number
   /** The three peaks were restored by a load, not identified by a capture — they do not widen. */
   materialPeaksFromLoad: boolean
-  /** The comparison range while a comparison measurement is shown, else null — the target of the comparison
+  /** The compared span while a comparison measurement is shown, else null — the target of the comparison
    *  menu's resets. */
-  comparisonRange: ChartView | null
+  comparedSpan: ChartView | null
 }
 
 export interface ChartViewModel {
@@ -73,7 +73,7 @@ export function useChartView({
   flcPeak,
   sequenceStarts,
   materialPeaksFromLoad,
-  comparisonRange,
+  comparedSpan,
 }: UseChartViewArgs): ChartViewModel {
   const [autoDb, setAutoDb] = useState(false)
 
@@ -157,10 +157,10 @@ export function useChartView({
   const resetView = useCallback(
     (target: ResetTarget, axis: ResetAxis) => {
       const factory = { minHz: defaultMinFrequency(measurementType), maxHz: defaultMaxFrequency(measurementType) }
-      if (target === 'comparison' && !comparisonRange) return
+      if (target === 'comparison' && !comparedSpan) return
       const tgt: ChartView =
         target === 'comparison'
-          ? comparisonRange! // the span of the compared measurements
+          ? comparedSpan! // the span of the compared measurements
           : target === 'saved'
             ? defaultView // configured (saved) display range
             : {
@@ -176,7 +176,7 @@ export function useChartView({
         maxDb: axis === 'freq' ? v.maxDb : tgt.maxDb,
       }))
     },
-    [defaultView, measurementType, comparisonRange],
+    [defaultView, measurementType, comparedSpan],
   )
 
   // ── Auto-dB (autoScaleDB): fit the dB axis to the displayed spectrum ───────
