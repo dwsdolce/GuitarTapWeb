@@ -2215,10 +2215,12 @@ export class TapToneAnalyzer {
   }
 
   /** What the engine coming up does: start a tap sequence — only when nothing is under way or on screen
-   *  (not detecting, not complete, not paused, no taps taken), so an engine start never replaces a
-   *  measurement. Mirrors Swift `autoStartTapSequence()` / Python `auto_start_tap_sequence()`. */
+   *  (not detecting, not complete, not paused, no taps taken, no comparison shown), so an engine start never
+   *  replaces a measurement or a comparison. Mirrors Swift `autoStartTapSequence()` / Python
+   *  `auto_start_tap_sequence()`. */
   autoStartTapSequence(): void {
-    if (this.isDetecting || this.isMeasurementComplete || this.isDetectionPaused || this.currentTapCount > 0) return
+    if (this.isDetecting || this.isMeasurementComplete || this.isDetectionPaused || this.currentTapCount > 0
+        || this.displayMode === 'comparison') return
     this.requestStartTapSequence()
   }
 
