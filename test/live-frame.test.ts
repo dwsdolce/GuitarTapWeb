@@ -34,8 +34,8 @@ function capturedTap(peakDB: number): CapturedTap {
 
 describe('live frame — a frame is announced on the live frame alone', () => {
   // LF1: a frame, while a completed measurement is on screen, is announced on the live frame and by nothing
-  // else. (While a sequence runs the analyzer announces its live peaks each frame, as it should.) Mirrors
-  // Swift frame_isAnnouncedOnTheLiveFrameAlone.
+  // else. (While a sequence runs, a frame's live peaks are announced on the detected peaks —
+  // detected-peaks.test.ts.) Mirrors Swift frame_isAnnouncedOnTheLiveFrameAlone.
   it('announces a frame on the live frame, and nothing else does', async () => {
     settingsStore.update({ measurementType: 'classical' })
     const analyzer = new TapToneAnalyzer()

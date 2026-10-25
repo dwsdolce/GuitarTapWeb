@@ -13,6 +13,7 @@ import { PeakCard } from './components/PeakCard'
 import { SettingsPanel } from './components/SettingsPanel'
 import { MetricsPanel, type Metrics } from './components/MetricsPanel'
 import { FrameReader } from './components/FrameReader'
+import { PeaksReader } from './components/PeaksReader'
 import type { LiveFrame } from './audio/liveFrame'
 import { SaveSheet } from './components/SaveSheet'
 import { PlayFileSheet } from './components/PlayFileSheet'
@@ -171,15 +172,7 @@ export default function App() {
   // unsaved result, whose exports use the time of export.
   const sourceTimestamp = snapshot.sourceMeasurementTimestamp
   const loadedNotes = snapshot.loadedNotes
-  // Which peaks the chart marks and labels is ANALYZER state — none of either while comparing (Swift
-  // `tap.chartPeaks` / `tap.chartAnnotationPeaks`, from `annotationVisibilityMode` / `visiblePeaks`).
   const annotationMode = snapshot.annotationVisibilityMode
-  const visiblePeaks = snapshot.visiblePeaks
-  const chartAnnotationPeaks = snapshot.chartAnnotationPeaks
-  const isVisible = useMemo(() => {
-    const ids = new Set((chartAnnotationPeaks ?? []).map((p) => p.id))
-    return (id: Uuid) => ids.has(id)
-  }, [chartAnnotationPeaks])
   const guitarType: GuitarTypeName = guitarTypeSetting(settings)
   const material = isMaterialType(settings.measurementType)
   const brace = settings.measurementType === 'brace'
@@ -386,38 +379,8 @@ export default function App() {
   // (onFftFrame, wired in useAudioEngine), completion (processMultipleTaps), a load (loadMeasurement),
   // Re-analyze (reanalyzePeaks) and a guitar-type change (reclassifyForGuitarTypeChange). Peak Min is a
   // display projection (`peaksAbovePeakMin`), never a re-detection.
-  const peaks = snapshot.peaks // the durable FULL set (down to -100) — used for selection state + save
-
-  // Peak Min is a DISPLAY control, so it is pushed into the analyzer on its OWN effect and never
-  // triggers detection. Making it a detection input would re-run findPeaks on every slider tick,
-  // re-minting peak ids and churning the per-peak state hanging off them (a deselected peak
-  // re-selecting, dragged labels snapping back). Setting the threshold only re-projects. Mirrors
-  // Swift, where the slider writes
-  // TapDisplaySettings.peakMinThreshold and the analyzer's didSet calls refreshDisplayedPeaks().
-
-
-  const modeByPeak = snapshot.modeByPeak
-
-  // The Peak-Min display projection, computed BY THE ANALYZER (Swift peaksAbovePeakMin / Python
-  // peaks_above_peak_min). It used to be a useMemo right here — which put a rule about the
-  // measurement ("Peak Min is guitar-only; material is never filtered") in the view, where the save
-  // path, the PDF and the tests each had to re-derive it. The display list, chart dots/markers and
-  // the live ratio read THIS; selection state and the save path read the full set above.
-  const peaksAbovePeakMin = snapshot.peaksAbovePeakMin
-
-  const sortedPeaks = useMemo(() => [...peaksAbovePeakMin].sort((a, b) => a.frequency - b.frequency), [peaksAbovePeakMin])
-  // Live tap-tone ratio (f_Top / f_Air) over the DEFINITIVE Air/Top (selected + override-aware), so a
-  // renamed/deselected Top drops it — matching the saved-list and PDF ratios. Recomputes on any snapshot
-  // change (selection / overrides / peaks). Mirrors Swift analyzer.calculateTapToneRatio.
-  // `snapshot` is a deliberate recompute trigger for the imperative analyzer read — not a lexical dep,
-  // so exhaustive-deps flags it; removing it would stop the ratio updating on selection/override changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const tapRatio = useMemo(() => (material ? null : analyzer.tapToneRatio()), [material, analyzer, snapshot])
-  // displayPeaks / displayPeaksInRange (below) depend on the override state — a user-named peak is
-  // "known" — which the analyzer holds.
-  // Per-peak SELECTION, overrides, and dragged offsets all live on the analyzer, keyed by peak id —
-  // read them from the snapshot, write via analyzer methods.
-  const selectedIds = snapshot.selectedPeakIds
+  // Per-peak SELECTION, overrides, and dragged offsets all live on the analyzer, keyed by peak id — write
+  // them via analyzer methods. The selection is a detected-peaks value, read inside the PeaksReaders.
   const userModified = snapshot.userModifiedSelection
   const toggleSelect = useCallback((id: Uuid) => analyzer.togglePeakSelection(id), [analyzer])
   const selectNone = useCallback(() => analyzer.selectNoPeaks(), [analyzer])
@@ -432,30 +395,9 @@ export default function App() {
   // retune a saved measurement without re-tapping. Swift reanalyzePeaks() / Python reanalyze_peaks().
   const reanalyze = useCallback(() => analyzer.reanalyzePeaks(), [analyzer])
 
-  // The ids of user-NAMED peaks. A named peak is "known" everywhere — the ONE predicate the
-  // results table + chart dots + badges share, so it never vanishes when Show Unknown Modes is off.
-  // Mirrors Swift `overriddenPeakIDs` / Python `overridden_peak_ids`. The overrides are id-keyed on
-  // the analyzer, so this is a direct read of the map's keys (no frequency conversion).
-  const overriddenPeakIds = useMemo(() => new Set(overrides.keys()), [overrides])
-  // Results-panel list: hide unknown peaks when Show Unknown Modes is off, UNLESS the user named one
-  // (override-aware — mirrors Swift `!isUnknown`). Then filtered to the chart's live range
-  // (displayPeaksInRange, below useChartView); the chart's dot/badge layers apply their own per-marker
-  // range guard so a zoom can reveal out-of-band dots.
-  const displayPeaks = useMemo(
-    () =>
-      showUnknownModes
-        ? sortedPeaks
-        : sortedPeaks.filter((p) => (modeByPeak.get(p.id) ?? 'unknown') !== 'unknown' || overriddenPeakIds.has(p.id)),
-    [sortedPeaks, modeByPeak, showUnknownModes, overriddenPeakIds],
-  )
   const isClassified = (mode: ResolvedMode): boolean => mode !== 'unknown' && mode !== 'upper'
 
 
-  // Material phase markers (L=blue, C=orange, FLC=purple — native phase colors). Reuses the shared
-  // annotation-offset store so L/C/FLC labels drag exactly like guitar labels (Swift/Python parity).
-  const materialMarkers = useMemo<PeakMarker[]>(() => {
-    return snapshot.chartPeaks === null ? [] : buildMaterialMarkers(matPeaks, isVisible, annotationOffsets)
-  }, [snapshot.chartPeaks, matPeaks, isVisible, annotationOffsets])
 
   // ── Multi-tap comparison (guitar, >1 tap) ───────────────────────────────────
   const multiTapAvailable = !material && !!captured && tapEntries.length > 1
@@ -469,14 +411,6 @@ export default function App() {
       }),
     [tapEntries, guitarType],
   )
-  // Averaged row = the DEFINITIVE Air/Top/Back (the SELECTED, override-aware peak per mode), over the
-  // durable set — a fact about the measurement, independent of the Peak-Min slider. An
-  // overridden value carries an isOverride flag so the row can mark it italic + " *". Recomputes on any
-  // snapshot change (selection / overrides / peaks). Mirrors Swift analyzer.definitiveModeInfo().
-  // `snapshot` is a deliberate recompute trigger for the imperative analyzer read — not a lexical dep,
-  // so exhaustive-deps flags it; removing it would stop the averaged modes updating on selection/override changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const avgModes = useMemo<DefinitiveModeInfo>(() => analyzer.definitiveModeInfo(), [analyzer, snapshot])
 
   const binHz = sampleRate ? sampleRate / GUITAR_FFT_SIZE : null
   // The spectrum Auto-dB fits to when it is not the live frame: the primary material spectrum (the chart
@@ -520,48 +454,55 @@ export default function App() {
     materialPeaksFromLoad: snapshot.materialPeaksFromLoad,
   })
 
-  // The guitar peak list: the peaks within the chart's live range, so zoom, pan, a load or a widening
-  // changes what is listed (Swift TapAnalysisResultsView.sortedPeaksWithModes → [minFreq, maxFreq],
-  // the view's range).
-  const displayPeaksInRange = useMemo(
-    () => displayPeaks.filter((p) => p.frequency >= view.minHz && p.frequency <= view.maxHz),
-    [displayPeaks, view.minHz, view.maxHz],
-  )
-  // Swift's results list (TapAnalysisResultsView.sortedPeaksWithModes): none in a saved-measurement
-  // comparison; a plate's or brace's every peak above Peak Min; a guitar's listed peaks.
-  const resultsListPeaks = comparison ? [] : material ? peaksAbovePeakMin : displayPeaksInRange
-
-  // Chart peak layers, mirroring Swift SpectrumView+ChartContent:
-  //   • dots   — every peak in the visible range gets one (allPeaksInRange), mode-colored — the renderer
-  //     draws a dot only for a marker inside the range;
-  //   • badges — gated by AnnotationVisibilityMode (visiblePeaks), whatever the range: a label whose
-  //     peak is off the chart is drawn too, cut at the plot's edges.
-  // The candidate set is the SHARED dot-list rule (peaksInDisplayRange, `@parity view/dot-layer`) over
-  // every frequency — the `isKnown` frequency-band filter. Deliberately NOT the assigned-mode filter the
-  // Results panel uses (displayPeaksInRange): a peak carrying a freeform mode override still sits in a
-  // band, so Swift/Python keep its dot. In the analyzer's order, as Swift's and Python's labels: a later
-  // label covers an earlier one where they overlap.
-  // Styled markers via the SHARED builder (measurementImage.ts) so the live view and the exported
-  // image (incl. saved-measurement export) use identical peak styling.
-  const chartPeaks = useMemo(
-    () =>
-      peaksInDisplayRange(
-        snapshot.chartPeaks ?? [],
-        -Infinity, Infinity, !material, showUnknownModes, overriddenPeakIds, guitarType,
-      ),
-    [snapshot.chartPeaks, material, showUnknownModes, overriddenPeakIds, guitarType],
-  )
-  const markers = useMemo<PeakMarker[]>(
-    () => buildGuitarMarkers(chartPeaks, modeByPeak, isVisible, overrides, annotationOffsets),
-    [chartPeaks, modeByPeak, isVisible, overrides, annotationOffsets],
-  )
-  const chartMarkers = material ? materialMarkers : markers
-  // The exported report is about EVERY visible peak, not only those in the chart's range — its count and
-  // summary list a peak above the plotted range, as Swift's export of `tap.visiblePeaks` does.
-  const exportMarkers = useMemo<PeakMarker[]>(
-    () => (material ? materialMarkers : buildGuitarMarkers(visiblePeaks, modeByPeak, () => true, overrides, annotationOffsets)),
-    [material, materialMarkers, visiblePeaks, modeByPeak, overrides, annotationOffsets],
-  )
+  // What the peaks show — worked out from the detected peaks (`analyzer.detectedPeaks`) inside the
+  // PeaksReaders that draw them, so a live frame's new peaks re-render those and not the app. Mirrors Swift,
+  // whose chart and Results panel read the peaks inside `PeaksReader`.
+  //   • results — the peaks above Peak Min, sorted; unknown ones hidden when Show Unknown Modes is off
+  //     unless the user named one (override-aware — Swift `!isUnknown`); then filtered to the chart's live
+  //     range (Swift TapAnalysisResultsView.sortedPeaksWithModes → [minFreq, maxFreq]). None in a
+  //     saved-measurement comparison; a plate's or brace's every peak above Peak Min.
+  //   • chart — dots for every peak by the SHARED dot-list rule (peaksInDisplayRange, `@parity
+  //     view/dot-layer`, the `isKnown` band filter — not the Results panel's assigned-mode filter), badges
+  //     gated by AnnotationVisibilityMode (chartAnnotationPeaks) whatever the range, in the analyzer's order;
+  //     material: the L/C/FLC phase markers, on the shared annotation-offset store.
+  //   • export — EVERY visible peak, not only those in range, as Swift's export of `tap.visiblePeaks`.
+  // Styled markers via the SHARED builders (measurementImage.ts), so the live view and the exported image
+  // match. The ratio and the averaged row are read from the analyzer (Swift calculateTapToneRatio /
+  // definitiveModeInfo).
+  const peakDisplay = useCallback(() => {
+    const detected = analyzer.detectedPeaks
+    const modeByPeak = detected.modeByPeak
+    const peaksAbovePeakMin = detected.peaksAbovePeakMin
+    const selectedIds = detected.selectedPeakIds
+    const annotated = new Set((analyzer.chartAnnotationPeaks ?? []).map((p) => p.id))
+    const isVisible = (id: Uuid) => annotated.has(id)
+    const overriddenPeakIds = new Set(overrides.keys())
+    const sortedPeaks = [...peaksAbovePeakMin].sort((a, b) => a.frequency - b.frequency)
+    const displayPeaks = showUnknownModes
+      ? sortedPeaks
+      : sortedPeaks.filter((p) => (modeByPeak.get(p.id) ?? 'unknown') !== 'unknown' || overriddenPeakIds.has(p.id))
+    const displayPeaksInRange = displayPeaks.filter((p) => p.frequency >= view.minHz && p.frequency <= view.maxHz)
+    const materialMarkers =
+      analyzer.chartPeaks === null ? [] : buildMaterialMarkers(matPeaks, isVisible, annotationOffsets)
+    const chartPeaks = peaksInDisplayRange(
+      analyzer.chartPeaks ?? [], -Infinity, Infinity, !material, showUnknownModes, overriddenPeakIds, guitarType,
+    )
+    return {
+      peaksAbovePeakMin,
+      selectedIds,
+      displayPeaks,
+      displayPeaksInRange,
+      resultsListPeaks: comparison ? [] : material ? peaksAbovePeakMin : displayPeaksInRange,
+      chartMarkers: material
+        ? materialMarkers
+        : buildGuitarMarkers(chartPeaks, modeByPeak, isVisible, overrides, annotationOffsets),
+      exportMarkers: material
+        ? materialMarkers
+        : buildGuitarMarkers(analyzer.visiblePeaks, modeByPeak, () => true, overrides, annotationOffsets),
+      tapRatio: material ? null : analyzer.tapToneRatio(),
+      avgModes: analyzer.definitiveModeInfo() as DefinitiveModeInfo,
+    }
+  }, [analyzer, overrides, annotationOffsets, showUnknownModes, view.minHz, view.maxHz, matPeaks, material, comparison, guitarType])
 
   const cycleAnnotations = useCallback(() => {
     // The analyzer advances its mode and saves it, as Swift's writes TapDisplaySettings.
@@ -765,7 +706,7 @@ export default function App() {
       title: `FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`,
       spectrum: inComparison || material ? null : (captured ?? frame.spectrum),
       overlays: inComparison ? comparisonOverlays : material ? matOverlays : undefined,
-      markers: inComparison ? [] : exportMarkers,
+      markers: inComparison ? [] : peakDisplay().exportMarkers,
       view,
       measurementTypeName: comparison ? 'Comparison' : MEASUREMENT_FULL_NAME[settings.measurementType],
       guitarType: material ? undefined : guitarType,
@@ -783,7 +724,7 @@ export default function App() {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [comparison, material, inComparison, captured, frame, comparisonOverlays, matOverlays, exportMarkers, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, snapshot.showsModeBoundaries, setError, setErrorKind])
+  }, [comparison, material, inComparison, captured, frame, comparisonOverlays, matOverlays, peakDisplay, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, snapshot.showsModeBoundaries, setError, setErrorKind])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
@@ -847,17 +788,21 @@ export default function App() {
             <span>Crosshair</span>
           </button>
         )}
-        <button
-          className="btn tint tint-accent"
-          onClick={cycleAnnotations}
-          // Something to annotate, and no comparison on screen: the Peak-Min projection (guitar) or the
-          // identified L/C/FLC (material) — the same test as Swift's and Python's.
-          disabled={snapshot.displayMode === 'comparison' || (material ? materialIdentifiedPeaks : peaksAbovePeakMin).length === 0}
-          title={HINTS.annotations(ANNOTATION_LABEL[annotationMode])}
-        >
-          {annotationMode === 'all' ? <EyeIcon /> : annotationMode === 'selected' ? <StarIcon /> : <EyeOffIcon />}
-          <span>Annotations</span>
-        </button>
+        <PeaksReader peaks={analyzer.detectedPeaks}>
+          {() => (
+          <button
+            className="btn tint tint-accent"
+            onClick={cycleAnnotations}
+            // Something to annotate, and no comparison on screen: the Peak-Min projection (guitar) or the
+            // identified L/C/FLC (material) — the same test as Swift's and Python's.
+            disabled={snapshot.displayMode === 'comparison' || (material ? materialIdentifiedPeaks : analyzer.peaksAbovePeakMin).length === 0}
+            title={HINTS.annotations(ANNOTATION_LABEL[annotationMode])}
+          >
+            {annotationMode === 'all' ? <EyeIcon /> : annotationMode === 'selected' ? <StarIcon /> : <EyeOffIcon />}
+            <span>Annotations</span>
+          </button>
+          )}
+        </PeaksReader>
         <button
           className="btn tint tint-accent"
           onClick={() => setShowSave(true)}
@@ -1116,53 +1061,60 @@ export default function App() {
       <div className="main">
         <div className="chart-pane">
           <div className="chart-wrap">
-            <FrameReader frame={frame}>
-              {(f) => (
-              <SpectrumChart
-                // The primary line = isMeasurementComplete ? frozen : live, matching Swift's displaySpectrum
-                // (SpectrumViews.swift) for guitar AND material. Material's frozen base is intentionally empty
-                // (the per-phase spectra are matOverlays), so material paints the LIVE spectrum while capturing
-                // and no base once complete. Comparison/multi-tap suppress the base.
-                spectrum={
-                  // A device change is settling: show nothing rather than the new device's
-                  // not-yet-valid audio, matching Swift/Python.
-                  snapshot.isSettling
-                    ? null
-                    : inComparison
-                    ? null
-                    : material
-                      ? snapshot.isMeasurementComplete
+            <PeaksReader peaks={analyzer.detectedPeaks}>
+              {() => {
+                const peaks = peakDisplay()
+                return (
+                <FrameReader frame={frame}>
+                  {(f) => (
+                  <SpectrumChart
+                    // The primary line = isMeasurementComplete ? frozen : live, matching Swift's displaySpectrum
+                    // (SpectrumViews.swift) for guitar AND material. Material's frozen base is intentionally empty
+                    // (the per-phase spectra are matOverlays), so material paints the LIVE spectrum while capturing
+                    // and no base once complete. Comparison/multi-tap suppress the base.
+                    spectrum={
+                      // A device change is settling: show nothing rather than the new device's
+                      // not-yet-valid audio, matching Swift/Python.
+                      snapshot.isSettling
                         ? null
-                        : f.spectrum
-                      : (captured ?? f.spectrum)
-                }
-                title={`FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`}
-                overlays={inComparison ? comparisonOverlays : material ? matOverlays : undefined}
-                guitarType={material ? undefined : guitarType}
-                showModeBoundaries={snapshot.showsModeBoundaries}
-                peakMin={peakMin}
-                markers={chartMarkers}
-                minHz={view.minHz}
-                maxHz={view.maxHz}
-                minDb={view.minDb}
-                maxDb={view.maxDb}
-                onViewChange={setView}
-                onReset={resetView}
-                onAnnotationDrag={inComparison ? undefined : onAnnotationDrag}
-                onResetLabels={inComparison ? undefined : resetLabels}
-                onResetAnnotation={inComparison ? undefined : (k) => analyzer.resetAnnotationOffset(k)}
-                hasMovedLabels={annotationOffsets.size > 0}
-                frozen={captured != null || (material && matPhase === 'complete')}
-                crosshairMode={crosshairMode}
-                highlightedPeakId={comparison || showMultiTap ? null : snapshot.highlightedPeakId}
-                // Dot ↔ results-row highlight is a guitar, desktop-only feature (mirrors Swift's macOS-only
-                // behaviour — on touch the results panel is a modal overlay, so cross-highlight is moot).
-                onToggleHighlight={
-                  isTouch || comparison || showMultiTap || material ? undefined : (id) => analyzer.toggleHighlightedPeak(id)
-                }
-              />
-              )}
-            </FrameReader>
+                        : inComparison
+                        ? null
+                        : material
+                          ? snapshot.isMeasurementComplete
+                            ? null
+                            : f.spectrum
+                          : (captured ?? f.spectrum)
+                    }
+                    title={`FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`}
+                    overlays={inComparison ? comparisonOverlays : material ? matOverlays : undefined}
+                    guitarType={material ? undefined : guitarType}
+                    showModeBoundaries={snapshot.showsModeBoundaries}
+                    peakMin={peakMin}
+                    markers={peaks.chartMarkers}
+                    minHz={view.minHz}
+                    maxHz={view.maxHz}
+                    minDb={view.minDb}
+                    maxDb={view.maxDb}
+                    onViewChange={setView}
+                    onReset={resetView}
+                    onAnnotationDrag={inComparison ? undefined : onAnnotationDrag}
+                    onResetLabels={inComparison ? undefined : resetLabels}
+                    onResetAnnotation={inComparison ? undefined : (k) => analyzer.resetAnnotationOffset(k)}
+                    hasMovedLabels={annotationOffsets.size > 0}
+                    frozen={captured != null || (material && matPhase === 'complete')}
+                    crosshairMode={crosshairMode}
+                    highlightedPeakId={comparison || showMultiTap ? null : snapshot.highlightedPeakId}
+                    // Dot ↔ results-row highlight is a guitar, desktop-only feature (mirrors Swift's macOS-only
+                    // behaviour — on touch the results panel is a modal overlay, so cross-highlight is moot).
+                    onToggleHighlight={
+                      isTouch || comparison || showMultiTap || material ? undefined : (id) => analyzer.toggleHighlightedPeak(id)
+                    }
+                  />
+                  )}
+                </FrameReader>
+                )
+              }}
+            </PeaksReader>
             {/* Not running: why — the input unavailable, or still starting. Swift's chart overlay. */}
             {!running && (
               <div className="chart-placeholder">
@@ -1242,73 +1194,83 @@ export default function App() {
               {displayRangeLabel(view.minHz, view.maxHz)}
             </span>
             {/* Never for a plate or brace, where peak selection has no purpose. */}
-            {!material && resultsListPeaks.length > 0 && !showMultiTap && (
-              <div className="sel-buttons">
-                <button
-                  className="btn mini icon tint tint-secondary"
-                  onClick={selectNone}
-                  disabled={material || displayPeaks.every((p) => !selectedIds.has(p.id))}
-                  title={material ? 'Peak selection is fixed during plate/brace measurements' : 'Deselect all peaks'}
-                  aria-label="Deselect all peaks"
-                >
-                  <CancelIcon />
-                </button>
-                {!material && (
+            <PeaksReader peaks={analyzer.detectedPeaks}>
+              {() => {
+                const peaks = peakDisplay()
+                return !material && peaks.resultsListPeaks.length > 0 && !showMultiTap && (
+                <div className="sel-buttons">
                   <button
                     className="btn mini icon tint tint-secondary"
-                    onClick={resetSelection}
-                    disabled={!userModified}
-                    title="Reset to automatic mode selection"
-                    aria-label="Reset to automatic mode selection"
+                    onClick={selectNone}
+                    disabled={material || peaks.displayPeaks.every((p) => !peaks.selectedIds.has(p.id))}
+                    title={material ? 'Peak selection is fixed during plate/brace measurements' : 'Deselect all peaks'}
+                    aria-label="Deselect all peaks"
                   >
-                    <WandIcon />
+                    <CancelIcon />
                   </button>
-                )}
-              </div>
-            )}
+                  {!material && (
+                    <button
+                      className="btn mini icon tint tint-secondary"
+                      onClick={resetSelection}
+                      disabled={!userModified}
+                      title="Reset to automatic mode selection"
+                      aria-label="Reset to automatic mode selection"
+                    >
+                      <WandIcon />
+                    </button>
+                  )}
+                </div>
+              )
+              }}
+            </PeaksReader>
           </div>
 
           <div className="results-scroll">
-          {comparison ? (
-            <ComparisonResultsView rows={comparisonRows} />
-          ) : material ? (
-            <MaterialResults type={brace ? 'brace' : 'plate'} matInputs={matInputs} onInputsChange={(next) => analyzer.setMaterialInputs(next)} measureFlc={settings.measureFlc} peaks={matPeaks} complete={matPhase === 'complete'} />
-          ) : showMultiTap && multiTapAvailable ? (
-            <MultiTapComparisonResultsView taps={tapRows} avg={avgModes} />
-          ) : (
-            <>
-              {displayPeaksInRange.length > 0 ? (
-                <div className="cards">
-                  {displayPeaksInRange.map((p) => {
-                    const mode = analyzer.autoDetectedMode(p.id)
-                    const note = pitch.note(p.frequency)
-                    return (
-                      <PeakCard
-                        key={p.id}
-                        peak={p}
-                        mode={mode}
-                        effectiveLabel={analyzer.effectiveModeLabel(p.id)}
-                        isManualOverride={analyzer.hasManualOverride(p.id)}
-                        classified={isClassified(mode)}
-                        note={note}
-                        cents={note ? pitch.cents(p.frequency) : null}
-                        selected={selectedIds.has(p.id)}
-                        onToggle={() => toggleSelect(p.id)}
-                        onSetLabel={(label) => analyzer.setModeOverride(p.id, label)}
-                        onResetLabel={() => analyzer.resetModeOverride(p.id)}
-                        highlighted={snapshot.highlightedPeakId === p.id}
-                        // Reverse direction (row → dot): desktop only, matching the chart's dot click.
-                        onHighlight={isTouch ? undefined : () => analyzer.toggleHighlightedPeak(p.id)}
-                      />
-                    )
-                  })}
-                </div>
-              ) : (
-                // Swift's words, and whenever the list is empty — live or frozen, as Swift's.
-                <p className="empty results-empty">No peaks detected in visible range</p>
-              )}
-            </>
-          )}
+          <PeaksReader peaks={analyzer.detectedPeaks}>
+            {() => {
+              const peaks = peakDisplay()
+              return comparison ? (
+              <ComparisonResultsView rows={comparisonRows} />
+            ) : material ? (
+              <MaterialResults type={brace ? 'brace' : 'plate'} matInputs={matInputs} onInputsChange={(next) => analyzer.setMaterialInputs(next)} measureFlc={settings.measureFlc} peaks={matPeaks} complete={matPhase === 'complete'} />
+            ) : showMultiTap && multiTapAvailable ? (
+              <MultiTapComparisonResultsView taps={tapRows} avg={peaks.avgModes} />
+            ) : (
+              <>
+                {peaks.displayPeaksInRange.length > 0 ? (
+                  <div className="cards">
+                    {peaks.displayPeaksInRange.map((p) => {
+                      const mode = analyzer.autoDetectedMode(p.id)
+                      const note = pitch.note(p.frequency)
+                      return (
+                        <PeakCard
+                          key={p.id}
+                          peak={p}
+                          mode={mode}
+                          effectiveLabel={analyzer.effectiveModeLabel(p.id)}
+                          isManualOverride={analyzer.hasManualOverride(p.id)}
+                          classified={isClassified(mode)}
+                          note={note}
+                          cents={note ? pitch.cents(p.frequency) : null}
+                          selected={peaks.selectedIds.has(p.id)}
+                          onToggle={() => toggleSelect(p.id)}
+                          onSetLabel={(label) => analyzer.setModeOverride(p.id, label)}
+                          onResetLabel={() => analyzer.resetModeOverride(p.id)}
+                          highlighted={snapshot.highlightedPeakId === p.id}
+                          // Reverse direction (row → dot): desktop only, matching the chart's dot click.
+                          onHighlight={isTouch ? undefined : () => analyzer.toggleHighlightedPeak(p.id)}
+                        />
+                      )
+                    })}
+                  </div>
+                ) : (
+                  // Swift's words, and whenever the list is empty — live or frozen, as Swift's.
+                  <p className="empty results-empty">No peaks detected in visible range</p>
+                )}
+              </>
+            )
+            }}
+          </PeaksReader>
           </div>
 
           {/* The footer — the summary (guitar) over the export row, under one header/footer line, as
@@ -1319,7 +1281,11 @@ export default function App() {
           {/* Shown in the per-tap view too — Swift's `isGuitar && (displayMode != .comparison ||
               showingMultiTapComparison)`; `comparison` is the saved-measurement overlay only. */}
           {!material && !comparison && (
-            <AnalysisResults decayTime={currentDecayTime} decayThreshold={analyzer.decayThreshold} ratio={tapRatio} guitarType={guitarType} />
+            <PeaksReader peaks={analyzer.detectedPeaks}>
+              {() => (
+                <AnalysisResults decayTime={currentDecayTime} decayThreshold={analyzer.decayThreshold} ratio={peakDisplay().tapRatio} guitarType={guitarType} />
+              )}
+            </PeaksReader>
           )}
 
           {/* Export footer — running/stopped status (left) + Export Spectrum · Export PDF (right),

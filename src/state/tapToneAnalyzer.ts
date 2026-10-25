@@ -14,6 +14,7 @@ import type { Spectrum } from '../dsp/guitarFFT'
 import { SampleBuffer } from '../audio/sampleBuffer'
 import type { Calibration } from '../dsp/calibration'
 import { classifyAll, type ResolvedMode } from '../dsp/classify'
+import { DetectedPeaks } from './detectedPeaks'
 // The one override-aware mode resolver (mirrors Swift GuitarMode.effectiveMode). A minor state→presentation
 // import (precedent: MaterialPeaks from components) — the resolver lives with the mode↔label map it needs.
 import { effectiveMode as resolveEffectiveMode, MODE_DISPLAY_NAME } from '../presentation/modeColors'
@@ -650,7 +651,16 @@ export class TapToneAnalyzer {
   // Main peaks detected on the frozen spectrum (or filtered from a loaded measurement's authoritative
   // peaks) + their mode classification. Owned by the analyzer, mirroring Swift `currentPeaks` /
   // `identifiedModes`, set at Swift's events (a live frame, completion, a load, Re-analyze, a type change).
-  peaks: ResonantPeak[] = []
+  // Held, with the three below, in `detectedPeaks`, which alone announces a change to them (Swift's
+  // analyzer `peaks`): they change on every live frame while a sequence waits for a tap, and announced by
+  // the analyzer they would re-render the whole app at the frame rate.
+  readonly detectedPeaks = new DetectedPeaks()
+  get peaks(): ResonantPeak[] {
+    return this.detectedPeaks.peaks
+  }
+  set peaks(v: ResonantPeak[]) {
+    this.detectedPeaks.peaks = v
+  }
   // The Peak-Min DISPLAY projection of `peaks` — the same peak objects, filtered to the slider.
   // Mirrors Swift `peaksAbovePeakMin` / Python `peaks_above_peak_min`. Assigning `peaks` or
   // `peakMinThreshold` is the ONLY way this changes; nothing else may write it.
@@ -659,13 +669,23 @@ export class TapToneAnalyzer {
   // filtered" is a rule about the MEASUREMENT, and it had been implemented in App.tsx as a useMemo
   // — so every other consumer (the save path, the PDF, the multi-tap table, the unit tests) had to
   // re-derive it and could disagree. One rule, one home.
-  peaksAbovePeakMin: ResonantPeak[] = []
+  get peaksAbovePeakMin(): ResonantPeak[] {
+    return this.detectedPeaks.peaksAbovePeakMin
+  }
+  set peaksAbovePeakMin(v: ResonantPeak[]) {
+    this.detectedPeaks.peaksAbovePeakMin = v
+  }
   // True for the duration of `loadMeasurement`, which applies the whole restore — spectrum, per-tap
   // entries, peaks, overrides, offsets, selection — as ONE step, so completing a measurement there is
   // told apart from a capture completing. Mirrors Swift `isLoadingMeasurement` / Python
   // `is_loading_measurement`.
   isLoadingMeasurement = false
-  modeByPeak: Map<Uuid, ResolvedMode> = new Map()
+  get modeByPeak(): Map<Uuid, ResolvedMode> {
+    return this.detectedPeaks.modeByPeak
+  }
+  set modeByPeak(v: Map<Uuid, ResolvedMode>) {
+    this.detectedPeaks.modeByPeak = v
+  }
   // Minimum magnitude (dBFS) for a peak to be DISPLAYED. A display control and nothing more:
   // assigning it re-projects `peaksAbovePeakMin` from the durable set — no detection, no
   // classification, no per-peak state touched — so selection, overrides and dragged labels all
@@ -698,7 +718,12 @@ export class TapToneAnalyzer {
   // Selection — which peak is the DEFINITIVE Air/Top/Back.
   // CONCRETE state (full-Swift paradigm, not a derived set): auto-selected afresh on a peak re-mint by
   // applyFrozenPeakState. Mirrors Swift `selectedPeakIDs`.
-  selectedPeakIds: Set<Uuid> = new Set()
+  get selectedPeakIds(): Set<Uuid> {
+    return this.detectedPeaks.selectedPeakIds
+  }
+  set selectedPeakIds(v: Set<Uuid>) {
+    this.detectedPeaks.selectedPeakIds = v
+  }
   // The selected peaks' frequencies, kept with the selection and saved with the measurement; nothing
   // reads it back. Mirrors Swift `selectedPeakFrequencies`.
   selectedPeakFrequencies: number[] = []
@@ -1524,7 +1549,7 @@ export class TapToneAnalyzer {
         this.peaks = []
         this.modeByPeak = new Map()
         this.refreshDisplayedPeaks()
-        this.notify()
+        this.detectedPeaks.notify()
       }
       return
     }
@@ -1534,7 +1559,7 @@ export class TapToneAnalyzer {
     this.selectedPeakIds = new Set(peaks.map((p) => p.id))
     this.modeByPeak = classifyAll(peaks, this.guitarType)
     this.refreshDisplayedPeaks()
-    this.notify()
+    this.detectedPeaks.notify()
   }
 
   /** Re-run the frozen-spectrum peak analysis — reached only through Re-analyze ({@link reanalyzePeaks}),
@@ -3687,18 +3712,11 @@ export class TapToneAnalyzer {
         isGuitar: this.isGuitar,
         frozenSpectrum: this.frozenSpectrum(),
         tapEntries: this.tapEntries,
-        peaks: this.peaks,
-        peaksAbovePeakMin: this.peaksAbovePeakMin,
         peakMinThreshold: this.peakMinThreshold,
-        modeByPeak: this.modeByPeak,
         overrides: this.overrides,
         annotationVisibilityMode: this.annotationVisibilityMode,
-        visiblePeaks: this.visiblePeaks,
-        chartPeaks: this.chartPeaks,
-        chartAnnotationPeaks: this.chartAnnotationPeaks,
         showsModeBoundaries: this.showsModeBoundaries,
         annotationOffsets: this.annotationOffsets,
-        selectedPeakIds: this.selectedPeakIds,
         userModifiedSelection: this.userModifiedSelection,
         highlightedPeakId: this.highlightedPeakId,
         canReanalyze: this.canReanalyze,
@@ -4188,31 +4206,16 @@ export interface TapToneSnapshot {
   frozenSpectrum: Spectrum | null
   /** Per-tap entries (snapshot + peaks + auto-selection) for the multi-tap comparison view ([] unless a multi-tap result). */
   tapEntries: TapEntry[]
-  /** The DURABLE guitar peak set, found at the -100 dB floor — what selection and the save path read. */
-  peaks: ResonantPeak[]
-  /** The Peak-Min display projection of `peaks` (material passes through unfiltered). What the peak
-   *  list, the chart dots and the live ratio read. Never the set to save. */
-  peaksAbovePeakMin: ResonantPeak[]
   /** The Peak Min display threshold the projection was computed at. */
   peakMinThreshold: number
-  /** Mode classification for `peaks`, keyed by peak id. */
-  modeByPeak: Map<Uuid, ResolvedMode>
   /** Manual mode-label overrides, keyed by peak `id` (analyzer-owned). */
   overrides: Map<Uuid, string>
   /** Which peaks are annotated: all, the selected ones, or none. */
   annotationVisibilityMode: AnnotationMode
-  /** The peaks to annotate for that mode — the chart's cards (in range) and a report's peaks (all). */
-  visiblePeaks: ResonantPeak[]
-  /** The peaks the chart marks; null while a comparison is shown. Swift `chartPeaks`. */
-  chartPeaks: ResonantPeak[] | null
-  /** The peaks the chart labels; null while a comparison is shown. Swift `chartAnnotationPeaks`. */
-  chartAnnotationPeaks: ResonantPeak[] | null
   /** Whether the chart draws the guitar mode lines. Swift `showsModeBoundaries`. */
   showsModeBoundaries: boolean
   /** Dragged annotation-label positions, keyed by peak `id` (one store for guitar + material). */
   annotationOffsets: Map<Uuid, [number, number]>
-  /** The definitive-peak selection, by peak `id` (concrete analyzer state). */
-  selectedPeakIds: Set<Uuid>
   /** Whether the selection was hand-modified since the last auto-select (drives the wand's enabled state). */
   userModifiedSelection: boolean
   /** The highlighted peak id (chart-dot ↔ results-row cross-highlight), or null. Transient view state. */
