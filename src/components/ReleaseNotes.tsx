@@ -54,7 +54,7 @@ export const RELEASES: RNRelease[] = [
     // an un-rolled top entry silently re-renders shipped notes under a new build number.
     build: __APP_BUILD__,
     since: '1.0.2',
-    // Notes reviewed through commit 0426a39 (2026-10-24). The next update reads only `git log 0426a39..HEAD`, then
+    // Notes reviewed through commit 184f3cc (2026-10-24). The next update reads only `git log 184f3cc..HEAD`, then
     // moves this line to the newest commit it covered.
     groups: [
       {
@@ -67,6 +67,10 @@ export const RELEASES: RNRelease[] = [
           {
             title: 'Sort, Filter and Delete in Saved Measurements',
             body: 'A new Sort & Filter menu sorts the list as added, by date, name or type (choose the same again to reverse it), or shows one type only — comparisons included. Your choice is remembered. Delete All is now a Delete menu: All, Duplicates (every later copy of a measurement, keeping the first) or Selected (tick the measurements to delete). The list itself always keeps the order the measurements were added.',
+          },
+          {
+            title: 'Chart Menu for a Comparison',
+            body: "While a comparison is shown, the chart's menu resets either or both axes to the comparison range — the span of the compared measurements, where the comparison opened — in place of Saved and Defaults, which mean nothing for measurements of many guitars.",
           },
           {
             title: 'Appearance: Light, Dark or System',
