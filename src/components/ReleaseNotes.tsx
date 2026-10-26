@@ -45,7 +45,7 @@ export interface RNRelease {
 // eslint-disable-next-line react-refresh/only-export-components -- static release content; kept with the component rather than in its own data module
 export const RELEASES: RNRelease[] = [
   {
-    version: '1.0.3',
+    version: '1.1.0',
     // Newest entry auto-binds to the deployed build: __APP_BUILD__ is exactly what vite.config.ts
     // stamps into the About line (`git rev-list --count HEAD` at build time), so the top-of-notes
     // build and the About line can never drift and there is nothing to update by hand at release.
