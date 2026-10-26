@@ -1,0 +1,111 @@
+# The web edition's release build: the built app (dist/), zipped as guitar-tap-web-<version>.<build>.zip — the file
+# uploaded to dolcesfogato.com and the copy other sites host — attached to a draft GitHub release, or kept as the
+# run's artifact.
+#
+# Run by hand (Actions → Release → Run workflow), for:
+# - a release tag: builds the tag; with "draft" it creates the tag's draft release with the zip (or adds the zip to
+#   the tag's draft if there is one). The owner writes the release's notes on the draft and publishes it; publishing
+#   builds nothing.
+# - a test: builds a branch or commit; with "draft" it makes a draft named "release" for a tag that does not exist
+#   (release-test-<n>), which GitHub creates only if the draft is published — delete the draft and nothing is left.
+#
+# The workflow runs from main, so it builds a tag made before it existed.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag, branch or commit to build"
+        required: true
+      release:
+        description: "Draft release to create or add to: blank for the tag's own; a test name (release-test-1) for a branch or commit"
+        required: false
+        default: ""
+      draft:
+        description: "Attach the zip to the draft release (otherwise keep it as the run's artifact)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      REF: ${{ inputs.ref }}
+      RELEASE: ${{ inputs.release || inputs.ref }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # The whole history and its tags: the build number is the commit count, and the release guard compares the
+      # version with the last release's tag.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      # The Node the built commit names (.nvmrc); a commit made before .nvmrc existed builds with main's.
+      - name: Node version
+        id: node
+        run: echo "version=$(cat .nvmrc 2>/dev/null || git show origin/main:.nvmrc)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+
+      # The build reports the version and build number it was made from: package.json's version (a release tag's
+      # name) and the commit count.
+      - name: Check the version and build
+        id: check
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          build="$(git rev-list --count HEAD)"
+          if git rev-parse -q --verify "refs/tags/$REF" >/dev/null && [ "$REF" != "$version" ]; then
+            echo "The tag $REF builds version $version." >&2
+            exit 1
+          fi
+          for value in "$version" "$build"; do
+            if ! grep -rqE "[\`\"']$value[\`\"']" dist/assets/*.js; then
+              echo "The build does not report $value." >&2
+              exit 1
+            fi
+          done
+          echo "zip=guitar-tap-web-$version.$build.zip" >> "$GITHUB_OUTPUT"
+          echo "Built $version ($build)."
+
+      # The app's files at the top of the zip, so it extracts straight into the folder it is served from.
+      - name: Zip
+        run: (cd dist && zip -qr "../${{ steps.check.outputs.zip }}" .)
+
+      - name: Keep as the run's artifact
+        if: ${{ !inputs.draft }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.check.outputs.zip }}
+          path: ${{ steps.check.outputs.zip }}
+
+      # A draft for the release's tag, created at the built commit; GitHub creates the tag only when the draft is
+      # published (an existing tag stays as it is). An existing draft gets the zip, replacing one of the same name.
+      - name: Attach to the draft release
+        if: ${{ inputs.draft }}
+        run: |
+          zip="${{ steps.check.outputs.zip }}"
+          if gh release view "$RELEASE" --json isDraft --jq .isDraft 2>/dev/null | grep -qx true; then
+            gh release upload "$RELEASE" "$zip" --clobber
+          elif gh release view "$RELEASE" >/dev/null 2>&1; then
+            echo "$RELEASE is already published: its files are not replaced by a workflow." >&2
+            exit 1
+          else
+            gh release create "$RELEASE" "$zip" --draft --target "$(git rev-parse HEAD)" \
+              --title "Guitar Tap (Web) $RELEASE" --notes "The release's notes: a short summary of its enhancements."
+          fi
+          echo "Draft $RELEASE: https://github.com/$GITHUB_REPOSITORY/releases"
