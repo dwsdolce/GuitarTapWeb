@@ -1,6 +1,6 @@
 # The web edition's release build: the built app (dist/), zipped as guitar-tap-web-<version>.<build>.zip — the file
-# uploaded to dolcesfogato.com and the copy other sites host — attached to a draft GitHub release, or kept as the
-# run's artifact.
+# uploaded to dolcesfogato.com and the copy other sites host — attached to a draft GitHub release with its
+# SHA256SUMS, or kept as the run's artifact.
 #
 # Run by hand (Actions → Release → Run workflow), for:
 # - a release tag: builds the tag; with "draft" it creates the tag's draft release with the zip (or adds the zip to
@@ -94,18 +94,21 @@ jobs:
           path: ${{ steps.check.outputs.zip }}
 
       # A draft for the release's tag, created at the built commit; GitHub creates the tag only when the draft is
-      # published (an existing tag stays as it is). An existing draft gets the zip, replacing one of the same name.
+      # published (an existing tag stays as it is). An existing draft gets the zip and SHA256SUMS, replacing ones of
+      # the same name.
       - name: Attach to the draft release
         if: ${{ inputs.draft }}
         run: |
           zip="${{ steps.check.outputs.zip }}"
+          sha256sum -- "$zip" > SHA256SUMS
+          cat SHA256SUMS
           if gh release view "$RELEASE" --json isDraft --jq .isDraft 2>/dev/null | grep -qx true; then
-            gh release upload "$RELEASE" "$zip" --clobber
+            gh release upload "$RELEASE" "$zip" SHA256SUMS --clobber
           elif gh release view "$RELEASE" >/dev/null 2>&1; then
             echo "$RELEASE is already published: its files are not replaced by a workflow." >&2
             exit 1
           else
-            gh release create "$RELEASE" "$zip" --draft --target "$(git rev-parse HEAD)" \
+            gh release create "$RELEASE" "$zip" SHA256SUMS --draft --target "$(git rev-parse HEAD)" \
               --title "Guitar Tap (Web) $RELEASE" --notes "The release's notes: a short summary of its enhancements."
           fi
           echo "Draft $RELEASE: https://github.com/$GITHUB_REPOSITORY/releases"
