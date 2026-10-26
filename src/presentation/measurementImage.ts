@@ -5,9 +5,9 @@ import { Pitch } from '../dsp/pitch'
 import { MODE_DISPLAY_NAME, MODE_BY_DISPLAY_NAME } from './modeColors'
 import { color as roleColor, comparisonRole, modeRole, qualityRole, type Role } from './palette'
 import { FieldPrecision } from '../precision'
-import type { ChartView, PeakMarker, SpectrumOverlay } from './chartTypes'
+import type { ChartView, PeakMarker, OverlaySpectrum } from './chartTypes'
 import type { SpectrumImageOpts } from './spectrumExport'
-import { measurementAutoModes, measurementMultiTapComparisonEntries, measurementTypeName, comparisonEntryModeFreqs, measurementTapToneRatio, measurementDefinitiveModeInfo, MEASUREMENT_TYPE_FROM_RAW } from '../measurement/types'
+import { measurementAutoModes, measurementPeaksAbovePeakMin, measurementDetectedPeaksInView, measurementReportPeaks, measurementMultiTapComparisonEntries, measurementTypeName, comparisonEntryModeFreqs, measurementTapToneRatio, measurementDefinitiveModeInfo, MEASUREMENT_TYPE_FROM_RAW } from '../measurement/types'
 import { isGuitarType, MEASUREMENT_FULL_NAME, STIFFNESS_RAW_NAME, DEFAULT_SETTINGS } from '../settings'
 import { settingsStore } from '../settingsStore'
 import { materialDimensions, materialInputsFromSnapshot, materialStiffness } from '../measurement/materialMeasurementInputs'
@@ -54,7 +54,8 @@ function savedGuitar(m: TapToneMeasurementModel) {
     measurementType: MEASUREMENT_TYPE_FROM_RAW[snap.measurementType ?? ''] ?? 'generic',
     captured: { magnitudesDb: snap.magnitudes, frequencies: snap.frequencies },
     view: { minHz: snap.minFreq, maxHz: snap.maxFreq, minDb: snap.minDB, maxDb: snap.maxDB },
-    peaks: m.peaks,
+    // The peaks the measurement shows: at or above its Peak Min.
+    peaks: measurementPeaksAbovePeakMin(m),
     selectedIds: effectiveSelectedPeakIDs(m),
     modes: measurementAutoModes(m),
     overridesById: new Map(idEntries(m.peakModeOverrides)),
@@ -115,7 +116,7 @@ export function buildGuitarMarkers(
     const override = overridesById.get(p.id) // overrides are id-keyed (analyzer-owned)
     // Override wins for color too (like the label): a predefined override uses that mode's color, a
     // freeform label is user-defined; else the auto-classified mode's color. Mirrors Swift peakColor /
-    // Python peak_color — so the callout AND the Detected Peaks Summary chip match the override.
+    // Python peak_color — so the callout AND the Selected Peaks Summary chip match the override.
     const overrideMode = override != null ? MODE_BY_DISPLAY_NAME[override] : undefined
     const annotated = isAnnotated(p.id)
     const note = pitch.note(p.frequency)
@@ -160,6 +161,13 @@ export function buildMaterialMarkers(
   return out
 }
 
+/** The markers of the report's Selected Peaks table ({@link measurementReportPeaks}) — the image's Detected
+ *  Peaks Summary, whatever the annotation setting. */
+function reportMarkers(m: TapToneMeasurementModel, markers: PeakMarker[]): PeakMarker[] {
+  const ids = new Set(measurementReportPeaks(m).map((p) => p.id))
+  return markers.filter((mk) => mk.id != null && ids.has(mk.id))
+}
+
 /** Build the spectrum-image opts for a saved measurement (guitar / material / comparison). */
 export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImageOpts {
   const date = formatDisplayDate(m.timestamp)
@@ -169,7 +177,7 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
   // Comparison
   if (m.comparisonEntries && m.comparisonEntries.length) {
     const entries = m.comparisonEntries
-    const overlays: SpectrumOverlay[] = entries.map((e, i) => ({
+    const overlaySpectra: OverlaySpectrum[] = entries.map((e, i) => ({
       magnitudesDb: e.snapshot.magnitudes,
       frequencies: e.snapshot.frequencies,
       role: comparisonRole(i, e.label),
@@ -177,27 +185,29 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
     }))
     const view = comparisonChartRange(m)
     // A comparison's entries need not be of one guitar type: no mode lines, as Swift's.
-    return { title, spectrum: null, overlays, markers: [], view, measurementTypeName: 'Comparison', guitarType: 'generic', showModeBoundaries: false, date }
+    return { title, spectrum: null, overlaySpectra, markers: [], view, measurementTypeName: 'Comparison', guitarType: 'generic', showModeBoundaries: false, date }
   }
 
   // Material (plate / brace)
   if (m.longitudinalSnapshot) {
     const r = savedMaterial(m)
-    const overlays: SpectrumOverlay[] = []
-    if (r.matSpectra.longitudinal) overlays.push({ ...r.matSpectra.longitudinal, role: 'material.longitudinal', label: 'Longitudinal (fL)' })
-    if (r.matSpectra.cross) overlays.push({ ...r.matSpectra.cross, role: 'material.cross', label: 'Cross-grain (fC)' })
-    if (r.matSpectra.flc) overlays.push({ ...r.matSpectra.flc, role: 'material.flc', label: 'Diagonal (fLC)' })
+    const overlaySpectra: OverlaySpectrum[] = []
+    if (r.matSpectra.longitudinal) overlaySpectra.push({ ...r.matSpectra.longitudinal, role: 'material.longitudinal', label: 'Longitudinal (fL)' })
+    if (r.matSpectra.cross) overlaySpectra.push({ ...r.matSpectra.cross, role: 'material.cross', label: 'Cross-grain (fC)' })
+    if (r.matSpectra.flc) overlaySpectra.push({ ...r.matSpectra.flc, role: 'material.flc', label: 'Diagonal (fLC)' })
     const s = m.longitudinalSnapshot
+    const markers = buildMaterialMarkers(
+      { longitudinal: r.selectedLongitudinalPeak, cross: r.selectedCrossPeak, flc: r.selectedFlcPeak },
+      // No per-peak selection on a plate or brace: all and selected both annotate every identified peak.
+      () => ((m.annotationVisibilityMode as AnnoMode) ?? 'all') !== 'none',
+      r.annotationOffsetsById,
+    )
     return {
       title,
       spectrum: null,
-      overlays,
-      markers: buildMaterialMarkers(
-        { longitudinal: r.selectedLongitudinalPeak, cross: r.selectedCrossPeak, flc: r.selectedFlcPeak },
-        // No per-peak selection on a plate or brace: all and selected both annotate every identified peak.
-        () => ((m.annotationVisibilityMode as AnnoMode) ?? 'all') !== 'none',
-        r.annotationOffsetsById,
-      ),
+      overlaySpectra,
+      markers,
+      summaryMarkers: reportMarkers(m, markers),
       view: { minHz: s.minFreq, maxHz: s.maxFreq, minDb: s.minDB, maxDb: s.maxDB },
       measurementTypeName: MEASUREMENT_FULL_NAME[r.measurementType],
       date,
@@ -218,6 +228,8 @@ export function measurementToImageOpts(m: TapToneMeasurementModel): SpectrumImag
     title,
     spectrum: r.captured,
     markers,
+    summaryMarkers: reportMarkers(m, markers),
+    detectedPeakCount: measurementDetectedPeaksInView(m).length,
     view: r.view,
     guitarType,
     measurementTypeName: MEASUREMENT_FULL_NAME[r.measurementType],

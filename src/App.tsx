@@ -4,7 +4,7 @@ import { SpectrumChart } from './components/SpectrumChart'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
 import { apply as applyAppearance, comparisonRole, cssVariable, seriesRole } from './presentation/palette'
-import type { ChartView, PeakMarker, SpectrumOverlay } from './presentation/chartTypes'
+import type { ChartView, PeakMarker, OverlaySpectrum } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
 import { type MaterialTapPhase as MatPhase, type DefinitiveModeInfo } from './state/tapToneAnalyzer'
 import { useAudioEngine } from './hooks/useAudioEngine'
@@ -33,8 +33,8 @@ import { importMeasurements, saveMeasurement } from './measurement/store'
 import { exportStem } from './measurement/exportFilename'
 import { parseCalibration, type Calibration } from './dsp/calibration'
 import { decodeWav } from './dsp/wav'
-import { exportFailureMessage, exportSpectrumPng, type SpectrumImageOpts } from './presentation/spectrumExport'
-import { buildGuitarMarkers, buildMaterialMarkers, measurementToPdfData, multiTapPdfData } from './presentation/measurementImage'
+import { exportFailureMessage, exportSpectrumPng } from './presentation/spectrumExport'
+import { buildGuitarMarkers, buildMaterialMarkers, measurementToImageOpts, measurementToPdfData, multiTapPdfData } from './presentation/measurementImage'
 import { exportPdfReport, exportMultiTapPdfReport } from './presentation/pdfReport'
 import type { TapToneMeasurementModel, ComparisonEntryModel } from './measurement'
 import { GUITAR_FFT_SIZE } from './dsp/guitarFFT'
@@ -418,9 +418,9 @@ export default function App() {
   const heldSpectrum = material
     ? (matSpectra.longitudinal ?? matSpectra.cross ?? matSpectra.flc ?? null)
     : captured
-  const matOverlays = useMemo<SpectrumOverlay[]>(() => {
+  const matOverlays = useMemo<OverlaySpectrum[]>(() => {
     if (!material) return []
-    const out: SpectrumOverlay[] = []
+    const out: OverlaySpectrum[] = []
     if (matSpectra.longitudinal)
       // Chart legend uses the frequency notation (fL/fC) and the "Diagonal (fLC)" name uniformly for
       // plate AND brace, matching Swift/Python.
@@ -497,9 +497,6 @@ export default function App() {
       chartMarkers: material
         ? materialMarkers
         : buildGuitarMarkers(chartPeaks, modeByPeak, isVisible, overrides, annotationOffsets),
-      exportMarkers: material
-        ? materialMarkers
-        : buildGuitarMarkers(analyzer.visiblePeaks, modeByPeak, () => true, overrides, annotationOffsets),
       tapRatio: material ? null : analyzer.tapToneRatio(),
       avgModes: analyzer.definitiveModeInfo() as DefinitiveModeInfo,
     }
@@ -685,7 +682,7 @@ export default function App() {
 
   // The chart's comparison overlays — either kind, saved measurements or the per-tap overlay: the entries
   // the analyzer holds while comparing (Swift's chart draws comparisonSpectra for both).
-  const comparisonOverlays = useMemo<SpectrumOverlay[]>(
+  const comparisonOverlays = useMemo<OverlaySpectrum[]>(
     () =>
       (inComparison ? snapshot.comparisonEntries : []).map((e, i) => ({
         magnitudesDb: e.snapshot.magnitudes,
@@ -695,7 +692,7 @@ export default function App() {
       })),
     [inComparison, snapshot.comparisonEntries],
   )
-  // Export the CURRENT chart (whatever's displayed) as a PNG — same props passed to SpectrumChart.
+  // Export Spectrum: the image of the result as the measurement it would be saved as (as Export PDF).
   const exportSpectrumImage = useCallback(async () => {
     const now = performance.now()
     if (isExportingRef.current || now - lastSpectrumExportRef.current < 700) return  // in-flight or double-click
@@ -703,18 +700,13 @@ export default function App() {
     lastSpectrumExportRef.current = now
     setIsExporting(true)
     const stamp = sourceTimestamp ?? new Date().toISOString()
-    const opts: SpectrumImageOpts = {
-      title: `FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`,
-      spectrum: inComparison || material ? null : (captured ?? frame.spectrum),
-      overlays: inComparison ? comparisonOverlays : material ? matOverlays : undefined,
-      markers: inComparison ? [] : peakDisplay().exportMarkers,
-      view,
-      measurementTypeName: comparison ? 'Comparison' : MEASUREMENT_FULL_NAME[settings.measurementType],
-      guitarType: material ? undefined : guitarType,
-      showModeBoundaries: snapshot.showsModeBoundaries,
-      date: formatDisplayDate(stamp),
-    }
     try {
+      // The image of the result as the measurement it would be saved as, drawn as Saved Measurements
+      // draws a saved one — a multi-tap measurement's is its averaged spectrum whichever view of it is
+      // shown. Mirrors Swift exportCurrentSpectrum.
+      const built = buildCurrentMeasurement(loadedName ?? '', snapshot.loadedNotes ?? '')
+      if (!built) return
+      const opts = measurementToImageOpts({ ...built, timestamp: stamp })
       await exportSpectrumPng(opts, `${exportStem(loadedName, Math.floor(Date.parse(stamp) / 1000), 'spectrum')}.png`)
     } catch (e) {
       // Surface the failure instead of a console-only rejection (mirrors the PDF path). No jsPDF/lazy
@@ -725,7 +717,7 @@ export default function App() {
       isExportingRef.current = false
       setIsExporting(false)
     }
-  }, [comparison, material, inComparison, captured, frame, comparisonOverlays, matOverlays, peakDisplay, view, playingFileName, loadedName, sourceTimestamp, settings.measurementType, guitarType, snapshot.showsModeBoundaries, setError, setErrorKind])
+  }, [buildCurrentMeasurement, loadedName, snapshot.loadedNotes, sourceTimestamp, setError, setErrorKind])
 
   const comparisonRows = useMemo<ComparisonRow[]>(
     () =>
@@ -1087,7 +1079,7 @@ export default function App() {
                           : (captured ?? f.spectrum)
                     }
                     title={`FFT Peaks — ${playingFileName ?? loadedName ?? 'New'}`}
-                    overlays={inComparison ? comparisonOverlays : material ? matOverlays : undefined}
+                    overlaySpectra={inComparison ? comparisonOverlays : material ? matOverlays : undefined}
                     guitarType={material ? undefined : guitarType}
                     showModeBoundaries={snapshot.showsModeBoundaries}
                     peakMin={peakMin}

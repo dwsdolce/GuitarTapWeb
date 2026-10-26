@@ -4,7 +4,7 @@ import type { Spectrum } from '../dsp/guitarFFT'
 import { renderSpectrum, chartGeometry, chartTheme } from '../presentation/spectrumRender'
 import { useScheme } from '../hooks/useScheme'
 import type { GuitarTypeName } from '../dsp/guitarModes'
-import type { PeakMarker, AnnotationRect, DotHit, ChartView, ResetTarget, ResetAxis, SpectrumOverlay } from '../presentation/chartTypes'
+import type { PeakMarker, AnnotationRect, DotHit, ChartView, ResetTarget, ResetAxis, OverlaySpectrum } from '../presentation/chartTypes'
 import { pannedRange, zoomedRange } from '../presentation/displayRange'
 import {
   MIN_FREQUENCY_HZ,
@@ -26,14 +26,14 @@ function MenuIcon({ mdi }: { mdi: string }) {
   return <UndoIcon />
 }
 
-/** Props for {@link SpectrumChart} — spectrum data, axis range, overlays/markers, and interaction callbacks. */
+/** Props for {@link SpectrumChart} — spectrum data, axis range, overlaid curves/markers, and interaction callbacks. */
 export interface SpectrumChartProps {
   spectrum: Spectrum | null
   /** Title shown top-left, e.g. "FFT Peaks — New" (mirrors Swift/Python chartTitle). */
   title?: string
   markers?: PeakMarker[]
   /** Extra colored curves drawn over the plot, with a legend (material L/C/FLC). */
-  overlays?: SpectrumOverlay[]
+  overlaySpectra?: OverlaySpectrum[]
   /** Guitar type → mode-boundary lines + top labels on the plot (omit for material). */
   guitarType?: GuitarTypeName
   /** Whether a guitar's mode lines are drawn (default true). Swift's `showModeBoundaries`. */
@@ -61,7 +61,7 @@ export interface SpectrumChartProps {
   /** Enables the "Reset Labels" menu item (true when any label has been moved). */
   hasMovedLabels?: boolean
   /** A frozen/captured result is shown → the crosshair snaps to the nearest spectrum bin
-   *  (otherwise it tracks freely). Material/comparison overlays snap to a curve regardless. */
+   *  (otherwise it tracks freely). Overlaid curves (material or comparison) snap to a curve regardless. */
   frozen?: boolean
   /** Touch crosshair mode — owned by the parent (the toggle lives on the control bar, like iOS).
    *  When true, a one-finger drag moves the crosshair instead of panning. */
@@ -95,7 +95,7 @@ export function SpectrumChart({
   spectrum,
   title,
   markers = [],
-  overlays = [],
+  overlaySpectra = [],
   guitarType,
   showModeBoundaries = true,
   peakMin,
@@ -189,7 +189,7 @@ export function SpectrumChart({
     renderSpectrum(ctx, W, H, {
       spectrum,
       markers,
-      overlays,
+      overlaySpectra,
       title,
       guitarType,
       showModeBoundaries,
@@ -203,7 +203,7 @@ export function SpectrumChart({
       frozen,
       crosshairLock: crosshairLockRef.current,
     })
-  }, [spectrum, markers, overlays, title, guitarType, showModeBoundaries, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen, highlightedPeakId, scheme])
+  }, [spectrum, markers, overlaySpectra, title, guitarType, showModeBoundaries, peakMin, minHz, maxHz, minDb, maxDb, hover, frozen, highlightedPeakId, scheme])
 
   // ── Interaction (mirrors SpectrumView+GestureHandlers) ──────────────────────
   // @parity view/spectrum-gestures — the web co-locates gestures with the chart

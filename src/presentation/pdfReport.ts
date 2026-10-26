@@ -397,7 +397,7 @@ function renderReportContent(cur: Cur, data: PdfReportData) {
 
 // ── Section drawers ───────────────────────────────────────────────────────────
 
-/** Swift `peaksSection`: VStack(spacing 6) { "Detected Peaks" 13 bold, the header (10 bold, padded 3
+/** Swift `peaksSection`: VStack(spacing 6) { "Selected Peaks" 13 bold, the header (10 bold, padded 3
  *  vertically and 6 horizontally, 2 below), then one row per peak (10, padded 2 / 6) }. */
 function drawPeaks(cur: Cur, data: PdfReportData) {
   const { doc } = cur
@@ -405,13 +405,13 @@ function drawPeaks(cur: Cur, data: PdfReportData) {
 
   font(doc, 13, 'bold')
   setColor(doc, PRIMARY)
-  textAt(doc, 'Detected Peaks', L, cur.y)
+  textAt(doc, 'Selected Peaks', L, cur.y)
   cur.y += 13 + 6
 
   if (!data.peaks.length) {
     font(doc, 11, 'normal')
     setColor(doc, SECONDARY)
-    textAt(doc, 'No peaks detected in this measurement.', L, cur.y)
+    textAt(doc, 'No selected peaks in view.', L, cur.y)
     cur.y += 11
     return
   }

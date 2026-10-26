@@ -69,13 +69,13 @@ export interface ChartView {
 export type ResetTarget = 'saved' | 'defaults' | 'comparison'
 export type ResetAxis = 'both' | 'freq' | 'mag'
 
-/** A colored overlay curve (plate/brace per-phase spectra, later comparison curves). */
-export interface SpectrumOverlay {
+/** An overlaid curve: a comparison's measurement or a multi-tap measurement's tap, or a plate's or brace's phase. */
+export interface OverlaySpectrum {
   magnitudesDb: number[]
   frequencies: number[]
   /** The curve's colour role, resolved in the chart's scheme when drawn. */
   role?: Role
-  /** A fixed curve colour, for overlays without a role (a saved comparison's stored colour). */
+  /** A fixed curve colour, for overlaid curves without a role (a saved comparison's stored colour). */
   color?: string
   label: string
 }

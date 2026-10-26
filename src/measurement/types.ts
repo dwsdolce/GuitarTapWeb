@@ -248,6 +248,37 @@ export const effectiveSelectedPeakIDs = (m: TapToneMeasurementModel): Set<Uuid> 
   return m.selectedPeakIDs != null ? new Set(m.selectedPeakIDs) : new Set(m.peaks.map((p) => p.id))
 }
 
+// @parity model/export-peaks tests=test/export-peaks
+/** The peaks the measurement shows when it is loaded, and so the peaks its image and report show: a
+ *  guitar's at or above its Peak Min (all of them for a file saved without one), as the analyzer
+ *  projects them; a plate's or brace's identified peaks. Mirrors Swift/Python `peaksAbovePeakMin`. */
+export const measurementPeaksAbovePeakMin = (m: TapToneMeasurementModel): ResonantPeak[] => {
+  const peakMin = m.peakMinThreshold
+  if (isMaterialMeasurement(m) || peakMin == null) return m.peaks
+  return m.peaks.filter((p) => p.magnitude >= peakMin)
+}
+
+/** A guitar's detected peaks in view: its peaks at or above Peak Min ({@link measurementPeaksAbovePeakMin}) within
+ *  the saved range — the export header's "Detected Peaks: N". Empty for a plate or brace, which has no detected peaks
+ *  apart from its selected ones. Mirrors Swift/Python `detectedPeaksInView`. */
+export const measurementDetectedPeaksInView = (m: TapToneMeasurementModel): ResonantPeak[] => {
+  const snap = m.spectrumSnapshot
+  if (isMaterialMeasurement(m) || !snap) return []
+  return measurementPeaksAbovePeakMin(m).filter((p) => p.frequency >= snap.minFreq && p.frequency <= snap.maxFreq)
+}
+
+/** The peaks the report's Selected Peaks table lists, low to high: the selected peaks
+ *  ({@link effectiveSelectedPeakIDs}) at or above Peak Min ({@link measurementPeaksAbovePeakMin}) within the
+ *  saved range. The image's Selected Peaks Summary lists the same peaks. Mirrors Swift/Python `reportPeaks`. */
+export const measurementReportPeaks = (m: TapToneMeasurementModel): ResonantPeak[] => {
+  const snap = m.spectrumSnapshot ?? m.longitudinalSnapshot ?? m.crossSnapshot
+  if (!snap) return []
+  const selected = effectiveSelectedPeakIDs(m)
+  return measurementPeaksAbovePeakMin(m)
+    .filter((p) => selected.has(p.id) && p.frequency >= snap.minFreq && p.frequency <= snap.maxFreq)
+    .sort((a, b) => a.frequency - b.frequency)
+}
+
 // ── The measurement's own logic — Swift `TapToneMeasurement` / Python `TapToneMeasurement` ─────────
 
 /** The guitar type this measurement's peaks are classified with: the type its snapshot records,

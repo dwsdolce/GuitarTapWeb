@@ -12,7 +12,7 @@ import { modeBands, type GuitarTypeName } from '../dsp/guitarModes'
 import { MODE_LABEL } from './modeColors'
 import { color as roleColor, modeRole, opacity, type Role } from './palette'
 import type { Scheme } from './appearance'
-import type { PeakMarker, SpectrumOverlay, ChartView, AnnotationRect, DotHit } from './chartTypes'
+import type { PeakMarker, OverlaySpectrum, ChartView, AnnotationRect, DotHit } from './chartTypes'
 import { formattedAsFrequency } from './frequencyFormat'
 import { nearestSeriesIndex, snapToWaveform } from './snapInterpolation'
 import { FieldPrecision } from '../precision'
@@ -106,7 +106,7 @@ function exportGeometry(W: number, H: number): PlotRect {
 export interface RenderOpts {
   spectrum: Spectrum | null
   markers?: PeakMarker[]
-  overlays?: SpectrumOverlay[]
+  overlaySpectra?: OverlaySpectrum[]
   view: ChartView
   /** Centered title above the plot. */
   title?: string
@@ -146,7 +146,7 @@ export interface RenderOpts {
 
 /** Draw the spectrum chart into ctx over a W×H region (origin at 0,0). */
 export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: number, opts: RenderOpts): void {
-  const { spectrum, markers = [], overlays = [], title, guitarType, showModeBoundaries = true } = opts
+  const { spectrum, markers = [], overlaySpectra = [], title, guitarType, showModeBoundaries = true } = opts
   const th = opts.theme ?? chartTheme('dark')
   const style = opts.style ?? SCREEN
   const { minHz, maxHz, minDb, maxDb } = opts.view
@@ -269,11 +269,11 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     }
     ctx.stroke()
   }
-  // Draw the primary (live/frozen) spectrum FIRST, then any overlays on top — matching Swift's
-  // SpectrumView (primary line + materialSpectra together). Material capture paints the live base under
-  // the captured-phase overlays; comparison/multi-tap pass spectrum=null so only overlays draw.
+  // Draw the primary (live/frozen) spectrum FIRST, then any overlaid curves on top — matching Swift's
+  // SpectrumView (primary line + overlaySpectra together). Material capture paints the live base under
+  // the captured-phase overlays; comparison/multi-tap pass spectrum=null so only the overlays draw.
   if (spectrum) drawCurve(spectrum.frequencies, spectrum.magnitudesDb, th.curve, style.spectrumWidth)
-  for (const ov of overlays) drawCurve(ov.frequencies, ov.magnitudesDb, overlayColor(ov, th), style.overlayWidth)
+  for (const ov of overlaySpectra) drawCurve(ov.frequencies, ov.magnitudesDb, overlayColor(ov, th), style.overlayWidth)
 
   // Peak dots — Layer 1: EVERY in-range peak gets a dot, independent of annotation mode,
   // mirroring Swift's `allPeaksInRange` (SpectrumView+ChartContent peakAnnotationContent Layer 1).
@@ -307,7 +307,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   // "Peak: N dB" label top/trailing). Guitar-only (guitarType present) + within the visible dB range;
   // omitted for material/comparison (no guitarType) and for exports (peakMin not passed).
   const peakMin = opts.peakMin
-  if (guitarType && overlays.length === 0 && peakMin != null && peakMin > minDb && peakMin < maxDb) {
+  if (guitarType && overlaySpectra.length === 0 && peakMin != null && peakMin > minDb && peakMin < maxDb) {
     const y = yFor(peakMin)
     ctx.save()
     ctx.strokeStyle = hexA(roleColor('chart.peakMin', undefined, th.scheme), style.peakMinOpacity)
@@ -393,13 +393,13 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
     let dispDb = minDb + ((plotB - ch.y) / plotH) * (maxDb - minDb)
     let freqColor = th.crosshairFreq
 
-    if (overlays.length > 0) {
+    if (overlaySpectra.length > 0) {
       // Follow the nearest overlay curve on screen, kept until another is CURVE_GRAVITY_PX nearer, and read it at
       // the pointer's frequency, in its colour — Swift's resolveSnapState → nearestSeriesIndex, snapToWaveform.
       const lock = opts.crosshairLock ?? { index: -1 }
-      const series = overlays.map((ov) => ({ magnitudes: ov.magnitudesDb, frequencies: ov.frequencies }))
+      const series = overlaySpectra.map((ov) => ({ magnitudes: ov.magnitudesDb, frequencies: ov.frequencies }))
       lock.index = nearestSeriesIndex(hzAt, ch.y, yFor, series, lock.index)
-      const ov = overlays[lock.index]
+      const ov = overlaySpectra[lock.index]
       const snapped = ov ? snapToWaveform(hzAt, ov.magnitudesDb, ov.frequencies) : null
       if (ov && snapped) {
         dispHz = snapped.frequency
@@ -461,7 +461,7 @@ export function renderSpectrum(ctx: CanvasRenderingContext2D, W: number, H: numb
   // on screen and 10 in the export, in the export's sizes.
   drawChartLegend(
     ctx,
-    overlays.map((ov) => ({ color: overlayColor(ov, th), label: ov.label })),
+    overlaySpectra.map((ov) => ({ color: overlayColor(ov, th), label: ov.label })),
     { l: plotL, t: plotT, r: plotR },
     exporting ? 10 : 8,
     exporting ? EXPORT_LEGEND : SCREEN_LEGEND,
@@ -580,7 +580,7 @@ function drawBadge(
 }
 
 /** An overlay curve's colour: its role in the chart's scheme, else its fixed colour. */
-export function overlayColor(ov: SpectrumOverlay, th: ChartTheme): string {
+export function overlayColor(ov: OverlaySpectrum, th: ChartTheme): string {
   return ov.role ? roleColor(ov.role, undefined, th.scheme) : (ov.color ?? th.curve)
 }
 

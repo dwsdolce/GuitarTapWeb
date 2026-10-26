@@ -221,17 +221,16 @@ describe('annotation-state — the label offset (annotation-state.json)', () => 
   })
 })
 
-describe('annotation-state — the report is about the visible peaks (regression)', () => {
-  it('reports the selected count, not the detected count', () => {
-    // The shipped bug: header read "Detected Peaks: <all>" (47 vs Swift's 6).
+describe('annotation-state — the annotated peaks (regression)', () => {
+  it('with annotations on Selected, annotates the selected peaks only', () => {
     const markers = buildGuitarMarkers(PEAKS, MODES, annotatedBy('selected', new Set([testId(2)])), new Map())
     expect(markers).toHaveLength(3) // markers still carry every peak…
-    expect(reportPeaks(markers)).toHaveLength(1) // …but the report is about the selected one
+    expect(reportPeaks(markers)).toHaveLength(1) // …but only the selected one is annotated
   })
 
-  it('counts a visible peak OUTSIDE the chart\'s range', () => {
-    // Swift's export counts and lists every visible peak (e.g. 409/623/1180 Hz under a 75–350 Hz view).
-    // The report reads the analyzer's visiblePeaks, which has no range — not the chart's in-range markers.
+  it('annotates a peak OUTSIDE the chart\'s range', () => {
+    // The annotated peaks are the analyzer's visiblePeaks, which have no range limit (e.g. 409/623/1180 Hz under a
+    // 75–350 Hz view); a card whose peak is out of view is not drawn.
     const wide: ResonantPeak[] = [...PEAKS, { id: testId(4), frequency: 994.5, magnitude: -68.6, quality: 10, bandwidth: 99.45, timestamp: '2026-09-25T00:00:00Z' }]
     const a = visibleAnalyzer('all', [], wide, new Map<Uuid, ResolvedMode>([...MODES, [testId(4), 'dipole']]))
     const report = reportPeaks(buildGuitarMarkers(a.visiblePeaks, a.modeByPeak, () => true, new Map()))

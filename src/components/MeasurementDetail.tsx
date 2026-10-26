@@ -34,7 +34,7 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
   useScheme() // the colours below are the current scheme's
   const comparison = isComparison(m)
 
-  // Identified Peaks = the SELECTED peaks only (guitar: identified modes / multi-tap averaged;
+  // Selected Peaks = the SELECTED peaks only (guitar: identified modes / multi-tap averaged;
   // plate/brace: the L/C/FLC peaks). Sorted by frequency.
   // Material (plate/brace) has no per-peak selection: effectiveSelectedPeakIDs returns ALL peaks,
   // ignoring the (possibly corrupted) saved aggregate — mirrors Swift/Python. Guitar uses the selection.
@@ -111,7 +111,7 @@ export function MeasurementDetail({ measurement: m, onClose }: MeasurementDetail
             </section>
           ) : (
             <section className="detail-section">
-              <h3>Identified Peaks</h3>
+              <h3>Selected Peaks</h3>
               {shownPeaks.length === 0 ? (
                 <div className="detail-box">
                   <p className="empty">No identified peaks</p>

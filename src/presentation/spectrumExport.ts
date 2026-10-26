@@ -6,7 +6,7 @@
 // renderSpectrumImageForMeasurement: "used by both ... so both outputs are always consistent").
 
 import type { Spectrum } from '../dsp/guitarFFT'
-import type { PeakMarker, SpectrumOverlay, ChartView } from './chartTypes'
+import type { PeakMarker, OverlaySpectrum, ChartView } from './chartTypes'
 import { renderSpectrum, chartTheme, hexA, type ChartTheme } from './spectrumRender'
 import { EXPORT } from './chartStyle'
 import { type GuitarTypeName } from '../dsp/guitarModes'
@@ -20,8 +20,14 @@ export interface SpectrumImageOpts {
   /** Chart title (e.g. "FFT Peaks — Contreras Classical"). */
   title: string
   spectrum: Spectrum | null
-  overlays?: SpectrumOverlay[]
+  overlaySpectra?: OverlaySpectrum[]
   markers?: PeakMarker[]
+  /** The Selected Peaks Summary's chips: the report's Selected Peaks table — the selected peaks at or above
+   *  Peak Min in the range (`measurementReportPeaks`), whatever the annotation setting. */
+  summaryMarkers?: PeakMarker[]
+  /** The header's "Detected Peaks: N": a guitar's detected peaks in view (`measurementDetectedPeaksInView`);
+   *  absent for a plate or brace, which has no detected peaks apart from its selected ones, and for a comparison. */
+  detectedPeakCount?: number
   view: ChartView
   measurementTypeName?: string
   guitarType?: GuitarTypeName
@@ -40,15 +46,10 @@ const baseline = (top: number, lineHeight: number, size: number) => top + lineHe
 const th: ChartTheme = chartTheme('light')
 
 /**
- * The peaks a report is ABOUT — its header count, its Detected Peaks Summary, and its chart dots
- * must all agree on this one set: the markers that carry a badge. The live export builds its markers
- * from the analyzer's `visiblePeaks` (Swift `TapToneAnalyzer.visiblePeaks` / Python `visible_peaks`,
- * all of them, not only those in the chart's range); a saved measurement's from its own annotation
- * mode and selection, as Swift's saved-measurement export does.
- *
- * Regression guard: the header and summary once used ALL detected peaks ("Detected Peaks: 47"
- * against Swift's 6), and later only the peaks in the chart's range. Pinned by
- * `test/annotation-state.test.ts`.
+ * The annotated peaks: the markers the chart draws a card for, from the measurement's annotation setting and
+ * selection (its peaks at or above Peak Min), as Swift's `visiblePeaks`. The header's count is the detected
+ * peaks in view (`detectedPeakCount`) and the Selected Peaks Summary the report table's peaks
+ * (`summaryMarkers`), whatever the annotation setting. Pinned by `test/annotation-state.test.ts`.
  */
 export function reportPeaks(markers: PeakMarker[]): PeakMarker[] {
   return markers.filter((m) => m.annotated)
@@ -67,7 +68,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   const EDGE = 32
   const MARGIN = 16
   const { minHz, maxHz, minDb, maxDb } = opts.view
-  const overlays = opts.overlays ?? []
+  const overlaySpectra = opts.overlaySpectra ?? []
   const markers = opts.markers ?? []
   const visible = reportPeaks(markers)
 
@@ -86,10 +87,11 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   // 4 pt apart, 20 pt between cards, at most 8.
   const CARD_PAD = 8
   const CARD_H = CARD_PAD * 2 + CAPTION_LINE * 3 + 4 * 2
-  const summaryH = visible.length ? 8 + HEADLINE_LINE + 8 + CARD_H + 8 : 0
+  const chips = [...(opts.summaryMarkers ?? [])].sort((a, b) => a.frequency - b.frequency)
+  const summaryH = chips.length ? 8 + HEADLINE_LINE + 8 + CARD_H + 8 : 0
   // The mode key: one caption line padded 16 all round. Overlaid curves have their legend on the chart, so no key.
   // With no block below the chart, its 16 pt spacing goes too.
-  const legendH = overlays.length ? 0 : 16 + CAPTION_LINE + 16
+  const legendH = overlaySpectra.length ? 0 : 16 + CAPTION_LINE + 16
   const blocks = [summaryH, legendH].filter((h) => h > 0)
   const BOTTOM = 16
   const H = PAD + headerH + chartH + BELOW_CHART - BLOCK_GAP + blocks.reduce((sum, h) => sum + BLOCK_GAP + h, 0) + BOTTOM
@@ -155,13 +157,13 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   })
   ctx.fillStyle = th.axis
   ctx.font = FONT(11)
-  // Subtitle — mirrors Swift ExportableSpectrumChart.swift:582-589:
-  //     if !materialSpectra.isEmpty { "Comparing N measurements" }
-  //     else if !peaks.isEmpty      { "Detected Peaks: N" }
-  // `overlays` is the web's materialSpectra (same mapping the legend below uses). "Detected Peaks: N"
-  // is CORRECT for guitar — it was only wrong for material, where the web showed it unconditionally.
-  if (overlays.length) ctx.fillText(`Comparing ${overlays.length} measurements`, EDGE, y + 97)
-  else if (visible.length) ctx.fillText(`Detected Peaks: ${visible.length}`, EDGE, y + 97)
+  // Subtitle: a guitar's detected peaks in view; a comparison's measurements (a plate's or brace's phases are
+  // overlaid curves too, but not measurements compared, and a plate or brace has no guitar type). Mirrors Swift
+  // ExportableSpectrumChart's header:
+  //     if let detectedPeakCount                          { "Detected Peaks: N" }
+  //     else if !overlaySpectra.isEmpty && type.isGuitar  { "Comparing N measurements" }
+  if (opts.detectedPeakCount != null) ctx.fillText(`Detected Peaks: ${opts.detectedPeakCount}`, EDGE, y + 97)
+  else if (overlaySpectra.length && opts.guitarType != null) ctx.fillText(`Comparing ${overlaySpectra.length} measurements`, EDGE, y + 97)
   y += headerH
 
   // ── Chart (drawn by the SHARED renderer, light theme) ─────────────────────
@@ -170,7 +172,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   renderSpectrum(ctx, W - 2 * EDGE, chartH, {
     spectrum: opts.spectrum,
     markers: visible,
-    overlays,
+    overlaySpectra,
     view: opts.view,
     title: opts.title,
     guitarType: opts.guitarType,
@@ -182,14 +184,12 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   ctx.restore()
   y += chartH + BELOW_CHART
 
-  // ── Detected Peaks Summary ────────────────────────────────────────────────
-  if (visible.length) {
+  // ── Selected Peaks Summary ────────────────────────────────────────────────
+  if (chips.length) {
     ctx.fillStyle = th.title
     ctx.font = FONT(13, 'bold')
-    ctx.fillText('Detected Peaks Summary', EDGE, baseline(y + 8, HEADLINE_LINE, 13))
-    // The first 8 visible peaks, in frequency order — including ones outside the plotted range (Swift lists
-    // the selected peaks, e.g. 409/622/994 Hz under a 75–350 Hz view): Swift's `peaks.prefix(8).sorted`.
-    const chips = visible.slice(0, 8).sort((a, b) => a.frequency - b.frequency)
+    ctx.fillText('Selected Peaks Summary', EDGE, baseline(y + 8, HEADLINE_LINE, 13))
+    // The report table's peaks, in frequency order — Swift's `summaryPeaks.sorted`.
     let cx = EDGE
     const cy = y + 8 + HEADLINE_LINE + 8
     for (const m of chips) {
@@ -226,7 +226,7 @@ export function renderSpectrumToCanvas(opts: SpectrumImageOpts): HTMLCanvasEleme
   // ── The guitar mode key ───────────────────────────────────────────────────
   // Overlaid curves have their legend on the chart, as on screen. Swift: HStack(spacing: 20) { title .caption
   // semibold; each item HStack(spacing: 4) { a 12 pt circle in the mode's colour, .caption label } }.
-  if (overlays.length) return canvas
+  if (overlaySpectra.length) return canvas
   // The key's line, at the centre of its 13 pt line inside the block's 16 pt padding.
   const ly = y + 16 + CAPTION_LINE / 2
   const legendTitle = 'Guitar Modes:'
