@@ -54,7 +54,7 @@ export const RELEASES: RNRelease[] = [
     // an un-rolled top entry silently re-renders shipped notes under a new build number.
     build: __APP_BUILD__,
     since: '1.0.2',
-    // Notes reviewed through commit 66165e0 (2026-10-25). The next update reads only `git log 66165e0..HEAD`, then
+    // Notes reviewed through commit 889a0b0 (2026-10-26). The next update reads only `git log 889a0b0..HEAD`, then
     // moves this line to the newest commit it covered.
     groups: [
       {
@@ -67,6 +67,10 @@ export const RELEASES: RNRelease[] = [
           {
             title: 'Sort, Filter and Delete in Saved Measurements',
             body: 'A new Sort & Filter menu sorts the list as added, by date, name or type (choose the same again to reverse it), or shows one type only — comparisons included. Your choice is remembered. Delete All is now a Delete menu: All, Duplicates (every later copy of a measurement, keeping the first) or Selected (tick the measurements to delete). The list itself always keeps the order the measurements were added.',
+          },
+          {
+            title: 'Export Selected, and Importing Several Files',
+            body: 'Saved Measurements’ Export menu exports all your measurements (Export All…) or only the ones you select (Export Selected…), as one .guitartap file. Import… takes several files at once, with one message for all of them; a single measurement is loaded, as before, and several are added to the list. Analysis Results has one Export button in place of Export Spectrum and Export PDF; its menu has Export Spectrum… and Export PDF Report…. Every menu item that opens a dialog ends in “…”, and the Delete menu’s items have icons.',
           },
           {
             title: 'Chart Menu for a Comparison',

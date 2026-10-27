@@ -24,16 +24,19 @@ export interface SavedMeasurementMenuEntry {
   mdi: string
 }
 
-/** A saved measurement's menu, in the groups a separator divides. Swift's Mac edition also has Save Measurement to
- *  Disk… (its Export Measurement is a share sheet); here Export Measurement already saves the file. */
+/** A saved measurement's menu, in the groups a separator divides. Export writes the file through a save dialog
+ *  (saveFile). Swift also has Share, in a group of its own after Export's: the share sheet, which this edition does
+ *  not have. "…" as style guide S9. */
 export const SAVED_MEASUREMENT_MENU_GROUPS: SavedMeasurementMenuEntry[][] = [
   [{ action: 'load', title: 'Load into View', mdi: 'file-download-outline' }],
   [
     { action: 'details', title: 'View Details', mdi: 'eye-outline' },
     { action: 'edit', title: 'Edit Name & Notes', mdi: 'pencil-outline' },
-    { action: 'exportMeasurement', title: 'Export Measurement', mdi: 'file-export-outline' },
-    { action: 'exportSpectrum', title: 'Export Spectrum', mdi: 'chart-line' },
-    { action: 'exportPDF', title: 'Export PDF Report', mdi: 'file-pdf-box' },
+  ],
+  [
+    { action: 'exportMeasurement', title: 'Export Measurement…', mdi: 'file-export-outline' },
+    { action: 'exportSpectrum', title: 'Export Spectrum…', mdi: 'chart-line' },
+    { action: 'exportPDF', title: 'Export PDF Report…', mdi: 'file-pdf-box' },
   ],
   [{ action: 'delete', title: 'Delete', mdi: 'trash-can-outline' }],
 ]

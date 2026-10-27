@@ -1,8 +1,9 @@
 // @parity test/import-persistence
 //
-// The saved-measurement library: importing through the app's import (`importAndLoadMeasurements`),
+// The saved-measurement library: importing through the app's import (`importAndLoadMeasurements`, and `importFiles` for
+// files chosen together),
 // editing an entry as the Edit sheet does (the analyzer's updateMeasurement), saving, and the message an import shows. The shared cases in
-// import-persistence.json (IP1–IP17, IM1–IM3, IL1–IL3), the same as Swift and Python; IP7 is the natives' alone
+// import-persistence.json (IP1–IP17, IF1–IF6, IM1–IM3, IL1–IL3), the same as Swift and Python; IP7 is the natives' alone
 // (they address entries by position, this library by row key). The library is the IndexedDB
 // `measurements` store (store.ts); `fake-indexeddb/auto` provides IndexedDB in node.
 import 'fake-indexeddb/auto'
@@ -18,6 +19,7 @@ import type { TapToneMeasurementModel } from '../src/measurement/types'
 type Step = {
   libraryHolds?: string[]
   import?: string[]
+  importFiles?: { file: string; holds: string[] }[]
   importFails?: string[]
   importFailsBare?: string
   file?: string
@@ -74,12 +76,21 @@ describe('import-persistence — the shared cases (import-persistence.json)', ()
     const a = new TapToneAnalyzer()
     await a.libraryLoaded
     let message: string | null = null
+    let imported: boolean | null = null
     for (const step of c.steps) {
       if (step.libraryHolds) {
         // Stored and loaded above.
       } else if (step.import) {
         const text = JSON.stringify(step.import.map((n) => DATA.measurements[n]))
         message = await a.importAndLoadMeasurements(text, importMeasurements)
+      } else if (step.importFiles) {
+        const files = step.importFiles.map((f) => ({
+          name: f.file,
+          contents: JSON.stringify(f.holds.map((n) => DATA.measurements[n])),
+        }))
+        const report = await a.importFiles(files, importMeasurements)
+        message = report.message
+        imported = report.imported
       } else if (step.importFails) {
         const text = JSON.stringify(step.importFails.map((n) => DATA.measurements[n]))
         const failure = await a.importAndLoadMeasurements(text, importMeasurements).then(
@@ -132,6 +143,8 @@ describe('import-persistence — the shared cases (import-persistence.json)', ()
           break
         }
         case 'message': expect(message, field).toBe(want); break
+        case 'imported': expect(imported, field).toBe(want); break
+        case 'loaded': expect(a.loadedMeasurementName, field).toBe(want); break
         case 'messageStartsWith': expect(message?.startsWith(want as string), `${field}: ${message}`).toBe(true); break
         case 'microphoneWarning': expect(a.microphoneWarning != null, field).toBe(want); break
         case 'libraryMessage': expect(a.libraryLoadFailure, field).toBe(want); break

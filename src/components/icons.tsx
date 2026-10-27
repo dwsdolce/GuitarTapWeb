@@ -38,6 +38,9 @@ const MDI_BY_NAME: Record<string, string> = {
   'chart-line': MDI.chartLine,
   'file-pdf-box': MDI.filePdf,
   'trash-can-outline': MDI.trashCan,
+  'check-circle-outline': MDI.checkCircle,
+  'content-copy': MDI.contentCopy,
+  'upload-outline': MDI.uploadOutline,
 }
 export const MenuItemIcon = ({ mdi }: { mdi: string }) => (MDI_BY_NAME[mdi] ? <Mdi d={MDI_BY_NAME[mdi]} /> : null)
 export const DocumentIcon = () => <Mdi d={MDI.document} />

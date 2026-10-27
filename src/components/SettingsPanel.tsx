@@ -377,7 +377,7 @@ export function SettingsPanel({
               {calibrations.length > 0 && (
                 <button className="btn mini tint tint-accent" onClick={() => setConfirmDeleteAll(true)}>
                   <TrashIcon />
-                  <span>Delete All Calibrations</span>
+                  <span>Delete All Calibrations…</span>
                 </button>
               )}
               <input

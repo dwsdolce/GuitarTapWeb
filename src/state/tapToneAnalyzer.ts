@@ -611,6 +611,20 @@ function makeComparisonMeasurement(a: { name: string; notes: string; entries: Co
 /** A magnitude or frequency array the peak analysis reads. */
 type SpectrumValues = number[] | Float32Array | Float64Array
 
+/** A file chosen in Import's file picker: its name, and its text — or why it could not be read. Mirrors Swift
+ *  `ImportFile`. */
+export interface ImportFile {
+  name: string
+  contents: string | Error
+}
+
+/** What an import of chosen files says: its message, and whether anything was imported (the success alert) or not
+ *  (the error alert). Mirrors Swift `ImportReport`. */
+export interface ImportReport {
+  message: string
+  imported: boolean
+}
+
 export class TapToneAnalyzer {
   // ── Published-equivalent state (settable; the audio layer / tests mutate these directly) ──
   /** Whether the detector is listening, paused mid-sequence, or neither. One value rather than
@@ -1409,12 +1423,73 @@ export class TapToneAnalyzer {
   }
 
   /** What an import's message says about the entries it skipped — null when none were: how many, and why
-   *  when there was one. Mirrors Swift `skippedEntriesMessage(_:)`. */
-  static skippedEntriesMessage(unreadable: unknown[]): string | null {
+   *  when there was one. `fileName` names the file, for an import of several; without it, "the file". Mirrors
+   *  Swift `skippedEntriesMessage(_:fileName:)`. */
+  static skippedEntriesMessage(unreadable: unknown[], fileName?: string): string | null {
     if (unreadable.length === 0) return null
-    if (unreadable.length > 1) return `${unreadable.length} measurements in the file could not be read and were not imported.`
+    const file = fileName !== undefined ? `"${fileName}"` : 'the file'
+    if (unreadable.length > 1) return `${unreadable.length} measurements in ${file} could not be read and were not imported.`
     const reason = TapToneAnalyzer.unreadableReason(unreadable[0])
-    return `1 measurement in the file could not be read and was not imported${reason !== null ? ` (${reason})` : ''}.`
+    return `1 measurement in ${file} could not be read and was not imported${reason !== null ? ` (${reason})` : ''}.`
+  }
+
+  /** Import the files chosen in Import's file picker and return the one message the user sees for them, and
+   *  whether anything was imported (the success alert) or not (the error alert).
+   *
+   *  One file is imported as `importAndLoadMeasurements` imports it. Several are each added to the library in
+   *  turn; the message counts the measurements imported and the files they came from, then names each file that
+   *  could not be imported, and each file with entries that could not be read, with the reason. Exactly one
+   *  measurement imported in all is loaded, as a single import's is, with its microphone warning; more than one,
+   *  none is — what is on screen stays. Mirrors Swift `importFiles(_:)` and Python `import_files`.
+   *
+   *  @param save As `importAndLoadMeasurements`'s. */
+  async importFiles(
+    files: ImportFile[],
+    save: (text: string) => Promise<ImportedMeasurements>,
+  ): Promise<ImportReport> {
+    if (files.length === 1) {
+      const file = files[0]!
+      try {
+        if (file.contents instanceof Error) throw file.contents
+        return { message: await this.importAndLoadMeasurements(file.contents, save), imported: true }
+      } catch (err) {
+        return { message: TapToneAnalyzer.importErrorMessage(err, file.name), imported: false }
+      }
+    }
+    this.microphoneWarning = null
+    const imported: TapToneMeasurementModel[] = []
+    let filesImported = 0
+    const problems: string[] = []
+    for (const file of files) {
+      let result: ImportedMeasurements
+      try {
+        if (file.contents instanceof Error) throw file.contents
+        result = await save(file.contents)
+      } catch (err) {
+        problems.push(TapToneAnalyzer.importErrorMessage(err, file.name))
+        continue
+      }
+      imported.push(...result.imported)
+      filesImported += 1
+      const skipped = TapToneAnalyzer.skippedEntriesMessage(result.unreadable, file.name)
+      if (skipped) problems.push(skipped)
+    }
+    await this.refreshSavedMeasurements()
+    if (imported.length === 0) return { message: problems.join('\n\n'), imported: false }
+    let message: string
+    if (imported.length === 1) {
+      this.loadMeasurement(imported[0]!)
+      message = 'Successfully imported and loaded 1 measurement'
+    } else {
+      message = `Successfully imported ${imported.length} measurements from ${filesImported} file${filesImported === 1 ? '' : 's'}`
+    }
+    for (const problem of problems) message += '\n\n' + problem
+    if (imported.length === 1 && this.microphoneWarning) {
+      message += '\n\n⚠\uFE0E ' + this.microphoneWarning
+      this.microphoneWarning = null
+      this.notify()
+    }
+    return { message, imported: true }
   }
 
   /** Import a `.guitartap` file and return the one message the user sees for it.

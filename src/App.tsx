@@ -1,9 +1,11 @@
 // @parity view/main
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { SpectrumChart } from './components/SpectrumChart'
+import { ExportMenuButton } from './components/ExportMenuButton'
 import { MaterialInstructionPanel } from './components/MaterialInstructionPanel'
 import { AlertModal } from './components/AlertModal'
 import { apply as applyAppearance, comparisonRole, cssVariable, seriesRole } from './presentation/palette'
+import { ANALYSIS_RESULTS_EXPORT_MENU } from './presentation/exportMenus'
 import type { ChartView, PeakMarker, OverlaySpectrum } from './presentation/chartTypes'
 import { useChartView } from './hooks/useChartView'
 import { type MaterialTapPhase as MatPhase, type DefinitiveModeInfo } from './state/tapToneAnalyzer'
@@ -1295,31 +1297,20 @@ export default function App() {
             </PeaksReader>
           )}
 
-          {/* Export footer — running/stopped status (left) + Export Spectrum · Export PDF (right),
-              mirroring the native footer row. */}
+          {/* Export footer — running/stopped status (left) + one Export button (right), its menu Analysis Results'
+              (ANALYSIS_RESULTS_EXPORT_MENU): the spectrum image and the PDF report, mirroring the native footer row. */}
           <div className="results-foot">
             <span className={`foot-status${running ? ' on' : ''}`}>
               <span className="foot-dot">●</span> {running ? 'Analyzing' : 'Stopped'}
             </span>
             <div className="foot-export">
-              <button
+              <ExportMenuButton
                 className="btn mini"
-                onClick={exportSpectrumImage}
+                menu={ANALYSIS_RESULTS_EXPORT_MENU}
+                onChoose={(action) => (action === 'exportSpectrum' ? exportSpectrumImage() : exportPdf())}
                 disabled={!snapshot.hasResultToSaveOrExport || isExporting}
-                title={HINTS.exportSpectrum}
-              >
-                <ChartLineIcon />
-                <span>Export Spectrum</span>
-              </button>
-              <button
-                className="btn mini"
-                onClick={exportPdf}
-                disabled={!snapshot.hasResultToSaveOrExport || isExporting}
-                title="Export a single-page PDF report"
-              >
-                <DocumentIcon />
-                <span>Export PDF</span>
-              </button>
+                title="Export the spectrum image or the PDF report"
+              />
             </div>
           </div>
           </div>
@@ -1524,7 +1515,7 @@ export default function App() {
           onClose={() => setShowMeasurements(false)}
           onLoad={onLoadMeasurement}
           onCompare={onCompare}
-          onImport={(text) => analyzer.importAndLoadMeasurements(text, importMeasurements)}
+          onImportFiles={(files) => analyzer.importFiles(files, importMeasurements)}
           onUpdate={(m, name, notes) => analyzer.updateMeasurement(m, name, notes)}
           onDelete={(m) => analyzer.deleteMeasurement(m)}
           onDeleteAll={() => analyzer.deleteAllMeasurements()}

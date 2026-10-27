@@ -1,11 +1,17 @@
 // @parity test/export-e2e
 import { readFileSync } from 'node:fs'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { catchDownload, exportPath, importMeasurement, openApp, openRowMenu } from './app'
 
 // Each case is imported, then exported as the spectrum image and the PDF report from both places the app offers
 // them: the main window, with the import loaded, and the row's menu in Saved Measurements.
 // The fixtures are Swift's, since Swift's exports are the expected ones.
+/** Analysis Results' Export button, then `item` from its menu. */
+const resultsMenu = async (page: Page, item: string) => {
+  await page.locator('.foot-export').getByRole('button', { name: 'Export' }).click()
+  await page.getByRole('menuitem', { name: item }).click()
+}
+
 const cases = [
   { name: 'guitar', fixture: 'dws-2024-umik-1-swift-mac-1784225155.guitartap' },
   { name: 'multi-tap', fixture: 'dws-2024-umik-1-3-tap-swift-mac-1785359425.guitartap' },
@@ -21,8 +27,8 @@ for (const c of cases) {
     await importMeasurement(page, c.fixture)
     const out = exportPath((name) => test.info().outputPath(name), c.name, 'main')
 
-    const png = await catchDownload(page, out, () => page.getByRole('button', { name: 'Export Spectrum' }).click())
-    const pdf = await catchDownload(page, out, () => page.getByRole('button', { name: 'Export PDF' }).click())
+    const png = await catchDownload(page, out, () => resultsMenu(page, 'Export Spectrum…'))
+    const pdf = await catchDownload(page, out, () => resultsMenu(page, 'Export PDF Report…'))
     expect(png).toMatch(/\.png$/)
     expect(pdf).toMatch(/\.pdf$/)
   })
@@ -33,9 +39,9 @@ for (const c of cases) {
     const out = exportPath((name) => test.info().outputPath(name), c.name, 'saved')
 
     await openRowMenu(page)
-    const png = await catchDownload(page, out, () => page.getByRole('menuitem', { name: 'Export Spectrum' }).click())
+    const png = await catchDownload(page, out, () => page.getByRole('menuitem', { name: 'Export Spectrum…' }).click())
     await openRowMenu(page)
-    const pdf = await catchDownload(page, out, () => page.getByRole('menuitem', { name: 'Export PDF Report' }).click())
+    const pdf = await catchDownload(page, out, () => page.getByRole('menuitem', { name: 'Export PDF Report…' }).click())
     expect(png).toMatch(/\.png$/)
     expect(pdf).toMatch(/\.pdf$/)
   })
@@ -47,10 +53,10 @@ for (const c of cases) {
     await openApp(page)
     await importMeasurement(page, c.fixture)
     const main = await catchDownload(page, exportPath((name) => test.info().outputPath(name), c.name, 'main'),
-      () => page.getByRole('button', { name: 'Export Spectrum' }).click())
+      () => resultsMenu(page, 'Export Spectrum…'))
     await openRowMenu(page)
     const saved = await catchDownload(page, exportPath((name) => test.info().outputPath(name), c.name, 'saved'),
-      () => page.getByRole('menuitem', { name: 'Export Spectrum' }).click())
+      () => page.getByRole('menuitem', { name: 'Export Spectrum…' }).click())
     expect(readFileSync(saved).equals(readFileSync(main))).toBe(true)
   })
 }
@@ -61,11 +67,11 @@ test('multi-tap: the Taps view does not change the exports', async ({ page }) =>
   await openApp(page)
   await importMeasurement(page, 'dws-2024-umik-1-3-tap-swift-mac-1785359425.guitartap')
   const out = (tag: string) => (name: string) => test.info().outputPath(`${tag}-${name}`)
-  const tapsOff = await catchDownload(page, out('taps-off'), () => page.getByRole('button', { name: 'Export Spectrum' }).click())
+  const tapsOff = await catchDownload(page, out('taps-off'), () => resultsMenu(page, 'Export Spectrum…'))
   await page.getByRole('button', { name: 'Taps', exact: true }).click()
   await expect(page.getByText(/Tap comparison/)).toBeVisible()
   // A second Export Spectrum within 700 ms is taken for a double-click and ignored (App.tsx).
   await page.waitForTimeout(800)
-  const tapsOn = await catchDownload(page, out('taps-on'), () => page.getByRole('button', { name: 'Export Spectrum' }).click())
+  const tapsOn = await catchDownload(page, out('taps-on'), () => resultsMenu(page, 'Export Spectrum…'))
   expect(readFileSync(tapsOn).equals(readFileSync(tapsOff))).toBe(true)
 })

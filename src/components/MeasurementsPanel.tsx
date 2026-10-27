@@ -15,6 +15,7 @@ import { saveFile } from '../saveFile'
 import { FieldPrecision } from '../precision'
 import { WaveformIcon, FileChartIcon, SaveIcon, UploadIcon, TrashIcon, ChevronRightIcon, CheckCircleFillIcon, CircleOutlineIcon, MoreCircleIcon, TrayIcon, FilterIcon, CancelIcon, ChevronDownIcon, MenuItemIcon } from './icons'
 import { SAVED_MEASUREMENT_MENU_GROUPS } from '../presentation/savedMeasurementMenu'
+import { PANEL_EXPORT_MENU } from '../presentation/exportMenus'
 import { settingsStore } from '../settingsStore'
 import {
   FILTER_TYPES,
@@ -26,7 +27,7 @@ import {
   type SavedMeasurementsSort,
 } from '../measurement/savedMeasurementsOrder'
 import { EmptyStateView } from './EmptyStateView'
-import { TapToneAnalyzer } from '../state/tapToneAnalyzer'
+import type { ImportFile, ImportReport } from '../state/tapToneAnalyzer'
 
 export interface MeasurementsPanelProps {
   /** The saved measurements, as the model holds them (Swift's list reads `savedMeasurements`). */
@@ -34,9 +35,10 @@ export interface MeasurementsPanelProps {
   onClose: () => void
   onLoad: (m: TapToneMeasurementModel) => void
   onCompare: (measurements: TapToneMeasurementModel[]) => void
-  /** Import a `.guitartap` file's text; returns the message to show. The MODEL stores,
-   *  auto-loads a single measurement, and words it (Swift/Python importAndLoadMeasurements). */
-  onImport: (text: string) => Promise<string>
+  /** Import the files chosen in Import's file picker — one or several; returns the message to show and whether
+   *  anything was imported. The MODEL stores, loads exactly one measurement imported in all, and words it
+   *  (Swift/Python importFiles). */
+  onImportFiles: (files: ImportFile[]) => Promise<ImportReport>
   /** Change a saved measurement's name and notes (the model's `updateMeasurement`). */
   onUpdate: (m: TapToneMeasurementModel, measurementName: string | undefined, notes: string | undefined) => Promise<void>
   /** Remove a saved measurement (the model's `deleteMeasurement`). */
@@ -87,7 +89,7 @@ const isInstalled = (): boolean =>
  */
 const keyOf = (m: TapToneMeasurementModel): string => m.rowKey as string
 
-export function MeasurementsPanel({ measurements: items, onClose, onLoad, onCompare, onImport, onUpdate, onDelete, onDeleteAll, onDeleteMany }: MeasurementsPanelProps) {
+export function MeasurementsPanel({ measurements: items, onClose, onLoad, onCompare, onImportFiles, onUpdate, onDelete, onDeleteAll, onDeleteMany }: MeasurementsPanelProps) {
   const [comparing, setComparing] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   // Sort & Filter: what the list shows and in what order; the library keeps its own order (As Added).
@@ -95,40 +97,48 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
   const sort = settings.savedMeasurementsSort
   const ascending = settings.savedMeasurementsAscending
   const filter = settings.savedMeasurementsFilter
-  // The toolbar's two menus — Sort & Filter and Delete — float above the page like the row ⋯ menu, placed against
+  // The toolbar's menus — Sort & Filter, Export and Delete — float above the page like the row ⋯ menu, placed against
   // the button that opened them and opening up or down to fit the window (menuPlacement).
-  const [toolMenu, setToolMenu] = useState<{ which: 'sort' | 'delete'; rect: DOMRect } | null>(null)
+  const [toolMenu, setToolMenu] = useState<{ which: 'sort' | 'export' | 'delete'; rect: DOMRect } | null>(null)
   const [toolMenuHeight, setToolMenuHeight] = useState<number | null>(null)
   const toolMenuElRef = useRef<HTMLDivElement | null>(null)
   useLayoutEffect(() => {
     setToolMenuHeight(toolMenu != null ? (toolMenuElRef.current?.offsetHeight ?? null) : null)
   }, [toolMenu])
-  const openToolMenu = (which: 'sort' | 'delete', button: HTMLElement) =>
+  const openToolMenu = (which: 'sort' | 'export' | 'delete', button: HTMLElement) =>
     setToolMenu((t) => (t?.which === which ? null : { which, rect: button.getBoundingClientRect() }))
-  // Delete › Selected…: ticking rows to delete, as compare mode ticks rows to compare.
-  const [deleting, setDeleting] = useState(false)
-  const [delSelected, setDelSelected] = useState<Set<string>>(new Set())
+  // What a select mode is ticking rows for — Delete › Selected…, or the Export menu's Export Selected… — as compare
+  // mode ticks rows to compare; null when no select mode is on. Mirrors Swift selectingFor.
+  const [selectingFor, setSelectingFor] = useState<'delete' | 'export' | null>(null)
+  const [ticked, setTicked] = useState<Set<string>>(new Set())
+  const ticking = selectingFor != null
   const [confirmingDuplicates, setConfirmingDuplicates] = useState(false)
   const [confirmingSelected, setConfirmingSelected] = useState(false)
-  const selecting = comparing || deleting
+  const selecting = comparing || ticking
   // The duplicates: every later copy of a measurement already in the library (same id ⟺ same content).
   const duplicateItems = items ? duplicates(items.map((m) => m.id)).map((i) => items[i]!) : []
-  const isTicked = (m: TapToneMeasurementModel) => (deleting ? delSelected : selected).has(keyOf(m))
-  const toggleDelete = (m: TapToneMeasurementModel) =>
-    setDelSelected((s) => {
+  const isTicked = (m: TapToneMeasurementModel) => (ticking ? ticked : selected).has(keyOf(m))
+  const toggleTicked = (m: TapToneMeasurementModel) =>
+    setTicked((s) => {
       const n = new Set(s)
       if (n.has(keyOf(m))) n.delete(keyOf(m))
       else n.add(keyOf(m))
       return n
     })
-  const exitDelete = () => {
-    setDeleting(false)
-    setDelSelected(new Set())
+  /** Start a select mode for `purpose`, nothing ticked. Mirrors Swift startSelection(_:). */
+  const startSelection = (purpose: 'delete' | 'export') => {
+    setMenuId(null)
+    setTicked(new Set())
+    setSelectingFor(purpose)
+  }
+  const exitSelection = () => {
+    setSelectingFor(null)
+    setTicked(new Set())
   }
   const confirmDeleteSelected = async () => {
     setConfirmingSelected(false)
-    const doomed = (items ?? []).filter((m) => delSelected.has(keyOf(m)))
-    exitDelete()
+    const doomed = (items ?? []).filter((m) => ticked.has(keyOf(m)))
+    exitSelection()
     await onDeleteMany(doomed)
   }
   const confirmDeleteDuplicates = async () => {
@@ -148,7 +158,7 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
     if (items && value != null) {
       const keep = new Set(items.filter((m) => orderKeys([m])[0]!.type === value).map(keyOf))
       setSelected((s) => new Set([...s].filter((k) => keep.has(k))))
-      setDelSelected((s) => new Set([...s].filter((k) => keep.has(k))))
+      setTicked((s) => new Set([...s].filter((k) => keep.has(k))))
     }
   }
   const [menuId, setMenuId] = useState<string | null>(null)
@@ -319,37 +329,62 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
     await writeGuitarTapFile(serializeGuitarTapFile(items), name)
   }
 
-  // Import: parse a picked `.guitartap`, add EVERY measurement to the library (group import),
-  // and auto-load only when the file holds exactly one.
+  /** Export the ticked measurements, in the library's order, as one `.guitartap` file, and leave the select mode.
+   *  Mirrors Swift confirmSelection(.export). */
+  const exportSelected = async () => {
+    const chosen = (items ?? []).filter((m) => ticked.has(keyOf(m)))
+    exitSelection()
+    if (chosen.length === 0) return
+    // One measurement is named as its own Export Measurement… names it; several, neutrally.
+    const name = chosen.length === 1 ? guitarTapFilename(chosen[0]!) : `guitartap-measurements-${Math.floor(Date.now() / 1000)}.guitartap`
+    await writeGuitarTapFile(serializeGuitarTapFile(chosen), name)
+  }
+
+  // Import: the files chosen — one or several. The MODEL imports: it stores every measurement, loads exactly one
+  // imported in all, and words the one message — so the message is the same one Swift and Python show, and a load
+  // performed by an import is the same load performed from this list.
   const onImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     setImportMessage(null)
-    const file = e.target.files?.[0]
+    const picked = Array.from(e.target.files ?? [])
     e.target.value = '' // allow re-picking the same file
-    if (!file) return
-    try {
-      // The MODEL imports: it stores every measurement, auto-loads the file that holds exactly one,
-      // and words the message — so the message is the same one Swift and Python show, and a load
-      // performed by an import is the same load performed from this list.
-      const message = await onImport(await file.text())
-        setImportMessage(message)
-    } catch (err) {
-      setImportFailure(TapToneAnalyzer.importErrorMessage(err, file.name))
-    }
+    if (picked.length === 0) return
+    const files: ImportFile[] = await Promise.all(
+      picked.map(async (f) => {
+        try {
+          return { name: f.name, contents: await f.text() }
+        } catch (err) {
+          return { name: f.name, contents: err instanceof Error ? err : new Error(String(err)) }
+        }
+      }),
+    )
+    const report = await onImportFiles(files)
+    if (report.imported) setImportMessage(report.message)
+    else setImportFailure(report.message)
   }
 
   // The list's actions with Swift's toolbar icons — at the foot of the sheet, as Swift's bottom bar; at the
   // top on a phone, as Settings.
   const buttons = (
     <>
-      {deleting ? (
+      {selectingFor === 'delete' ? (
         <button
           className="btn"
           onClick={() => setConfirmingSelected(true)}
-          disabled={delSelected.size === 0}
+          disabled={ticked.size === 0}
           title="Delete the selected measurements"
         >
           <TrashIcon />
-          Delete ({delSelected.size})
+          Delete ({ticked.size})
+        </button>
+      ) : selectingFor === 'export' ? (
+        <button
+          className="btn"
+          onClick={() => void exportSelected()}
+          disabled={ticked.size === 0}
+          title="Export the selected measurements as one .guitartap file"
+        >
+          <MenuItemIcon mdi="file-export-outline" />
+          Export ({ticked.size})
         </button>
       ) : comparing ? (
         <button
@@ -389,20 +424,24 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
         className="btn"
         onClick={() => fileInput.current?.click()}
         disabled={selecting}
-        title="Import measurements from a .guitartap file (one or many)"
+        title="Import measurements from one or more .guitartap files"
       >
         <SaveIcon />
-        Import
+        Import…
       </button>
+      {/* Export — a menu (PANEL_EXPORT_MENU): Export All… and Export Selected… (tick the rows to export, as Delete's
+          Selected… does), each as one .guitartap file. Mirrors Swift's library menu. */}
       {items && items.length > 0 && (
         <button
           className="btn"
-          onClick={() => void exportAll()}
+          onClick={(e) => openToolMenu('export', e.currentTarget)}
           disabled={selecting}
-          title="Export the whole library as one .guitartap file (backup / move to another browser or device)"
+          aria-expanded={toolMenu?.which === 'export'}
+          title="Export all the measurements, or the ones you select, as one .guitartap file"
         >
           <UploadIcon />
-          Export All
+          {PANEL_EXPORT_MENU.button}
+          <ChevronDownIcon />
         </button>
       )}
       {/* Delete — a menu: All…, Duplicates… (disabled when there are none) and Selected… (tick the rows to delete,
@@ -422,7 +461,7 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
       )}
       <span className="meas-buttons-gap" />
       {/* Done only closes the list (Cancel leaves compare mode): Swift's .cancellationAction — a plain button. */}
-      <button className="btn" onClick={deleting ? exitDelete : comparing ? exitCompare : onClose}>
+      <button className="btn" onClick={ticking ? exitSelection : comparing ? exitCompare : onClose}>
         {selecting ? 'Cancel' : 'Done'}
       </button>
     </>
@@ -438,6 +477,7 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
         <input
           ref={fileInput}
           type="file"
+          multiple
           accept=".guitartap,application/json"
           style={{ display: 'none' }}
           onChange={(e) => void onImportFile(e)}
@@ -451,7 +491,7 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
               <p className="meas-hint">
                 ⓘ Your library is stored in this browser and can be cleared by the browser — Safari
                 deletes a site's data after about 7 days without a visit (on macOS and iOS alike). <b>Install the app</b> (Add to Home Screen / Add to Dock) for
-                durable storage, and use <b>Export All</b> to keep a backup.
+                durable storage, and use <b>Export → Export All…</b> to keep a backup.
               </p>
             )}
             {filter != null ? (
@@ -522,7 +562,7 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
           {confirmingSelected && (
             <AlertModal
               title="Delete Selected Measurements?"
-              message={`This will permanently delete ${delSelected.size} measurement${delSelected.size === 1 ? '' : 's'}. This cannot be undone.`}
+              message={`This will permanently delete ${ticked.size} measurement${ticked.size === 1 ? '' : 's'}. This cannot be undone.`}
               buttons={[
                 { label: 'Cancel', onClick: () => setConfirmingSelected(false) },
                 { label: 'Delete', primary: true, onClick: () => void confirmDeleteSelected() },
@@ -573,13 +613,15 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
                       <div
                         className="meas-info"
                         onPointerUp={selecting ? undefined : rowPointerUp(m)}
-                        onClick={deleting ? () => toggleDelete(m) : comparing ? () => toggleSelect(m) : undefined}
+                        onClick={ticking ? () => toggleTicked(m) : comparing ? () => toggleSelect(m) : undefined}
                         title={
-                          deleting
+                          selectingFor === 'delete'
                             ? 'Toggle selection for deletion'
-                            : comparing
-                              ? 'Toggle selection for comparison'
-                              : 'Double-click to load measurement'
+                            : selectingFor === 'export'
+                              ? 'Toggle selection for export'
+                              : comparing
+                                ? 'Toggle selection for comparison'
+                                : 'Double-click to load measurement'
                         }
                       >
                         <div className="meas-line1">
@@ -683,20 +725,43 @@ export function MeasurementsPanel({ measurements: items, onClose, onLoad, onComp
                     </button>
                   ))}
                 </>
+              ) : toolMenu.which === 'export' ? (
+                PANEL_EXPORT_MENU.groups.map((group, gi) => (
+                  <Fragment key={gi}>
+                    {gi > 0 && <div className="meas-menu-sep" />}
+                    {group.map((entry) => (
+                      <button
+                        key={entry.action}
+                        role="menuitem"
+                        onClick={() => {
+                          setToolMenu(null)
+                          if (entry.action === 'exportAll') void exportAll()
+                          else startSelection('export')
+                        }}
+                      >
+                        <span className="meas-ico"><MenuItemIcon mdi={entry.mdi} /></span>
+                        {entry.title}
+                      </button>
+                    ))}
+                  </Fragment>
+                ))
               ) : (
                 <>
-                  <button role="menuitem" onClick={() => { setToolMenu(null); removeAll() }}>All…</button>
+                  {/* Each item with its icon, as Swift's (trash, square.on.square, checkmark.circle). */}
+                  <button role="menuitem" onClick={() => { setToolMenu(null); removeAll() }}>
+                    <span className="meas-ico"><MenuItemIcon mdi="trash-can-outline" /></span>
+                    All…
+                  </button>
                   <button
                     role="menuitem"
                     disabled={duplicateItems.length === 0}
                     onClick={() => { setToolMenu(null); setConfirmingDuplicates(true) }}
                   >
+                    <span className="meas-ico"><MenuItemIcon mdi="content-copy" /></span>
                     Duplicates…
                   </button>
-                  <button
-                    role="menuitem"
-                    onClick={() => { setToolMenu(null); setMenuId(null); setDelSelected(new Set()); setDeleting(true) }}
-                  >
+                  <button role="menuitem" onClick={() => { setToolMenu(null); startSelection('delete') }}>
+                    <span className="meas-ico"><MenuItemIcon mdi="check-circle-outline" /></span>
                     Selected…
                   </button>
                 </>

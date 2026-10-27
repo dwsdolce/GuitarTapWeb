@@ -282,7 +282,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Analysis Results',
         icon: 'document',
-        body: 'The Analysis Results panel shows the peak list, decay time, plate properties, quality rating, and (for Plate mode) the Gore target thickness. It also contains Export Spectrum and Export PDF Report buttons. The panel is to the right of the chart on a wide window and below it on a narrow one.',
+        body: 'The Analysis Results panel shows the peak list, decay time, plate properties, quality rating, and (for Plate mode) the Gore target thickness. It also has an Export button whose menu exports the spectrum image or the PDF report. The panel is to the right of the chart on a wide window and below it on a narrow one.',
       },
       {
         title: 'Re-analyze Peaks',
@@ -318,7 +318,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       {
         title: 'Measurements',
         icon: 'clipboard',
-        body: "Lists all saved measurements. Double-click a row to load the measurement into the main view — the measurements window closes automatically after loading. Click a row's ⋯ button or right-click it to access: Load into View, View Details, Edit Name & Notes, Export Measurement (saves the .guitartap file), Export Spectrum (saves the chart image), Export PDF Report, or Delete. Use Import Measurement to load a .guitartap file from disk or another device. Use Export All to save your whole library to a single .guitartap file — for backing it up or moving the complete set of measurements to another platform or another browser. This backup matters on the web because the browser can clear the library — in Safari it is deleted after about 7 days without visiting the site (on macOS and iOS alike); installing the app (Add to Home Screen / Add to Dock) makes storage durable, and an Export All file is the portable backup. Re-import it with Import Measurement. Use Sort & Filter to sort the list as added, by date, name or type (choose the same key again to reverse it), or to show one type only; the choice is remembered. Delete removes all measurements, the duplicates (keeping the first copy of each), or the ones you select. Use Compare to enter multi-select mode and overlay two or more saved guitar measurements on the main chart for side-by-side comparison. The measurement name and notes can also be edited from the Edit button in the Measurement Details dialog.",
+        body: "Lists all saved measurements. Double-click a row to load the measurement into the main view — the measurements window closes automatically after loading. Click a row's ⋯ button or right-click it to access: Load into View, View Details, Edit Name & Notes, Export Measurement… (saves the .guitartap file), Export Spectrum… (saves the chart image), Export PDF Report…, or Delete. Use Import… to load one or more .guitartap files at once — a single measurement is loaded into the main view; several are only added to the list. Use Export to save all your measurements, or the ones you select, to a single .guitartap file — for backing them up or moving them to another platform or another browser. This backup matters on the web because the browser can clear the library — in Safari it is deleted after about 7 days without visiting the site (on macOS and iOS alike); installing the app (Add to Home Screen / Add to Dock) makes storage durable, and a file from Export → Export All… is the portable backup. Re-import it with Import…. Use Sort & Filter to sort the list as added, by date, name or type (choose the same key again to reverse it), or to show one type only; the choice is remembered. Delete removes all measurements, the duplicates (keeping the first copy of each), or the ones you select. Use Compare to enter multi-select mode and overlay two or more saved guitar measurements on the main chart for side-by-side comparison. The measurement name and notes can also be edited from the Edit button in the Measurement Details dialog.",
       },
       {
         title: 'Compare Measurements',
@@ -442,7 +442,7 @@ export const QUICK_START_SECTIONS: QSSection[] = [
       },
       {
         title: 'PDF Reports',
-        body: 'Each saved measurement can generate a PDF report containing the spectrum chart, peak table, and analysis summary. Open Measurements, select a measurement, then use the PDF export button. Saved comparison records generate a comparison PDF showing the overlay spectrum and an Air / Top / Back frequency table for each spectrum. A comparison PDF can also be exported directly from the main view while a live comparison is active, using Export PDF Report in the Analysis Results panel.',
+        body: 'Each saved measurement can generate a PDF report containing the spectrum chart, peak table, and analysis summary. Open Measurements, open a measurement’s menu, then choose Export PDF Report…. Saved comparison records generate a comparison PDF showing the overlay spectrum and an Air / Top / Back frequency table for each spectrum. A comparison PDF can also be exported directly from the main view while a live comparison is active, using the Analysis Results panel’s Export button.',
       },
       {
         title: 'Zooming the Spectrum',
