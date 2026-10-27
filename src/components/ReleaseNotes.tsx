@@ -54,7 +54,7 @@ export const RELEASES: RNRelease[] = [
     // an un-rolled top entry silently re-renders shipped notes under a new build number.
     build: __APP_BUILD__,
     since: '1.0.2',
-    // Notes reviewed through commit 889a0b0 (2026-10-26). The next update reads only `git log 889a0b0..HEAD`, then
+    // Notes reviewed through commit 30008c8 (2026-10-27). The next update reads only `git log 30008c8..HEAD`, then
     // moves this line to the newest commit it covered.
     groups: [
       {
