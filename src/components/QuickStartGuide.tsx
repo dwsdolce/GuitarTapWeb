@@ -422,19 +422,31 @@ export const QUICK_START_SECTIONS: QSSection[] = [
     rows: [
       {
         title: 'Tap Technique',
-        body: 'Use a short, crisp knuckle, fingertip tap, or a bouncy ball on a stick. A slow, pressing contact excites fewer overtones and produces a cleaner fundamental. Avoid tapping near the edges — aim for the centre of the plate or brace in Plate and Brace modes and near the bridge area for guitar-body mode surveys.',
+        body: 'Use a short, crisp knuckle, fingertip tap, or a bouncy ball on a stick. The shorter the contact, the cleaner the spectrum: a slow, pressing contact excites fewer overtones and muddies it. Avoid tapping near the edges — aim for the centre of the plate or brace in Plate and Brace modes. On a guitar body, tap the top near the bridge, just off the centreline (the centreline is the dipole’s node line, and a tap there hardly excites it), and the bridge wings.',
+      },
+      {
+        title: 'Preparing the Guitar',
+        body: 'Strings on or off, at tension or slack, change the frequencies little; added mass — bridge pins, anything attached — does, so prepare the guitar the same way each time you compare. Put foam string dampers between the strings and the fingerboard, never over the sound hole: covering it changes the air (Helmholtz) frequency.',
       },
       {
         title: 'Consistent Mic Position',
         body: 'Keep the microphone at the same distance and angle between measurements for the most comparable magnitude values. Frequency readings are position-independent, but relative magnitudes are not.',
       },
       {
+        title: 'Background Noise',
+        body: 'Set Threshold above the room’s noise and below your tap — keep the noise floor at least 10 dB under it. Press Pause and watch the live spectrum to see where the noise sits. Fans, refrigerator compressors and traffic are the usual culprits: silence them, or move away, for measurements you will compare. In Plate and Brace modes the analyzer tracks the noise floor itself, listening for a moment after New Tap before it detects. (Manual §10.3.)',
+      },
+      {
         title: 'Damping Check with Decay Time',
         body: 'The decay time (ring-out) appears in Results. A longer decay on the top plate typically correlates with lower internal damping — desirable in a soundboard. Compare braced vs. unbraced sections this way.',
       },
       {
-        title: 'Air Mode for Setup',
-        body: 'The Helmholtz air resonance is easily produced by holding the assembled body near the microphone and clapping your palm over the sound hole. It does not require tapping the wood itself.',
+        title: 'Reading the Top Without the Air Mode',
+        body: 'A tap excites the air and top modes together, and their coupling pulls the top’s frequency away from the wood’s own. To read the top alone, block the sound hole with a rag or foam, tap, and read the top — then unblock it: in a normal measurement nothing may cover the sound hole. (Manual §10.4.)',
+      },
+      {
+        title: 'How Many Taps',
+        body: 'Guitar body: 3 taps — the top near the bridge, just off the centreline, then each bridge wing; some luthiers take up to 10. Plate or brace: 3–5 taps — the same number for every phase, the diagonal (fLC) included. The fLC resonance is weaker, so keep that tap’s position consistent from tap to tap. (Manual §10.6.)',
       },
       {
         title: 'Comparing Guitar Measurements',
