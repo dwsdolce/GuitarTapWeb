@@ -56,9 +56,10 @@ export interface MeasurementsPanelProps {
 // ⋯ menu (mirrors the native row menu): Load into View · View Details · Edit Name & Notes ·
 // Export Measurement · Export Spectrum · Export PDF Report · Delete.
 
-/** "N peaks • Ratio: X.XX • Decay: X.XXs" — only the parts that apply. */
+/** "N peaks (1 peak) • Ratio: X.XX • Decay: X.XXs" — only the parts that apply. */
 function metaLine(m: TapToneMeasurementModel): string {
-  const parts = [`${m.peaks.length} peaks`]
+  const count = m.peaks.length
+  const parts = [`${count} ${count === 1 ? 'peak' : 'peaks'}`]
   const ratio = measurementTapToneRatio(m)
   if (ratio != null) parts.push(`Ratio: ${FieldPrecision.string(ratio, FieldPrecision.decayRatio)}`)
   if (m.decayTime != null) parts.push(`Decay: ${FieldPrecision.string(m.decayTime, FieldPrecision.decayTimeS)}s`)
